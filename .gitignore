@@ -1,0 +1,19 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+/generated/prisma
+dist/
+*.log
+
+# Throwaway investigation/debug scripts
+scripts/debug/
+scripts/e2e/
+
+# IDE / Agent caches
+.agents/
+.claude/
+.windsurf/
+.vscode/
+.idea/

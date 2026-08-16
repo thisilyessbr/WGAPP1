@@ -1,0 +1,152 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+model Tenant {
+  id               String              @id @default(uuid())
+  name             String
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  conversations    Conversation[]
+  customers        Customer[]
+  knowledgeChunks  KnowledgeChunk[]
+  knowledgeDocs    KnowledgeDocument[]
+  knowledgeSources KnowledgeSource[]
+  messages         Message[]
+  config           TenantConfig?
+  workflowSessions WorkflowSession[]
+}
+
+model TenantConfig {
+  id        String   @id @default(uuid())
+  tenantId  String   @unique
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  tenantId      String
+  externalId    String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, externalId])
+}
+
+model Conversation {
+  id                         String            @id @default(uuid())
+  tenantId                   String
+  customerId                 String
+  status                     String            @default("ACTIVE")
+  currentWorkflowId          String?
+  currentStateId             String?
+  contextData                Json              @default("{}")
+  messageCount               Int               @default(0)
+  automationCapped           Boolean           @default(false)
+  humanRequested             Boolean           @default(false)
+  humanRequestedAt           DateTime?
+  postCompletionQuestionCount Int              @default(0)
+  postCompletionCapped       Boolean           @default(false)
+  version                    Int               @default(0)
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  customer                   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant                     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages                   Message[]
+  sessions                   WorkflowSession[]
+
+  @@index([tenantId, customerId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  tenantId       String
+  conversationId String
+  role           String
+  content        String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+}
+
+model WorkflowSession {
+  id               String       @id @default(uuid())
+  tenantId         String
+  conversationId   String
+  workflowId       String
+  stateId          String
+  stateHistory     String[]     @default([])
+  collectedData    Json         @default("{}")
+  humanRequested   Boolean?     @default(false)
+  humanRequestedAt DateTime?
+  status           String       @default("ACTIVE")
+  contextData      Json         @default("{}")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+  @@index([tenantId, workflowId])
+}
+
+model KnowledgeSource {
+  id        String              @id @default(uuid())
+  tenantId  String
+  name      String
+  type      String
+  status    String              @default("PENDING")
+  hash      String?
+  metadata  Json?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  documents KnowledgeDocument[]
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model KnowledgeDocument {
+  id        String           @id @default(uuid())
+  tenantId  String
+  sourceId  String
+  title     String
+  content   String
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  chunks    KnowledgeChunk[]
+  source    KnowledgeSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sourceId])
+}
+
+model KnowledgeChunk {
+  id         String                 @id @default(uuid())
+  tenantId   String
+  documentId String
+  content    String
+  metadata   Json?
+  embedding  Unsupported("vector")?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  document   KnowledgeDocument      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, documentId])
+}

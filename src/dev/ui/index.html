@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chatbot Dev Control Center</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    header { background: #1a1a1a; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10; }
+    .main-container { display: flex; flex: 1; overflow: hidden; }
+    .panel { flex: 1; display: flex; flex-direction: column; background: white; margin: 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); overflow: hidden; }
+    .panel-header { padding: 15px; border-bottom: 1px solid #eee; background: #fafafa; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+    .panel-content { padding: 15px; overflow-y: auto; flex: 1; }
+    
+    .tabs { display: flex; border-bottom: 1px solid #ddd; background: #f9f9f9; }
+    .tab { padding: 10px 15px; cursor: pointer; border-bottom: 2px solid transparent; font-size: 0.9em; }
+    .tab.active { border-bottom-color: #007bff; color: #007bff; font-weight: bold; background: white; }
+    .tab-content { display: none; padding: 15px 0; }
+    .tab-content.active { display: block; }
+    
+    label { display: block; margin-top: 10px; font-size: 0.85em; font-weight: bold; color: #555; }
+    input, select, textarea { width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: inherit; }
+    textarea { height: 100px; resize: vertical; }
+    textarea.code { font-family: monospace; font-size: 0.9em; height: 400px; white-space: pre; overflow-wrap: normal; overflow-x: scroll; }
+    
+    button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+    button:hover { background: #0056b3; }
+    button.secondary { background: #6c757d; }
+    button.danger { background: #dc3545; }
+    
+    /* Chat specific */
+    #messages { flex: 1; overflow-y: auto; border: 1px solid #eee; padding: 10px; background: #fafafa; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; border-radius: 4px; }
+    .msg { padding: 10px; border-radius: 8px; max-width: 85%; font-size: 0.95em; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+    .msg.user { background: #007bff; color: white; align-self: flex-end; }
+    .msg.bot { background: #e9ecef; color: black; align-self: flex-start; }
+    .msg.error { background: #dc3545; color: white; align-self: center; text-align: center; }
+    
+    .choice-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; margin-bottom: 6px; align-self: flex-start; }
+    .choice-btn { background: #ffffff; color: #007bff; border: 1.5px solid #007bff; border-radius: 16px; padding: 6px 14px; font-size: 0.88em; font-weight: 600; cursor: pointer; transition: all 0.15s ease-in-out; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .choice-btn:hover { background: #007bff; color: #ffffff; transform: translateY(-1px); box-shadow: 0 2px 5px rgba(0,123,255,0.25); }
+    .choice-btn:active { transform: translateY(0); }
+    .choice-btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #ccc; color: #888; background: #f8f9fa; transform: none; box-shadow: none; }
+    
+    #workflow-badge { display: none; background: #e8f4fd; border: 1px solid #b8daff; color: #0056b3; padding: 6px 12px; border-radius: 4px; font-size: 0.85em; font-weight: bold; margin-bottom: 8px; align-items: center; justify-content: space-between; }
+    #workflow-badge .badge-tag { background: #007bff; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; text-transform: uppercase; }
+    
+    .flow-preview-container { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px; min-height: 120px; overflow-x: auto; display: flex; justify-content: center; align-items: center; }
+    .flow-preview-container svg { max-width: 100%; height: auto; }
+    
+    .wf-script-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr); gap: 16px; align-items: start; margin-top: 12px; }
+    .wf-preview-column { position: sticky; top: 10px; }
+    
+    @media (max-width: 900px) {
+      .wf-script-layout { grid-template-columns: 1fr !important; }
+      .wf-preview-column { position: static !important; margin-top: 14px; }
+    }
+    
+    .diagnostics-block { background: #2b2b2b; color: #a9dc76; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 0.85em; white-space: pre-wrap; overflow-x: auto; margin-top: 5px; }
+    .file-item { display: flex; justify-content: space-between; padding: 8px; border: 1px solid #eee; margin-top: 5px; border-radius: 4px; font-size: 0.9em; }
+    .status-COMPLETED { color: green; }
+    .status-FAILED { color: red; }
+    .status-PENDING { color: orange; }
+    
+    /* FAQ Specific Styles */
+    .faq-card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-bottom: 12px; background: #fafafa; }
+    .faq-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .faq-lang-tabs { display: flex; gap: 4px; border-bottom: 1px solid #ccc; margin-bottom: 8px; }
+    .faq-lang-tab { padding: 4px 8px; cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; font-size: 0.8em; }
+    .faq-lang-tab.active { background: white; border-color: #ccc; font-weight: bold; }
+    .faq-lang-content { display: none; }
+    .faq-lang-content.active { display: block; }
+    
+    #overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; display: none; }
+    #overlay h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+
+  <!-- Bootstrap Overlay -->
+  <div id="overlay">
+    <h2>Development Environment Not Initialized</h2>
+    <p>A dev tenant and default configuration must be created.</p>
+    <button onclick="bootstrapEnvironment()">Initialize Dev Environment</button>
+  </div>
+
+  <header>
+    <div><strong>Chatbot Dev Control Center</strong> (Generic Engine)</div>
+    <div>
+      Tenant: <input type="text" id="tenantId" value="dev-tenant" style="width:120px; display:inline-block; margin:0 10px;" readonly>
+      <button onclick="loadConfig()" class="secondary">Reload Config</button>
+      <button onclick="saveConfig()">Save Config</button>
+    </div>
+  </header>
+
+  <div class="main-container">
+    <!-- Configuration Panel -->
+    <div class="panel" style="flex: 1.5;">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab(this, 'tab-json')">Raw JSON (Authoritative)</div>
+        <div class="tab" onclick="switchTab(this, 'tab-visual')">Visual Editor</div>
+        <div class="tab" onclick="switchTab(this, 'tab-rag')">Knowledge Base (PDF)</div>
+      </div>
+      
+      <div class="panel-content">
+        <!-- JSON Editor -->
+        <div id="tab-json" class="tab-content active">
+          <p style="font-size: 0.85em; color: #666; margin-top: 0;">This raw JSON is the single source of truth for BusinessConfig. Valid JSON is required to save.</p>
+          <textarea id="rawJsonEditor" class="code"></textarea>
+        </div>
+
+        <!-- Visual Editor (Syncs to JSON) -->
+        <div id="tab-visual" class="tab-content">
+          <p style="font-size: 0.85em; color: #666; margin-top: 0;">Editing here automatically updates the Raw JSON.</p>
+          
+          <div style="display: flex; gap: 20px;">
+            <div style="flex: 1;">
+              <h3>Identity</h3>
+              <label>Bot Name</label><input type="text" id="v_botName" oninput="syncVisualToJson()">
+              <label>Language</label><input type="text" id="v_language" oninput="syncVisualToJson()">
+              
+              <h3>Behavior</h3>
+              <label>Tone</label><input type="text" id="v_tone" oninput="syncVisualToJson()">
+              <label>Verbosity</label>
+              <select id="v_verbosity" onchange="syncVisualToJson()">
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <h3>LLM Configuration</h3>
+              <label>Provider</label>
+              <select id="v_llmProvider" onchange="onLlmProviderChange()">
+                <option value="deepseek">DeepSeek</option>
+                <option value="gemini">Gemini</option>
+              </select>
+              <label>Model</label>
+              <input type="text" id="v_llmModel" oninput="syncVisualToJson()">
+
+              <h3>RAG / Knowledge</h3>
+              <label>Enabled</label>
+              <select id="v_ragEnabled" onchange="syncVisualToJson()">
+                <option value="true">True</option>
+                <option value="false">False</option>
+              </select>
+              <label>Top K</label><input type="number" id="v_topK" oninput="syncVisualToJson()">
+              <label>Min Similarity Score</label><input type="number" step="0.05" id="v_minSim" oninput="syncVisualToJson()">
+            </div>
+          </div>
+          
+          <h3>Core Prompts</h3>
+          <label>System Prompt</label>
+          <textarea id="v_sysPrompt" oninput="syncVisualToJson()"></textarea>
+          <label>Fallback Prompt</label>
+          <textarea id="v_fallbackPrompt" oninput="syncVisualToJson()"></textarea>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:25px; border-top: 1px solid #eee; padding-top: 15px;">
+            <h3 style="margin:0;">Multi-Language FAQ Entries</h3>
+            <button type="button" onclick="addFaqEntry()" class="secondary" style="padding: 4px 10px; font-size: 0.85em;">+ Add FAQ Entry</button>
+          </div>
+          <p style="font-size: 0.85em; color: #666; margin-top: 4px;">Instant pre-written answers across English, French, Arabic, and Moroccan Darija.</p>
+          <div id="faqList" style="margin-top: 10px;"></div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:25px; border-top: 1px solid #eee; padding-top: 15px;">
+            <h3 style="margin:0;">Guided Workflows</h3>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="templateSelector" style="font-size:0.85em; padding:4px 8px; border-radius:4px; border:1px solid #ccc; background:#fff; cursor:pointer;" onchange="addWorkflowFromTemplate(this.value); this.value='';">
+                <option value="">Start from template...</option>
+                <option value="triage">Two-option triage → confirm</option>
+                <option value="service_selector">Three-branch service selector → confirm</option>
+                <option value="feedback_intake">Feedback & issue intake → end</option>
+              </select>
+              <button type="button" onclick="addWorkflow()" class="secondary" style="padding: 4px 10px; font-size: 0.85em;">+ Add Workflow</button>
+            </div>
+          </div>
+          <p style="font-size: 0.85em; color: #666; margin-top: 4px;">Choice-based, confirmation, and guided intake flows executed by ConversationEngine.</p>
+          <div id="workflowList" style="margin-top: 10px;"></div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:25px; border-top: 1px solid #eee; padding-top: 15px;">
+            <h3 style="margin:0;">Intents & Trigger Routing</h3>
+            <button type="button" onclick="addIntent()" class="secondary" style="padding: 4px 10px; font-size: 0.85em;">+ Add Intent</button>
+          </div>
+          <p style="font-size: 0.85em; color: #666; margin-top: 4px;">Map classified intents to trigger specific workflows or let them fall through to RAG/conversational answers.</p>
+          <div id="intentList" style="margin-top: 10px;"></div>
+        </div>
+
+        <!-- Knowledge Base -->
+        <div id="tab-rag" class="tab-content">
+          <h3>Upload PDF</h3>
+          <form onsubmit="uploadPdf(event)" style="display:flex; gap:10px; margin-bottom: 20px;">
+            <input type="file" id="pdfFile" accept="application/pdf" required>
+            <button type="submit">Upload & Ingest</button>
+          </form>
+          
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Uploaded Documents</h3>
+            <button onclick="loadDocuments()" class="secondary" style="padding: 4px 8px; font-size: 0.8em;">Refresh</button>
+          </div>
+          <div id="documentList">
+            <div style="color: #888; font-size: 0.9em;">No documents loaded.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat & Diagnostics Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        Test Chat & Diagnostics
+        <button onclick="resetChat()" class="danger" style="padding: 4px 8px; font-size: 0.8em;">Reset</button>
+      </div>
+      <div class="panel-content" style="display: flex; flex-direction: column; padding-bottom: 0;">
+        
+        <div style="display: flex; flex: 1; gap: 15px; overflow: hidden; margin-bottom: 15px;">
+          <!-- Chat -->
+          <div style="flex: 1; display: flex; flex-direction: column; min-width: 250px;">
+            <div id="workflow-badge">
+              <span>⚡ <strong id="badge-wf-name">Active Workflow</strong> &mdash; <span id="badge-wf-state" style="font-weight:normal;"></span></span>
+              <span class="badge-tag">Guided Flow</span>
+            </div>
+            <div id="messages"></div>
+            <form onsubmit="sendMessage(event)" style="display: flex; gap: 10px;">
+              <input type="text" id="chatInput" placeholder="Type a message or click an option..." autocomplete="off">
+              <button type="submit">Send</button>
+            </form>
+          </div>
+          
+          <!-- Diagnostics -->
+          <div style="flex: 1; display: flex; flex-direction: column; min-width: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; background: #fafafa; padding: 10px;">
+            <h4 style="margin-top:0; color:#444;">Live Diagnostics</h4>
+            <div id="diagnostics-content" style="font-size: 0.9em; color: #666;">Waiting for interaction...</div>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentConfig = null;
+    let loadedConfigUpdatedAt = null;
+    let faqEntries = [];
+    const tenantId = 'dev-tenant';
+    const customerId = 'dev-customer-' + Math.floor(Math.random() * 1000);
+
+    // --- Bootstrapping & Loading ---
+    async function checkBootstrap() {
+      try {
+        const res = await fetch(`/api/dev/config?tenantId=${tenantId}`);
+        if (!res.ok) {
+          document.getElementById('overlay').style.display = 'flex';
+        } else {
+          loadConfig();
+          loadDocuments();
+        }
+      } catch (e) {
+        alert('API unreachable.');
+      }
+    }
+
+    async function bootstrapEnvironment() {
+      const res = await fetch('/api/dev/bootstrap', { method: 'POST' });
+      if (res.ok) {
+        document.getElementById('overlay').style.display = 'none';
+        loadConfig();
+      }
+    }
+
+    async function loadConfig() {
+      const res = await fetch(`/api/dev/config?tenantId=${tenantId}`);
+      if (res.ok) {
+        currentConfig = await res.json();
+        loadedConfigUpdatedAt = res.headers.get('X-Config-Updated-At') || new Date().toISOString();
+        document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
+        syncJsonToVisual();
+      }
+    }
+
+    async function saveConfig() {
+      try {
+        const isVisualActive = document.getElementById('tab-visual').classList.contains('active');
+        
+        // 1. Fetch fresh server config and check staleness guard
+        const freshRes = await fetch(`/api/dev/config?tenantId=${tenantId}`);
+        if (!freshRes.ok) {
+          alert('Failed to connect to server to verify config staleness.');
+          return;
+        }
+        const freshConfig = await freshRes.json();
+        const serverUpdatedAt = freshRes.headers.get('X-Config-Updated-At');
+
+        if (loadedConfigUpdatedAt && serverUpdatedAt && new Date(serverUpdatedAt).getTime() > new Date(loadedConfigUpdatedAt).getTime()) {
+          alert('Config has changed since you loaded it — click Reload Config before saving.');
+          return;
+        }
+
+        let payloadConfig;
+
+        if (isVisualActive) {
+          // Merge Visual Editor changes into the FRESH server config object
+          payloadConfig = JSON.parse(JSON.stringify(freshConfig));
+          payloadConfig.identity = payloadConfig.identity || {};
+          payloadConfig.identity.botName = document.getElementById('v_botName').value;
+          payloadConfig.identity.language = document.getElementById('v_language').value;
+
+          payloadConfig.behavior = payloadConfig.behavior || {};
+          payloadConfig.behavior.tone = document.getElementById('v_tone').value;
+          payloadConfig.behavior.verbosity = document.getElementById('v_verbosity').value;
+
+          payloadConfig.llm = payloadConfig.llm || {};
+          payloadConfig.llm.provider = document.getElementById('v_llmProvider').value;
+          payloadConfig.llm.model = document.getElementById('v_llmModel').value;
+
+          payloadConfig.knowledge = payloadConfig.knowledge || {};
+          payloadConfig.knowledge.enabled = document.getElementById('v_ragEnabled').value === "true";
+          payloadConfig.knowledge.topK = parseInt(document.getElementById('v_topK').value, 10);
+          payloadConfig.knowledge.minSimilarityScore = parseFloat(document.getElementById('v_minSim').value);
+
+          payloadConfig.prompts = payloadConfig.prompts || {};
+          payloadConfig.prompts.system = document.getElementById('v_sysPrompt').value;
+          payloadConfig.prompts.fallback = document.getElementById('v_fallbackPrompt').value;
+
+          payloadConfig.capabilities = payloadConfig.capabilities || {};
+          payloadConfig.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
+          payloadConfig.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
+          payloadConfig.workflows = JSON.parse(JSON.stringify(workflowEntries));
+        } else {
+          // User is on the Raw JSON tab: serialize textarea content
+          const jsonStr = document.getElementById('rawJsonEditor').value;
+          payloadConfig = JSON.parse(jsonStr);
+        }
+
+        // Validate all workflows and collect states
+        const CAMEL_CASE_REGEX = /^[a-z][a-zA-Z0-9]*$/;
+        const wfsToValidate = payloadConfig.workflows || {};
+        for (const wfKey of Object.keys(wfsToValidate)) {
+          const wf = wfsToValidate[wfKey];
+          const stKeys = Object.keys(wf.states || {});
+          for (const stKey of stKeys) {
+            const st = wf.states[stKey];
+            if (st.type === 'collect') {
+              const fieldName = String(typeof st.field === 'string' ? st.field : (st.field?.name || '')).trim();
+              const stepName = st.name || stKey;
+              if (!fieldName) {
+                alert(`Error: Step "${stepName}" in workflow "${wf.name || wfKey}" is a Collect step, but the field name is empty.`);
+                return;
+              }
+              if (!CAMEL_CASE_REGEX.test(fieldName)) {
+                alert(`Error: Step "${stepName}" in workflow "${wf.name || wfKey}" has an invalid field name "${fieldName}". Field names must be in camelCase (e.g. "email", "serialNumber", "fullName").`);
+                return;
+              }
+            }
+          }
+        }
+        
+        const res = await fetch('/api/dev/config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Config-Updated-At': loadedConfigUpdatedAt || ''
+          },
+          body: JSON.stringify({
+            tenantId,
+            config: payloadConfig,
+            updatedAt: loadedConfigUpdatedAt
+          })
+        });
+        
+        if (res.ok) {
+          const saveResult = await res.json();
+          loadedConfigUpdatedAt = saveResult.updatedAt || res.headers.get('X-Config-Updated-At') || new Date().toISOString();
+          currentConfig = payloadConfig;
+          document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
+          syncJsonToVisual();
+          alert('Config saved successfully.');
+        } else {
+          const data = await res.json();
+          if (res.status === 409 || data.error === 'STALE_CONFIG') {
+            alert('Config has changed since you loaded it — click Reload Config before saving.');
+          } else {
+            alert('Failed to save config: ' + (data.message || data.error || 'Unknown error'));
+          }
+        }
+      } catch (e) {
+        alert('Invalid JSON! Please fix syntax errors before saving: ' + e.message);
+      }
+    }
+
+    // --- FAQ Logic ---
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function renderFaqList() {
+      const container = document.getElementById('faqList');
+      if (!container) return;
+      if (!faqEntries || faqEntries.length === 0) {
+        container.innerHTML = '<div style="color:#888; font-size:0.85em; padding:10px; background:#fafafa; border:1px dashed #ccc; border-radius:4px;">No FAQ entries. Click "+ Add FAQ Entry" to create one.</div>';
+        return;
+      }
+
+      container.innerHTML = faqEntries.map((entry, idx) => `
+        <div class="faq-card" id="faq-card-${idx}">
+          <div class="faq-header">
+            <strong>FAQ #${idx + 1} (${escapeHtml(entry.id || 'faq_' + (idx + 1))})</strong>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="secondary" style="padding:3px 8px; font-size:0.75em;" onclick="translateFaqEntry(${idx}, event)">🌐 Auto-Translate</button>
+              <button type="button" class="danger" style="padding:3px 8px; font-size:0.75em;" onclick="deleteFaqEntry(${idx})">Delete</button>
+            </div>
+          </div>
+          <div class="faq-lang-tabs">
+            <div class="faq-lang-tab active" onclick="switchFaqLang(${idx}, 'en')">EN (English)</div>
+            <div class="faq-lang-tab" onclick="switchFaqLang(${idx}, 'fr')">FR (Français)</div>
+            <div class="faq-lang-tab" onclick="switchFaqLang(${idx}, 'ar')">AR (العربية)</div>
+            <div class="faq-lang-tab" onclick="switchFaqLang(${idx}, 'darija')">Darija (Moroccan)</div>
+          </div>
+          ${['en', 'fr', 'ar', 'darija'].map(lang => `
+            <div class="faq-lang-content ${lang === 'en' ? 'active' : ''}" id="faq-${idx}-${lang}">
+              <label style="margin-top:4px;">Question (${lang.toUpperCase()})</label>
+              <input type="text" value="${escapeHtml(entry.questions?.[lang] || '')}" oninput="updateFaqField(${idx}, 'questions', '${lang}', this.value)">
+              <label style="margin-top:4px;">Answer (${lang.toUpperCase()})</label>
+              <textarea style="height:60px;" oninput="updateFaqField(${idx}, 'answers', '${lang}', this.value)">${escapeHtml(entry.answers?.[lang] || '')}</textarea>
+              <label style="margin-top:4px;">Keywords (${lang.toUpperCase()}, comma-separated)</label>
+              <input type="text" value="${escapeHtml((entry.keywords?.[lang] || []).join(', '))}" oninput="updateFaqKeywords(${idx}, '${lang}', this.value)">
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    }
+
+    function addFaqEntry() {
+      const newId = 'faq_' + Date.now();
+      faqEntries.push({
+        id: newId,
+        questions: { en: '', fr: '', ar: '', darija: '' },
+        answers: { en: '', fr: '', ar: '', darija: '' },
+        keywords: { en: [], fr: [], ar: [], darija: [] }
+      });
+      renderFaqList();
+      syncVisualToJson();
+    }
+
+    function deleteFaqEntry(idx) {
+      faqEntries.splice(idx, 1);
+      renderFaqList();
+      syncVisualToJson();
+    }
+
+    function switchFaqLang(entryIdx, targetLang) {
+      const card = document.getElementById(`faq-card-${entryIdx}`);
+      if (!card) return;
+      const langs = ['en', 'fr', 'ar', 'darija'];
+      card.querySelectorAll('.faq-lang-tab').forEach((tab, i) => {
+        tab.classList.toggle('active', langs[i] === targetLang);
+      });
+      card.querySelectorAll('.faq-lang-content').forEach(c => {
+        c.classList.remove('active');
+      });
+      const targetContent = document.getElementById(`faq-${entryIdx}-${targetLang}`);
+      if (targetContent) targetContent.classList.add('active');
+    }
+
+    function updateFaqField(idx, fieldGroup, lang, val) {
+      if (!faqEntries[idx]) return;
+      faqEntries[idx][fieldGroup] = faqEntries[idx][fieldGroup] || {};
+      faqEntries[idx][fieldGroup][lang] = val;
+      syncVisualToJson();
+    }
+
+    function updateFaqKeywords(idx, lang, val) {
+      if (!faqEntries[idx]) return;
+      faqEntries[idx].keywords = faqEntries[idx].keywords || {};
+      faqEntries[idx].keywords[lang] = val.split(',').map(s => s.trim()).filter(Boolean);
+      syncVisualToJson();
+    }
+
+    async function translateFaqEntry(idx, evt) {
+      const entry = faqEntries[idx];
+      if (!entry) return;
+
+      let sourceLang = 'en';
+      if (entry.questions?.en && entry.answers?.en) sourceLang = 'en';
+      else if (entry.questions?.fr && entry.answers?.fr) sourceLang = 'fr';
+      else if (entry.questions?.ar && entry.answers?.ar) sourceLang = 'ar';
+      else if (entry.questions?.darija && entry.answers?.darija) sourceLang = 'darija';
+
+      const q = entry.questions?.[sourceLang];
+      const a = entry.answers?.[sourceLang];
+      if (!q || !a) {
+        alert('Please enter at least a Question and Answer in one language before translating.');
+        return;
+      }
+
+      const btn = evt.target;
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Translating...';
+
+      try {
+        const res = await fetch('/api/dev/faq/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            sourceLang,
+            question: q,
+            answer: a,
+            keywords: entry.keywords?.[sourceLang] || []
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.translation) {
+          const t = data.translation;
+          entry.questions = { ...entry.questions, ...t.questions };
+          entry.answers = { ...entry.answers, ...t.answers };
+          entry.keywords = { ...entry.keywords, ...t.keywords };
+          renderFaqList();
+          syncVisualToJson();
+          alert('Draft translations generated! Please review/edit before saving config.');
+        } else {
+          alert('Translation failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Network error during translation: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    // --- Intents Management ---
+    let intentEntries = [];
+
+    function renderIntentList() {
+      const list = document.getElementById('intentList');
+      if (!list) return;
+      if (!intentEntries || intentEntries.length === 0) {
+        list.innerHTML = '<div style="color: #888; font-size: 0.9em; padding: 6px;">No intents defined. Click "+ Add Intent" above.</div>';
+        return;
+      }
+
+      const wfKeys = Object.keys(workflowEntries || {});
+
+      list.innerHTML = intentEntries.map((intent, idx) => `
+        <div class="intent-row" style="display:flex; gap:10px; align-items:center; margin-bottom:8px; padding:10px; border:1px solid #ddd; border-radius:4px; background:#fff;">
+          <div style="flex:1;">
+            <label style="margin-top:0; font-size:0.75em; color:#888;">Intent ID</label>
+            <input type="text" value="${intent.id || ''}" placeholder="e.g. SUPPORT_REQUEST" oninput="updateIntentField(${idx}, 'id', this.value)" style="margin-top:2px;">
+          </div>
+          <div style="flex:2;">
+            <label style="margin-top:0; font-size:0.75em; color:#888;">Description (for LLM intent classifier)</label>
+            <input type="text" value="${intent.description || ''}" placeholder="Description of user intent..." oninput="updateIntentField(${idx}, 'description', this.value)" style="margin-top:2px;">
+          </div>
+          <div style="flex:1.5;">
+            <label style="margin-top:0; font-size:0.75em; color:#888;">Linked Workflow</label>
+            <select onchange="updateIntentField(${idx}, 'workflowId', this.value)" style="margin-top:2px;">
+              <option value="" ${!intent.workflowId ? 'selected' : ''}>(None - Fallthrough)</option>
+              ${wfKeys.map(w => `<option value="${w}" ${intent.workflowId === w ? 'selected' : ''}>${w}</option>`).join('')}
+            </select>
+          </div>
+          <button type="button" class="danger" style="padding:4px 8px; font-size:0.8em; margin-top:14px;" onclick="deleteIntent(${idx})">Delete</button>
+        </div>
+      `).join('');
+    }
+
+    function addIntent() {
+      intentEntries.push({
+        id: 'NEW_INTENT_' + (intentEntries.length + 1),
+        description: '',
+        workflowId: ''
+      });
+      renderIntentList();
+      syncVisualToJson();
+    }
+
+    function deleteIntent(idx) {
+      intentEntries.splice(idx, 1);
+      renderIntentList();
+      syncVisualToJson();
+    }
+
+    function updateIntentField(idx, field, val) {
+      if (!intentEntries[idx]) return;
+      if (field === 'workflowId' && !val) {
+        delete intentEntries[idx].workflowId;
+      } else {
+        intentEntries[idx][field] = val;
+      }
+      syncVisualToJson();
+    }
+
+    // --- Workflows Management ---
+    let workflowEntries = {};
+    window.workflowEntries = workflowEntries;
+
+    function getBlockLabel(wf, stKey) {
+      if (!wf || !wf.states || !wf.states[stKey]) return stKey;
+      const st = wf.states[stKey];
+      return st.name || st.label || (stKey ? stKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Step');
+    }
+
+    function renderWorkflowList() {
+      window.workflowEntries = workflowEntries;
+      const list = document.getElementById('workflowList');
+      if (!list) return;
+      const wfKeys = Object.keys(workflowEntries || {});
+      if (wfKeys.length === 0) {
+        list.innerHTML = '<div style="color: #888; font-size: 0.9em; padding: 6px;">No workflows defined. Click "+ Add Workflow" or "Start from template" above.</div>';
+        return;
+      }
+
+      const html = wfKeys.map(wfKey => {
+        const wf = workflowEntries[wfKey];
+        const stateKeys = Object.keys(wf.states || {});
+        const allBlocks = stateKeys.map(k => ({ id: k, label: getBlockLabel(wf, k) }));
+
+        return `
+          <div class="wf-card" style="border:1px solid #ddd; border-radius:8px; padding:16px; margin-bottom:20px; background:#fafafa;">
+            <!-- Workflow Header -->
+            <div class="wf-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #eee;">
+              <div style="display:flex; gap:10px; align-items:center;">
+                <strong style="color:#007bff; font-size:1.1em;">Conversation Script: ${esc(wf.name || wfKey)}</strong>
+              </div>
+              <button type="button" class="danger" style="padding:4px 10px; font-size:0.8em;" onclick="deleteWorkflow('${wfKey}')">Delete Workflow</button>
+            </div>
+
+            <!-- Workflow Metadata -->
+            <div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+              <div style="flex:1.5; min-width:180px;">
+                <label style="margin-top:0;">Script Name</label>
+                <input type="text" value="${esc(wf.name || '')}" placeholder="e.g. Support & Sales Triage" oninput="updateWorkflowMeta('${wfKey}', 'name', this.value)">
+              </div>
+              <div style="flex:2; min-width:220px;">
+                <label style="margin-top:0;">Description</label>
+                <input type="text" value="${esc(wf.description || '')}" placeholder="What this conversation script does" oninput="updateWorkflowMeta('${wfKey}', 'description', this.value)">
+              </div>
+              <div style="flex:1.5; min-width:180px;">
+                <label style="margin-top:0;">First Step</label>
+                <div style="font-size:0.75em; color:#888; margin-top:1px; margin-bottom:3px;">The first thing the bot asks in this script</div>
+                <select onchange="updateWorkflowMeta('${wfKey}', 'initialState', this.value)">
+                  ${allBlocks.map(b => `<option value="${b.id}" ${wf.initialState === b.id ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+
+            <!-- Two-Column Layout (Script Blocks on Left, Sticky Live Flow Preview on Right) -->
+            <div class="wf-script-layout">
+              <!-- Left Column: Script Step Blocks -->
+              <div class="wf-script-column">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                  <h4 style="margin:0; font-size:1em; color:#333;">Conversation Steps (${stateKeys.length})</h4>
+                  <button type="button" class="secondary" style="padding:4px 10px; font-size:0.85em;" onclick="addScriptBlock('${wfKey}')">+ Add Step</button>
+                </div>
+
+                ${stateKeys.map((stKey, sIdx) => {
+                  const state = wf.states[stKey];
+                  const blockLabel = getBlockLabel(wf, stKey);
+                  const isStart = wf.initialState === stKey;
+                  const isBranching = state.type === 'choice' && Array.isArray(state.options) && state.options.length > 0;
+                  const isCollect = state.type === 'collect';
+                  const linearTarget = state.next || state.transitions?.[0]?.target || (state.type === 'choice' && state.options?.[0]?.next) || '';
+                  
+                  const collectField = typeof state.field === 'string' ? state.field : (state.field?.name || '');
+                  const duplicateCount = stateKeys.filter(k => {
+                    const s = wf.states[k];
+                    const f = typeof s.field === 'string' ? s.field : s.field?.name;
+                    return s.type === 'collect' && f && f === collectField;
+                  }).length;
+                  const isDuplicateField = isCollect && collectField && duplicateCount > 1;
+                  const isValidCamelCase = !collectField || /^[a-z][a-zA-Z0-9]*$/.test(collectField);
+
+                  return `
+                    <div class="wf-step-block" style="border:1px solid #e0e0e0; border-radius:6px; padding:12px; margin-bottom:12px; background:#ffffff; box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+                      <!-- Block Top Row -->
+                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid #f2f2f2; padding-bottom:6px;">
+                        <div style="display:flex; align-items:center; gap:8px; flex:1;">
+                          <span style="font-weight:bold; color:#0056b3; font-size:0.9em;">Step ${sIdx + 1}:</span>
+                          <input type="text" class="step-label-input" value="${esc(blockLabel)}" placeholder="Step Label (e.g. Welcome, Plans)" style="font-weight:bold; font-size:0.95em; width:220px; padding:3px 6px; border:1px solid #ccc; border-radius:4px;" onchange="updateBlockLabel('${wfKey}', '${stKey}', this.value)">
+                          ${isCollect ? `<span style="background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; font-size:0.75em; padding:2px 6px; border-radius:3px; font-weight:bold;">📥 Collect: ${esc(collectField || 'unnamed')}</span>` : ''}
+                          ${isStart ? `
+                            <span style="background:#e8f4fd; color:#0056b3; border:1px solid #b8daff; font-size:0.75em; padding:2px 6px; border-radius:3px; font-weight:bold;">★ Starts Flow</span>
+                          ` : `
+                            <button type="button" class="secondary" style="font-size:0.75em; padding:2px 6px;" onclick="setInitialStep('${wfKey}', '${stKey}')">Set as Start</button>
+                          `}
+                        </div>
+                        <button type="button" class="danger" style="padding:2px 6px; font-size:0.75em;" onclick="deleteWorkflowState('${wfKey}', '${stKey}')">Delete Step</button>
+                      </div>
+
+                      <!-- Bot Prompt -->
+                      <label style="margin-top:2px; font-weight:bold; font-size:0.85em; color:#444;">What the Bot Says:</label>
+                      <div style="font-size:0.75em; color:#888; margin-top:1px; margin-bottom:4px;">This is the question or message sent to the customer</div>
+                      <textarea data-field="prompt" style="height:55px; width:100%; box-sizing:border-box; font-size:0.9em; padding:6px; border:1px solid #ccc; border-radius:4px;" oninput="updateBlockPrompt('${wfKey}', '${stKey}', this.value)">${esc(state.prompt || '')}</textarea>
+
+                      <!-- Step Controls: Branching vs Collect vs Linear -->
+                      ${isBranching ? `
+                        <div class="choices-container" style="margin-top:10px; padding:10px; background:#f9fbfd; border:1px solid #e2edf8; border-radius:4px;">
+                          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                            <strong style="font-size:0.85em; color:#0056b3;">Customer Choices (${state.options.length})</strong>
+                            <div style="display:flex; gap:6px;">
+                              <button type="button" class="secondary" style="font-size:0.75em; padding:2px 6px;" onclick="addScriptChoice('${wfKey}', '${stKey}')">+ Add Option</button>
+                              <button type="button" class="secondary" style="font-size:0.75em; padding:2px 6px;" onclick="convertBlockToCollect('${wfKey}', '${stKey}')">Switch to Collect</button>
+                            </div>
+                          </div>
+                          ${state.options.map((opt, oIdx) => `
+                            <div class="script-option-row" style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                              <span style="font-size:0.8em; color:#666;">${oIdx + 1}.</span>
+                              <input type="text" value="${esc(opt.label || '')}" placeholder="Customer clicks / says (e.g. Sales)" style="flex:2; padding:4px; font-size:0.85em;" oninput="updateScriptOption('${wfKey}', '${stKey}', ${oIdx}, 'label', this.value)">
+                              <span style="font-size:0.8em; color:#666; white-space:nowrap;">goes to:</span>
+                              <select class="option-target-select" style="flex:1.8; padding:4px; font-size:0.85em;" onchange="handleOptionTargetSelect('${wfKey}', '${stKey}', ${oIdx}, this.value)">
+                                <option value="">(Ends the conversation here)</option>
+                                ${allBlocks.map(b => `<option value="${b.id}" ${opt.next === b.id ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}
+                                <option value="__NEW__">+ Create new step...</option>
+                              </select>
+                              <button type="button" class="danger" style="padding:2px 6px; font-size:0.75em;" onclick="deleteScriptOption('${wfKey}', '${stKey}', ${oIdx})">×</button>
+                            </div>
+                          `).join('')}
+                        </div>
+                      ` : isCollect ? `
+                        <div class="collect-container" style="margin-top:10px; padding:10px; background:#f0f7ff; border:1px solid #cce5ff; border-radius:4px;">
+                          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                            <strong style="font-size:0.85em; color:#004085;">📥 Collect Customer Input (Free-Text)</strong>
+                            <div style="display:flex; gap:6px;">
+                              <button type="button" class="secondary" style="font-size:0.75em; padding:2px 6px;" onclick="convertBlockToBranching('${wfKey}', '${stKey}')">+ Add Options</button>
+                              <button type="button" class="secondary" style="font-size:0.75em; padding:2px 6px;" onclick="convertBlockToMessage('${wfKey}', '${stKey}')">Switch to Message</button>
+                            </div>
+                          </div>
+                          
+                          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <div style="flex:1.5; min-width:200px;">
+                              <label style="margin-top:0; font-size:0.8em; font-weight:bold; color:#004085;">Data Field Name (camelCase):</label>
+                              <input type="text" value="${esc(collectField)}" placeholder="e.g. email, serialNumber, fullName" style="font-family:monospace; padding:4px 8px; font-size:0.85em; width:100%; border:1px solid ${!isValidCamelCase || !collectField ? '#dc3545' : '#ccc'}; border-radius:4px;" oninput="updateCollectField('${wfKey}', '${stKey}', this.value)">
+                            </div>
+                            <div style="flex:2; min-width:220px;">
+                              <label style="margin-top:0; font-size:0.8em; font-weight:bold; color:#555;">Goes to next step:</label>
+                              <select class="linear-target-select" style="padding:4px; font-size:0.85em; width:100%; margin-top:2px;" onchange="handleLinearTargetSelect('${wfKey}', '${stKey}', this.value)">
+                                <option value="">(Ends the conversation here)</option>
+                                ${allBlocks.map(b => `<option value="${b.id}" ${linearTarget === b.id ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}
+                                <option value="__NEW__">+ Create new step...</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <!-- Live Field Validations & Warnings -->
+                          ${!collectField ? `
+                            <div class="field-error" style="color:#dc3545; font-size:0.75em; margin-top:4px; font-weight:500;">
+                              ⚠️ Field name is required.
+                            </div>
+                          ` : !isValidCamelCase ? `
+                            <div class="field-error" style="color:#dc3545; font-size:0.75em; margin-top:4px; font-weight:500;">
+                              ⚠️ Invalid format: Field name must be camelCase (e.g. "email", "serialNumber", "fullName").
+                            </div>
+                          ` : ''}
+
+                          ${isDuplicateField ? `
+                            <div class="field-warning" style="color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:3px; padding:2px 6px; font-size:0.75em; margin-top:4px;">
+                              ⚠️ Warning: Field name "${esc(collectField)}" is reused in another step in this workflow.
+                            </div>
+                          ` : ''}
+
+                          ${!linearTarget ? `
+                            <div class="end-badge" style="font-size:0.75em; color:#28a745; margin-top:6px; font-weight:500;">
+                              ✓ Ends the conversation here after collecting info
+                            </div>
+                          ` : ''}
+                        </div>
+                      ` : `
+                        <div class="linear-path-row" style="margin-top:8px; padding:8px 10px; background:#f9f9f9; border:1px solid #eee; border-radius:4px;">
+                          <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-size:0.85em; font-weight:bold; color:#555; white-space:nowrap;">Goes to next step:</span>
+                            <select class="linear-target-select" style="flex:1; padding:4px; font-size:0.85em;" onchange="handleLinearTargetSelect('${wfKey}', '${stKey}', this.value)">
+                              <option value="">(Ends the conversation here)</option>
+                              ${allBlocks.map(b => `<option value="${b.id}" ${linearTarget === b.id ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}
+                              <option value="__NEW__">+ Create new step...</option>
+                            </select>
+                            <button type="button" class="secondary" style="font-size:0.75em; padding:3px 8px; white-space:nowrap;" onclick="convertBlockToBranching('${wfKey}', '${stKey}')">+ Add Options</button>
+                            <button type="button" class="secondary" style="font-size:0.75em; padding:3px 8px; white-space:nowrap;" onclick="convertBlockToCollect('${wfKey}', '${stKey}')">+ Collect Info</button>
+                          </div>
+                          ${!linearTarget ? `
+                            <div class="end-badge" style="font-size:0.75em; color:#28a745; margin-top:4px; font-weight:500;">
+                              ✓ Ends the conversation here
+                            </div>
+                          ` : ''}
+                        </div>
+                      `}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+
+              <!-- Right Column: Sticky Live Flow Preview -->
+              <div class="wf-preview-column">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <h4 style="margin:0; font-size:0.95em; color:#333;">Live Flow Preview</h4>
+                  <span style="font-size:0.75em; color:#888;">Real-time diagram</span>
+                </div>
+                <div id="flow-preview-${wfKey}" class="flow-preview-container">
+                  <div style="color:#888; font-size:0.85em;">Loading preview...</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Developer Escape Hatch (Read-Only Raw JSON) -->
+            <details style="margin-top:16px; font-size:0.8em; color:#777; border-top:1px solid #eee; padding-top:8px;">
+              <summary style="cursor:pointer; user-select:none;">View Raw Workflow JSON (Read-Only)</summary>
+              <pre style="background:#f8f9fa; padding:8px; border-radius:4px; font-size:0.85em; overflow-x:auto; margin-top:6px;">${esc(JSON.stringify(wf, null, 2))}</pre>
+            </details>
+          </div>
+        `;
+      }).join('');
+
+      list.innerHTML = html;
+
+      setupWorkflowPreviewListeners();
+      setTimeout(renderAllFlowPreviews, 50);
+    }
+
+    function esc(s) {
+      return String(s || '')
+        .replace(/"/g, '\\"')
+        .replace(/\|/g, '\\|')
+        .replace(/[\r\n]+/g, ' ');
+    }
+
+    function buildFlowSource(wf) {
+      if (!wf || !wf.states || Object.keys(wf.states).length === 0) {
+        return 'flowchart TD\n  empty["(No states defined)"]';
+      }
+
+      const lines = ['flowchart TD'];
+      const stateKeys = Object.keys(wf.states);
+      const stateIdSet = new Set(stateKeys);
+      const incomingEdgeCounts = {};
+      stateKeys.forEach(k => { incomingEdgeCounts[k] = 0; });
+
+      const missingTargets = new Set();
+
+      // 1. Emit State Nodes
+      for (const stKey of stateKeys) {
+        const st = wf.states[stKey];
+        const typeLabel = st.type || 'state';
+        lines.push(`  ${stKey}["${esc(stKey)}: ${esc(typeLabel)}"]`);
+      }
+
+      // 2. Emit Edges
+      for (const stKey of stateKeys) {
+        const st = wf.states[stKey];
+        
+        // A. Choice State Options
+        if (st.type === 'choice' && Array.isArray(st.options)) {
+          st.options.forEach(opt => {
+            const target = opt.next ? String(opt.next).trim() : '';
+            const label = esc(opt.label || '');
+            if (!target) return;
+
+            if (stateIdSet.has(target)) {
+              lines.push(`  ${stKey} -->|"${label}"| ${target}`);
+              incomingEdgeCounts[target] = (incomingEdgeCounts[target] || 0) + 1;
+            } else {
+              const brokenId = `missing_${target.replace(/[^\w]/g, '_')}`;
+              if (!missingTargets.has(target)) {
+                lines.push(`  ${brokenId}["⚠ missing: ${esc(target)}"]`);
+                lines.push(`  class ${brokenId} broken`);
+                missingTargets.add(target);
+              }
+              lines.push(`  ${stKey} -->|"${label}"| ${brokenId}`);
+            }
+          });
+        }
+
+        // B. Collect State Target
+        if (st.type === 'collect') {
+          const collectTarget = (st.next || st.transitions?.[0]?.target || '').trim();
+          const fieldLabel = esc(typeof st.field === 'string' ? st.field : (st.field?.name || 'input'));
+          if (collectTarget) {
+            if (stateIdSet.has(collectTarget)) {
+              lines.push(`  ${stKey} -->|"${fieldLabel}"| ${collectTarget}`);
+              incomingEdgeCounts[collectTarget] = (incomingEdgeCounts[collectTarget] || 0) + 1;
+            } else {
+              const brokenId = `missing_${collectTarget.replace(/[^\w]/g, '_')}`;
+              if (!missingTargets.has(collectTarget)) {
+                lines.push(`  ${brokenId}["⚠ missing: ${esc(collectTarget)}"]`);
+                lines.push(`  class ${brokenId} broken`);
+                missingTargets.add(collectTarget);
+              }
+              lines.push(`  ${stKey} -->|"${fieldLabel}"| ${brokenId}`);
+            }
+          }
+        }
+
+        // C. Confirm State Transition Target
+        if (st.type === 'confirm') {
+          const confirmTarget = (st.transitions?.[0]?.target || '').trim();
+          if (confirmTarget) {
+            if (stateIdSet.has(confirmTarget)) {
+              lines.push(`  ${stKey} -->|"confirm"| ${confirmTarget}`);
+              incomingEdgeCounts[confirmTarget] = (incomingEdgeCounts[confirmTarget] || 0) + 1;
+            } else {
+              const brokenId = `missing_${confirmTarget.replace(/[^\w]/g, '_')}`;
+              if (!missingTargets.has(confirmTarget)) {
+                lines.push(`  ${brokenId}["⚠ missing: ${esc(confirmTarget)}"]`);
+                lines.push(`  class ${brokenId} broken`);
+                missingTargets.add(confirmTarget);
+              }
+              lines.push(`  ${stKey} -->|"confirm"| ${brokenId}`);
+            }
+          }
+        }
+      }
+
+      // 3. Mark Initial State
+      const initial = wf.initialState ? String(wf.initialState).trim() : '';
+      if (initial && stateIdSet.has(initial)) {
+        lines.push(`  class ${initial} start`);
+      }
+
+      // 4. Mark Orphans (zero incoming edges and not initialState)
+      for (const stKey of stateKeys) {
+        if (stKey !== initial && (incomingEdgeCounts[stKey] || 0) === 0) {
+          lines.push(`  class ${stKey} orphan`);
+        }
+      }
+
+      // 5. Styles
+      lines.push('  classDef start stroke:#378ADD,stroke-width:2px');
+      lines.push('  classDef orphan stroke:#E24B4A,stroke-dasharray:4 2');
+      lines.push('  classDef broken stroke:#E24B4A,stroke-width:2px,fill:#FCEBEB');
+
+      return lines.join('\n');
+    }
+
+    async function renderFlowPreview(wfKey) {
+      const container = document.getElementById(`flow-preview-${wfKey}`);
+      if (!container || !window.mermaid) return;
+      const wf = workflowEntries[wfKey];
+      if (!wf) return;
+
+      const source = buildFlowSource(wf);
+      const renderId = 'mermaid_' + wfKey.replace(/[^\w]/g, '_') + '_' + Math.floor(Math.random() * 100000);
+      try {
+        const { svg } = await mermaid.render(renderId, source);
+        container.innerHTML = svg;
+      } catch (err) {
+        console.warn(`Mermaid render failed for ${wfKey}:`, err);
+        container.innerHTML = `<div style="color:#dc3545; font-size:0.85em;">Diagram rendering warning: ${esc(err.message || String(err))}</div>`;
+      }
+    }
+
+    function renderAllFlowPreviews() {
+      Object.keys(workflowEntries || {}).forEach(k => {
+        renderFlowPreview(k);
+      });
+    }
+
+    let previewDebounceTimer = null;
+
+    function setupWorkflowPreviewListeners() {
+      const wfContainer = document.getElementById('workflowList');
+      if (!wfContainer || wfContainer._previewListenerAttached) return;
+      wfContainer._previewListenerAttached = true;
+
+      const handleGraphShapeChange = (e) => {
+        const target = e.target;
+        if (!target) return;
+
+        // EXCLUDE prompt textareas from triggering redraws
+        if (target.tagName.toLowerCase() === 'textarea' || target.getAttribute('data-field') === 'prompt') {
+          return;
+        }
+
+        clearTimeout(previewDebounceTimer);
+        previewDebounceTimer = setTimeout(() => {
+          renderAllFlowPreviews();
+        }, 200);
+      };
+
+      wfContainer.addEventListener('input', handleGraphShapeChange);
+      wfContainer.addEventListener('change', handleGraphShapeChange);
+    }
+
+    // Starter Workflow Templates
+    const WORKFLOW_TEMPLATES = {
+      triage: {
+        name: 'Two-option triage → confirm',
+        workflow: {
+          id: 'triage_workflow',
+          name: 'Support & Sales Triage',
+          description: 'Directs user between sales and support with confirmation',
+          initialState: 'what_do_you_need',
+          states: {
+            what_do_you_need: {
+              id: 'what_do_you_need',
+              name: 'What do you need?',
+              type: 'choice',
+              prompt: 'What do you need assistance with today?',
+              options: [
+                { label: 'Pricing Plans', next: 'plans' },
+                { label: 'Refund Request', next: 'refunds' },
+                { label: 'Technical Support', next: 'support' }
+              ]
+            },
+            plans: {
+              id: 'plans',
+              name: 'Plans',
+              type: 'end',
+              prompt: 'Here are our available subscription plans: Starter, Pro, and Enterprise.'
+            },
+            refunds: {
+              id: 'refunds',
+              name: 'Refunds',
+              type: 'end',
+              prompt: 'Please provide your order number to initiate a refund.'
+            },
+            support: {
+              id: 'support',
+              name: 'Support',
+              type: 'end',
+              prompt: 'A support technician will join shortly.'
+            }
+          }
+        }
+      },
+      service_selector: {
+        name: 'Three-branch service selector → confirm',
+        workflow: {
+          id: 'service_selector_workflow',
+          name: 'Service Package Selector',
+          description: 'Guides user to choose between Starter, Pro, or Enterprise tier',
+          initialState: 'choose_tier',
+          states: {
+            choose_tier: {
+              id: 'choose_tier',
+              name: 'Choose Tier',
+              type: 'choice',
+              prompt: 'Which tier best fits your organization?',
+              options: [
+                { label: 'Starter Tier', next: 'confirm' },
+                { label: 'Pro Tier', next: 'confirm' },
+                { label: 'Enterprise Tier', next: 'confirm' }
+              ]
+            },
+            confirm: {
+              id: 'confirm',
+              name: 'Confirmation',
+              type: 'confirm',
+              prompt: 'Please confirm your package selection:\n{{summary}}',
+              transitions: [{ target: 'complete' }]
+            },
+            complete: {
+              id: 'complete',
+              name: 'Complete',
+              type: 'end',
+              prompt: 'Thank you! Your plan selection has been recorded.'
+            }
+          }
+        }
+      },
+      feedback_intake: {
+        name: 'Feedback & issue intake → end',
+        workflow: {
+          id: 'feedback_intake_workflow',
+          name: 'User Feedback Intake',
+          description: 'Collects feedback category and concludes flow',
+          initialState: 'experience',
+          states: {
+            experience: {
+              id: 'experience',
+              name: 'Experience Rating',
+              type: 'choice',
+              prompt: 'How would you rate your experience today?',
+              options: [
+                { label: 'Great', next: 'positive' },
+                { label: 'Needs improvement', next: 'issue' }
+              ]
+            },
+            positive: {
+              id: 'positive',
+              name: 'Positive Feedback',
+              type: 'end',
+              prompt: 'Thank you so much for your kind words! Have a wonderful day.'
+            },
+            issue: {
+              id: 'issue',
+              name: 'Issue Feedback',
+              type: 'end',
+              prompt: 'We are sorry to hear that. Our team will review your feedback to improve.'
+            }
+          }
+        }
+      }
+    };
+
+    function deriveStateSlug(promptOrLabel, existingIds, currentId) {
+      let base = String(promptOrLabel || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      if (base.length > 30) {
+        base = base.substring(0, 30).replace(/_+$/, '');
+      }
+      if (!base) base = 'step';
+
+      let candidate = base;
+      let counter = 2;
+      while (existingIds.includes(candidate) && candidate !== currentId) {
+        candidate = `${base}_${counter++}`;
+      }
+      return candidate;
+    }
+
+    function syncWorkflowEntriesRef() {
+      if (window.workflowEntries) workflowEntries = window.workflowEntries;
+      else window.workflowEntries = workflowEntries;
+    }
+
+    function updateBlockLabel(wfKey, stKey, newLabel) {
+      const st = workflowEntries[wfKey]?.states?.[stKey];
+      if (!st) return;
+      st.name = newLabel.trim();
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function updateBlockPrompt(wfKey, stKey, val) {
+      const st = workflowEntries[wfKey]?.states?.[stKey];
+      if (!st) return;
+      st.prompt = val;
+      syncVisualToJson();
+    }
+
+    function setInitialStep(wfKey, stKey) {
+      const wf = workflowEntries[wfKey];
+      if (!wf) return;
+      wf.initialState = stKey;
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function handleLinearTargetSelect(wfKey, stKey, val) {
+      const wf = workflowEntries[wfKey];
+      const st = wf?.states?.[stKey];
+      if (!wf || !st) return;
+
+      if (val === '__NEW__') {
+        const label = prompt('Enter name for the new step:', 'Next Step');
+        if (label && label.trim()) {
+          const newId = deriveStateSlug(label, Object.keys(wf.states || {}));
+          wf.states[newId] = {
+            id: newId,
+            name: label.trim(),
+            type: 'end',
+            prompt: ''
+          };
+          if (st.type === 'collect') {
+            st.next = newId;
+            delete st.transitions;
+          } else {
+            st.type = 'confirm';
+            st.transitions = [{ target: newId }];
+          }
+          delete st.options;
+        }
+      } else if (!val) {
+        if (st.type === 'collect') {
+          delete st.next;
+          delete st.transitions;
+        } else {
+          st.type = 'end';
+          delete st.transitions;
+        }
+        delete st.options;
+      } else {
+        if (st.type === 'collect') {
+          st.next = val;
+          delete st.transitions;
+        } else {
+          st.type = 'confirm';
+          st.transitions = [{ target: val }];
+        }
+        delete st.options;
+      }
+
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function convertBlockToBranching(wfKey, stKey) {
+      const wf = workflowEntries[wfKey];
+      const st = wf?.states?.[stKey];
+      if (!wf || !st) return;
+
+      st.type = 'choice';
+      const existingTarget = st.next || st.transitions?.[0]?.target || '';
+      st.options = [
+        { label: 'Option 1', next: existingTarget },
+        { label: 'Option 2', next: '' }
+      ];
+      delete st.transitions;
+      delete st.field;
+      delete st.next;
+
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function convertBlockToCollect(wfKey, stKey) {
+      const wf = workflowEntries[wfKey];
+      const st = wf?.states?.[stKey];
+      if (!wf || !st) return;
+
+      st.type = 'collect';
+      let autoFieldName = deriveStateSlug(st.name || stKey, []).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      if (autoFieldName.length > 20) autoFieldName = autoFieldName.substring(0, 20);
+      st.field = autoFieldName || 'userInput';
+      const existingTarget = st.options?.[0]?.next || st.transitions?.[0]?.target || st.next || '';
+      if (existingTarget) {
+        st.next = existingTarget;
+      } else {
+        delete st.next;
+      }
+      delete st.options;
+      delete st.transitions;
+
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function convertBlockToMessage(wfKey, stKey) {
+      const wf = workflowEntries[wfKey];
+      const st = wf?.states?.[stKey];
+      if (!wf || !st) return;
+
+      st.type = 'end';
+      const existingTarget = st.next || st.transitions?.[0]?.target || '';
+      if (existingTarget) {
+        st.transitions = [{ target: existingTarget }];
+      } else {
+        delete st.transitions;
+      }
+      delete st.field;
+      delete st.options;
+      delete st.next;
+
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function updateCollectField(wfKey, stKey, val) {
+      const st = workflowEntries[wfKey]?.states?.[stKey];
+      if (!st) return;
+      st.field = val.trim();
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function addScriptChoice(wfKey, stKey) {
+      const st = workflowEntries[wfKey]?.states?.[stKey];
+      if (!st) return;
+      st.options = st.options || [];
+      st.options.push({ label: '', next: '' });
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function deleteScriptOption(wfKey, stKey, oIdx) {
+      const st = workflowEntries[wfKey]?.states?.[stKey];
+      if (!st || !st.options) return;
+      st.options.splice(oIdx, 1);
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function updateScriptOption(wfKey, stKey, oIdx, field, val) {
+      const st = workflowEntries[wfKey]?.states?.[stKey];
+      if (!st || !st.options || !st.options[oIdx]) return;
+      st.options[oIdx][field] = val;
+      syncVisualToJson();
+    }
+
+    function handleOptionTargetSelect(wfKey, stKey, oIdx, val) {
+      const wf = workflowEntries[wfKey];
+      const st = wf?.states?.[stKey];
+      if (!wf || !st || !st.options || !st.options[oIdx]) return;
+
+      if (val === '__NEW__') {
+        const label = prompt('Enter name for the new step:', 'Next Step');
+        if (label && label.trim()) {
+          const newId = deriveStateSlug(label, Object.keys(wf.states || {}));
+          wf.states[newId] = {
+            id: newId,
+            name: label.trim(),
+            type: 'end',
+            prompt: ''
+          };
+          st.options[oIdx].next = newId;
+        }
+      } else {
+        st.options[oIdx].next = val;
+      }
+
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function addScriptBlock(wfKey) {
+      const wf = workflowEntries[wfKey];
+      if (!wf) return;
+      wf.states = wf.states || {};
+      const count = Object.keys(wf.states).length + 1;
+      const label = 'Step ' + count;
+      const id = deriveStateSlug(label, Object.keys(wf.states));
+      wf.states[id] = {
+        id,
+        name: label,
+        type: 'end',
+        prompt: ''
+      };
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function deleteWorkflowState(wfKey, stKey) {
+      const wf = workflowEntries[wfKey];
+      if (!wf || !wf.states) return;
+      delete wf.states[stKey];
+      if (wf.initialState === stKey) {
+        wf.initialState = Object.keys(wf.states)[0] || '';
+      }
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function addWorkflow() {
+      syncWorkflowEntriesRef();
+      let id = 'workflow_' + (Object.keys(workflowEntries).length + 1);
+      let counter = 2;
+      while (workflowEntries[id]) {
+        id = `workflow_${Object.keys(workflowEntries).length + counter++}`;
+      }
+
+      const initialStId = 'welcome';
+      const newWf = {
+        id,
+        name: 'New Conversation Script',
+        description: '',
+        initialState: initialStId,
+        states: {
+          [initialStId]: {
+            id: initialStId,
+            name: 'Welcome',
+            type: 'end',
+            prompt: 'What can I help you with?'
+          }
+        }
+      };
+      workflowEntries[id] = newWf;
+      window.workflowEntries[id] = newWf;
+      renderWorkflowList();
+      renderIntentList();
+      syncVisualToJson();
+    }
+
+    function addWorkflowFromTemplate(tplKey) {
+      syncWorkflowEntriesRef();
+      if (!tplKey || !WORKFLOW_TEMPLATES[tplKey]) return;
+      const tpl = JSON.parse(JSON.stringify(WORKFLOW_TEMPLATES[tplKey].workflow));
+      let id = tpl.id;
+      let counter = 2;
+      while (workflowEntries[id]) {
+        id = `${tpl.id}_${counter++}`;
+      }
+      tpl.id = id;
+      workflowEntries[id] = tpl;
+      window.workflowEntries[id] = tpl;
+      renderWorkflowList();
+      renderIntentList();
+      syncVisualToJson();
+    }
+
+    function deleteWorkflow(wfKey) {
+      if (confirm(`Delete workflow "${wfKey}"?`)) {
+        delete workflowEntries[wfKey];
+        renderWorkflowList();
+        renderIntentList();
+        syncVisualToJson();
+      }
+    }
+
+    function updateWorkflowId(oldKey, newKey) {
+      const trimmed = newKey.trim();
+      if (!trimmed || trimmed === oldKey) return;
+      if (workflowEntries[trimmed]) {
+        alert(`Workflow ID "${trimmed}" already exists.`);
+        renderWorkflowList();
+        return;
+      }
+      const data = workflowEntries[oldKey];
+      data.id = trimmed;
+      delete workflowEntries[oldKey];
+      workflowEntries[trimmed] = data;
+      renderWorkflowList();
+      renderIntentList();
+      syncVisualToJson();
+    }
+
+    function updateWorkflowMeta(wfKey, field, val) {
+      if (!workflowEntries[wfKey]) return;
+      workflowEntries[wfKey][field] = val;
+      syncVisualToJson();
+    }
+
+    // --- Sync Logic ---
+    function onLlmProviderChange() {
+      const prov = document.getElementById('v_llmProvider').value;
+      const modelInput = document.getElementById('v_llmModel');
+      if (prov === 'deepseek') {
+        modelInput.value = 'deepseek-chat';
+      } else if (prov === 'gemini') {
+        modelInput.value = 'gemini-2.0-flash-001';
+      }
+      syncVisualToJson();
+    }
+
+    function syncJsonToVisual() {
+      if (!currentConfig) return;
+      document.getElementById('v_botName').value = currentConfig.identity?.botName || '';
+      document.getElementById('v_language').value = currentConfig.identity?.language || '';
+      document.getElementById('v_tone').value = currentConfig.behavior?.tone || '';
+      document.getElementById('v_verbosity').value = currentConfig.behavior?.verbosity || 'medium';
+      
+      const prov = currentConfig.llm?.provider || 'deepseek';
+      document.getElementById('v_llmProvider').value = prov;
+      document.getElementById('v_llmModel').value = currentConfig.llm?.model || (prov === 'gemini' ? 'gemini-2.0-flash-001' : 'deepseek-chat');
+
+      document.getElementById('v_ragEnabled').value = currentConfig.knowledge?.enabled ? "true" : "false";
+      document.getElementById('v_topK').value = currentConfig.knowledge?.topK || 3;
+      document.getElementById('v_minSim').value = currentConfig.knowledge?.minSimilarityScore || 0.52;
+      document.getElementById('v_sysPrompt').value = currentConfig.prompts?.system || '';
+      document.getElementById('v_fallbackPrompt').value = currentConfig.prompts?.fallback || '';
+
+      faqEntries = JSON.parse(JSON.stringify(currentConfig.capabilities?.faq || []));
+      renderFaqList();
+
+      intentEntries = JSON.parse(JSON.stringify(currentConfig.capabilities?.intents || []));
+      window.workflowEntries = workflowEntries = JSON.parse(JSON.stringify(currentConfig.workflows || {}));
+      renderWorkflowList();
+      renderIntentList();
+    }
+
+    function syncVisualToJson() {
+      try {
+        const jsonStr = document.getElementById('rawJsonEditor').value;
+        let config = JSON.parse(jsonStr);
+        
+        config.identity = config.identity || {};
+        config.identity.botName = document.getElementById('v_botName').value;
+        config.identity.language = document.getElementById('v_language').value;
+
+        config.behavior = config.behavior || {};
+        config.behavior.tone = document.getElementById('v_tone').value;
+        config.behavior.verbosity = document.getElementById('v_verbosity').value;
+
+        config.llm = config.llm || {};
+        config.llm.provider = document.getElementById('v_llmProvider').value;
+        config.llm.model = document.getElementById('v_llmModel').value;
+
+        config.knowledge = config.knowledge || {};
+        config.knowledge.enabled = document.getElementById('v_ragEnabled').value === "true";
+        config.knowledge.topK = parseInt(document.getElementById('v_topK').value, 10);
+        config.knowledge.minSimilarityScore = parseFloat(document.getElementById('v_minSim').value);
+
+        config.prompts = config.prompts || {};
+        config.prompts.system = document.getElementById('v_sysPrompt').value;
+        config.prompts.fallback = document.getElementById('v_fallbackPrompt').value;
+
+        config.capabilities = config.capabilities || {};
+        config.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
+        config.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
+        config.workflows = JSON.parse(JSON.stringify(workflowEntries));
+        
+        document.getElementById('rawJsonEditor').value = JSON.stringify(config, null, 2);
+        currentConfig = config;
+      } catch(e) {
+        // If JSON is invalid, don't break visual typing, just ignore sync until valid
+      }
+    }
+
+    // --- Tabs ---
+    function switchTab(el, targetId) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById(targetId).classList.add('active');
+      
+      // Sync direction based on tab
+      if (targetId === 'tab-visual') syncJsonToVisual();
+    }
+
+    // --- Knowledge Base ---
+    async function uploadPdf(e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('pdfFile');
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('tenantId', tenantId);
+      formData.append('document', file);
+
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
+
+      try {
+        const res = await fetch('/api/dev/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          alert('Upload successful. Source ID: ' + data.sourceId);
+          fileInput.value = '';
+          loadDocuments();
+        } else {
+          alert('Upload failed: ' + data.error);
+        }
+      } catch (err) {
+        alert('Network error.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Upload & Ingest';
+      }
+    }
+
+    async function loadDocuments() {
+      const res = await fetch(`/api/dev/documents?tenantId=${tenantId}`);
+      if (res.ok) {
+        const docs = await res.json();
+        const list = document.getElementById('documentList');
+        list.innerHTML = '';
+        if (docs.length === 0) {
+          list.innerHTML = '<div style="color: #888; font-size: 0.9em;">No documents found.</div>';
+          return;
+        }
+        docs.forEach(doc => {
+          const docId = doc.sourceId || doc.id;
+          list.innerHTML += `
+            <div class="file-item" id="doc-${docId}">
+              <div>
+                <strong>${doc.name}</strong><br>
+                <span style="font-size:0.8em; color:#888;">${new Date(doc.createdAt).toLocaleString()}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span class="status-${doc.status}">${doc.status}</span>
+                <button class="danger" style="padding: 4px 10px; font-size: 0.8em;" onclick="deleteDocument('${docId}', '${encodeURIComponent(doc.name)}')">Delete</button>
+              </div>
+            </div>
+          `;
+        });
+      }
+    }
+
+    async function deleteDocument(sourceId, encodedFilename) {
+      const filename = decodeURIComponent(encodedFilename);
+      if (!confirm(`Are you sure you want to delete "${filename}"? All associated chunks and embeddings will be removed.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/dev/documents/${sourceId}?tenantId=${tenantId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          const elem = document.getElementById(`doc-${sourceId}`);
+          if (elem) {
+            elem.remove();
+          }
+          loadDocuments();
+        } else {
+          alert(`Failed to delete document: ${data.error || 'Unknown error'}`);
+        }
+      } catch (err) {
+        alert(`Network error while deleting document: ${err.message}`);
+      }
+    }
+
+    // --- Chat & Diagnostics ---
+    function appendMsg(sender, text, options) {
+      const container = document.getElementById('messages');
+      
+      const div = document.createElement('div');
+      div.className = `msg ${sender}`;
+      div.textContent = text;
+      container.appendChild(div);
+
+      // If structured choice options are provided, render interactive buttons below the bubble
+      if (sender === 'bot' && Array.isArray(options) && options.length > 0) {
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'choice-container';
+        
+        options.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'choice-btn';
+          btn.textContent = opt.label;
+          btn.onclick = () => {
+            // Disable all buttons in this container once chosen
+            btnContainer.querySelectorAll('button').forEach(b => b.disabled = true);
+            sendDirectMessage(opt.label);
+          };
+          btnContainer.appendChild(btn);
+        });
+        
+        container.appendChild(btnContainer);
+      }
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function sendDirectMessage(text) {
+      const input = document.getElementById('chatInput');
+      input.value = text;
+      sendMessage();
+    }
+
+    function renderDiagnostics(data) {
+      const diag = document.getElementById('diagnostics-content');
+      const badge = document.getElementById('workflow-badge');
+      const badgeWf = document.getElementById('badge-wf-name');
+      const badgeSt = document.getElementById('badge-wf-state');
+
+      if (data.workflow) {
+        badge.style.display = 'flex';
+        badgeWf.textContent = data.workflow;
+        badgeSt.textContent = `State: ${data.state || 'active'}`;
+      } else {
+        badge.style.display = 'none';
+      }
+      
+      let html = `<div style="margin-bottom:10px;"><strong>Workflow:</strong> <span style="font-weight:bold; color:${data.workflow ? '#007bff' : '#888'};">${data.workflow || 'None'}</span></div>`;
+      html += `<div style="margin-bottom:10px;"><strong>State:</strong> <span style="font-weight:bold; color:${data.state ? '#28a745' : '#888'};">${data.state || 'None'}</span></div>`;
+      html += `<div style="margin-bottom:10px;"><strong>Intent Detected:</strong> <span style="color:#007bff;">${data.debug?.intent || 'None'}</span></div>`;
+      html += `<div style="margin-bottom:10px;"><strong>Latency:</strong> ${data.debug?.latencyMs ?? 0}ms</div>`;
+      
+      html += `<div style="margin-bottom:5px;"><strong>Context Variables:</strong></div>`;
+      html += `<div class="diagnostics-block">${JSON.stringify(data.context || {}, null, 2)}</div>`;
+      
+      if (Array.isArray(data.debug?.chunks) && data.debug.chunks.length > 0) {
+        html += `<div style="margin-top:10px; margin-bottom:5px;"><strong>Retrieved Chunks (${data.debug.chunks.length}):</strong></div>`;
+        data.debug.chunks.forEach((c, i) => {
+          const scoreVal = typeof c.score === 'number' ? c.score : (typeof c.similarity === 'number' ? c.similarity : null);
+          const scoreStr = scoreVal !== null ? `[Score: ${scoreVal.toFixed(3)}] ` : '';
+          const preview = c.content && c.content.length > 100 ? c.content.substring(0, 100) + '...' : (c.content || '');
+          html += `<div class="diagnostics-block" style="border-left: 3px solid #007bff;">${scoreStr}${preview}</div>`;
+        });
+      } else {
+        html += `<div style="margin-top:10px; font-size:0.85em; color:#888;">No RAG chunks retrieved for this query.</div>`;
+      }
+      
+      diag.innerHTML = html;
+    }
+
+    async function sendMessage(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+      
+      input.value = '';
+      appendMsg('user', text);
+      
+      let res;
+      try {
+        res = await fetch('/api/dev/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, customerId, message: text })
+        });
+      } catch (networkErr) {
+        console.error('Request network failure:', networkErr);
+        appendMsg('error', `Request failed: ${networkErr.message || 'Unable to connect to server'}`);
+        return;
+      }
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        console.error('JSON parsing failure:', jsonErr);
+        appendMsg('error', `Response format error: Server returned non-JSON (${res.status} ${res.statusText})`);
+        return;
+      }
+      
+      if (res.ok) {
+        appendMsg('bot', data.message, data.debug?.options);
+        try {
+          renderDiagnostics(data);
+        } catch (uiErr) {
+          console.error('Diagnostics rendering error:', uiErr);
+          appendMsg('error', `UI Rendering Error: ${uiErr.message || String(uiErr)}`);
+        }
+      } else {
+        appendMsg('error', 'Server Error: ' + (data.error || res.statusText));
+      }
+    }
+
+    async function resetChat() {
+      const res = await fetch('/api/dev/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, customerId })
+      });
+      if (res.ok) {
+        document.getElementById('messages').innerHTML = '';
+        const badge = document.getElementById('workflow-badge');
+        if (badge) badge.style.display = 'none';
+        document.getElementById('diagnostics-content').innerHTML = 'Waiting for interaction...';
+        appendMsg('bot', 'Conversation archived. A new session will begin.');
+      }
+    }
+
+    // Start
+    if (window.mermaid) {
+      mermaid.initialize({ startOnLoad: false, theme: 'default' });
+    }
+    checkBootstrap();
+  </script>
+</body>
+</html>
