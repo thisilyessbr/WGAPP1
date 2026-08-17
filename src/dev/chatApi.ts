@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { ChatbotDependencies } from '../bootstrap';
 import multer from 'multer';
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../domain/tenant/BusinessConfig';
@@ -31,8 +33,8 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
 
   // Tenant Validation Middleware
   router.use(async (req: Request, res: Response, next) => {
-    if (req.path === '/upload') {
-      return next(); // Multer must parse the body first. Tenant validation is done inside the route.
+    if (req.path === '/upload' || req.path.startsWith('/pilot-harness')) {
+      return next(); // Handled by route-specific validators
     }
     const tenantId = req.body?.tenantId || req.query?.tenantId;
     if (!tenantId) {
@@ -441,12 +443,12 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
-  // POST Chat with Proxy Diagnostics
+  // POST Chat with Proxy Diagnostics & Multi-modal Support
   router.post('/chat', async (req: Request, res: Response) => {
-    const { tenantId, customerId, message } = req.body;
+    const { tenantId, customerId, message, imageBase64, imageUrl, mimeType } = req.body;
 
-    if (!customerId || !message) {
-      return res.status(400).json({ error: 'customerId and message are required' });
+    if (!customerId || (!message && !imageBase64 && !imageUrl)) {
+      return res.status(400).json({ error: 'customerId and message (or image payload) are required' });
     }
 
     try {
@@ -519,7 +521,17 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       (deps.conversationEngine as any)['ragService'] = interceptedRag;
 
       const start = Date.now();
-      const responseText = await deps.conversationEngine.handleMessage(tenantId, customerId, message);
+      let responseText: string;
+      if (imageBase64 || imageUrl) {
+        responseText = await deps.conversationEngine.handleImageMessage(tenantId, customerId, {
+          imageBase64,
+          imageUrl,
+          mimeType,
+          textPrompt: message
+        });
+      } else {
+        responseText = await deps.conversationEngine.handleMessage(tenantId, customerId, message);
+      }
       const latencyMs = Date.now() - start;
 
       // Restore original dependencies
@@ -621,6 +633,143 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       res.json({ success: true, message: 'Conversation archived.' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // =========================================================================
+  // PILOT AUTO REPAIR TEST HARNESS ENDPOINTS (STRICT TENANT LOCK)
+  // =========================================================================
+
+  // GET /api/dev/pilot-harness/kb - Live pull of pilot-auto-repair KB & FAQs
+  router.get('/pilot-harness/kb', async (req: Request, res: Response) => {
+    try {
+      const requestedTenant = (req.query.tenantId as string) || 'pilot-auto-repair';
+      if (requestedTenant !== 'pilot-auto-repair') {
+        return res.status(400).json({
+          error: 'TENANT_LOCK_VIOLATION',
+          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${requestedTenant}'`
+        });
+      }
+
+      const tenantConfig = await deps.tenantConfigService.getConfig('pilot-auto-repair');
+      const docs = await deps.prisma.knowledgeDocument.findMany({
+        where: { tenantId: 'pilot-auto-repair' },
+        include: { chunks: true }
+      });
+
+      res.json({
+        tenantId: 'pilot-auto-repair',
+        imageEnabled: tenantConfig.capabilities?.imageEnabled ?? false,
+        faqs: tenantConfig.capabilities?.faq || [],
+        documents: docs.map(d => ({
+          id: d.id,
+          title: d.title,
+          content: d.content,
+          chunkCount: d.chunks.length,
+          chunks: d.chunks.map(c => ({ id: c.id, content: c.content }))
+        }))
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/dev/pilot-harness/preset-image/:name
+  router.get('/pilot-harness/preset-image/:name', (req: Request, res: Response) => {
+    const name = req.params.name;
+    const file = name === 'maf' ? 'maf_sensor.jpg' : 'worn_brake_pad.jpg';
+    const filePath = path.join(process.cwd(), 'test/data/real-images', file);
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).send('Preset image not found');
+    }
+  });
+
+  // POST /api/dev/pilot-harness/chat - Execute real pipeline against pilot-auto-repair
+  router.post('/pilot-harness/chat', async (req: Request, res: Response) => {
+    try {
+      const requestedTenant = req.body?.tenantId || 'pilot-auto-repair';
+      if (requestedTenant !== 'pilot-auto-repair') {
+        return res.status(400).json({
+          error: 'TENANT_LOCK_VIOLATION',
+          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${requestedTenant}'`
+        });
+      }
+
+      const { text, imageBase64, mimeType, customerId = `pilot_cust_${Date.now()}` } = req.body;
+
+      const hasImage = Boolean(imageBase64);
+      const hasText = Boolean(text && text.trim().length > 0);
+
+      // Execute Image Capability Gateway analysis if image present
+      let realAnalysis: any = null;
+      let gatewayLatencyMs: number | null = null;
+      let imageError: string | null = null;
+
+      if (hasImage) {
+        const gwStart = Date.now();
+        try {
+          realAnalysis = await deps.imageGateway.analyzeImage('pilot-auto-repair', {
+            imageBase64,
+            mimeType: mimeType || 'image/jpeg'
+          });
+          gatewayLatencyMs = Date.now() - gwStart;
+        } catch (err: any) {
+          imageError = err.message || String(err);
+          gatewayLatencyMs = Date.now() - gwStart;
+        }
+      }
+
+      // Execute ConversationEngine real pipeline
+      const pipelineStart = Date.now();
+      let responseText: string;
+      if (hasImage) {
+        responseText = await deps.conversationEngine.handleImageMessage('pilot-auto-repair', customerId, {
+          imageBase64,
+          mimeType: mimeType || 'image/jpeg',
+          textPrompt: hasText ? text : undefined
+        });
+      } else {
+        responseText = await deps.conversationEngine.handleMessage('pilot-auto-repair', customerId, text || '');
+      }
+      const totalLatencyMs = Date.now() - pipelineStart;
+
+      // Classify message type strictly based on input payload
+      const classificationType = hasText && hasImage ? 'TEXT_AND_IMAGE' : hasImage ? 'IMAGE' : 'TEXT';
+
+      // Per-layer status evaluation
+      const layerStatus = {
+        imageReceived: hasImage ? 'PASS' : 'FAIL',
+        imageAnalysis: hasImage ? (realAnalysis && !imageError ? 'PASS' : 'FAIL') : 'N/A',
+        classification: (hasImage || hasText) ? 'PASS' : 'FAIL',
+        classificationType,
+        combinedQuery: 'NOT EXPOSED', // Internal engine variable not surfaced in public API
+        faqRagMatch: 'NOT EXPOSED',    // Matched FAQ/RAG record not surfaced in public engine return
+        finalAnswer: responseText ? 'PASS' : 'FAIL'
+      };
+
+      res.json({
+        tenantId: 'pilot-auto-repair',
+        customerId,
+        input: {
+          text: text || null,
+          hasImage,
+          mimeType: mimeType || null
+        },
+        response: responseText,
+        imageAnalysis: realAnalysis,
+        layerStatus,
+        observability: {
+          totalLatencyMs,
+          gatewayLatencyMs,
+          combinedQuery: 'Not available from current pipeline',
+          matchedFaqOrRag: 'Not available from current pipeline',
+          diagnosticReasoning: 'Not available from current pipeline'
+        }
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 

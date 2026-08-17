@@ -88,6 +88,9 @@ export class TenantConfigService {
       if (overrides.capabilities.faq) {
         merged.capabilities.faq = overrides.capabilities.faq;
       }
+      if (overrides.capabilities.imageEnabled !== undefined) {
+        merged.capabilities.imageEnabled = overrides.capabilities.imageEnabled;
+      }
     }
     
     if (overrides.workflows) {

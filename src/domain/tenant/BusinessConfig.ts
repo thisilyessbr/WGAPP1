@@ -134,6 +134,7 @@ export interface FaqEntry {
 export interface CapabilitiesConfig {
   intents: { id: string; description: string; workflowId?: string }[];
   faq?: FaqEntry[];
+  imageEnabled?: boolean;
 }
 
 export interface BusinessConfig {

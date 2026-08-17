@@ -145,6 +145,13 @@
               </select>
               <label>Top K</label><input type="number" id="v_topK" oninput="syncVisualToJson()">
               <label>Min Similarity Score</label><input type="number" step="0.05" id="v_minSim" oninput="syncVisualToJson()">
+
+              <h3>Capabilities</h3>
+              <label>Image Recognition</label>
+              <select id="v_imageEnabled" onchange="syncVisualToJson()">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
             </div>
           </div>
           
@@ -219,9 +226,18 @@
               <span class="badge-tag">Guided Flow</span>
             </div>
             <div id="messages"></div>
-            <form onsubmit="sendMessage(event)" style="display: flex; gap: 10px;">
-              <input type="text" id="chatInput" placeholder="Type a message or click an option..." autocomplete="off">
-              <button type="submit">Send</button>
+            <div id="imagePreviewContainer" style="display: none; padding: 6px 10px; background: #eef2f7; border: 1px solid #d0d7de; border-radius: 6px; margin-bottom: 8px; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                <img id="imagePreviewThumbnail" src="" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1; flex-shrink: 0;" alt="Thumbnail">
+                <span id="imagePreviewName" style="font-size: 0.85em; color: #334155; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+              </div>
+              <button type="button" onclick="clearSelectedImage()" style="background: none; border: none; color: #dc3545; font-size: 1.3em; cursor: pointer; padding: 0 6px; line-height: 1;" title="Remove attachment">&times;</button>
+            </div>
+            <form onsubmit="sendMessage(event)" style="display: flex; gap: 8px; align-items: center;">
+              <input type="file" id="imageFileInput" accept="image/*" style="display: none;" onchange="handleImageSelected(event)">
+              <button type="button" id="imageAttachBtn" onclick="document.getElementById('imageFileInput').click()" style="background: #6c757d; padding: 6px 10px; font-size: 1em;" title="Attach Image">📷</button>
+              <input type="text" id="chatInput" placeholder="Type a message or attach an image..." autocomplete="off">
+              <button type="submit" id="sendBtn">Send</button>
             </form>
           </div>
           
@@ -273,6 +289,18 @@
         loadedConfigUpdatedAt = res.headers.get('X-Config-Updated-At') || new Date().toISOString();
         document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
         syncJsonToVisual();
+        updateChatControlsVisibility();
+      }
+    }
+
+    function updateChatControlsVisibility() {
+      const isImageEnabled = currentConfig?.capabilities?.imageEnabled === true;
+      const attachBtn = document.getElementById('imageAttachBtn');
+      if (attachBtn) {
+        attachBtn.style.display = isImageEnabled ? 'inline-block' : 'none';
+      }
+      if (!isImageEnabled) {
+        clearSelectedImage();
       }
     }
 
@@ -321,6 +349,7 @@
           payloadConfig.prompts.fallback = document.getElementById('v_fallbackPrompt').value;
 
           payloadConfig.capabilities = payloadConfig.capabilities || {};
+          payloadConfig.capabilities.imageEnabled = document.getElementById('v_imageEnabled').value === "true";
           payloadConfig.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
           payloadConfig.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
           payloadConfig.workflows = JSON.parse(JSON.stringify(workflowEntries));
@@ -369,6 +398,8 @@
         if (res.ok) {
           const saveResult = await res.json();
           loadedConfigUpdatedAt = saveResult.updatedAt || res.headers.get('X-Config-Updated-At') || new Date().toISOString();
+          currentConfig = payloadConfig;
+          updateChatControlsVisibility();
           currentConfig = payloadConfig;
           document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
           syncJsonToVisual();
@@ -1443,6 +1474,8 @@
       faqEntries = JSON.parse(JSON.stringify(currentConfig.capabilities?.faq || []));
       renderFaqList();
 
+      document.getElementById('v_imageEnabled').value = currentConfig.capabilities?.imageEnabled === true ? "true" : "false";
+
       intentEntries = JSON.parse(JSON.stringify(currentConfig.capabilities?.intents || []));
       window.workflowEntries = workflowEntries = JSON.parse(JSON.stringify(currentConfig.workflows || {}));
       renderWorkflowList();
@@ -1476,6 +1509,7 @@
         config.prompts.fallback = document.getElementById('v_fallbackPrompt').value;
 
         config.capabilities = config.capabilities || {};
+        config.capabilities.imageEnabled = document.getElementById('v_imageEnabled').value === "true";
         config.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
         config.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
         config.workflows = JSON.parse(JSON.stringify(workflowEntries));
@@ -1588,12 +1622,29 @@
     }
 
     // --- Chat & Diagnostics ---
-    function appendMsg(sender, text, options) {
+    function appendMsg(sender, text, options, imgDataUrl) {
       const container = document.getElementById('messages');
       
       const div = document.createElement('div');
       div.className = `msg ${sender}`;
-      div.textContent = text;
+
+      if (imgDataUrl) {
+        const img = document.createElement('img');
+        img.src = imgDataUrl;
+        img.style.maxWidth = '180px';
+        img.style.maxHeight = '140px';
+        img.style.borderRadius = '4px';
+        img.style.display = 'block';
+        img.style.marginBottom = text ? '6px' : '0';
+        div.appendChild(img);
+      }
+
+      if (text) {
+        const textSpan = document.createElement('span');
+        textSpan.textContent = text;
+        div.appendChild(textSpan);
+      }
+
       container.appendChild(div);
 
       // If structured choice options are provided, render interactive buttons below the bubble
@@ -1632,15 +1683,18 @@
       const badgeWf = document.getElementById('badge-wf-name');
       const badgeSt = document.getElementById('badge-wf-state');
 
+      if (!diag) return;
+
       if (data.workflow) {
         badge.style.display = 'flex';
         badgeWf.textContent = data.workflow;
-        badgeSt.textContent = `State: ${data.state || 'active'}`;
+        badgeSt.textContent = data.state || 'active';
       } else {
         badge.style.display = 'none';
       }
       
-      let html = `<div style="margin-bottom:10px;"><strong>Workflow:</strong> <span style="font-weight:bold; color:${data.workflow ? '#007bff' : '#888'};">${data.workflow || 'None'}</span></div>`;
+      let html = '';
+      html += `<div style="margin-bottom:10px;"><strong>Active Workflow:</strong> <span style="font-weight:bold; color:${data.workflow ? '#007bff' : '#888'};">${data.workflow || 'None'}</span></div>`;
       html += `<div style="margin-bottom:10px;"><strong>State:</strong> <span style="font-weight:bold; color:${data.state ? '#28a745' : '#888'};">${data.state || 'None'}</span></div>`;
       html += `<div style="margin-bottom:10px;"><strong>Intent Detected:</strong> <span style="color:#007bff;">${data.debug?.intent || 'None'}</span></div>`;
       html += `<div style="margin-bottom:10px;"><strong>Latency:</strong> ${data.debug?.latencyMs ?? 0}ms</div>`;
@@ -1663,21 +1717,75 @@
       diag.innerHTML = html;
     }
 
+    let selectedImageBase64 = null;
+    let selectedImageMime = null;
+
+    function handleImageSelected(e) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file.');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size exceeds 5MB limit.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        selectedImageBase64 = reader.result;
+        selectedImageMime = file.type;
+        const container = document.getElementById('imagePreviewContainer');
+        const nameSpan = document.getElementById('imagePreviewName');
+        const thumb = document.getElementById('imagePreviewThumbnail');
+        if (thumb) thumb.src = reader.result;
+        if (nameSpan) nameSpan.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        container.style.display = 'flex';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearSelectedImage() {
+      selectedImageBase64 = null;
+      selectedImageMime = null;
+      const fileInput = document.getElementById('imageFileInput');
+      if (fileInput) fileInput.value = '';
+      const thumb = document.getElementById('imagePreviewThumbnail');
+      if (thumb) thumb.src = '';
+      document.getElementById('imagePreviewContainer').style.display = 'none';
+    }
+
     async function sendMessage(e) {
       if (e) e.preventDefault();
       const input = document.getElementById('chatInput');
       const text = input.value.trim();
-      if (!text) return;
+      const imgBase64 = selectedImageBase64;
+      const imgMime = selectedImageMime;
+
+      if (!text && !imgBase64) return;
       
       input.value = '';
-      appendMsg('user', text);
+      clearSelectedImage();
+
+      if (imgBase64) {
+        appendMsg('user', text || '', null, imgBase64);
+      } else {
+        appendMsg('user', text);
+      }
       
       let res;
       try {
         res = await fetch('/api/dev/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId, customerId, message: text })
+          body: JSON.stringify({
+            tenantId,
+            customerId,
+            message: text || '',
+            imageBase64: imgBase64,
+            mimeType: imgMime
+          })
         });
       } catch (networkErr) {
         console.error('Request network failure:', networkErr);

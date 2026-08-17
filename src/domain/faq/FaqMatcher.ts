@@ -211,7 +211,7 @@ export class FaqMatcher {
           }
         }
 
-        // 5. Keyword Presence matching
+        // 5. Keyword & Phrase Presence matching
         if (rawKeywords && rawKeywords.length > 0) {
           const normKeywords = rawKeywords.map(k => this.normalize(k)).filter(Boolean);
           if (normKeywords.length > 0) {
@@ -222,13 +222,18 @@ export class FaqMatcher {
               return queryTokens.has(k) || normQuery.includes(k);
             });
 
-            // Match if at least 2 keywords match, 100% match, or exact single keyword query match
+            // Distinguish strong multi-word phrase keywords from generic single-word keywords:
+            // - An explicit multi-word phrase keyword (>= 2 words) matching contiguously in the query is strong evidence.
+            // - Generic single-word keywords continue to require >= 2 matches, 100% keyword match, or exact single-word query match.
+            const hasMultiWordPhraseMatch = matchedKeywords.some(k => k.includes(' ') && normQuery.includes(k));
+
             if (
+              hasMultiWordPhraseMatch ||
               (normKeywords.length === 1 && matchedKeywords.length === 1) ||
               (normKeywords.length >= 2 && matchedKeywords.length >= Math.min(2, normKeywords.length)) ||
               (queryTokens.size === 1 && matchedKeywords.length >= 1 && matchedKeywords.some(k => k === normQuery))
             ) {
-              const kwConfidence = normKeywords.length === 1 || queryTokens.size === 1 ? 0.90 : 0.90;
+              const kwConfidence = hasMultiWordPhraseMatch ? 0.92 : 0.90;
               return { entry, answer: rawAnswer, matchedLang: l, confidence: kwConfidence, matchType: 'keywords' };
             }
           }

@@ -13,6 +13,8 @@ import { KnowledgeRepository } from './domain/rag/KnowledgeRepository';
 import { TenantConfigService } from './domain/tenant/TenantConfigService';
 import { PdfIngestionService } from './domain/rag/PdfIngestionService';
 
+import { ImageCapabilityGateway } from './core/gateway/ImageCapabilityGateway';
+
 export interface ChatbotDependencies {
   prisma: PrismaClient;
   conversationEngine: ConversationEngine;
@@ -21,6 +23,7 @@ export interface ChatbotDependencies {
   ragService: RAGService;
   pdfIngestionService: PdfIngestionService;
   llmFactory: LLMFactory;
+  imageGateway: ImageCapabilityGateway;
 }
 
 export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
@@ -52,6 +55,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   const ragService = new RAGService(embeddingProvider, knowledgeRepo);
   const pdfIngestionService = new PdfIngestionService(prisma, embeddingProvider, knowledgeRepo);
 
+  const imageGateway = new ImageCapabilityGateway();
+
   // Core Engine
   const conversationEngine = new ConversationEngine(
     conversationService,
@@ -59,7 +64,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     workflowEngine,
     llmFactory,
     responseBuilder,
-    ragService
+    ragService,
+    imageGateway
   );
 
   return {
@@ -69,6 +75,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     tenantConfigService,
     ragService,
     pdfIngestionService,
-    llmFactory
+    llmFactory,
+    imageGateway
   };
 }
