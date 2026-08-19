@@ -11,6 +11,7 @@ import { GreetingRouter } from './GreetingRouter';
 import { ImageCapabilityGateway } from '../../core/gateway/ImageCapabilityGateway';
 import { CapabilityRouter, IncomingMessagePayload } from './CapabilityRouter';
 import { logger } from '../../utils/logger';
+import { telemetry, TelemetryClient } from '../../core/telemetry/TelemetryClient';
 
 export class ConversationEngine {
   private llmFactory?: LLMFactory;
@@ -42,6 +43,25 @@ export class ConversationEngine {
     customerExternalId: string,
     contentInput: string | IncomingMessagePayload
   ): Promise<string> {
+    const turnStartTime = Date.now();
+    const correlationId = TelemetryClient.createCorrelationId();
+    let responseSource: 'FAQ' | 'RAG' | 'LLM' | 'WORKFLOW' | 'IMAGE' | 'FALLBACK' | 'GREETING' | 'CAP' = 'FALLBACK';
+
+    // 0. Capability Routing & Multi-modal payload resolution
+    const payload: IncomingMessagePayload = typeof contentInput === 'string' ? { text: contentInput } : contentInput;
+
+    telemetry.emit({
+      eventType: 'message_received',
+      tenantId,
+      correlationId,
+      stage: 'entry',
+      status: 'SUCCESS',
+      metadata: {
+        inputLength: (payload.text || '').length,
+        isImage: Boolean(payload.imageBase64 || payload.imageUrl)
+      }
+    });
+
     // 1. Load generic configuration
     const config = await this.configService.getConfig(tenantId);
 
@@ -72,6 +92,19 @@ export class ConversationEngine {
     // If conversation is already capped (by 50-message cap or 10-post-completion question cap), go fully silent
     if (conversation.automationCapped || conversation.postCompletionCapped) {
       logger.info(`ConversationEngine: Conversation [${conversation.id}] is capped (automationCapped: ${conversation.automationCapped}, postCompletionCapped: ${conversation.postCompletionCapped}). Going fully silent.`);
+      telemetry.emit({
+        eventType: 'response_completed',
+        tenantId,
+        conversationId: conversation.id,
+        correlationId,
+        stage: 'response',
+        status: 'SUCCESS',
+        latencyMs: Date.now() - turnStartTime,
+        metadata: {
+          responseSource: 'CAP',
+          outputLength: 0
+        }
+      });
       return '';
     }
 
@@ -81,6 +114,19 @@ export class ConversationEngine {
       const capMsg = config.prompts.limitExceeded || 'Conversation has reached the maximum allowed length. Please start a new conversation.';
       await this.conversationService.persistMessage(tenantId, conversation.id, 'ASSISTANT', capMsg);
       logger.info(`ConversationEngine: Conversation [${conversation.id}] reached 50-message cap -> automationCapped set to true.`);
+      telemetry.emit({
+        eventType: 'response_completed',
+        tenantId,
+        conversationId: conversation.id,
+        correlationId,
+        stage: 'response',
+        status: 'SUCCESS',
+        latencyMs: Date.now() - turnStartTime,
+        metadata: {
+          responseSource: 'CAP',
+          outputLength: capMsg.length
+        }
+      });
       return capMsg;
     }
 
@@ -90,14 +136,38 @@ export class ConversationEngine {
       throw new Error('Concurrency Conflict: Conversation is currently being processed by another request.');
     }
 
-    // 0. Capability Routing & Multi-modal payload resolution
-    const payload: IncomingMessagePayload = typeof contentInput === 'string' ? { text: contentInput } : contentInput;
-    const routed = await this.capabilityRouter.route(tenantId, payload, config);
+    const routed = await this.capabilityRouter.route(tenantId, payload, config, correlationId);
+
+    telemetry.emit({
+      eventType: 'routing_decided',
+      tenantId,
+      conversationId: conversation.id,
+      correlationId,
+      stage: 'routing',
+      status: routed.allowed ? 'SUCCESS' : 'FAILURE',
+      metadata: {
+        routedType: routed.type,
+        allowed: routed.allowed
+      }
+    });
 
     if (!routed.allowed) {
       const fallback = routed.fallbackMessage || "I can't process images right now — could you describe what you're looking for?";
       await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', routed.userDisplayContent);
       await this.conversationService.persistMessage(tenantId, conversation.id, 'ASSISTANT', fallback);
+      telemetry.emit({
+        eventType: 'response_completed',
+        tenantId,
+        conversationId: conversation.id,
+        correlationId,
+        stage: 'response',
+        status: 'SUCCESS',
+        latencyMs: Date.now() - turnStartTime,
+        metadata: {
+          responseSource: 'IMAGE',
+          outputLength: fallback.length
+        }
+      });
       return fallback;
     }
 
@@ -129,16 +199,30 @@ export class ConversationEngine {
         await this.conversationService.updateSessionState(tenantId, activeSession.id, activeSession.stateId, activeSession.contextData as any, 'CANCELLED');
         const cancelMsg = config.prompts.workflowCancelled || 'Workflow cancelled.';
         await this.conversationService.persistMessage(tenantId, conversation.id, 'ASSISTANT', cancelMsg);
+        telemetry.emit({
+          eventType: 'response_completed',
+          tenantId,
+          conversationId: conversation.id,
+          correlationId,
+          stage: 'response',
+          status: 'SUCCESS',
+          latencyMs: Date.now() - turnStartTime,
+          metadata: {
+            responseSource: 'WORKFLOW',
+            outputLength: cancelMsg.length
+          }
+        });
         return cancelMsg;
       }
 
       // Continue existing workflow
+      responseSource = 'WORKFLOW';
       const workflowConfig = config.workflows[activeSession.workflowId];
       if (!workflowConfig) {
         response = config.prompts.workflowUnavailable || 'This workflow is no longer available.';
         await this.conversationService.updateSessionState(tenantId, activeSession.id, activeSession.stateId, {}, 'ERROR');
       } else {
-        const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService);
+        const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId);
         
         const newStatus = result.isComplete ? 'COMPLETED' : 'ACTIVE';
         await this.conversationService.updateSessionState(
@@ -173,24 +257,80 @@ export class ConversationEngine {
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             answered = true;
             answerText = faqMatch.answer;
+            responseSource = 'FAQ';
             logger.info(`ConversationEngine: Post-completion FAQ match [${faqMatch.entry.id}]`);
+            telemetry.emit({
+              eventType: 'faq_match',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'faq',
+              status: 'SUCCESS',
+              metadata: {
+                faqId: faqMatch.entry.id,
+                matchType: faqMatch.matchType,
+                confidence: faqMatch.confidence
+              }
+            });
+          } else {
+            telemetry.emit({
+              eventType: 'faq_miss',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'faq',
+              status: 'SKIPPED',
+              metadata: {
+                confidence: faqMatch?.confidence || 0
+              }
+            });
           }
         }
 
         // Try PDF/RAG if FAQ didn't match
         let ragResult: any = null;
         if (!answered && config.knowledge?.enabled && this.ragService) {
+          const ragStartTime = Date.now();
           try {
             ragResult = await this.ragService.retrieve(tenantId, content, config);
+            const ragLatencyMs = Date.now() - ragStartTime;
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(config.knowledge.minSimilarityScore || 0.52, 0.70);
-            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+            const isDirectMatch = Boolean(topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content);
+            if (isDirectMatch) {
               answered = true;
               answerText = topChunk.content.trim();
+              responseSource = 'RAG';
               logger.info(`ConversationEngine: Post-completion RAG match (score: ${topChunk.similarity})`);
             }
+            telemetry.emit({
+              eventType: 'rag_completed',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'rag',
+              status: 'SUCCESS',
+              latencyMs: ragLatencyMs,
+              metadata: {
+                chunkCount: ragResult.chunks?.length || 0,
+                topSimilarity: topChunk?.similarity || 0,
+                threshold: highConfidenceThreshold,
+                directAnswer: isDirectMatch
+              }
+            });
           } catch (e: any) {
+            const ragLatencyMs = Date.now() - ragStartTime;
             logger.warn(`ConversationEngine: Post-completion RAG retrieval failed: ${e.message || e}`);
+            telemetry.emit({
+              eventType: 'rag_failed',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'rag',
+              status: 'FAILURE',
+              latencyMs: ragLatencyMs,
+              errorCode: e.message || String(e)
+            });
           }
         }
 
@@ -232,12 +372,28 @@ ${contextText}`;
               if (trimmed && trimmed !== 'UNANSWERABLE' && !trimmed.startsWith('UNANSWERABLE')) {
                 answered = true;
                 answerText = trimmed;
+                responseSource = 'LLM';
                 logger.info(`ConversationEngine: Post-completion LLM answer generated`, {
                   event: 'post_completion_llm_answered',
                   tenantId,
                   latencyMs,
                   failureReason: null,
                   inputLength: content.length
+                });
+                telemetry.emit({
+                  eventType: 'llm_completed',
+                  tenantId,
+                  conversationId: conversation.id,
+                  correlationId,
+                  stage: 'llm',
+                  status: 'SUCCESS',
+                  latencyMs,
+                  provider: config.llm?.provider || 'unknown',
+                  model: config.llm?.model || 'unknown',
+                  metadata: {
+                    purpose: 'post_completion_grounded_answer',
+                    inputLength: content.length
+                  }
                 });
               } else {
                 logger.info(`ConversationEngine: Post-completion LLM marked query UNANSWERABLE`, {
@@ -246,6 +402,21 @@ ${contextText}`;
                   latencyMs,
                   failureReason: null,
                   inputLength: content.length
+                });
+                telemetry.emit({
+                  eventType: 'llm_completed',
+                  tenantId,
+                  conversationId: conversation.id,
+                  correlationId,
+                  stage: 'llm',
+                  status: 'UNANSWERABLE',
+                  latencyMs,
+                  provider: config.llm?.provider || 'unknown',
+                  model: config.llm?.model || 'unknown',
+                  metadata: {
+                    purpose: 'post_completion_grounded_answer',
+                    inputLength: content.length
+                  }
                 });
               }
             } catch (err: any) {
@@ -257,6 +428,22 @@ ${contextText}`;
                 latencyMs,
                 failureReason,
                 inputLength: content.length
+              });
+              telemetry.emit({
+                eventType: 'llm_failed',
+                tenantId,
+                conversationId: conversation.id,
+                correlationId,
+                stage: 'llm',
+                status: 'FAILURE',
+                latencyMs,
+                provider: config.llm?.provider || 'unknown',
+                model: config.llm?.model || 'unknown',
+                errorCode: failureReason,
+                metadata: {
+                  purpose: 'post_completion_grounded_answer',
+                  inputLength: content.length
+                }
               });
             }
           }
@@ -277,11 +464,13 @@ ${contextText}`;
           }
         } else {
           // Post-completion unmatched message -> static canned response
+          responseSource = 'FALLBACK';
           logger.info(`ConversationEngine: Post-completion unmatched message "${content}" -> returning static canned response.`);
           response = (config.prompts as any)?.postCompletionFallback || "I can help with questions related to your request. Our support team will follow up with you shortly.";
         }
       } else if (hasWorkflowsConfigured) {
         // P0 §1 / P0.2 §2: Tenant WITH workflow -> default workflow entry path directly (no FAQ intercept before it)
+        responseSource = 'WORKFLOW';
         const defaultWorkflowId = (config as any).defaultWorkflowId
           || (config.workflows['workflow_1'] ? 'workflow_1' : Object.keys(config.workflows)[0]);
 
@@ -289,7 +478,7 @@ ${contextText}`;
         logger.info(`ConversationEngine: Starting default workflow [${defaultWorkflowId}] directly for fresh conversation [${conversation.id}]`);
         
         const session = await this.conversationService.createSession(tenantId, conversation.id, defaultWorkflowId, workflowConfig.initialState);
-        const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService);
+        const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId);
         
         await this.conversationService.updateSessionState(
           tenantId,
@@ -321,16 +510,35 @@ ${contextText}`;
             logger.info(`ConversationEngine: Deterministic greeting match for "${content}" (lang: ${detectedLang}, 0 LLM calls)`);
             answered = true;
             answerText = resolveLocalizedPrompt(config.prompts?.greeting, detectedLang, 'Hello! How can I help you today?');
+            responseSource = 'GREETING';
           } else if (GreetingRouter.isUnknownCandidate(content, normalizedContent)) {
             // UNKNOWN candidate -> check if tenant has LLM configured before attempting classifier
             const hasLlmConfigured = Boolean(config.llm?.provider && (this.llmFactory || this.defaultLlm));
             if (hasLlmConfigured) {
               llmCallAttempted = true;
+              const classifierStart = Date.now();
               const classification = await GreetingRouter.classifyGreetingWithLlm(llm, tenantId, content);
+              const classifierLatencyMs = Date.now() - classifierStart;
               if (classification === 'GREETING') {
                 answered = true;
                 answerText = resolveLocalizedPrompt(config.prompts?.greeting, detectedLang, 'Hello! How can I help you today?');
+                responseSource = 'GREETING';
               }
+              telemetry.emit({
+                eventType: 'llm_completed',
+                tenantId,
+                conversationId: conversation.id,
+                correlationId,
+                stage: 'llm',
+                status: 'SUCCESS',
+                latencyMs: classifierLatencyMs,
+                provider: config.llm?.provider || 'unknown',
+                model: config.llm?.model || 'unknown',
+                metadata: {
+                  purpose: 'greeting_classifier',
+                  classification
+                }
+              });
             }
           }
         }
@@ -341,25 +549,81 @@ ${contextText}`;
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             answered = true;
             answerText = faqMatch.answer;
+            responseSource = 'FAQ';
             logger.info(`ConversationEngine: Workflow-less FAQ match [${faqMatch.entry.id}]`);
+            telemetry.emit({
+              eventType: 'faq_match',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'faq',
+              status: 'SUCCESS',
+              metadata: {
+                faqId: faqMatch.entry.id,
+                matchType: faqMatch.matchType,
+                confidence: faqMatch.confidence
+              }
+            });
+          } else {
+            telemetry.emit({
+              eventType: 'faq_miss',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'faq',
+              status: 'SKIPPED',
+              metadata: {
+                confidence: faqMatch?.confidence || 0
+              }
+            });
           }
         }
 
         // Step 3: PDF/RAG check (if FAQ missed and knowledge enabled)
         let ragResult: any = null;
         if (!answered && config.knowledge?.enabled && this.ragService) {
+          const ragStartTime = Date.now();
           try {
             logger.info(`ConversationEngine: Workflow-less calling RAGService.retrieve for query "${content}"`);
             ragResult = await this.ragService.retrieve(tenantId, content, config);
+            const ragLatencyMs = Date.now() - ragStartTime;
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(config.knowledge.minSimilarityScore || 0.52, 0.70);
-            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+            const isDirectMatch = Boolean(topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content);
+            if (isDirectMatch) {
               answered = true;
               answerText = topChunk.content.trim();
+              responseSource = 'RAG';
               logger.info(`ConversationEngine: Workflow-less RAG match (score: ${topChunk.similarity})`);
             }
+            telemetry.emit({
+              eventType: 'rag_completed',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'rag',
+              status: 'SUCCESS',
+              latencyMs: ragLatencyMs,
+              metadata: {
+                chunkCount: ragResult.chunks?.length || 0,
+                topSimilarity: topChunk?.similarity || 0,
+                threshold: highConfidenceThreshold,
+                directAnswer: isDirectMatch
+              }
+            });
           } catch (e: any) {
+            const ragLatencyMs = Date.now() - ragStartTime;
             logger.warn(`ConversationEngine: Workflow-less RAG retrieval failed: ${e.message || e}`);
+            telemetry.emit({
+              eventType: 'rag_failed',
+              tenantId,
+              conversationId: conversation.id,
+              correlationId,
+              stage: 'rag',
+              status: 'FAILURE',
+              latencyMs: ragLatencyMs,
+              errorCode: e.message || String(e)
+            });
           }
         }
 
@@ -402,12 +666,28 @@ ${contextText}`;
               if (trimmed && trimmed !== 'UNANSWERABLE' && !trimmed.startsWith('UNANSWERABLE')) {
                 answered = true;
                 answerText = trimmed;
+                responseSource = 'LLM';
                 logger.info(`ConversationEngine: Workflow-less LLM answer generated`, {
                   event: 'workflowless_llm_answered',
                   tenantId,
                   latencyMs,
                   failureReason: null,
                   inputLength: content.length
+                });
+                telemetry.emit({
+                  eventType: 'llm_completed',
+                  tenantId,
+                  conversationId: conversation.id,
+                  correlationId,
+                  stage: 'llm',
+                  status: 'SUCCESS',
+                  latencyMs,
+                  provider: config.llm?.provider || 'unknown',
+                  model: config.llm?.model || 'unknown',
+                  metadata: {
+                    purpose: 'workflowless_grounded_answer',
+                    inputLength: content.length
+                  }
                 });
               } else {
                 logger.info(`ConversationEngine: Workflow-less LLM marked query UNANSWERABLE`, {
@@ -416,6 +696,21 @@ ${contextText}`;
                   latencyMs,
                   failureReason: null,
                   inputLength: content.length
+                });
+                telemetry.emit({
+                  eventType: 'llm_completed',
+                  tenantId,
+                  conversationId: conversation.id,
+                  correlationId,
+                  stage: 'llm',
+                  status: 'UNANSWERABLE',
+                  latencyMs,
+                  provider: config.llm?.provider || 'unknown',
+                  model: config.llm?.model || 'unknown',
+                  metadata: {
+                    purpose: 'workflowless_grounded_answer',
+                    inputLength: content.length
+                  }
                 });
               }
             } catch (err: any) {
@@ -428,6 +723,22 @@ ${contextText}`;
                 failureReason,
                 inputLength: content.length
               });
+              telemetry.emit({
+                eventType: 'llm_failed',
+                tenantId,
+                conversationId: conversation.id,
+                correlationId,
+                stage: 'llm',
+                status: 'FAILURE',
+                latencyMs,
+                provider: config.llm?.provider || 'unknown',
+                model: config.llm?.model || 'unknown',
+                errorCode: failureReason,
+                metadata: {
+                  purpose: 'workflowless_grounded_answer',
+                  inputLength: content.length
+                }
+              });
             }
           }
         }
@@ -435,6 +746,7 @@ ${contextText}`;
         if (answered) {
           response = answerText;
         } else if (routed.type === 'IMAGE' && routed.imageAnalysis) {
+          responseSource = 'IMAGE';
           const analysis = routed.imageAnalysis;
           if (analysis.category) {
             response = `I identified a product in the ${analysis.category} category (${analysis.description || analysis.objects.join(', ')}). How can I assist you with this item?`;
@@ -447,11 +759,28 @@ ${contextText}`;
           }
         } else {
           // Static fallback ONLY with detected language localization. Zero LLM calls.
+          responseSource = 'FALLBACK';
           logger.info(`ConversationEngine: Workflow-less unmatched message "${content}" -> returning localized static fallback (lang: ${detectedLang}, 0 LLM calls).`);
           response = resolveLocalizedPrompt(config.prompts?.fallback, detectedLang, "I did not understand that. Could you rephrase?");
         }
       }
     }
+
+    const totalTurnLatencyMs = Date.now() - turnStartTime;
+    // Response constructed and ready to return from ConversationEngine (Observation only; does not imply external delivery)
+    telemetry.emit({
+      eventType: 'response_completed',
+      tenantId,
+      conversationId: conversation.id,
+      correlationId,
+      stage: 'response',
+      status: 'SUCCESS',
+      latencyMs: totalTurnLatencyMs,
+      metadata: {
+        responseSource,
+        outputLength: response.length
+      }
+    });
 
     // 6. Persist response
     if (response) {

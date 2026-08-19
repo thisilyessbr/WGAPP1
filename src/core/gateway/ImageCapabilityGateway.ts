@@ -4,6 +4,7 @@ import {
   validateImageRequest
 } from '../../../packages/shared/contracts/image.contract';
 import { logger } from '../../utils/logger';
+import { telemetry } from '../telemetry/TelemetryClient';
 
 export interface ImageCapabilityGatewayOptions {
   serviceUrl?: string;
@@ -51,9 +52,21 @@ export class ImageCapabilityGateway {
    */
   async analyzeImage(
     tenantId: string,
-    req: ImageUnderstandingRequest
+    req: ImageUnderstandingRequest,
+    correlationId?: string
   ): Promise<ImageUnderstandingResult> {
     const startTime = Date.now();
+
+    telemetry.emit({
+      eventType: 'image_started',
+      tenantId,
+      correlationId,
+      stage: 'image',
+      status: 'SUCCESS',
+      metadata: {
+        mimeType: req.mimeType || 'unknown'
+      }
+    });
 
     // 1. Contract validation on caller side
     const validation = validateImageRequest(req);
@@ -70,7 +83,7 @@ export class ImageCapabilityGateway {
         latencyMs: Date.now() - startTime,
         error: validation.error || 'Invalid image request parameters.'
       };
-      this.logInvocation(tenantId, result);
+      this.logInvocation(tenantId, result, correlationId);
       return result;
     }
 
@@ -110,12 +123,12 @@ export class ImageCapabilityGateway {
           latencyMs: Date.now() - startTime,
           error: errorJson.error || `Image service error (HTTP ${res.status})`
         };
-        this.logInvocation(tenantId, result);
+        this.logInvocation(tenantId, result, correlationId);
         return result;
       }
 
       const result: ImageUnderstandingResult = await res.json();
-      this.logInvocation(tenantId, result);
+      this.logInvocation(tenantId, result, correlationId);
       return result;
 
     } catch (err: any) {
@@ -135,12 +148,47 @@ export class ImageCapabilityGateway {
           ? `Image service request timed out after ${this.overallTimeoutMs}ms`
           : `Image service unreachable: ${err.message || err}`
       };
-      this.logInvocation(tenantId, result);
+      this.logInvocation(tenantId, result, correlationId);
       return result;
     }
   }
 
-  private logInvocation(tenantId: string, result: ImageUnderstandingResult) {
+  private logInvocation(tenantId: string, result: ImageUnderstandingResult, correlationId?: string) {
+    // Telemetry emission: exactly ONE terminal event (image_completed or image_failed)
+    if (result.success) {
+      telemetry.emit({
+        eventType: 'image_completed',
+        tenantId,
+        correlationId,
+        stage: 'image',
+        status: 'SUCCESS',
+        latencyMs: result.latencyMs,
+        provider: result.provider || 'unknown',
+        model: result.model || 'unknown',
+        metadata: {
+          category: result.category,
+          confidence: result.confidence,
+          inputTokens: result.metadata?.inputTokens,
+          outputTokens: result.metadata?.outputTokens
+        }
+      });
+    } else {
+      telemetry.emit({
+        eventType: 'image_failed',
+        tenantId,
+        correlationId,
+        stage: 'image',
+        status: 'FAILURE',
+        latencyMs: result.latencyMs,
+        provider: result.provider || 'gateway',
+        model: result.model || 'unknown',
+        errorCode: result.error || 'Unknown image error',
+        metadata: {
+          error: result.error
+        }
+      });
+    }
+
     // Production logging: strictly metadata, no raw Gemini response text
     const meta = {
       tenantId,

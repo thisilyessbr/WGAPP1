@@ -43,7 +43,8 @@ export class CapabilityRouter {
   async route(
     tenantId: string,
     payload: IncomingMessagePayload,
-    config: BusinessConfig
+    config: BusinessConfig,
+    correlationId?: string
   ): Promise<RoutedMessage> {
     const type = this.classifyType(payload);
     const text = (payload.text || '').trim();
@@ -80,7 +81,7 @@ export class CapabilityRouter {
       imageUrl: payload.imageUrl,
       mimeType: payload.mimeType,
       task: 'describe_product'
-    });
+    }, correlationId);
 
     if (!analysis.success) {
       const fallback = "I can't process images right now — could you describe what you're looking for?";
