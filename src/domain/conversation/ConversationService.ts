@@ -154,4 +154,94 @@ export class ConversationService {
     });
     return result.count > 0;
   }
+
+  async commitConversationTurn(params: {
+    tenantId: string;
+    conversationId: string;
+    expectedVersion: number;
+    userMessage: string;
+    assistantMessage?: string | null;
+    sessionUpdate?: {
+      sessionId: string;
+      stateId: string;
+      contextData: Record<string, any>;
+      status?: string;
+      stateHistory?: string[];
+      collectedData?: Record<string, any>;
+      humanRequested?: boolean;
+      humanRequestedAt?: Date | null;
+    } | null;
+    flagHumanRequested?: boolean;
+    setAutomationCapped?: boolean;
+    incrementPostCompletionCount?: boolean;
+    setPostCompletionCapped?: boolean;
+  }): Promise<{
+    success: boolean;
+    userMessage?: Message;
+    assistantMessage?: Message;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Optimistic locking on Conversation
+      const convUpdate = await tx.conversation.updateMany({
+        where: { id: params.conversationId, tenantId: params.tenantId, version: params.expectedVersion },
+        data: {
+          version: { increment: 1 },
+          messageCount: { increment: 1 },
+          ...(params.flagHumanRequested ? { humanRequested: true, humanRequestedAt: new Date() } : {}),
+          ...(params.setAutomationCapped !== undefined ? { automationCapped: params.setAutomationCapped } : {}),
+          ...(params.incrementPostCompletionCount ? { postCompletionQuestionCount: { increment: 1 } } : {}),
+          ...(params.setPostCompletionCapped !== undefined ? { postCompletionCapped: params.setPostCompletionCapped } : {})
+        }
+      });
+
+      if (convUpdate.count === 0) {
+        throw new Error('Concurrency Conflict: Conversation is currently being processed by another request.');
+      }
+
+      // 2. Persist USER message
+      const userMsg = await tx.message.create({
+        data: {
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          role: 'USER',
+          content: params.userMessage
+        }
+      });
+
+      // 3. Update WorkflowSession if provided
+      if (params.sessionUpdate) {
+        await tx.workflowSession.update({
+          where: { id: params.sessionUpdate.sessionId },
+          data: {
+            stateId: params.sessionUpdate.stateId,
+            contextData: params.sessionUpdate.contextData,
+            status: params.sessionUpdate.status || 'ACTIVE',
+            ...(params.sessionUpdate.stateHistory !== undefined ? { stateHistory: params.sessionUpdate.stateHistory } : {}),
+            ...(params.sessionUpdate.collectedData !== undefined ? { collectedData: params.sessionUpdate.collectedData } : {}),
+            ...(params.sessionUpdate.humanRequested !== undefined ? { humanRequested: params.sessionUpdate.humanRequested } : {}),
+            ...(params.sessionUpdate.humanRequestedAt !== undefined ? { humanRequestedAt: params.sessionUpdate.humanRequestedAt } : {})
+          }
+        });
+      }
+
+      // 4. Persist ASSISTANT message if provided
+      let assistantMsg: Message | undefined;
+      if (params.assistantMessage) {
+        assistantMsg = await tx.message.create({
+          data: {
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            role: 'ASSISTANT',
+            content: params.assistantMessage
+          }
+        });
+      }
+
+      return {
+        success: true,
+        userMessage: userMsg,
+        assistantMessage: assistantMsg
+      };
+    });
+  }
 }

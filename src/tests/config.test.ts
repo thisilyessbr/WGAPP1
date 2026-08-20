@@ -51,8 +51,8 @@ describe('Generic Business Configuration Layer', () => {
     const snapshot = await configService.getConfig(tenant.id);
     // Validating specific overrides
     expect(snapshot.prompts.system).toBe('Custom system prompt');
-    // Ensure others remain default
-    expect(snapshot.prompts.fallback).toBe(DEFAULT_BUSINESS_CONFIG.prompts.fallback);
+    // Ensure others remain default (using toEqual for deep comparison of LocalizedPrompt)
+    expect(snapshot.prompts.fallback).toEqual(DEFAULT_BUSINESS_CONFIG.prompts.fallback);
     expect(snapshot.behavior.allowHumanHandoff).toBe(true);
     expect(snapshot.limits.maxResponseLength).toBe(1000);
     expect(snapshot.knowledge.enabled).toBe(true);

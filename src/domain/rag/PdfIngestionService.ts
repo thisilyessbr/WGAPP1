@@ -3,7 +3,22 @@ import { EmbeddingProvider } from '../../core/rag/EmbeddingProvider';
 import { KnowledgeRepository } from './KnowledgeRepository';
 import { BusinessConfig } from '../tenant/BusinessConfig';
 import * as crypto from 'crypto';
+import * as path from 'path';
 import * as pdfParseModule from 'pdf-parse';
+
+/**
+ * Validates that a buffer has a valid PDF file signature (%PDF- at byte offset 0).
+ */
+export function isValidPdfBuffer(buffer: Buffer | Uint8Array): boolean {
+  if (!buffer || buffer.length < 5) {
+    return false;
+  }
+  return buffer[0] === 0x25 && // %
+         buffer[1] === 0x50 && // P
+         buffer[2] === 0x44 && // D
+         buffer[3] === 0x46 && // F
+         buffer[4] === 0x2D;   // -
+}
 
 export class PdfIngestionService {
   constructor(
@@ -30,13 +45,21 @@ export class PdfIngestionService {
       chunkOverlap
     } = config.knowledge.ingestion;
 
+    // Sanitize filename to prevent path traversal in metadata
+    const sanitizedFilename = path.basename(filename || 'document.pdf');
+
     // 1. Security limit: Max file size
     const sizeInMb = fileBuffer.length / (1024 * 1024);
     if (sizeInMb > maxFileSizeMb) {
       throw new Error(`PDF exceeds maximum allowed size of ${maxFileSizeMb}MB`);
     }
 
-    // 2. Hash computation for idempotency
+    // 2. Security limit: Magic-byte validation (%PDF- at byte offset 0)
+    if (!isValidPdfBuffer(fileBuffer)) {
+      throw new Error('Invalid file format: File does not have a valid PDF header signature (%PDF-).');
+    }
+
+    // 3. Hash computation for idempotency
     const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
     // Check idempotency (Has this exact file been successfully ingested for this tenant before?)
@@ -48,15 +71,15 @@ export class PdfIngestionService {
       return existingSource.id; // Already ingested, safe idempotency return
     }
 
-    // 3. Create the ingestion record (PENDING)
+    // 4. Create the ingestion record (PENDING)
     const source = await this.prisma.knowledgeSource.create({
       data: {
         tenantId,
-        name: filename,
+        name: sanitizedFilename,
         type: 'PDF',
         status: 'PENDING',
         hash,
-        metadata: { mimeType: 'application/pdf', filename, size: fileBuffer.length }
+        metadata: { mimeType: 'application/pdf', filename: sanitizedFilename, size: fileBuffer.length }
       }
     });
 
@@ -141,11 +164,25 @@ export class PdfIngestionService {
 
       return source.id;
     } catch (error: any) {
-      // 12. Mark ingestion FAILED safely
-      await this.prisma.knowledgeSource.update({
-        where: { id: source.id },
-        data: { status: 'FAILED', metadata: { error: error.message, originalFilename: filename } }
-      });
+      // 12. Defense 1: Ingestion Cleanup - Remove partially created KnowledgeDocument & cascading KnowledgeChunk rows
+      try {
+        await this.prisma.knowledgeDocument.deleteMany({
+          where: { sourceId: source.id, tenantId }
+        });
+      } catch (cleanupErr: any) {
+        // Cleanup error logged if needed; never mask the original ingestion error
+      }
+
+      // 13. Mark ingestion FAILED safely
+      try {
+        await this.prisma.knowledgeSource.update({
+          where: { id: source.id },
+          data: { status: 'FAILED', metadata: { error: error.message, originalFilename: sanitizedFilename } }
+        });
+      } catch (updateErr: any) {
+        // Best effort status update
+      }
+
       throw error;
     }
   }

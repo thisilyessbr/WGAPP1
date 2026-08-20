@@ -86,7 +86,7 @@
   <header>
     <div><strong>Chatbot Dev Control Center</strong> (Generic Engine)</div>
     <div>
-      Tenant: <input type="text" id="tenantId" value="dev-tenant" style="width:120px; display:inline-block; margin:0 10px;" readonly>
+      Tenant: <input type="text" id="tenantId" value="atlas-home-tech" style="width:140px; display:inline-block; margin:0 10px;" onchange="onTenantChange()">
       <button onclick="loadConfig()" class="secondary">Reload Config</button>
       <button onclick="saveConfig()">Save Config</button>
     </div>
@@ -256,8 +256,18 @@
     let currentConfig = null;
     let loadedConfigUpdatedAt = null;
     let faqEntries = [];
-    const tenantId = 'dev-tenant';
+    const urlParams = new URLSearchParams(window.location.search);
+    let tenantId = urlParams.get('tenantId') || document.getElementById('tenantId')?.value || 'atlas-home-tech';
+    if (document.getElementById('tenantId')) {
+      document.getElementById('tenantId').value = tenantId;
+    }
     const customerId = 'dev-customer-' + Math.floor(Math.random() * 1000);
+
+    function onTenantChange() {
+      tenantId = document.getElementById('tenantId').value.trim() || 'atlas-home-tech';
+      loadConfig();
+      loadDocuments();
+    }
 
     // --- Bootstrapping & Loading ---
     async function checkBootstrap() {

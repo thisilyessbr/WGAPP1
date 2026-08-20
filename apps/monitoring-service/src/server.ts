@@ -58,7 +58,7 @@ export function createMonitoringApp(
   // GET /api/monitoring/traces/:correlationId
   app.get('/api/monitoring/traces/:correlationId', async (req: Request, res: Response) => {
     try {
-      const { correlationId } = req.params;
+      const correlationId = String(req.params.correlationId);
       const result = await traceService.getTraceByCorrelationId(correlationId);
       return res.json(result);
     } catch (err: any) {
@@ -132,7 +132,7 @@ export function createMonitoringApp(
   // GET /api/admin/turns/:correlationId — Full drill-down for a single turn
   app.get('/api/admin/turns/:correlationId', requireAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { correlationId } = req.params;
+      const correlationId = String(req.params.correlationId);
       const result = await adminQueryService.getTurnDetailByCorrelationId(correlationId);
       return res.json(result);
     } catch (err: any) {
@@ -147,7 +147,7 @@ export function createMonitoringApp(
   // GET /api/admin/conversations/:conversationId/turns — Turn-centric conversation view
   app.get('/api/admin/conversations/:conversationId/turns', requireAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { conversationId } = req.params;
+      const conversationId = String(req.params.conversationId);
       const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
       const filters = {
         outcome: req.query.outcome as string | undefined,
@@ -169,7 +169,7 @@ export function createMonitoringApp(
   // GET /api/admin/conversations/:conversationId/messages — Safe Admin transcript retrieval bridge
   app.get('/api/admin/conversations/:conversationId/messages', requireAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { conversationId } = req.params;
+      const conversationId = String(req.params.conversationId);
       const tenantId = req.query.tenantId as string;
       if (!tenantId || !tenantId.trim()) {
         return res.status(400).json({
@@ -194,7 +194,7 @@ export function createMonitoringApp(
   // GET /api/admin/traces/:correlationId/diagnosis
   app.get('/api/admin/traces/:correlationId/diagnosis', requireAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { correlationId } = req.params;
+      const correlationId = String(req.params.correlationId);
       const result = await adminQueryService.getDiagnosisByCorrelationId(correlationId);
       return res.json(result);
     } catch (err: any) {
@@ -209,7 +209,7 @@ export function createMonitoringApp(
   // GET /api/admin/traces/:correlationId
   app.get('/api/admin/traces/:correlationId', requireAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { correlationId } = req.params;
+      const correlationId = String(req.params.correlationId);
       const result = await adminQueryService.getTraceByCorrelationId(correlationId);
       return res.json(result);
     } catch (err: any) {
@@ -246,7 +246,7 @@ export function createMonitoringApp(
   // GET /api/admin/conversations/:conversationId
   app.get('/api/admin/conversations/:conversationId', requireAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { conversationId } = req.params;
+      const conversationId = String(req.params.conversationId);
       const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
       const result = await adminQueryService.getEventsByConversationId(conversationId, limit);
       return res.json(result);

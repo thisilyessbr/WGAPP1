@@ -1,9 +1,12 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { ChatbotDependencies } from '../bootstrap';
 import multer from 'multer';
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../domain/tenant/BusinessConfig';
+import { isValidPdfBuffer } from '../domain/rag/PdfIngestionService';
+import { createRouteProtectionMiddleware } from '../utils/rateLimiter';
 
 // Setup multer for in-memory file uploads (max 10MB default)
 const upload = multer({
@@ -11,13 +14,255 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
+export interface AuthenticatedPrincipal {
+  tenantId: string;
+  customerId?: string;
+  role?: string;
+}
+
+export interface TokenPayload {
+  tenantId: string;
+  customerId?: string;
+  role?: string;
+  exp?: number;
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      principal?: AuthenticatedPrincipal;
+    }
+  }
+}
+
+function getAuthSecret(): string {
+  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
+  if (process.env.DEV_API_KEY) return process.env.DEV_API_KEY;
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+    return 'test-hmac-auth-secret-key-32chars!';
+  }
+  if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
+    return 'dev-local-control-center-secret-key-32chars!';
+  }
+  return '';
+}
+
+/**
+ * Creates an HMAC-SHA256 signed token for a tenant/customer principal.
+ */
+export function createSignedToken(payload: TokenPayload, secretKey?: string): string {
+  const secret = secretKey || getAuthSecret();
+  if (!secret) {
+    throw new Error('Cannot create token: AUTH_SECRET or DEV_API_KEY is not configured.');
+  }
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
+  return `${payloadB64}.${signature}`;
+}
+
+/**
+ * Verifies an HMAC-SHA256 signed token and returns the authenticated payload.
+ * Rejects unsigned, forged, or tampered tokens.
+ */
+export function verifySignedToken(token: string, secretKey?: string): TokenPayload | null {
+  const secret = secretKey || getAuthSecret();
+  if (!secret || !token || !token.includes('.')) {
+    return null;
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const [payloadB64, signature] = parts;
+  const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
+
+  // Constant-time signature comparison to prevent timing attacks
+  const sigBuf = Buffer.from(signature);
+  const expBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+
+  try {
+    const payloadJson = Buffer.from(payloadB64, 'base64url').toString('utf8');
+    const payload: TokenPayload = JSON.parse(payloadJson);
+
+    if (!payload || typeof payload.tenantId !== 'string' || !payload.tenantId.trim()) {
+      return null;
+    }
+
+    if (payload.exp && Date.now() > payload.exp) {
+      return null; // Expired token
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function timingSafeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+export function resolvePrincipal(req: Request): AuthenticatedPrincipal | null {
+  const authHeader = req.headers['authorization'];
+  const apiKeyHeader = req.headers['x-api-key'] as string;
+  let bearerToken = '';
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    bearerToken = authHeader.substring(7).trim();
+  }
+
+  const apiKey = apiKeyHeader ? apiKeyHeader.trim() : '';
+
+  // Get active admin secret from environment (strictly fail closed if not configured)
+  const configuredAdminKey = process.env.DEV_API_KEY;
+
+  // 1. Check Authorization: Bearer <token>
+  if (bearerToken) {
+    // Check if bearer token is the configured admin key
+    if (configuredAdminKey && timingSafeCompare(bearerToken, configuredAdminKey)) {
+      const targetTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
+      const targetCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string | undefined;
+      return { tenantId: targetTenant, customerId: targetCustomer, role: 'admin' };
+    }
+
+    // Check if bearer token is a valid signed token
+    const signedPayload = verifySignedToken(bearerToken);
+    if (signedPayload) {
+      return {
+        tenantId: signedPayload.tenantId,
+        customerId: signedPayload.customerId,
+        role: signedPayload.role
+      };
+    }
+
+    // In non-test or strict environments, invalid/unsigned Bearer tokens MUST fail
+    return null;
+  }
+
+  // 2. Check X-API-Key header
+  if (apiKey) {
+    if (configuredAdminKey && timingSafeCompare(apiKey, configuredAdminKey)) {
+      const targetTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
+      const targetCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string | undefined;
+      return { tenantId: targetTenant, customerId: targetCustomer, role: 'admin' };
+    }
+    return null;
+  }
+
+  // 3. Backward-compatible test harness fallback ONLY when running legacy vitest tests without auth headers
+  const isLegacyTest = (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') && process.env.STRICT_AUTH !== 'true';
+  if (isLegacyTest) {
+    const fallbackTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId) as string;
+    const fallbackCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string;
+    if (fallbackTenant) {
+      return { tenantId: fallbackTenant, customerId: fallbackCustomer };
+    }
+  }
+
+  // 4. Explicit development mode fallback for local Control Center UI
+  const isDevMode = process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true';
+  if (isDevMode) {
+    const devTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
+    const devCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string | undefined;
+    return { tenantId: devTenant, customerId: devCustomer, role: 'admin' };
+  }
+
+  return null;
+}
+
 export function createDevChatRouter(deps: ChatbotDependencies): Router {
   const router = Router();
+
+  // Route-Specific Rate Limiters & Concurrency Semaphores
+  const chatProtection = createRouteProtectionMiddleware({
+    keyPrefix: 'chat',
+    perIpLimit: { max: 30, windowMs: 60000 },
+    perTenantLimit: { max: 120, windowMs: 60000 },
+    concurrencyLimit: 20
+  });
+
+  const uploadProtection = createRouteProtectionMiddleware({
+    keyPrefix: 'upload',
+    perIpLimit: { max: 5, windowMs: 60000 },
+    perTenantLimit: { max: 20, windowMs: 60000 },
+    concurrencyLimit: 4
+  });
+
+  const translateProtection = createRouteProtectionMiddleware({
+    keyPrefix: 'translate',
+    perIpLimit: { max: 10, windowMs: 60000 },
+    perTenantLimit: { max: 30, windowMs: 60000 },
+    concurrencyLimit: 5
+  });
+
+  const pilotChatProtection = createRouteProtectionMiddleware({
+    keyPrefix: 'pilot_chat',
+    perIpLimit: { max: 20, windowMs: 60000 },
+    perTenantLimit: { max: 60, windowMs: 60000 },
+    concurrencyLimit: 10
+  });
+
+  const resetProtection = createRouteProtectionMiddleware({
+    keyPrefix: 'reset',
+    perIpLimit: { max: 30, windowMs: 60000 },
+    perTenantLimit: { max: 60, windowMs: 60000 }
+  });
+
+  // Global Authentication & Tenant Authorization Middleware
+  router.use(async (req: Request, res: Response, next) => {
+    if (req.path.startsWith('/pilot-harness/preset-image')) {
+      return next();
+    }
+
+    // 1. Authenticate Principal
+    const principal = resolvePrincipal(req);
+    if (!principal) {
+      return res.status(401).json({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required. Please provide a valid signed Authorization Bearer token or configured x-api-key.'
+      });
+    }
+
+    req.principal = principal;
+
+    // 2. Authorize Tenant Scope
+    const clientTenantId = req.body?.tenantId || req.query?.tenantId;
+    if (clientTenantId && clientTenantId !== principal.tenantId && principal.role !== 'admin') {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: `Tenant authorization mismatch: Authenticated principal (${principal.tenantId}) cannot access target tenant (${clientTenantId}).`
+      });
+    }
+
+    // 3. Verify Tenant Existence in Database (skip for /bootstrap)
+    if (req.path === '/bootstrap') {
+      return next();
+    }
+
+    try {
+      const tenant = await deps.prisma.tenant.findUnique({ where: { id: principal.tenantId } });
+      if (!tenant) {
+        return res.status(404).json({ error: 'Tenant not found. Please bootstrap first.' });
+      }
+      next();
+    } catch (e: any) {
+      console.error("AUTH MIDDLEWARE ERROR:", e);
+      return res.status(500).json({ error: e.message || String(e) });
+    }
+  });
 
   // Explicit bootstrap endpoint to create a dev tenant and seed default config
   router.post('/bootstrap', async (req: Request, res: Response) => {
     try {
-      const tenantId = 'dev-tenant';
+      const tenantId = req.principal!.tenantId;
       let tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId } });
       if (!tenant) {
         tenant = await deps.prisma.tenant.create({ data: { id: tenantId, name: 'Development Tenant' } });
@@ -31,31 +276,10 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     }
   });
 
-  // Tenant Validation Middleware
-  router.use(async (req: Request, res: Response, next) => {
-    if (req.path === '/upload' || req.path.startsWith('/pilot-harness')) {
-      return next(); // Handled by route-specific validators
-    }
-    const tenantId = req.body?.tenantId || req.query?.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenantId is required' });
-    }
-    try {
-      const tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId as string } });
-      if (!tenant) {
-        return res.status(404).json({ error: 'Tenant not found. Please bootstrap first.' });
-      }
-      next();
-    } catch (e: any) {
-      console.error("MIDDLEWARE ERROR:", e);
-      return res.status(500).json({ error: e.message || String(e) });
-    }
-  });
-
   // GET BusinessConfig
   router.get('/config', async (req: Request, res: Response) => {
     try {
-      const tenantId = req.query.tenantId as string;
+      const tenantId = req.principal!.tenantId;
       const config = await deps.tenantConfigService.getConfig(tenantId);
       const record = await deps.prisma.tenantConfig.findUnique({
         where: { tenantId },
@@ -86,16 +310,14 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     });
   };
 
-  // Move /upload BEFORE the global tenant validation middleware, 
-  // so multer parses the body FIRST, then we manually validate tenantId.
-  router.post('/upload', parseUpload, async (req: Request, res: Response) => {
+  router.post('/upload', uploadProtection.middleware, parseUpload, async (req: Request, res: Response) => {
     let currentStage = 'UPLOAD_START';
     let originalPrisma: any;
     let originalEmbeddingProvider: any;
     let originalKnowledgeRepository: any;
 
     try {
-      const tenantId = req.body?.tenantId || req.query?.tenantId;
+      const tenantId = req.principal!.tenantId;
       const file = req.file;
       
       if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
@@ -139,6 +361,15 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
           stage: currentStage,
           message: 'Invalid file type',
           details: `Expected application/pdf but received ${file.mimetype}`
+        });
+      }
+
+      if (!isValidPdfBuffer(file.buffer)) {
+        return res.status(400).json({
+          error: 'PDF_UPLOAD_FAILED',
+          stage: currentStage,
+          message: 'Invalid file signature',
+          details: 'Uploaded file does not start with a valid PDF magic header (%PDF-).'
         });
       }
 
@@ -268,7 +499,7 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
   // POST (Update) BusinessConfig
   router.post('/config', async (req: Request, res: Response) => {
     try {
-      const tenantId = req.body.tenantId;
+      const tenantId = req.principal!.tenantId;
       const newConfig: BusinessConfig = req.body.config;
       const clientUpdatedAt = req.body.updatedAt || req.headers['x-config-updated-at'];
 
@@ -310,14 +541,14 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
   });
 
   // POST /api/dev/faq/translate - Creation-time only translation helper
-  router.post('/faq/translate', async (req: Request, res: Response) => {
+  router.post('/faq/translate', translateProtection.middleware, async (req: Request, res: Response) => {
     try {
       const { sourceLang, question, answer, keywords } = req.body;
       if (!question || !answer) {
         return res.status(400).json({ error: 'question and answer are required' });
       }
 
-      const tenantId = (req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
+      const tenantId = req.principal!.tenantId;
       const config = await deps.tenantConfigService.getConfig(tenantId);
       const { provider: llm, options: llmOptions } = deps.llmFactory.getProvider(config.llm);
 
@@ -384,7 +615,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   // GET Uploaded Documents
   router.get('/documents', async (req: Request, res: Response) => {
     try {
-      const tenantId = req.query.tenantId as string;
+      const tenantId = req.principal!.tenantId;
       const sources = await deps.prisma.knowledgeSource.findMany({
         where: { tenantId },
         orderBy: { createdAt: 'desc' }
@@ -408,25 +639,21 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   // DELETE Document / Knowledge Source (cascades to KnowledgeDocument and KnowledgeChunk)
   router.delete('/documents/:sourceId', async (req: Request, res: Response) => {
     try {
-      const tenantId = (req.body?.tenantId || req.query?.tenantId) as string;
-      const { sourceId } = req.params;
-
-      if (!tenantId) {
-        return res.status(400).json({ error: 'tenantId is required' });
-      }
+      const tenantId = req.principal!.tenantId;
+      const sourceId = Array.isArray(req.params.sourceId) ? req.params.sourceId[0] : req.params.sourceId;
 
       // Check existence and verify strict tenant scoping
-      const source = await deps.prisma.knowledgeSource.findUnique({
-        where: { id: sourceId }
+      const source = await deps.prisma.knowledgeSource.findFirst({
+        where: { id: sourceId as string, tenantId }
       });
 
-      if (!source || source.tenantId !== tenantId) {
+      if (!source) {
         return res.status(404).json({ error: 'Knowledge source not found or belongs to another tenant' });
       }
 
       // Delete KnowledgeSource which cascades to KnowledgeDocument and KnowledgeChunk
       await deps.prisma.knowledgeSource.delete({
-        where: { id: sourceId }
+        where: { id: sourceId as string }
       });
 
       // Invalidate in-memory tenant config and knowledge caches
@@ -444,8 +671,16 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   });
 
   // POST Chat with Proxy Diagnostics & Multi-modal Support
-  router.post('/chat', async (req: Request, res: Response) => {
-    const { tenantId, customerId, message, imageBase64, imageUrl, mimeType } = req.body;
+  router.post('/chat', chatProtection.middleware, async (req: Request, res: Response) => {
+    const tenantId = req.principal!.tenantId;
+    const { customerId, message, imageBase64, imageUrl, mimeType } = req.body;
+
+    if (req.principal!.customerId && req.principal!.customerId !== customerId) {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: `Customer authorization mismatch: Principal is restricted to customer ${req.principal!.customerId}`
+      });
+    }
 
     if (!customerId || (!message && !imageBase64 && !imageUrl)) {
       return res.status(400).json({ error: 'customerId and message (or image payload) are required' });
@@ -609,13 +844,25 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         }
       });
     } catch (error: any) {
+      if (error.message && (error.message.includes('Concurrency Conflict') || error.message.includes('CONCURRENCY_CONFLICT'))) {
+        return res.status(409).json({ error: 'CONCURRENCY_CONFLICT', message: error.message });
+      }
       res.status(500).json({ error: error.message });
     }
   });
 
   // POST Reset Conversation
-  router.post('/reset', async (req: Request, res: Response) => {
-    const { tenantId, customerId } = req.body;
+  router.post('/reset', resetProtection.middleware, async (req: Request, res: Response) => {
+    const tenantId = req.principal!.tenantId;
+    const { customerId } = req.body;
+
+    if (req.principal!.customerId && req.principal!.customerId !== customerId) {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: `Customer authorization mismatch: Principal is restricted to customer ${req.principal!.customerId}`
+      });
+    }
+
     try {
       const existing = await deps.prisma.conversation.findFirst({
         where: { tenantId, customerId, status: 'ACTIVE' }
@@ -643,11 +890,11 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   // GET /api/dev/pilot-harness/kb - Live pull of pilot-auto-repair KB & FAQs
   router.get('/pilot-harness/kb', async (req: Request, res: Response) => {
     try {
-      const requestedTenant = (req.query.tenantId as string) || 'pilot-auto-repair';
-      if (requestedTenant !== 'pilot-auto-repair') {
-        return res.status(400).json({
+      const tenantId = req.principal!.tenantId;
+      if (tenantId !== 'pilot-auto-repair' && req.principal!.role !== 'admin') {
+        return res.status(403).json({
           error: 'TENANT_LOCK_VIOLATION',
-          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${requestedTenant}'`
+          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${tenantId}'`
         });
       }
 
@@ -687,13 +934,13 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   });
 
   // POST /api/dev/pilot-harness/chat - Execute real pipeline against pilot-auto-repair
-  router.post('/pilot-harness/chat', async (req: Request, res: Response) => {
+  router.post('/pilot-harness/chat', pilotChatProtection.middleware, async (req: Request, res: Response) => {
     try {
-      const requestedTenant = req.body?.tenantId || 'pilot-auto-repair';
-      if (requestedTenant !== 'pilot-auto-repair') {
-        return res.status(400).json({
+      const tenantId = req.principal!.tenantId;
+      if (tenantId !== 'pilot-auto-repair' && req.principal!.role !== 'admin') {
+        return res.status(403).json({
           error: 'TENANT_LOCK_VIOLATION',
-          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${requestedTenant}'`
+          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${tenantId}'`
         });
       }
 
@@ -718,6 +965,11 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         } catch (err: any) {
           imageError = err.message || String(err);
           gatewayLatencyMs = Date.now() - gwStart;
+          realAnalysis = {
+            success: false,
+            error: imageError,
+            model: 'unknown'
+          };
         }
       }
 
@@ -728,7 +980,8 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         responseText = await deps.conversationEngine.handleImageMessage('pilot-auto-repair', customerId, {
           imageBase64,
           mimeType: mimeType || 'image/jpeg',
-          textPrompt: hasText ? text : undefined
+          textPrompt: hasText ? text : undefined,
+          precomputedImageAnalysis: realAnalysis
         });
       } else {
         responseText = await deps.conversationEngine.handleMessage('pilot-auto-repair', customerId, text || '');

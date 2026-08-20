@@ -3,6 +3,18 @@ import { DEFAULT_GEMINI_MODEL } from '../../core/llm/GeminiLLMProvider';
 export interface IdentityConfig {
   botName: string;
   language: string;
+  brand?: string;
+  industry?: string;
+  country?: string;
+  currency?: string;
+  businessHours?: string;
+  locations?: string[];
+  support?: {
+    email?: string;
+    sales?: string;
+    returns?: string;
+    phone?: string;
+  };
 }
 
 export interface BehaviorConfig {
@@ -34,8 +46,22 @@ export function resolveLocalizedPrompt(
   defaultEn: string
 ): string {
   if (!prompt) return defaultEn;
-  if (typeof prompt === 'string') return prompt;
-  return prompt[lang] || prompt.en || defaultEn;
+  if (typeof prompt === 'string') {
+    const trimmed = prompt.trim();
+    if (!trimmed || trimmed === '[object Object]' || trimmed.includes('[object Object]')) {
+      return defaultEn;
+    }
+    return prompt;
+  }
+  const resolved = prompt[lang] || prompt.en || defaultEn;
+  if (typeof resolved === 'string') {
+    const trimmed = resolved.trim();
+    if (!trimmed || trimmed === '[object Object]' || trimmed.includes('[object Object]')) {
+      return defaultEn;
+    }
+    return resolved;
+  }
+  return defaultEn;
 }
 
 export interface PromptsConfig {
@@ -126,9 +152,12 @@ export interface LlmConfig {
 
 export interface FaqEntry {
   id: string;
-  questions: { en?: string; fr?: string; ar?: string; darija?: string };
-  answers: { en?: string; fr?: string; ar?: string; darija?: string };
-  keywords?: { en?: string[]; fr?: string[]; ar?: string[]; darija?: string[] };
+  category?: string;
+  question?: string;
+  answer?: string;
+  questions?: { en?: string; fr?: string; ar?: string; darija?: string };
+  answers?: { en?: string; fr?: string; ar?: string; darija?: string };
+  keywords?: { en?: string[]; fr?: string[]; ar?: string[]; darija?: string[] } | string[];
 }
 
 export interface CapabilitiesConfig {
@@ -146,6 +175,11 @@ export interface BusinessConfig {
   workflows: Record<string, WorkflowConfig>;
   knowledge: KnowledgeConfig;
   llm: LlmConfig;
+  catalog?: any[];
+  customers?: any[];
+  orders?: any[];
+  shippingZones?: any[];
+  promotions?: any[];
 }
 
 // Default configuration ensures safety and reasonable starting points.

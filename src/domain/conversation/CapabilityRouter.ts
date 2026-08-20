@@ -16,6 +16,7 @@ export interface IncomingMessagePayload {
   imageBase64?: string | null;
   imageUrl?: string | null;
   mimeType?: string | null;
+  precomputedImageAnalysis?: ImageUnderstandingResult | null;
 }
 
 export interface RoutedMessage {
@@ -27,6 +28,13 @@ export interface RoutedMessage {
   userDisplayContent: string;
   imageAnalysis?: ImageUnderstandingResult | null;
 }
+
+export const DEFAULT_IMAGE_FALLBACK_MESSAGES = {
+  en: "I can't process images right now — could you describe what you're looking for?",
+  fr: "Je ne peux pas traiter les images pour le moment — pourriez-vous décrire ce que vous recherchez ?",
+  ar: "لا يمكنني معالجة الصور في الوقت الحالي — هل يمكنك وصف ما تبحث عنه؟",
+  darija: "ما كنعالجش التصاور دابا — عفاك واش تقدر توصف ليا شنو بغيتي؟"
+};
 
 export class CapabilityRouter {
   constructor(private imageGateway: ImageCapabilityGateway) {}
@@ -75,13 +83,15 @@ export class CapabilityRouter {
       };
     }
 
-    // Call Image Capability Gateway
-    const analysis = await this.imageGateway.analyzeImage(tenantId, {
-      imageBase64: payload.imageBase64,
-      imageUrl: payload.imageUrl,
-      mimeType: payload.mimeType,
-      task: 'describe_product'
-    }, correlationId);
+    // Call Image Capability Gateway or reuse precomputed analysis
+    const analysis = payload.precomputedImageAnalysis !== undefined && payload.precomputedImageAnalysis !== null
+      ? payload.precomputedImageAnalysis
+      : await this.imageGateway.analyzeImage(tenantId, {
+          imageBase64: payload.imageBase64,
+          imageUrl: payload.imageUrl,
+          mimeType: payload.mimeType,
+          task: 'describe_product'
+        }, correlationId);
 
     if (!analysis.success) {
       const fallback = "I can't process images right now — could you describe what you're looking for?";

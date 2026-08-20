@@ -2,23 +2,26 @@ import { LLMProvider } from '../../core/llm/LLMProvider';
 import { logger } from '../../utils/logger';
 
 export class GreetingRouter {
-  // 1. Known Greetings (Normalized)
+  // 1. Known Greetings & Polite Acknowledgments (Normalized)
   private static KNOWN_GREETINGS = new Set([
     // English
     'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy',
     'greetings', 'hi there', 'hey there', 'welcome', 'morning', 'evening', 'yo',
+    'thanks', 'thank you', 'ok', 'okay', 'great', 'that works', 'good',
 
     // French
     'bonjour', 'salut', 'bonsoir', 'coucou', 'allo', 'bon matin', 'bienvenue', 'bjr', 'bsr',
+    'merci', 'merci beaucoup', 'daccord', 'd accord', "d'accord", 'parfait',
 
     // Standard Arabic (MSA)
     'مرحبا', 'اهلا', 'اهلا وسهلا', 'صباح الخير', 'مساء الخير', 'السلام عليكم', 'تحياتي', 'سلام', 'اهلين', 'مرحبتين',
+    'شكرا', 'شكرا جزيلا', 'حسنا', 'ممتاز',
 
     // Darija / Arabizi
     'salam', 'ssalam', 'ahlan', 'sbah lkhir', 'sbah nour', 'sbah ennour', 'sbah el khir', 'sbah lkheir',
     'msa lkhir', 'msa nour', 'labas', 'la bas', 'cv',
     'kidayr', 'kidayra', 'kif dayr', 'kif dayra', 'salamo 3alaykom', 'salamo3alaykom',
-    'wesh', 'wach rak', 'ach khbark', 'ca va'
+    'wesh', 'wach rak', 'ach khbark', 'ca va', 'chokran', 'shukran', 'chokran bzaf', 'wakha', 'mzyan'
   ]);
 
   // 2. Question Indicators (Words & Phrases)

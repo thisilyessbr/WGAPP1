@@ -24,20 +24,25 @@ export class KnowledgeRepository {
   async searchSimilar(tenantId: string, queryEmbedding: number[], topK: number, minSimilarity: number): Promise<RetrievedChunk[]> {
     const embeddingString = `[${queryEmbedding.join(',')}]`;
     
-    // We use inner product (<#>) or cosine distance (<=>). Cosine distance is standard for text embeddings.
+    // We use cosine distance (<=>). Cosine distance is standard for text embeddings.
     // distance = embedding <=> query
     // similarity = 1 - distance
-    // STRICT TENANT ISOLATION: "tenantId" = ${tenantId} is hardcoded into the WHERE clause
+    // STRICT TENANT ISOLATION: kc."tenantId" = ${tenantId} is hardcoded into the WHERE clause
+    // DEFENSE 2: Only chunks whose parent KnowledgeSource is 'COMPLETED' are returned
     const results: any[] = await this.prisma.$queryRaw`
       SELECT 
-        id,
-        "documentId",
-        content,
-        1 - (embedding <=> ${embeddingString}::vector) as similarity
-      FROM "KnowledgeChunk"
-      WHERE "tenantId" = ${tenantId}
-        AND 1 - (embedding <=> ${embeddingString}::vector) >= ${minSimilarity}
-      ORDER BY embedding <=> ${embeddingString}::vector
+        kc.id,
+        kc."documentId",
+        kc.content,
+        1 - (kc.embedding <=> ${embeddingString}::vector) as similarity
+      FROM "KnowledgeChunk" kc
+      JOIN "KnowledgeDocument" kd ON kc."documentId" = kd.id
+      JOIN "KnowledgeSource" ks ON kd."sourceId" = ks.id
+      WHERE kc."tenantId" = ${tenantId}
+        AND ks."tenantId" = ${tenantId}
+        AND ks.status = 'COMPLETED'
+        AND 1 - (kc.embedding <=> ${embeddingString}::vector) >= ${minSimilarity}
+      ORDER BY kc.embedding <=> ${embeddingString}::vector
       LIMIT ${topK}
     `;
 

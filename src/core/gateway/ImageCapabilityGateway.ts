@@ -60,7 +60,7 @@ export class ImageCapabilityGateway {
     telemetry.emit({
       eventType: 'image_started',
       tenantId,
-      correlationId,
+      correlationId: correlationId || 'unknown',
       stage: 'image',
       status: 'SUCCESS',
       metadata: {
@@ -159,7 +159,7 @@ export class ImageCapabilityGateway {
       telemetry.emit({
         eventType: 'image_completed',
         tenantId,
-        correlationId,
+        correlationId: correlationId || 'unknown',
         stage: 'image',
         status: 'SUCCESS',
         latencyMs: result.latencyMs,
@@ -176,7 +176,7 @@ export class ImageCapabilityGateway {
       telemetry.emit({
         eventType: 'image_failed',
         tenantId,
-        correlationId,
+        correlationId: correlationId || 'unknown',
         stage: 'image',
         status: 'FAILURE',
         latencyMs: result.latencyMs,
