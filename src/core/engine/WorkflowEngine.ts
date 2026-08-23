@@ -149,7 +149,7 @@ export class WorkflowEngine {
     
     // 1. Number matching (1-based index)
     const num = parseInt(trimmed, 10);
-    if (!isNaN(num) && num >= 1 && num <= options.length) {
+    if (!isNaN(num) && num >= 1 && num <= options.length && String(num) === trimmed) {
       return options[num - 1];
     }
 
@@ -161,11 +161,20 @@ export class WorkflowEngine {
       }
     }
 
-    // 3. Substring / containment match
+    // 3. Whole-word / token boundary containment match
+    const words = lower.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
     for (const opt of options) {
       const optLower = opt.label.trim().toLowerCase();
-      if (lower.includes(optLower) || (optLower.length >= 4 && optLower.includes(lower))) {
-        return opt;
+      const optWords = optLower.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+
+      if (optWords.length > 1) {
+        if (` ${lower} `.includes(` ${optLower} `)) {
+          return opt;
+        }
+      } else if (optWords.length === 1) {
+        if (words.includes(optWords[0])) {
+          return opt;
+        }
       }
     }
 
@@ -607,7 +616,22 @@ export class WorkflowEngine {
           });
         }
 
-        // 3. Valid non-empty user message -> store raw text into collectedData (no LLM call)
+        // 3. Field schema validation (if field configuration object is provided)
+        if (stateConfig.field && typeof stateConfig.field === 'object') {
+          const validationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);
+          if (validationErr) {
+            return finishAndReturn({
+              updatedContext: currentContext,
+              nextStateId: currentStateId,
+              response: `${validationErr}\n\n${currentCollectPrompt}`,
+              isComplete: false,
+              updatedStateHistory: history,
+              updatedCollectedData: collectedData
+            });
+          }
+        }
+
+        // 4. Valid non-empty user message -> store text into collectedData (no LLM call)
         collectedData[fieldName] = trimmedMsg;
         currentContext[fieldName] = trimmedMsg;
         currentContext['_consecutiveUnmatched'] = 0;

@@ -5,7 +5,7 @@ export type SupportedLanguage = 'en' | 'fr' | 'ar' | 'darija';
 export class LanguageDetector {
   private static DARIJA_LATIN_WORDS = new Set([
     'bghit', 'bghiti', 'bghina', 'dakchi', 'katbi3o', 'dyal', 'dyalk', 'dyalna', 'dyalkom',
-    'dial', 'diyalna', 'wach', 'wash', 'chno', 'chnou', 'ashno', 'chhal', 'kifach', 'kifash',
+    'dial', 'diyalna', 'wach', 'chno', 'chnou', 'ashno', 'chhal', 'kifach', 'kifash',
     'fayn', 'fin', 'kayn', 'kayna', 'daba', 'hadi', 'hada', 'homa', 'chokran', 'shukran',
     'salam', 'ahlan', 'mzyan', 'mezyan', 'khass', 'khesni', 'khasni', '3ndkom', '3ndek', '3ndi',
     'shhar', 'chhar', 'nsowl', 'nswl', 'nswlo', 'swal', 'soual', 'fhad', 'hadchi', '3afak',
@@ -37,7 +37,9 @@ export class LanguageDetector {
     'do', 'does', 'have', 'we', 'our', 'your', 'service', 'business', 'policy', 'open',
     'random', 'query', 'message', 'this', 'that', 'with', 'from', 'without', 'answer',
     'wireless', 'technology', 'authentication', 'file', 'company', 'charging', 'available',
-    'weight', 'length', 'robot', 'protocol', 'codec', 'release', 'endpoint', 'port'
+    'weight', 'length', 'robot', 'protocol', 'codec', 'release', 'endpoint', 'port',
+    'care', 'guide', 'wash', 'cold', 'hang', 'dry', 'items', 'item', 'returned', 'original',
+    'condition', 'delivery', 'standard', 'across', 'morocco', 'order', 'tracking'
   ]);
 
   // Exclude technical acronyms, time units, storage, and specs from Arabizi digit matching
@@ -144,6 +146,42 @@ export class LanguageDetector {
 
     return 'en';
   }
+
+  /**
+   * Checks whether an input lacks strong lexical markers in any supported language
+   * (e.g. "ok", "yes", punctuation, numbers) and should inherit conversation context.
+   */
+  static isAmbiguous(text: string): boolean {
+    if (!text || !text.trim()) return true;
+    const trimmed = text.trim();
+
+    // Arabic script is unambiguous
+    const arabicCharCount = (trimmed.match(/[\u0600-\u06FF]/g) || []).length;
+    if (arabicCharCount > 0 && arabicCharCount / trimmed.length > 0.2) {
+      return false;
+    }
+
+    const words = trimmed.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 0);
+
+    if (words.length === 0) return true;
+
+    for (const word of words) {
+      const dedupWord = word.replace(/(.)\1{2,}/g, '$1');
+      if (
+        this.DARIJA_LATIN_WORDS.has(word) || this.DARIJA_LATIN_WORDS.has(dedupWord) ||
+        this.FRENCH_WORDS.has(word) || this.FRENCH_WORDS.has(dedupWord) ||
+        this.ENGLISH_WORDS.has(word) || this.ENGLISH_WORDS.has(dedupWord)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 }
 
 export interface FaqMatchResult {
@@ -225,19 +263,19 @@ export class FaqMatcher {
    */
   private static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage): string | null {
     if (lang === 'en') {
-      const enAns = entry.answers?.en || entry.answer;
+      const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language || !entry.answers ? entry.answer : null);
       return enAns && typeof enAns === 'string' && enAns.trim() ? enAns.trim() : null;
     }
     if (lang === 'fr') {
-      const frAns = entry.answers?.fr;
+      const frAns = entry.answers?.fr || (entry.language === 'fr' ? entry.answer : null);
       return frAns && typeof frAns === 'string' && frAns.trim() ? frAns.trim() : null;
     }
     if (lang === 'ar') {
-      const arAns = entry.answers?.ar || entry.answers?.darija;
+      const arAns = entry.answers?.ar || entry.answers?.darija || (entry.language === 'ar' || entry.language === 'darija' ? entry.answer : null);
       return arAns && typeof arAns === 'string' && arAns.trim() ? arAns.trim() : null;
     }
     if (lang === 'darija') {
-      const darAns = entry.answers?.darija || entry.answers?.ar;
+      const darAns = entry.answers?.darija || entry.answers?.ar || (entry.language === 'darija' || entry.language === 'ar' ? entry.answer : null);
       return darAns && typeof darAns === 'string' && darAns.trim() ? darAns.trim() : null;
     }
     return null;
@@ -276,7 +314,8 @@ export class FaqMatcher {
         const rawAnswer = this.resolveLanguageAnswer(entry, l);
         if (!rawAnswer) continue; // Language safety: cannot match if valid localized answer is missing
 
-        const rawQuestion = entry.questions?.[l] || (l === 'en' ? entry.question : undefined);
+        const rawQuestion = entry.questions?.[l] ||
+          ((entry.language === l || (l === 'darija' && entry.language === 'ar') || (l === 'ar' && entry.language === 'darija') || (!entry.questions && (l === 'en' || !entry.language))) ? entry.question : undefined);
         const rawKeywords: string[] = Array.isArray(entry.keywords)
           ? (l === 'en' ? entry.keywords : [])
           : (entry.keywords?.[l] || []);
@@ -309,10 +348,10 @@ export class FaqMatcher {
             }
 
             // 1.2 Full Subset Token Containment
-            const isAllQueryTokensInQuestion = queryTokensList.length > 0 && queryTokensList.every(t => qTokens.has(t));
             const isAllQuestionTokensInQuery = qTokensList.length > 0 && qTokensList.every(t => queryTokens.has(t));
+            const isAllQueryTokensInQuestion = queryTokensList.length >= 2 && queryTokensList.every(t => qTokens.has(t)) && (queryTokensList.length / qTokensList.length >= 0.35);
 
-            if (isAllQueryTokensInQuestion || isAllQuestionTokensInQuery) {
+            if (isAllQuestionTokensInQuery || isAllQueryTokensInQuestion) {
               const matchedTokens = queryTokensList.filter(t => qTokens.has(t));
               const tokenCoverage = matchedTokens.length / Math.max(totalQueryTokens, qTokensList.length);
               candidates.push({
@@ -331,23 +370,26 @@ export class FaqMatcher {
             }
 
             // 1.3 Partial Token Overlap
-            const commonTokens = queryTokensList.filter(t => qTokens.has(t));
-            const overlapRatio = commonTokens.length / Math.max(1, totalQueryTokens);
+            if (totalQueryTokens >= 2) {
+              const commonTokens = queryTokensList.filter(t => qTokens.has(t));
+              const overlapRatio = commonTokens.length / Math.max(1, totalQueryTokens);
+              const qCoverage = commonTokens.length / Math.max(1, qTokensList.length);
 
-            if (overlapRatio >= 0.6) {
-              candidates.push({
-                entry,
-                answer: rawAnswer,
-                matchedLang: l,
-                confidence: Math.min(0.9, 0.7 + overlapRatio * 0.2),
-                matchType: 'token_overlap',
-                priorityScore: 700 + Math.round(overlapRatio * 100),
-                matchedTokenCount: commonTokens.length,
-                tokenCoverage: overlapRatio,
-                questionLength,
-                entryId
-              });
-              continue;
+              if (overlapRatio >= 0.6 && qCoverage >= 0.25) {
+                candidates.push({
+                  entry,
+                  answer: rawAnswer,
+                  matchedLang: l,
+                  confidence: Math.min(0.9, 0.7 + overlapRatio * 0.2),
+                  matchType: 'token_overlap',
+                  priorityScore: 700 + Math.round(overlapRatio * 100),
+                  matchedTokenCount: commonTokens.length,
+                  tokenCoverage: overlapRatio,
+                  questionLength,
+                  entryId
+                });
+                continue;
+              }
             }
 
             // 1.4 Fuzzy Levenshtein Match on Question

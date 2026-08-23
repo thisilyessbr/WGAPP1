@@ -228,6 +228,13 @@ export class TenantConfigService {
       (merged as any).defaultWorkflowId = overrides.defaultWorkflowId;
     }
 
+    // Preserve custom / unknown top-level JSON fields
+    for (const [key, value] of Object.entries(overrides)) {
+      if ((merged as any)[key] === undefined && value !== undefined) {
+        (merged as any)[key] = value;
+      }
+    }
+
     return merged;
   }
 }

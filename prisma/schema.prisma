@@ -13,6 +13,7 @@ model Tenant {
   name             String
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+  accounts         Account[]
   conversations    Conversation[]
   customers        Customer[]
   knowledgeChunks  KnowledgeChunk[]
@@ -21,6 +22,7 @@ model Tenant {
   messages         Message[]
   config           TenantConfig?
   workflowSessions WorkflowSession[]
+  products         Product[]
 }
 
 model TenantConfig {
@@ -32,10 +34,30 @@ model TenantConfig {
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
+model Account {
+  id               String              @id @default(uuid())
+  tenantId         String
+  name             String
+  enabled          Boolean             @default(true)
+  config           Json?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations    Conversation[]
+  knowledgeSources KnowledgeSource[]
+  knowledgeDocs    KnowledgeDocument[]
+  knowledgeChunks  KnowledgeChunk[]
+  products         Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
 model Customer {
   id            String         @id @default(uuid())
   tenantId      String
   externalId    String?
+  metadata      Json?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   conversations Conversation[]
@@ -47,6 +69,7 @@ model Customer {
 model Conversation {
   id                         String            @id @default(uuid())
   tenantId                   String
+  accountId                  String?
   customerId                 String
   status                     String            @default("ACTIVE")
   currentWorkflowId          String?
@@ -61,12 +84,14 @@ model Conversation {
   version                    Int               @default(0)
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt
+  account                    Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
   customer                   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant                     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   messages                   Message[]
   sessions                   WorkflowSession[]
 
   @@index([tenantId, customerId])
+  @@index([tenantId, accountId, customerId])
 }
 
 model Message {
@@ -107,6 +132,7 @@ model WorkflowSession {
 model KnowledgeSource {
   id        String              @id @default(uuid())
   tenantId  String
+  accountId String?
   name      String
   type      String
   status    String              @default("PENDING")
@@ -115,14 +141,17 @@ model KnowledgeSource {
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
   documents KnowledgeDocument[]
+  account   Account?            @relation(fields: [accountId], references: [id], onDelete: Cascade)
   tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([tenantId, accountId])
 }
 
 model KnowledgeDocument {
   id        String           @id @default(uuid())
   tenantId  String
+  accountId String?
   sourceId  String
   title     String
   content   String
@@ -130,23 +159,75 @@ model KnowledgeDocument {
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
   chunks    KnowledgeChunk[]
+  account   Account?         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   source    KnowledgeSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, sourceId])
+  @@index([tenantId, accountId])
 }
 
 model KnowledgeChunk {
   id         String                 @id @default(uuid())
   tenantId   String
+  accountId  String?
   documentId String
   content    String
   metadata   Json?
   embedding  Unsupported("vector")?
   createdAt  DateTime               @default(now())
   updatedAt  DateTime               @updatedAt
+  account    Account?               @relation(fields: [accountId], references: [id], onDelete: Cascade)
   document   KnowledgeDocument      @relation(fields: [documentId], references: [id], onDelete: Cascade)
   tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, documentId])
+  @@index([tenantId, accountId])
+}
+
+model Product {
+  id                    String           @id @default(uuid())
+  tenantId              String
+  accountId             String
+  sku                   String
+  name                  String
+  nameLocalized         Json?
+  description           String
+  descriptionLocalized  Json?
+  price                 Decimal          @db.Decimal(10, 2)
+  currency              String           @default("USD")
+  stock                 Int              @default(0)
+  active                Boolean          @default(true)
+  category              String?
+  metadata              Json?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  account               Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tenant                Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variants              ProductVariant[]
+
+  @@unique([tenantId, accountId, sku])
+  @@index([tenantId, accountId])
+  @@index([tenantId, accountId, active])
+  @@index([tenantId, accountId, category])
+}
+
+model ProductVariant {
+  id            String    @id @default(uuid())
+  productId     String
+  sku           String
+  name          String?
+  size          String?
+  color         String?
+  priceOverride Decimal?  @db.Decimal(10, 2)
+  stock         Int       @default(0)
+  active        Boolean   @default(true)
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, sku])
+  @@index([productId])
+  @@index([productId, active])
 }

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -6,7 +7,19 @@ import { ChatbotDependencies } from '../bootstrap';
 import multer from 'multer';
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../domain/tenant/BusinessConfig';
 import { isValidPdfBuffer } from '../domain/rag/PdfIngestionService';
+import { ProductRepository } from '../domain/ecommerce/ProductRepository';
+import { EcommerceIntentParser } from '../domain/ecommerce/EcommerceIntent';
 import { createRouteProtectionMiddleware } from '../utils/rateLimiter';
+import { CostSummaryReporter } from '../core/telemetry/CostSummaryReporter';
+import { CostAnalyticsService } from '../core/telemetry/CostAnalyticsService';
+
+export interface RequestDiagnosticContext {
+  intent: string | null;
+  classificationError: string | null;
+  chunks: any[];
+}
+
+export const chatDiagnosticStorage = new AsyncLocalStorage<RequestDiagnosticContext>();
 
 // Setup multer for in-memory file uploads (max 10MB default)
 const upload = multer({
@@ -216,6 +229,67 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     perTenantLimit: { max: 60, windowMs: 60000 }
   });
 
+  // Wrap diagnostic interceptors once using AsyncLocalStorage so individual requests never mutate singleton dependencies
+  if (deps?.conversationEngine) {
+    const originalRag = (deps.conversationEngine as any)['ragService'];
+    if (originalRag && !originalRag.__isDiagnosticProxy) {
+      const interceptedRag = new Proxy(originalRag, {
+        get(target: any, prop: string | symbol, receiver: any) {
+          if (prop === '__isDiagnosticProxy') return true;
+          if (prop === 'retrieveChunks') {
+            return async (tenantId: string, q: string, config: any, accountId?: string | null) => {
+              const chunks = await target.retrieveChunks(tenantId, q, config, accountId);
+              const store = chatDiagnosticStorage.getStore();
+              if (store) store.chunks = chunks;
+              return target.formatContext(chunks, config.knowledge?.maxContextSize ?? 4000);
+            };
+          }
+          if (prop === 'retrieve') {
+            return async (tenantId: string, q: string, config: any, accountId?: string | null) => {
+              const result = await target.retrieve(tenantId, q, config, accountId);
+              const store = chatDiagnosticStorage.getStore();
+              if (store) store.chunks = result.chunks || [];
+              return result;
+            };
+          }
+          const val = Reflect.get(target, prop, receiver);
+          return typeof val === 'function' ? val.bind(target) : val;
+        }
+      });
+      (deps.conversationEngine as any)['ragService'] = interceptedRag;
+    }
+
+    const originalFactory = (deps.conversationEngine as any)['llmFactory'];
+    if (originalFactory && !originalFactory.__isDiagnosticProxy) {
+      const interceptedFactory = {
+        ...originalFactory,
+        __isDiagnosticProxy: true,
+        getProvider: (cfg: any) => {
+          const resolved = originalFactory.getProvider(cfg);
+          const originalProv = resolved.provider;
+          const interceptedProv = {
+            ...originalProv,
+            classifyIntent: async (p: string, m: string, a: string[], opt: any) => {
+              const store = chatDiagnosticStorage.getStore();
+              try {
+                const intent = await originalProv.classifyIntent(p, m, a, opt);
+                if (store) store.intent = intent;
+                return intent;
+              } catch (error: any) {
+                if (store) store.classificationError = error.message || String(error);
+                throw error;
+              }
+            },
+            extractField: (p: string, m: string, t: string, opt: any) => originalProv.extractField(p, m, t, opt),
+            generateResponse: (p: string, h: any[], opt: any) => originalProv.generateResponse(p, h, opt)
+          };
+          return { provider: interceptedProv, options: resolved.options };
+        }
+      };
+      (deps.conversationEngine as any)['llmFactory'] = interceptedFactory;
+    }
+  }
+
   // Global Authentication & Tenant Authorization Middleware
   router.use(async (req: Request, res: Response, next) => {
     if (req.path.startsWith('/pilot-harness/preset-image')) {
@@ -234,7 +308,7 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     req.principal = principal;
 
     // 2. Authorize Tenant Scope
-    const clientTenantId = req.body?.tenantId || req.query?.tenantId;
+    const clientTenantId = (req.headers['x-tenant-id'] as string) || req.body?.tenantId || (req.query?.tenantId as string);
     if (clientTenantId && clientTenantId !== principal.tenantId && principal.role !== 'admin') {
       return res.status(403).json({
         error: 'FORBIDDEN',
@@ -448,13 +522,47 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
         (deps.pdfIngestionService as any)['knowledgeRepository'] = proxyKnowledgeRepository;
       }
 
+      const rawAccountId = (req.headers['x-account-id'] as string) || (req.query?.accountId as string) || req.body?.accountId;
+      let normalizedAccountId: string | null = null;
+      if (rawAccountId && typeof rawAccountId === 'string') {
+        const trimmed = rawAccountId.trim();
+        if (trimmed && trimmed.toLowerCase() !== 'null' && trimmed.toLowerCase() !== 'global' && trimmed.toLowerCase() !== 'undefined') {
+          normalizedAccountId = trimmed;
+        }
+      }
+
+      if (normalizedAccountId) {
+        const account = await deps.prisma.account.findUnique({
+          where: { id: normalizedAccountId }
+        });
+        if (!account || account.tenantId !== tenantId) {
+          return res.status(404).json({
+            error: 'ACCOUNT_NOT_FOUND',
+            message: 'Account not found or access denied.'
+          });
+        }
+        if (!account.enabled) {
+          return res.status(400).json({
+            error: 'ACCOUNT_DISABLED',
+            message: `Account [${normalizedAccountId}] is disabled.`
+          });
+        }
+      }
+
+      const hash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+      const existingSource = await deps.prisma.knowledgeSource.findFirst({
+        where: { tenantId, accountId: normalizedAccountId, hash, status: 'COMPLETED' }
+      });
+      const isReused = !!existingSource;
+
       let sourceId;
       try {
         sourceId = await deps.pdfIngestionService.ingestPdf(
           tenantId,
           file.buffer,
           file.originalname,
-          config
+          config,
+          normalizedAccountId
         );
       } catch (ingestError: any) {
         if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
@@ -482,7 +590,7 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
         await deps.tenantConfigService.updateConfig(tenantId, config);
       }
 
-      res.json({ success: true, sourceId });
+      res.json({ success: true, sourceId, accountId: normalizedAccountId, isReused });
     } catch (e: any) {
       if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
         console.error(`\n--- UNEXPECTED EXCEPTION AT STAGE: ${currentStage} ---`);
@@ -612,12 +720,32 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
-  // GET Uploaded Documents
+  // GET Uploaded Documents (Scoped to Global + Selected Account)
   router.get('/documents', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
+      const rawAccountId = (req.headers['x-account-id'] as string) || (req.query?.accountId as string);
+      let normalizedAccountId: string | null = null;
+      if (rawAccountId && typeof rawAccountId === 'string') {
+        const trimmed = rawAccountId.trim();
+        if (trimmed && trimmed.toLowerCase() !== 'null' && trimmed.toLowerCase() !== 'global' && trimmed.toLowerCase() !== 'undefined') {
+          normalizedAccountId = trimmed;
+        }
+      }
+
+      const whereClause: any = { tenantId };
+      if (normalizedAccountId) {
+        whereClause.OR = [
+          { accountId: null },
+          { accountId: normalizedAccountId }
+        ];
+      } else {
+        whereClause.accountId = null;
+      }
+
       const sources = await deps.prisma.knowledgeSource.findMany({
-        where: { tenantId },
+        where: whereClause,
+        include: { account: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'desc' }
       });
 
@@ -626,6 +754,9 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         sourceId: s.id,
         name: s.name,
         status: s.status,
+        accountId: s.accountId,
+        accountName: s.account?.name || null,
+        scope: s.accountId ? 'account' : 'global',
         createdAt: s.createdAt,
         metadata: s.metadata
       }));
@@ -641,6 +772,15 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     try {
       const tenantId = req.principal!.tenantId;
       const sourceId = Array.isArray(req.params.sourceId) ? req.params.sourceId[0] : req.params.sourceId;
+      const rawAccountId = (req.headers['x-account-id'] as string) || (req.query?.accountId as string) || req.body?.accountId;
+
+      let normalizedAccountId: string | null = null;
+      if (rawAccountId && typeof rawAccountId === 'string') {
+        const trimmed = rawAccountId.trim();
+        if (trimmed && trimmed.toLowerCase() !== 'null' && trimmed.toLowerCase() !== 'global' && trimmed.toLowerCase() !== 'undefined') {
+          normalizedAccountId = trimmed;
+        }
+      }
 
       // Check existence and verify strict tenant scoping
       const source = await deps.prisma.knowledgeSource.findFirst({
@@ -649,6 +789,17 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
 
       if (!source) {
         return res.status(404).json({ error: 'Knowledge source not found or belongs to another tenant' });
+      }
+
+      // Scope authorization check:
+      // If the document is account-private, verify that non-admin caller belongs to that account
+      if (source.accountId && req.principal!.role !== 'admin') {
+        if (normalizedAccountId && normalizedAccountId !== source.accountId) {
+          return res.status(403).json({
+            error: 'FORBIDDEN',
+            message: 'Cannot delete a document belonging to another account.'
+          });
+        }
       }
 
       // Delete KnowledgeSource which cascades to KnowledgeDocument and KnowledgeChunk
@@ -674,6 +825,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   router.post('/chat', chatProtection.middleware, async (req: Request, res: Response) => {
     const tenantId = req.principal!.tenantId;
     const { customerId, message, imageBase64, imageUrl, mimeType } = req.body;
+    const accountId = (req.body.accountId as string) || (req.headers['x-account-id'] as string) || undefined;
 
     if (req.principal!.customerId && req.principal!.customerId !== customerId) {
       return res.status(403).json({
@@ -686,166 +838,136 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       return res.status(400).json({ error: 'customerId and message (or image payload) are required' });
     }
 
+    const diagnosticContext: RequestDiagnosticContext = {
+      intent: null,
+      classificationError: null,
+      chunks: []
+    };
+
     try {
-      // Diagnostic Interceptors
-      let interceptedIntent: string | null = null;
-      let interceptedClassificationError: string | null = null;
-      let interceptedChunks: any[] = [];
-
-      // Intercept LLM via LLMFactory
-      const originalFactory = (deps.conversationEngine as any)['llmFactory'];
-      const originalLlm = (deps.conversationEngine as any)['defaultLlm'];
-      const originalRag = (deps.conversationEngine as any)['ragService'];
-
-      if (originalFactory) {
-        const interceptedFactory = {
-          ...originalFactory,
-          getProvider: (cfg: any) => {
-            const resolved = originalFactory.getProvider(cfg);
-            const originalProv = resolved.provider;
-            const interceptedProv = {
-              ...originalProv,
-              classifyIntent: async (p: string, m: string, a: string[], opt: any) => {
-                try {
-                  const intent = await originalProv.classifyIntent(p, m, a, opt);
-                  interceptedIntent = intent;
-                  return intent;
-                } catch (error: any) {
-                  interceptedClassificationError = error.message || String(error);
-                  throw error;
-                }
-              },
-              extractField: (p: string, m: string, t: string, opt: any) => originalProv.extractField(p, m, t, opt),
-              generateResponse: (p: string, h: any[], opt: any) => originalProv.generateResponse(p, h, opt)
-            };
-            return { provider: interceptedProv, options: resolved.options };
-          }
-        };
-        (deps.conversationEngine as any)['llmFactory'] = interceptedFactory;
-      }
-
-      // Proxy RAG to intercept retrieved chunks as structured array while preserving all prototype methods
-      const interceptedRag = new Proxy(originalRag, {
-        get(target: any, prop: string | symbol, receiver: any) {
-          if (prop === 'retrieveChunks') {
-            return async (tenantId: string, q: string, config: any) => {
-              const chunks = await target.retrieveChunks(tenantId, q, config);
-              interceptedChunks = chunks;
-              return chunks;
-            };
-          }
-          if (prop === 'retrieveContext') {
-            return async (tenantId: string, q: string, config: any) => {
-              const chunks = await target.retrieveChunks(tenantId, q, config);
-              interceptedChunks = chunks;
-              return target.formatContext(chunks, config.knowledge.maxContextSize);
-            };
-          }
-          if (prop === 'retrieve') {
-            return async (tenantId: string, q: string, config: any) => {
-              const result = await target.retrieve(tenantId, q, config);
-              interceptedChunks = result.chunks || [];
-              return result;
-            };
-          }
-          const val = Reflect.get(target, prop, receiver);
-          return typeof val === 'function' ? val.bind(target) : val;
+      await chatDiagnosticStorage.run(diagnosticContext, async () => {
+        const start = Date.now();
+        let responseText: string;
+        if (imageBase64 || imageUrl) {
+          responseText = await deps.conversationEngine.handleImageMessage(tenantId, customerId, {
+            imageBase64,
+            imageUrl,
+            mimeType,
+            textPrompt: message
+          }, accountId);
+        } else {
+          responseText = await deps.conversationEngine.handleMessage(tenantId, customerId, message, accountId);
         }
-      });
-      
-      (deps.conversationEngine as any)['ragService'] = interceptedRag;
+        const latencyMs = Date.now() - start;
 
-      const start = Date.now();
-      let responseText: string;
-      if (imageBase64 || imageUrl) {
-        responseText = await deps.conversationEngine.handleImageMessage(tenantId, customerId, {
-          imageBase64,
-          imageUrl,
-          mimeType,
-          textPrompt: message
+        if (!diagnosticContext.intent && message) {
+          const ecomParsed = EcommerceIntentParser.parse(message);
+          if (ecomParsed.intent !== 'UNKNOWN') {
+            diagnosticContext.intent = ecomParsed.intent;
+          }
+        }
+
+        // Fetch the conversation state for debugging purposes
+        const customer = await deps.prisma.customer.findUnique({
+          where: { tenantId_externalId: { tenantId, externalId: customerId } }
         });
-      } else {
-        responseText = await deps.conversationEngine.handleMessage(tenantId, customerId, message);
-      }
-      const latencyMs = Date.now() - start;
+        const conversation = customer ? await deps.prisma.conversation.findFirst({
+          where: { tenantId, customerId: customer.id }
+        }) : null;
 
-      // Restore original dependencies
-      if (originalFactory) {
-        (deps.conversationEngine as any)['llmFactory'] = originalFactory;
-      }
-      (deps.conversationEngine as any)['ragService'] = originalRag;
+        let activeWorkflowId: string | null = null;
+        let activeStateId: string | null = null;
+        let activeWorkflowState: string | null = null;
+        let activeOptions: any[] | null = null;
+        let activeSessionContext: any = {};
+        let sessionCollectedData: any = {};
 
-      // Fetch the conversation state for debugging purposes
-      const customer = await deps.prisma.customer.findUnique({
-        where: { tenantId_externalId: { tenantId, externalId: customerId } }
-      });
-      const conversation = customer ? await deps.prisma.conversation.findFirst({
-        where: { tenantId, customerId: customer.id }
-      }) : null;
+        if (conversation) {
+          const latestSession = await deps.prisma.workflowSession.findFirst({
+            where: { conversationId: conversation.id },
+            orderBy: { createdAt: 'desc' }
+          });
 
-      let activeWorkflowId: string | null = null;
-      let activeStateId: string | null = null;
-      let activeWorkflowState: string | null = null;
-      let activeOptions: any[] | null = null;
-      let activeSessionContext: any = {};
-      let sessionCollectedData: any = {};
+          if (latestSession) {
+            activeSessionContext = latestSession.contextData || {};
+            sessionCollectedData = latestSession.collectedData || {};
 
-      if (conversation) {
-        const latestSession = await deps.prisma.workflowSession.findFirst({
-          where: { conversationId: conversation.id },
-          orderBy: { createdAt: 'desc' }
-        });
+            if (latestSession.status === 'ACTIVE') {
+              activeWorkflowId = latestSession.workflowId;
+              activeStateId = latestSession.stateId;
 
-        if (latestSession) {
-          activeSessionContext = latestSession.contextData || {};
-          sessionCollectedData = latestSession.collectedData || {};
+              const tenantConfig = await deps.tenantConfigService.getConfig(tenantId);
+              const wfConfig = tenantConfig.workflows?.[latestSession.workflowId];
+              const stateConfig = wfConfig?.states?.[latestSession.stateId];
 
-          if (latestSession.status === 'ACTIVE') {
-            activeWorkflowId = latestSession.workflowId;
-            activeStateId = latestSession.stateId;
-
-            const tenantConfig = await deps.tenantConfigService.getConfig(tenantId);
-            const wfConfig = tenantConfig.workflows?.[latestSession.workflowId];
-            const stateConfig = wfConfig?.states?.[latestSession.stateId];
-
-            if (stateConfig) {
-              activeWorkflowState = stateConfig.type;
-              if (stateConfig.type === 'choice' && stateConfig.options) {
-                activeOptions = stateConfig.options;
-              } else if (stateConfig.type === 'confirm' || stateConfig.prompt === 'confirm') {
-                activeOptions = [
-                  { label: 'Yes', next: '' },
-                  { label: 'No', next: '' }
-                ];
+              if (stateConfig) {
+                activeWorkflowState = stateConfig.type;
+                if (stateConfig.type === 'choice' && stateConfig.options) {
+                  activeOptions = stateConfig.options;
+                } else if (stateConfig.type === 'confirm' || stateConfig.prompt === 'confirm') {
+                  activeOptions = [
+                    { label: 'Yes', next: '' },
+                    { label: 'No', next: '' }
+                  ];
+                }
               }
             }
           }
         }
-      }
 
-      res.json({
-        conversationId: conversation?.id,
-        message: responseText,
-        workflow: activeWorkflowId || conversation?.currentWorkflowId || null,
-        state: activeStateId || conversation?.currentStateId || null,
-        context: {
-          ...(conversation?.contextData as any || {}),
-          ...activeSessionContext,
-          _collectedData: sessionCollectedData
-        },
-        debug: {
-          latencyMs,
-          intent: interceptedIntent,
-          classificationError: interceptedClassificationError,
-          chunks: interceptedChunks,
-          workflowState: activeWorkflowState,
-          options: activeOptions,
-          collectedData: sessionCollectedData
+        let turnCost: any = null;
+        let turnAlerts: any[] = [];
+        if (deps.telemetryClient) {
+          const turnEvents = deps.telemetryClient.getRecentEvents();
+          if (turnEvents.length > 0) {
+            const latestEvent = turnEvents[turnEvents.length - 1];
+            if (latestEvent?.correlationId) {
+              const latestTurnEvents = deps.telemetryClient.getRecentEvents(latestEvent.correlationId);
+              const turnMetrics = CostSummaryReporter.calculateTurnMetrics(latestTurnEvents);
+              turnCost = {
+                llmCalls: turnMetrics.llmCalls,
+                embeddingCalls: turnMetrics.embeddingCalls,
+                inputTokens: turnMetrics.inputTokens,
+                outputTokens: turnMetrics.outputTokens,
+                retryAttempts: turnMetrics.retryAttempts,
+                latencyMs: turnMetrics.totalLatencyMs || latencyMs
+              };
+              const report = CostAnalyticsService.generateReport(latestTurnEvents);
+              turnAlerts = report.alerts;
+            }
+          }
         }
+
+        res.json({
+          conversationId: conversation?.id,
+          message: responseText,
+          workflow: activeWorkflowId || conversation?.currentWorkflowId || null,
+          state: activeStateId || conversation?.currentStateId || null,
+          context: {
+            ...(conversation?.contextData as any || {}),
+            ...activeSessionContext,
+            _collectedData: sessionCollectedData
+          },
+          debug: {
+            latencyMs,
+            intent: diagnosticContext.intent,
+            classificationError: diagnosticContext.classificationError,
+            chunks: diagnosticContext.chunks,
+            workflowState: activeWorkflowState,
+            options: activeOptions,
+            collectedData: sessionCollectedData,
+            cost: turnCost,
+            alerts: turnAlerts
+          }
+        });
       });
     } catch (error: any) {
       if (error.message && (error.message.includes('Concurrency Conflict') || error.message.includes('CONCURRENCY_CONFLICT'))) {
-        return res.status(409).json({ error: 'CONCURRENCY_CONFLICT', message: error.message });
+        return res.status(409).json({
+          error: 'CONCURRENCY_CONFLICT',
+          message: 'Our service is currently experiencing high demand. Please send your message again in a moment.',
+          response: 'Our service is currently experiencing high demand. Please send your message again in a moment.'
+        });
       }
       res.status(500).json({ error: error.message });
     }
@@ -880,6 +1002,431 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       res.json({ success: true, message: 'Conversation archived.' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // =========================================================================
+  // ECOMMERCE & PRODUCT MANAGEMENT ENDPOINTS (ACCOUNT-SCOPED)
+  // =========================================================================
+  const productRepo = new ProductRepository(deps.prisma);
+
+  // Helper to verify account belongs to tenant and check ecommerce capability
+  async function resolveAccountScope(tenantId: string, accountId?: string | null): Promise<{ valid: boolean; account?: any; ecommerceEnabled: boolean; error?: string; status?: number }> {
+    if (!accountId || typeof accountId !== 'string' || !accountId.trim()) {
+      return { valid: false, ecommerceEnabled: false, error: 'accountId is required', status: 400 };
+    }
+    const trimmedId = accountId.trim();
+    const account = await deps.prisma.account.findUnique({
+      where: { id: trimmedId }
+    });
+    if (!account || account.tenantId !== tenantId) {
+      return { valid: false, ecommerceEnabled: false, error: 'Account not found or access denied', status: 404 };
+    }
+    const capabilities = (account.config as any)?.capabilities;
+    const ecommerceEnabled = capabilities && typeof capabilities.ecommerceEnabled === 'boolean' ? capabilities.ecommerceEnabled : true;
+    return { valid: true, account, ecommerceEnabled };
+  }
+
+  // GET /api/dev/accounts - List all accounts for the authenticated tenant
+  router.get('/accounts', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const accounts = await deps.prisma.account.findMany({
+        where: { tenantId },
+        orderBy: { name: 'asc' }
+      });
+      res.json({ accounts });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/dev/products - List products for an account
+  router.get('/products', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const accountId = (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({
+          error: 'ECOMMERCE_DISABLED',
+          message: 'Ecommerce is disabled for this account.',
+          ecommerceEnabled: false,
+          products: []
+        });
+      }
+
+      const query = req.query.query as string | undefined;
+      const category = req.query.category as string | undefined;
+      const activeOnly = req.query.activeOnly !== 'false';
+
+      const products = await productRepo.search({
+        tenantId,
+        accountId: check.account.id,
+        query,
+        category,
+        activeOnly,
+        limit: 100
+      });
+
+      res.json({
+        ecommerceEnabled: true,
+        accountId: check.account.id,
+        count: products.length,
+        products
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/dev/products/:id - Get single product with variants
+  router.get('/products/:id', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const accountId = (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+      const productId = req.params.id;
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      const product = await productRepo.findById(tenantId, check.account.id, productId, false);
+      if (!product) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
+      }
+
+      res.json({ product });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/dev/products - Create a new product
+  router.post('/products', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const {
+        accountId,
+        name,
+        sku,
+        description,
+        price,
+        currency = 'USD',
+        stock = 0,
+        category,
+        nameLocalized,
+        descriptionLocalized,
+        active = true
+      } = req.body;
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Product name is required.' });
+      }
+
+      if (!sku || typeof sku !== 'string' || !sku.trim()) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Product SKU is required.' });
+      }
+
+      const numPrice = Number(price);
+      if (isNaN(numPrice) || numPrice < 0) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Price must be a non-negative number.' });
+      }
+
+      const numStock = Number(stock);
+      if (isNaN(numStock) || numStock < 0) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be a non-negative integer.' });
+      }
+
+      // Check duplicate SKU in this account
+      const existing = await productRepo.findBySku(tenantId, check.account.id, sku);
+      if (existing) {
+        return res.status(409).json({ error: 'DUPLICATE_SKU', message: `A product with SKU '${sku}' already exists in this account.` });
+      }
+
+      const product = await productRepo.createProduct(tenantId, check.account.id, {
+        name,
+        sku,
+        description,
+        price: numPrice,
+        currency,
+        stock: Math.floor(numStock),
+        category,
+        nameLocalized,
+        descriptionLocalized,
+        active
+      });
+
+      res.status(201).json({ success: true, product });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PATCH /api/dev/products/:id - Update product
+  router.patch('/products/:id', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const productId = req.params.id;
+      const {
+        accountId,
+        name,
+        sku,
+        description,
+        price,
+        currency,
+        stock,
+        category,
+        nameLocalized,
+        descriptionLocalized,
+        active
+      } = req.body;
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      if (price !== undefined) {
+        const numPrice = Number(price);
+        if (isNaN(numPrice) || numPrice < 0) {
+          return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Price must be non-negative.' });
+        }
+      }
+
+      if (stock !== undefined) {
+        const numStock = Number(stock);
+        if (isNaN(numStock) || numStock < 0) {
+          return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be non-negative.' });
+        }
+      }
+
+      if (sku !== undefined) {
+        const existing = await productRepo.findBySku(tenantId, check.account.id, sku);
+        if (existing && existing.id !== productId) {
+          return res.status(409).json({ error: 'DUPLICATE_SKU', message: `A product with SKU '${sku}' already exists in this account.` });
+        }
+      }
+
+      const updated = await productRepo.updateProduct(tenantId, check.account.id, productId, {
+        name,
+        sku,
+        description,
+        price: price !== undefined ? Number(price) : undefined,
+        currency,
+        stock: stock !== undefined ? Math.floor(Number(stock)) : undefined,
+        category,
+        nameLocalized,
+        descriptionLocalized,
+        active
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
+      }
+
+      res.json({ success: true, product: updated });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE /api/dev/products/:id - Delete product
+  router.delete('/products/:id', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const productId = req.params.id;
+      const accountId = (req.query.accountId as string) || (req.body?.accountId as string);
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      const deleted = await productRepo.deleteProduct(tenantId, check.account.id, productId);
+      if (!deleted) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
+      }
+
+      res.json({ success: true, message: 'Product deleted.' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/dev/products/:id/variants - Add variant to product
+  router.post('/products/:id/variants', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const productId = req.params.id;
+      const {
+        accountId,
+        sku,
+        name,
+        size,
+        color,
+        priceOverride,
+        stock = 0,
+        active = true
+      } = req.body;
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      if (!sku || typeof sku !== 'string' || !sku.trim()) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Variant SKU is required.' });
+      }
+
+      const numStock = Number(stock);
+      if (isNaN(numStock) || numStock < 0) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be non-negative.' });
+      }
+
+      let numPriceOverride: number | null = null;
+      if (priceOverride !== undefined && priceOverride !== null && priceOverride !== '') {
+        numPriceOverride = Number(priceOverride);
+        if (isNaN(numPriceOverride) || numPriceOverride < 0) {
+          return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Price override must be non-negative.' });
+        }
+      }
+
+      const variant = await productRepo.createVariant(tenantId, check.account.id, productId, {
+        sku,
+        name,
+        size,
+        color,
+        priceOverride: numPriceOverride,
+        stock: Math.floor(numStock),
+        active
+      });
+
+      if (!variant) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Parent product not found.' });
+      }
+
+      res.status(201).json({ success: true, variant });
+    } catch (e: any) {
+      if (e.code === 'P2002') {
+        return res.status(409).json({ error: 'DUPLICATE_SKU', message: 'A variant with this SKU already exists.' });
+      }
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PATCH /api/dev/products/:id/variants/:variantId - Update variant
+  router.patch('/products/:id/variants/:variantId', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const { id: productId, variantId } = req.params;
+      const {
+        accountId,
+        sku,
+        name,
+        size,
+        color,
+        priceOverride,
+        stock,
+        active
+      } = req.body;
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      let numPriceOverride: number | null | undefined = undefined;
+      if (priceOverride !== undefined) {
+        if (priceOverride === null || priceOverride === '') {
+          numPriceOverride = null;
+        } else {
+          numPriceOverride = Number(priceOverride);
+          if (isNaN(numPriceOverride) || numPriceOverride < 0) {
+            return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Price override must be non-negative.' });
+          }
+        }
+      }
+
+      const variant = await productRepo.updateVariant(tenantId, check.account.id, productId, variantId, {
+        sku,
+        name,
+        size,
+        color,
+        priceOverride: numPriceOverride,
+        stock: stock !== undefined ? Math.floor(Number(stock)) : undefined,
+        active
+      });
+
+      if (!variant) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Product or variant not found.' });
+      }
+
+      res.json({ success: true, variant });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE /api/dev/products/:id/variants/:variantId - Delete variant
+  router.delete('/products/:id/variants/:variantId', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const { id: productId, variantId } = req.params;
+      const accountId = (req.query.accountId as string) || (req.body?.accountId as string);
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      if (!check.ecommerceEnabled) {
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      const deleted = await productRepo.deleteVariant(tenantId, check.account.id, productId, variantId);
+      if (!deleted) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Product or variant not found.' });
+      }
+
+      res.json({ success: true, message: 'Variant deleted.' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -1021,6 +1568,22 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
           diagnosticReasoning: 'Not available from current pipeline'
         }
       });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET Cost Analytics & Budget Alerts
+  router.get('/cost-analytics', async (req: Request, res: Response) => {
+    try {
+      const clientTenantId = (req.headers['x-tenant-id'] as string) || (req.query?.tenantId as string) || req.principal?.tenantId;
+      const events = deps.telemetryClient ? deps.telemetryClient.getRecentEvents() : [];
+      const tenantEvents = clientTenantId && req.principal?.role !== 'admin'
+        ? events.filter(e => e.tenantId === clientTenantId)
+        : events;
+
+      const report = CostAnalyticsService.generateReport(tenantEvents);
+      res.json(report);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

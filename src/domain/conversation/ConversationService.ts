@@ -1,27 +1,90 @@
 import { PrismaClient, Conversation, WorkflowSession, Message } from '@prisma/client';
+import { ConversationContext, buildConversationContext } from './ConversationContext';
+import { logger } from '../../utils/logger';
 
 export class ConversationService {
   constructor(private prisma: PrismaClient) {}
 
-  async getOrCreateConversation(tenantId: string, externalId: string): Promise<Conversation> {
+  async getOrCreateConversation(tenantId: string, externalId: string, accountId?: string | null): Promise<Conversation> {
     const customer = await this.prisma.customer.upsert({
       where: { tenantId_externalId: { tenantId, externalId } },
       create: { tenantId, externalId },
       update: {},
     });
 
-    // Find active conversation
-    let conversation = await this.prisma.conversation.findFirst({
-      where: { tenantId, customerId: customer.id, status: 'ACTIVE' },
-      orderBy: { createdAt: 'desc' }
-    });
+    const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
 
-    if (!conversation) {
-      conversation = await this.prisma.conversation.create({
-        data: { tenantId, customerId: customer.id }
+    if (trimmedAccountId) {
+      // Verify account exists and belongs to tenant
+      const account = await this.prisma.account.findUnique({
+        where: { id: trimmedAccountId }
       });
+      if (!account || account.tenantId !== tenantId) {
+        throw new Error(`Account [${trimmedAccountId}] not found for tenant [${tenantId}]`);
+      }
     }
-    return conversation;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Row-level lock on Customer to prevent concurrent creation race conditions
+      await tx.$executeRaw`SELECT id FROM "Customer" WHERE id = ${customer.id} FOR UPDATE`;
+
+      // Find active or handoff conversation that is not capped
+      let conversation = await tx.conversation.findFirst({
+        where: {
+          tenantId,
+          customerId: customer.id,
+          status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
+          automationCapped: false,
+          ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (!conversation) {
+        conversation = await tx.conversation.create({
+          data: {
+            tenantId,
+            customerId: customer.id,
+            ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+          }
+        });
+      }
+      return conversation;
+    });
+  }
+
+  async requestHandoff(tenantId: string, conversationId: string): Promise<Conversation> {
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        status: 'HANDOFF_REQUESTED',
+        humanRequested: true,
+        humanRequestedAt: new Date()
+      }
+    });
+  }
+
+  async takeOverByHuman(tenantId: string, conversationId: string): Promise<Conversation> {
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        status: 'HUMAN_ACTIVE',
+        humanRequested: true
+      }
+    });
+  }
+
+  async resolveHandoff(tenantId: string, conversationId: string): Promise<Conversation> {
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        status: 'ACTIVE',
+        humanRequested: false,
+        humanRequestedAt: null,
+        automationCapped: false,
+        postCompletionCapped: false
+      }
+    });
   }
 
   async persistMessage(tenantId: string, conversationId: string, role: string, content: string): Promise<Message> {
@@ -161,6 +224,7 @@ export class ConversationService {
     expectedVersion: number;
     userMessage: string;
     assistantMessage?: string | null;
+    contextData?: Record<string, any> | null;
     sessionUpdate?: {
       sessionId: string;
       stateId: string;
@@ -175,73 +239,136 @@ export class ConversationService {
     setAutomationCapped?: boolean;
     incrementPostCompletionCount?: boolean;
     setPostCompletionCapped?: boolean;
+    newStatus?: string;
+    closeConversation?: boolean;
   }): Promise<{
     success: boolean;
     userMessage?: Message;
     assistantMessage?: Message;
   }> {
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Optimistic locking on Conversation
-      const convUpdate = await tx.conversation.updateMany({
-        where: { id: params.conversationId, tenantId: params.tenantId, version: params.expectedVersion },
-        data: {
-          version: { increment: 1 },
-          messageCount: { increment: 1 },
-          ...(params.flagHumanRequested ? { humanRequested: true, humanRequestedAt: new Date() } : {}),
-          ...(params.setAutomationCapped !== undefined ? { automationCapped: params.setAutomationCapped } : {}),
-          ...(params.incrementPostCompletionCount ? { postCompletionQuestionCount: { increment: 1 } } : {}),
-          ...(params.setPostCompletionCapped !== undefined ? { postCompletionCapped: params.setPostCompletionCapped } : {})
-        }
-      });
+    const maxRetries = 2; // Total 3 attempts
+    let currentVersion = params.expectedVersion;
 
-      if (convUpdate.count === 0) {
-        throw new Error('Concurrency Conflict: Conversation is currently being processed by another request.');
-      }
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          // 1. Optimistic locking on Conversation
+          const convUpdate = await tx.conversation.updateMany({
+            where: { id: params.conversationId, tenantId: params.tenantId, version: currentVersion },
+            data: {
+              version: { increment: 1 },
+              messageCount: { increment: 1 },
+              ...(params.contextData !== undefined ? { contextData: params.contextData } : (params.sessionUpdate?.contextData !== undefined ? { contextData: params.sessionUpdate.contextData } : {})),
+              ...(params.newStatus ? { status: params.newStatus } : (params.closeConversation ? { status: 'COMPLETED' } : {})),
+              ...(params.flagHumanRequested ? { humanRequested: true, humanRequestedAt: new Date() } : {}),
+              ...(params.setAutomationCapped !== undefined ? { automationCapped: params.setAutomationCapped } : {}),
+              ...(params.incrementPostCompletionCount ? { postCompletionQuestionCount: { increment: 1 } } : {}),
+              ...(params.setPostCompletionCapped !== undefined ? { postCompletionCapped: params.setPostCompletionCapped } : {})
+            }
+          });
 
-      // 2. Persist USER message
-      const userMsg = await tx.message.create({
-        data: {
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          role: 'USER',
-          content: params.userMessage
-        }
-      });
-
-      // 3. Update WorkflowSession if provided
-      if (params.sessionUpdate) {
-        await tx.workflowSession.update({
-          where: { id: params.sessionUpdate.sessionId },
-          data: {
-            stateId: params.sessionUpdate.stateId,
-            contextData: params.sessionUpdate.contextData,
-            status: params.sessionUpdate.status || 'ACTIVE',
-            ...(params.sessionUpdate.stateHistory !== undefined ? { stateHistory: params.sessionUpdate.stateHistory } : {}),
-            ...(params.sessionUpdate.collectedData !== undefined ? { collectedData: params.sessionUpdate.collectedData } : {}),
-            ...(params.sessionUpdate.humanRequested !== undefined ? { humanRequested: params.sessionUpdate.humanRequested } : {}),
-            ...(params.sessionUpdate.humanRequestedAt !== undefined ? { humanRequestedAt: params.sessionUpdate.humanRequestedAt } : {})
+          if (convUpdate.count === 0) {
+            throw new Error('Concurrency Conflict: Conversation is currently being processed by another request.');
           }
-        });
-      }
 
-      // 4. Persist ASSISTANT message if provided
-      let assistantMsg: Message | undefined;
-      if (params.assistantMessage) {
-        assistantMsg = await tx.message.create({
-          data: {
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-            role: 'ASSISTANT',
-            content: params.assistantMessage
+          // 2. Persist USER message
+          const userMsg = await tx.message.create({
+            data: {
+              tenantId: params.tenantId,
+              conversationId: params.conversationId,
+              role: 'USER',
+              content: params.userMessage
+            }
+          });
+
+          // 3. Update WorkflowSession if provided
+          if (params.sessionUpdate) {
+            await tx.workflowSession.update({
+              where: { id: params.sessionUpdate.sessionId },
+              data: {
+                stateId: params.sessionUpdate.stateId,
+                contextData: params.sessionUpdate.contextData,
+                status: params.sessionUpdate.status || 'ACTIVE',
+                ...(params.sessionUpdate.stateHistory !== undefined ? { stateHistory: params.sessionUpdate.stateHistory } : {}),
+                ...(params.sessionUpdate.collectedData !== undefined ? { collectedData: params.sessionUpdate.collectedData } : {}),
+                ...(params.sessionUpdate.humanRequested !== undefined ? { humanRequested: params.sessionUpdate.humanRequested } : {}),
+                ...(params.sessionUpdate.humanRequestedAt !== undefined ? { humanRequestedAt: params.sessionUpdate.humanRequestedAt } : {})
+              }
+            });
           }
-        });
-      }
 
-      return {
-        success: true,
-        userMessage: userMsg,
-        assistantMessage: assistantMsg
-      };
+          // 4. Persist ASSISTANT message if provided
+          let assistantMsg: Message | undefined;
+          if (params.assistantMessage) {
+            assistantMsg = await tx.message.create({
+              data: {
+                tenantId: params.tenantId,
+                conversationId: params.conversationId,
+                role: 'ASSISTANT',
+                content: params.assistantMessage
+              }
+            });
+          }
+
+          return {
+            success: true,
+            userMessage: userMsg,
+            assistantMessage: assistantMsg
+          };
+        });
+      } catch (err: any) {
+        const isConflict = err?.message && (
+          err.message.includes('Concurrency Conflict') ||
+          err.message.includes('CONCURRENCY_CONFLICT')
+        );
+
+        if (isConflict && attempt < maxRetries) {
+          logger.warn(`ConversationService: Optimistic lock conflict on conversation ${params.conversationId} (attempt ${attempt + 1}/${maxRetries + 1}), re-fetching latest version and retrying...`);
+          const latestConv = await this.prisma.conversation.findUnique({
+            where: { id: params.conversationId },
+            select: { version: true }
+          });
+          if (latestConv) {
+            currentVersion = latestConv.version;
+            continue;
+          }
+        }
+
+        throw err;
+      }
+    }
+
+    throw new Error('Concurrency Conflict: Conversation is currently being processed by another request.');
+  }
+
+  async getConversationContext(
+    tenantId: string,
+    conversationId: string,
+    language?: string
+  ): Promise<ConversationContext | null> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId }
+    });
+    if (!conversation || conversation.tenantId !== tenantId) {
+      return null;
+    }
+
+    const [activeSession, recentMessages] = await Promise.all([
+      this.getActiveSession(tenantId, conversationId),
+      this.getRecentMessages(tenantId, conversationId, 4)
+    ]);
+
+    return buildConversationContext({
+      tenantId,
+      accountId: conversation.accountId,
+      customerId: conversation.customerId,
+      conversationId: conversation.id,
+      language,
+      activeSession,
+      recentMessages,
+      totalMessageCount: conversation.messageCount,
+      contextData: conversation.contextData as any
     });
   }
 }
+

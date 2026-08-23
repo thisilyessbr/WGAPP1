@@ -6,6 +6,7 @@ export interface TelemetryEventInput {
   timestamp?: string;
   eventType: string;
   tenantId: string;
+  accountId?: string | null;
   conversationId?: string;
   messageId?: string;
   correlationId: string;
@@ -55,6 +56,8 @@ export class TelemetryClient {
   private batchSize: number;
 
   private queue: TelemetryEvent[] = [];
+  private recentEvents: TelemetryEvent[] = [];
+  private listeners: ((event: TelemetryEvent) => void)[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
   private isFlushing = false;
   private isEnabled: boolean;
@@ -80,14 +83,30 @@ export class TelemetryClient {
   }
 
   /**
+   * Register a telemetry event listener (for observability, testing, and debugging).
+   */
+  onEvent(listener: (event: TelemetryEvent) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
+  /**
+   * Retrieves recent in-memory telemetry events, optionally filtered by correlationId.
+   */
+  getRecentEvents(correlationId?: string): TelemetryEvent[] {
+    if (correlationId) {
+      return this.recentEvents.filter(e => e.correlationId === correlationId);
+    }
+    return [...this.recentEvents];
+  }
+
+  /**
    * Best-effort, non-blocking telemetry emitter.
    * Never throws, never blocks customer processing.
    */
   emit(input: TelemetryEventInput): void {
-    if (!this.isEnabled) {
-      return;
-    }
-
     try {
       if (!input || typeof input !== 'object') {
         return;
@@ -95,6 +114,10 @@ export class TelemetryClient {
 
       // Enforce strict privacy sanitization on metadata before entering queue
       const cleanMetadata: Record<string, unknown> = {};
+      if (input.accountId) {
+        cleanMetadata.accountId = input.accountId;
+      }
+
       if (input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)) {
         for (const [key, val] of Object.entries(input.metadata)) {
           if (!FORBIDDEN_METADATA_KEYS.has(key.toLowerCase())) {
@@ -121,6 +144,23 @@ export class TelemetryClient {
         errorCode: input.errorCode ? String(input.errorCode) : undefined,
         metadata: cleanMetadata
       };
+
+      // Maintain a bounded ring buffer of recent events for trace inspections
+      this.recentEvents.push(event);
+      if (this.recentEvents.length > 200) {
+        this.recentEvents.shift();
+      }
+
+      // Notify local listeners
+      for (const listener of this.listeners) {
+        try {
+          listener(event);
+        } catch {}
+      }
+
+      if (!this.isEnabled) {
+        return;
+      }
 
       // Bounded queue: drop oldest event if at capacity
       if (this.queue.length >= this.queueCapacity) {

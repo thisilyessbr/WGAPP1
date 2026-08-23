@@ -85,12 +85,20 @@
 
   <header>
     <div><strong>Chatbot Dev Control Center</strong> (Generic Engine)</div>
-    <div>
-      Tenant: <input type="text" id="tenantId" value="atlas-home-tech" style="width:140px; display:inline-block; margin:0 10px;" onchange="onTenantChange()">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span>Tenant:</span> <input type="text" id="tenantId" value="animeverse" style="width:140px; display:inline-block; margin:0;" onchange="onTenantChange()">
+      <div id="saveStatusIndicator" class="save-status saved" style="display:inline-flex; align-items:center; font-size:0.85em; font-weight:500; padding:4px 8px; border-radius:4px; background:#e6f4ea; color:#1e7e34; border:1px solid #c3e6cb;">
+        <span id="saveStatusDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#28a745; margin-right:6px;"></span>
+        <span id="saveStatusText">Saved</span>
+        <button id="retrySaveBtn" style="display:none; margin-left:8px; padding:2px 6px; font-size:0.8em;" onclick="retrySave(event)">Retry</button>
+      </div>
       <button onclick="loadConfig()" class="secondary">Reload Config</button>
-      <button onclick="saveConfig()">Save Config</button>
+      <button id="btnSaveConfig" onclick="saveConfig()">Save Config</button>
     </div>
   </header>
+  <div id="testTenantWarningBanner" style="display:none; background:#fff3cd; color:#856404; border-bottom:1px solid #ffeeba; padding:6px 14px; font-size:0.85em; font-weight:500; text-align:center;">
+    ⚠️ Test tenant selected — this environment contains test stores.
+  </div>
 
   <div class="main-container">
     <!-- Configuration Panel -->
@@ -99,67 +107,303 @@
         <div class="tab active" onclick="switchTab(this, 'tab-json')">Raw JSON (Authoritative)</div>
         <div class="tab" onclick="switchTab(this, 'tab-visual')">Visual Editor</div>
         <div class="tab" onclick="switchTab(this, 'tab-rag')">Knowledge Base (PDF)</div>
+        <div class="tab" onclick="switchTab(this, 'tab-ecommerce')">Ecommerce (Products)</div>
       </div>
       
       <div class="panel-content">
         <!-- JSON Editor -->
         <div id="tab-json" class="tab-content active">
           <p style="font-size: 0.85em; color: #666; margin-top: 0;">This raw JSON is the single source of truth for BusinessConfig. Valid JSON is required to save.</p>
-          <textarea id="rawJsonEditor" class="code"></textarea>
+          <textarea id="rawJsonEditor" class="code" oninput="onRawJsonInput()"></textarea>
         </div>
 
         <!-- Visual Editor (Syncs to JSON) -->
         <div id="tab-visual" class="tab-content">
           <p style="font-size: 0.85em; color: #666; margin-top: 0;">Editing here automatically updates the Raw JSON.</p>
           
-          <div style="display: flex; gap: 20px;">
-            <div style="flex: 1;">
-              <h3>Identity</h3>
-              <label>Bot Name</label><input type="text" id="v_botName" oninput="syncVisualToJson()">
-              <label>Language</label><input type="text" id="v_language" oninput="syncVisualToJson()">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <!-- Column 1: Identity, Behavior, Limits, Capabilities -->
+            <div>
+              <h3>Identity & Brand</h3>
+              <label>Bot Name</label>
+              <input type="text" id="v_botName" oninput="syncVisualToJson()">
               
-              <h3>Behavior</h3>
-              <label>Tone</label><input type="text" id="v_tone" oninput="syncVisualToJson()">
+              <label>Default Language</label>
+              <input type="text" id="v_language" oninput="syncVisualToJson()">
+              
+              <label>Brand / Company Name</label>
+              <input type="text" id="v_brand" oninput="syncVisualToJson()" placeholder="e.g. Atlas Tech">
+
+              <label>Industry</label>
+              <input type="text" id="v_industry" oninput="syncVisualToJson()" placeholder="e.g. Retail, Home Appliances">
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div>
+                  <label>Country</label>
+                  <input type="text" id="v_country" oninput="syncVisualToJson()" placeholder="e.g. Morocco">
+                </div>
+                <div>
+                  <label>Currency</label>
+                  <input type="text" id="v_currency" oninput="syncVisualToJson()" placeholder="e.g. MAD">
+                </div>
+              </div>
+
+              <label>Business Hours</label>
+              <input type="text" id="v_businessHours" oninput="syncVisualToJson()" placeholder="e.g. Mon-Fri 9:00 - 18:00">
+
+              <label>Locations (comma-separated)</label>
+              <input type="text" id="v_locations" oninput="syncVisualToJson()" placeholder="e.g. Casablanca, Rabat, Marrakech">
+
+              <div style="margin-top: 12px; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 4px;">
+                <strong style="font-size: 0.85em; color: #495057;">Support Contacts</strong>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <div>
+                    <label style="margin-top: 4px;">Support Email</label>
+                    <input type="text" id="v_supportEmail" oninput="syncVisualToJson()" placeholder="support@example.com">
+                  </div>
+                  <div>
+                    <label style="margin-top: 4px;">Support Phone</label>
+                    <input type="text" id="v_supportPhone" oninput="syncVisualToJson()" placeholder="+212 522 000000">
+                  </div>
+                  <div>
+                    <label style="margin-top: 4px;">Sales Email</label>
+                    <input type="text" id="v_supportSales" oninput="syncVisualToJson()" placeholder="sales@example.com">
+                  </div>
+                  <div>
+                    <label style="margin-top: 4px;">Returns Email</label>
+                    <input type="text" id="v_supportReturns" oninput="syncVisualToJson()" placeholder="returns@example.com">
+                  </div>
+                </div>
+              </div>
+
+              <h3 style="margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">Behavior & Policy</h3>
+              <label>Tone</label>
+              <input type="text" id="v_tone" oninput="syncVisualToJson()" placeholder="e.g. professional, friendly">
+              
               <label>Verbosity</label>
               <select id="v_verbosity" onchange="syncVisualToJson()">
                 <option value="short">Short</option>
                 <option value="medium">Medium</option>
                 <option value="long">Long</option>
               </select>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div>
+                  <label>Stay On Topic</label>
+                  <select id="v_stayOnTopic" onchange="syncVisualToJson()">
+                    <option value="true">True (Strict)</option>
+                    <option value="false">False (Permissive)</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Answer Only Knowledge</label>
+                  <select id="v_answerOnlyKnowledge" onchange="syncVisualToJson()">
+                    <option value="false">False (General AI)</option>
+                    <option value="true">True (Strict RAG)</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Allow Small Talk</label>
+                  <select id="v_allowSmallTalk" onchange="syncVisualToJson()">
+                    <option value="true">True (Enabled)</option>
+                    <option value="false">False (Disabled)</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Allow Human Handoff</label>
+                  <select id="v_allowHumanHandoff" onchange="syncVisualToJson()">
+                    <option value="false">False (Disabled)</option>
+                    <option value="true">True (Enabled)</option>
+                  </select>
+                </div>
+              </div>
+
+              <h3 style="margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">Conversation Limits</h3>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                <div>
+                  <label>Max History</label>
+                  <input type="number" id="v_maxHistory" min="1" max="100" oninput="syncVisualToJson()">
+                </div>
+                <div>
+                  <label>Max WF Steps</label>
+                  <input type="number" id="v_maxWorkflowSteps" min="1" max="50" oninput="syncVisualToJson()">
+                </div>
+                <div>
+                  <label>Max Resp Length</label>
+                  <input type="number" id="v_maxResponseLength" min="50" max="4000" oninput="syncVisualToJson()">
+                </div>
+              </div>
+
+              <h3 style="margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">Capabilities</h3>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                  <label>Image Recognition</label>
+                  <select id="v_imageEnabled" onchange="syncVisualToJson()">
+                    <option value="false">Disabled</option>
+                    <option value="true">Enabled</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Ecommerce Capability</label>
+                  <select id="v_ecommerceEnabled" onchange="syncVisualToJson()">
+                    <option value="false">Disabled</option>
+                    <option value="true">Enabled</option>
+                  </select>
+                </div>
+              </div>
             </div>
-            <div style="flex: 1;">
+
+            <!-- Column 2: LLM, RAG & Ingestion Settings -->
+            <div>
               <h3>LLM Configuration</h3>
               <label>Provider</label>
               <select id="v_llmProvider" onchange="onLlmProviderChange()">
                 <option value="deepseek">DeepSeek</option>
                 <option value="gemini">Gemini</option>
+                <option value="mock">Mock Provider</option>
               </select>
+              
               <label>Model</label>
               <input type="text" id="v_llmModel" oninput="syncVisualToJson()">
 
-              <h3>RAG / Knowledge</h3>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                <div>
+                  <label>Temperature</label>
+                  <input type="number" step="0.05" min="0" max="2" id="v_llmTemp" oninput="syncVisualToJson()">
+                </div>
+                <div>
+                  <label>Max Tokens</label>
+                  <input type="number" min="50" max="8192" id="v_llmMaxTokens" oninput="syncVisualToJson()">
+                </div>
+                <div>
+                  <label>Timeout (ms)</label>
+                  <input type="number" min="1000" max="120000" step="1000" id="v_llmTimeoutMs" oninput="syncVisualToJson()">
+                </div>
+              </div>
+
+              <h3 style="margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">RAG / Knowledge Base</h3>
               <label>Enabled</label>
               <select id="v_ragEnabled" onchange="syncVisualToJson()">
-                <option value="true">True</option>
-                <option value="false">False</option>
+                <option value="true">True (Enabled)</option>
+                <option value="false">False (Disabled)</option>
               </select>
-              <label>Top K</label><input type="number" id="v_topK" oninput="syncVisualToJson()">
-              <label>Min Similarity Score</label><input type="number" step="0.05" id="v_minSim" oninput="syncVisualToJson()">
 
-              <h3>Capabilities</h3>
-              <label>Image Recognition</label>
-              <select id="v_imageEnabled" onchange="syncVisualToJson()">
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                <div>
+                  <label>Top K</label>
+                  <input type="number" min="1" max="20" id="v_topK" oninput="syncVisualToJson()">
+                </div>
+                <div>
+                  <label>Min Sim Score</label>
+                  <input type="number" step="0.01" min="0" max="1" id="v_minSim" oninput="syncVisualToJson()">
+                </div>
+                <div>
+                  <label>Max Context Size</label>
+                  <input type="number" min="500" max="32000" step="500" id="v_maxContextSize" oninput="syncVisualToJson()">
+                </div>
+              </div>
+
+              <div style="margin-top: 12px; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 4px;">
+                <strong style="font-size: 0.85em; color: #495057;">Document Ingestion Settings</strong>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <div>
+                    <label style="margin-top: 4px;">Chunk Size</label>
+                    <input type="number" min="100" max="4000" id="v_chunkSize" oninput="syncVisualToJson()">
+                  </div>
+                  <div>
+                    <label style="margin-top: 4px;">Chunk Overlap</label>
+                    <input type="number" min="0" max="1000" id="v_chunkOverlap" oninput="syncVisualToJson()">
+                  </div>
+                  <div>
+                    <label style="margin-top: 4px;">Max File Size (MB)</label>
+                    <input type="number" min="1" max="100" id="v_maxFileSizeMb" oninput="syncVisualToJson()">
+                  </div>
+                  <div>
+                    <label style="margin-top: 4px;">Max Chunks</label>
+                    <input type="number" min="10" max="5000" id="v_maxChunks" oninput="syncVisualToJson()">
+                  </div>
+                </div>
+                <label style="margin-top: 6px;">Max Extracted Text Length</label>
+                <input type="number" min="1000" max="1000000" id="v_maxExtractedTextLength" oninput="syncVisualToJson()">
+              </div>
             </div>
           </div>
           
-          <h3>Core Prompts</h3>
+          <h3 style="margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">System & Core Prompts</h3>
           <label>System Prompt</label>
-          <textarea id="v_sysPrompt" oninput="syncVisualToJson()"></textarea>
-          <label>Fallback Prompt</label>
-          <textarea id="v_fallbackPrompt" oninput="syncVisualToJson()"></textarea>
+          <textarea id="v_sysPrompt" style="height: 90px;" oninput="syncVisualToJson()"></textarea>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+            <!-- Greeting (Multilingual) -->
+            <div>
+              <label style="margin-top: 0;">Greeting Message (Multilingual)</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-greeting active" onclick="switchPromptLang('greeting', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-greeting" onclick="switchPromptLang('greeting', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-greeting" onclick="switchPromptLang('greeting', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-greeting" onclick="switchPromptLang('greeting', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-greeting-en" class="prompt-content-greeting"><textarea id="v_greeting_en" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-greeting-fr" class="prompt-content-greeting" style="display:none;"><textarea id="v_greeting_fr" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-greeting-ar" class="prompt-content-greeting" style="display:none;"><textarea id="v_greeting_ar" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-greeting-darija" class="prompt-content-greeting" style="display:none;"><textarea id="v_greeting_darija" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+            </div>
+
+            <!-- Fallback (Multilingual) -->
+            <div>
+              <label style="margin-top: 0;">Fallback Message (Multilingual)</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-fallback active" onclick="switchPromptLang('fallback', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-fallback" onclick="switchPromptLang('fallback', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-fallback" onclick="switchPromptLang('fallback', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-fallback" onclick="switchPromptLang('fallback', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-fallback-en" class="prompt-content-fallback"><textarea id="v_fallback_en" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-fallback-fr" class="prompt-content-fallback" style="display:none;"><textarea id="v_fallback_fr" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-fallback-ar" class="prompt-content-fallback" style="display:none;"><textarea id="v_fallback_ar" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-fallback-darija" class="prompt-content-fallback" style="display:none;"><textarea id="v_fallback_darija" style="height: 60px;" oninput="syncVisualToJson()"></textarea></div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+            <div>
+              <label>Knowledge Context Prompt</label>
+              <textarea id="v_knowledgePrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Workflow Prompt</label>
+              <textarea id="v_workflowPrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Human Handoff Message</label>
+              <textarea id="v_handoffPrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Limit Exceeded Message</label>
+              <textarea id="v_limitExceededPrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+            </div>
+            <div>
+              <label>Workflow Unavailable Message</label>
+              <textarea id="v_workflowUnavailablePrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Workflow Cancelled Message</label>
+              <textarea id="v_workflowCancelledPrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Missing Field Prompt Template</label>
+              <textarea id="v_missingFieldPrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Confirmation Prompt Template</label>
+              <textarea id="v_confirmationPrompt" style="height: 60px;" oninput="syncVisualToJson()"></textarea>
+            </div>
+          </div>
+
+          <details style="margin-top: 15px; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 8px 12px;">
+            <summary style="cursor: pointer; font-weight: bold; font-size: 0.88em; color: #555;">Advanced Engine Prompts (Intent Classification & Field Extraction)</summary>
+            <div style="margin-top: 10px;">
+              <label>Intent Classification Prompt</label>
+              <textarea id="v_intentClassificationPrompt" style="height: 70px;" oninput="syncVisualToJson()"></textarea>
+
+              <label>Field Extraction Prompt</label>
+              <textarea id="v_fieldExtractionPrompt" style="height: 70px;" oninput="syncVisualToJson()"></textarea>
+            </div>
+          </details>
 
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:25px; border-top: 1px solid #eee; padding-top: 15px;">
             <h3 style="margin:0;">Multi-Language FAQ Entries</h3>
@@ -193,6 +437,16 @@
 
         <!-- Knowledge Base -->
         <div id="tab-rag" class="tab-content">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:#fdfdfd; padding:10px 14px; border:1px solid #eee; border-radius:6px;">
+            <div>
+              <label style="display:inline-block; margin-right:8px; font-weight:bold; font-size:0.9em;">Store / Knowledge Scope:</label>
+              <select id="ragAccountSelect" style="width:260px; display:inline-block;" onchange="onRagAccountChange()">
+                <option value="global">🌐 Global Tenant Knowledge (All Stores)</option>
+              </select>
+            </div>
+            <span id="ragScopeBadge" style="font-size:0.8em; padding:4px 10px; border-radius:4px; font-weight:bold; background:#e8f4fd; color:#0c5460;">Scope: Global</span>
+          </div>
+
           <h3>Upload PDF</h3>
           <form onsubmit="uploadPdf(event)" style="display:flex; gap:10px; margin-bottom: 20px;">
             <input type="file" id="pdfFile" accept="application/pdf" required>
@@ -207,14 +461,148 @@
             <div style="color: #888; font-size: 0.9em;">No documents loaded.</div>
           </div>
         </div>
+
+        <!-- Ecommerce (Products & Variants) -->
+        <div id="tab-ecommerce" class="tab-content">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <label style="display:inline-block; margin:0;">Account / Store:</label>
+              <select id="ecomAccountSelect" style="width:200px; display:inline-block;" onchange="onEcomAccountChange()">
+                <option value="">-- Select Account --</option>
+              </select>
+              <span id="ecomAccountStatic" style="display:none; font-weight:bold; font-size:0.88em; padding:3px 10px; border-radius:4px; background:#f1f5f9; color:#1e293b; border:1px solid #cbd5e1;"></span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span id="ecomFeatureBadge" style="font-size:0.8em; padding:3px 8px; border-radius:4px; font-weight:bold; background:#eee;">Loading...</span>
+              <button onclick="loadProducts()" class="secondary" style="padding:4px 8px; font-size:0.8em;">Refresh</button>
+              <button id="btnAddProduct" onclick="openCreateProductModal()" style="padding:4px 10px; font-size:0.85em;">+ Add Product</button>
+            </div>
+          </div>
+
+          <div id="ecomDisabledBanner" style="display:none; padding:12px; background:#fff3cd; color:#856404; border:1px solid #ffeeba; border-radius:4px; margin-bottom:15px; font-size:0.9em;">
+            ⚠️ Ecommerce is disabled for this account. Product management is inactive.
+          </div>
+
+          <div id="productListContainer">
+            <div style="color: #888; font-size: 0.9em;">Select an account to view and manage products.</div>
+          </div>
+
+          <!-- Product Form Modal -->
+          <div id="productModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1100; justify-content:center; align-items:center;">
+            <div style="background:white; padding:20px; border-radius:8px; width:600px; max-width:90%; max-height:90vh; overflow-y:auto;">
+              <h3 id="productModalTitle" style="margin-top:0;">Create Product</h3>
+              <input type="hidden" id="p_id">
+              
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div>
+                  <label>Product Name (Default / EN)*</label>
+                  <input type="text" id="p_name" required>
+                </div>
+                <div>
+                  <label>SKU*</label>
+                  <input type="text" id="p_sku" required>
+                </div>
+                <div>
+                  <label>Price*</label>
+                  <input type="number" id="p_price" step="0.01" min="0" required>
+                </div>
+                <div>
+                  <label>Currency</label>
+                  <input type="text" id="p_currency" value="USD">
+                </div>
+                <div>
+                  <label>Stock*</label>
+                  <input type="number" id="p_stock" min="0" value="0">
+                </div>
+                <div>
+                  <label>Category</label>
+                  <input type="text" id="p_category">
+                </div>
+              </div>
+
+              <label>Description</label>
+              <textarea id="p_description" style="height:60px;"></textarea>
+
+              <div style="margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
+                <strong>Localized Names & Descriptions</strong>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px;">
+                  <div>
+                    <label>French Name</label><input type="text" id="p_name_fr">
+                    <label>Arabic Name</label><input type="text" id="p_name_ar">
+                    <label>Darija Name</label><input type="text" id="p_name_darija">
+                  </div>
+                  <div>
+                    <label>French Description</label><textarea id="p_desc_fr" style="height:35px;"></textarea>
+                    <label>Arabic Description</label><textarea id="p_desc_ar" style="height:35px;"></textarea>
+                    <label>Darija Description</label><textarea id="p_desc_darija" style="height:35px;"></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top:10px;">
+                <label><input type="checkbox" id="p_active" checked style="width:auto; display:inline-block; margin-right:6px;"> Active in store catalog</label>
+              </div>
+
+              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+                <button type="button" class="secondary" onclick="closeProductModal()">Cancel</button>
+                <button type="button" onclick="saveProduct()">Save Product</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Variant Modal -->
+          <div id="variantModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1150; justify-content:center; align-items:center;">
+            <div style="background:white; padding:20px; border-radius:8px; width:450px; max-width:90%;">
+              <h3 id="variantModalTitle" style="margin-top:0;">Add Product Variant</h3>
+              <input type="hidden" id="v_productId">
+              <input type="hidden" id="v_variantId">
+              
+              <label>Variant SKU*</label>
+              <input type="text" id="var_sku" required>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div>
+                  <label>Size</label><input type="text" id="var_size" placeholder="e.g. 42, L">
+                </div>
+                <div>
+                  <label>Color</label><input type="text" id="var_color" placeholder="e.g. Blue, Noir">
+                </div>
+                <div>
+                  <label>Price Override (Optional)</label><input type="number" id="var_price" step="0.01" min="0" placeholder="Base price">
+                </div>
+                <div>
+                  <label>Stock</label><input type="number" id="var_stock" min="0" value="0">
+                </div>
+              </div>
+
+              <div style="margin-top:10px;">
+                <label><input type="checkbox" id="var_active" checked style="width:auto; display:inline-block; margin-right:6px;"> Active variant</label>
+              </div>
+
+              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+                <button type="button" class="secondary" onclick="closeVariantModal()">Cancel</button>
+                <button type="button" onclick="saveVariant()">Save Variant</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Chat & Diagnostics Panel -->
     <div class="panel">
-      <div class="panel-header">
-        Test Chat & Diagnostics
-        <button onclick="resetChat()" class="danger" style="padding: 4px 8px; font-size: 0.8em;">Reset</button>
+      <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div>Test Chat & Diagnostics</div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <label style="margin: 0; font-size: 0.8em; font-weight: normal; color: #444;">Store:</label>
+          <select id="chatAccountSelect" style="width: 150px; padding: 3px 6px; font-size: 0.82em; margin: 0;">
+            <option value="">-- All / Default --</option>
+          </select>
+          <span id="chatAccountStatic" style="display:none; font-size:0.82em; font-weight:bold; padding:2px 8px; border-radius:4px; background:#f1f5f9; color:#1e293b; border:1px solid #cbd5e1;"></span>
+          <label style="margin: 0; font-size: 0.8em; font-weight: normal; color: #444;">Customer:</label>
+          <input type="text" id="chatCustomerId" value="manual-customer-A" style="width: 130px; padding: 3px 6px; font-size: 0.82em; margin: 0;">
+          <button onclick="resetChat()" class="danger" style="padding: 3px 8px; font-size: 0.8em;">Reset</button>
+        </div>
       </div>
       <div class="panel-content" style="display: flex; flex-direction: column; padding-bottom: 0;">
         
@@ -256,28 +644,205 @@
     let currentConfig = null;
     let loadedConfigUpdatedAt = null;
     let faqEntries = [];
-    const urlParams = new URLSearchParams(window.location.search);
-    let tenantId = urlParams.get('tenantId') || document.getElementById('tenantId')?.value || 'atlas-home-tech';
+    let isInitializing = false;
+    let isDirty = false;
+    let isSaving = false;
+    let saveStatus = 'saved'; // 'saved' | 'saving' | 'dirty' | 'failed' | 'stale'
+    let saveError = null;
+    let lastSavedRevision = 0;
+    let currentRevision = 0;
+    let autosaveTimer = null;
+    const AUTOSAVE_DEBOUNCE_MS = 750;
+
+    // Expose reactive properties on window for direct test inspection
+    Object.defineProperty(window, 'isDirty', { get: () => isDirty, set: (v) => { isDirty = v; } });
+    Object.defineProperty(window, 'isSaving', { get: () => isSaving, set: (v) => { isSaving = v; } });
+    Object.defineProperty(window, 'saveStatus', { get: () => saveStatus, set: (v) => { saveStatus = v; } });
+    Object.defineProperty(window, 'saveError', { get: () => saveError, set: (v) => { saveError = v; } });
+    Object.defineProperty(window, 'lastSavedRevision', { get: () => lastSavedRevision, set: (v) => { lastSavedRevision = v; } });
+    Object.defineProperty(window, 'currentRevision', { get: () => currentRevision, set: (v) => { currentRevision = v; } });
+    Object.defineProperty(window, 'AUTOSAVE_DEBOUNCE_MS', { get: () => AUTOSAVE_DEBOUNCE_MS });
+
+    function getInitialTenantId() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const fromUrl = urlParams.get('tenantId');
+      if (fromUrl && fromUrl.trim()) return fromUrl.trim();
+
+      try {
+        const fromSession = sessionStorage.getItem('lastTenantId');
+        if (fromSession && fromSession.trim()) return fromSession.trim();
+      } catch (e) {}
+
+      const inputVal = document.getElementById('tenantId')?.value?.trim();
+      if (inputVal) return inputVal;
+
+      return 'animeverse';
+    }
+
+    function updateTenantModeBanner(currentTenant) {
+      const banner = document.getElementById('testTenantWarningBanner');
+      if (!banner) return;
+      const isTestTenant = currentTenant && (
+        currentTenant === 'MANUAL-ECOMMERCE-TEST' ||
+        currentTenant.startsWith('MANUAL-') ||
+        currentTenant.startsWith('test-') ||
+        currentTenant.startsWith('temp_')
+      );
+      if (isTestTenant) {
+        banner.style.display = 'block';
+        banner.textContent = `⚠️ Test tenant selected (${currentTenant}) — this environment contains test stores.`;
+      } else {
+        banner.style.display = 'none';
+      }
+    }
+
+    let tenantId = getInitialTenantId();
     if (document.getElementById('tenantId')) {
       document.getElementById('tenantId').value = tenantId;
     }
     const customerId = 'dev-customer-' + Math.floor(Math.random() * 1000);
 
-    function onTenantChange() {
-      tenantId = document.getElementById('tenantId').value.trim() || 'atlas-home-tech';
-      loadConfig();
-      loadDocuments();
+    // --- Navigation & Unload Protection ---
+    window.addEventListener('beforeunload', (e) => {
+      if (isDirty || isSaving) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved configuration changes.';
+        return 'You have unsaved configuration changes.';
+      }
+    });
+
+    async function onTenantChange() {
+      const newTenantId = document.getElementById('tenantId').value.trim();
+      if (!newTenantId) {
+        alert('Please enter a valid tenant ID.');
+        document.getElementById('tenantId').value = tenantId || 'animeverse';
+        return;
+      }
+      if (newTenantId === tenantId) return;
+
+      if (isDirty || isSaving) {
+        if (autosaveTimer) {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = null;
+        }
+        const confirmed = confirm('You have unsaved changes on the current tenant. Discard and switch?');
+        if (!confirmed) {
+          document.getElementById('tenantId').value = tenantId;
+          return;
+        }
+      }
+
+      isDirty = false;
+      isSaving = false;
+      currentRevision = 0;
+      lastSavedRevision = 0;
+      saveError = null;
+      updateSaveStatusUI('saved');
+
+      tenantId = newTenantId;
+      try {
+        sessionStorage.setItem('lastTenantId', tenantId);
+      } catch (e) {}
+
+      updateTenantModeBanner(tenantId);
+      await loadConfig();
+      await loadDocuments();
+      await loadAccounts();
+    }
+
+    function updateSaveStatusUI(status, customMessage) {
+      saveStatus = status;
+      const indicator = document.getElementById('saveStatusIndicator');
+      const dot = document.getElementById('saveStatusDot');
+      const text = document.getElementById('saveStatusText');
+      const retryBtn = document.getElementById('retrySaveBtn');
+
+      if (!indicator || !dot || !text) return;
+
+      indicator.className = `save-status ${status}`;
+      if (retryBtn) retryBtn.style.display = (status === 'failed' ? 'inline-block' : 'none');
+
+      if (status === 'saved') {
+        indicator.style.background = '#e6f4ea';
+        indicator.style.color = '#1e7e34';
+        indicator.style.border = '1px solid #c3e6cb';
+        dot.style.background = '#28a745';
+        text.textContent = customMessage || 'Saved';
+      } else if (status === 'saving') {
+        indicator.style.background = '#cce5ff';
+        indicator.style.color = '#004085';
+        indicator.style.border = '1px solid #b8daff';
+        dot.style.background = '#007bff';
+        text.textContent = customMessage || 'Saving…';
+      } else if (status === 'dirty') {
+        indicator.style.background = '#fff3cd';
+        indicator.style.color = '#856404';
+        indicator.style.border = '1px solid #ffeeba';
+        dot.style.background = '#ffc107';
+        text.textContent = customMessage || 'Unsaved changes';
+      } else if (status === 'failed') {
+        indicator.style.background = '#f8d7da';
+        indicator.style.color = '#721c24';
+        indicator.style.border = '1px solid #f5c6cb';
+        dot.style.background = '#dc3545';
+        text.textContent = customMessage || (saveError ? `Save failed: ${saveError}` : 'Save failed');
+      } else if (status === 'stale') {
+        indicator.style.background = '#f8d7da';
+        indicator.style.color = '#721c24';
+        indicator.style.border = '1px solid #f5c6cb';
+        dot.style.background = '#dc3545';
+        text.textContent = customMessage || 'Config changed on server. Reload before saving.';
+      }
+    }
+
+    function markConfigDirty() {
+      if (isInitializing) return;
+      currentRevision++;
+      isDirty = true;
+      saveError = null;
+      updateSaveStatusUI('dirty');
+
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer);
+      }
+      autosaveTimer = setTimeout(() => {
+        executeAutosave();
+      }, AUTOSAVE_DEBOUNCE_MS);
+    }
+
+    function onRawJsonInput() {
+      if (isInitializing) return;
+      try {
+        const jsonStr = document.getElementById('rawJsonEditor').value;
+        const parsed = JSON.parse(jsonStr);
+        currentConfig = parsed;
+        markConfigDirty();
+      } catch (e) {
+        markConfigDirty();
+        updateSaveStatusUI('dirty', 'Unsaved changes (Invalid JSON)');
+      }
+    }
+
+    async function retrySave(e) {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      await executeAutosave({ isManual: true });
     }
 
     // --- Bootstrapping & Loading ---
     async function checkBootstrap() {
+      updateTenantModeBanner(tenantId);
+      if (!tenantId) {
+        alert('No tenant selected.');
+        return;
+      }
       try {
-        const res = await fetch(`/api/dev/config?tenantId=${tenantId}`);
+        const res = await fetch(`/api/dev/config?tenantId=${encodeURIComponent(tenantId)}`);
         if (!res.ok) {
           document.getElementById('overlay').style.display = 'flex';
         } else {
           loadConfig();
           loadDocuments();
+          loadAccounts();
         }
       } catch (e) {
         alert('API unreachable.');
@@ -293,13 +858,28 @@
     }
 
     async function loadConfig() {
-      const res = await fetch(`/api/dev/config?tenantId=${tenantId}`);
-      if (res.ok) {
-        currentConfig = await res.json();
-        loadedConfigUpdatedAt = res.headers.get('X-Config-Updated-At') || new Date().toISOString();
-        document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
-        syncJsonToVisual();
-        updateChatControlsVisibility();
+      isInitializing = true;
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+      }
+      try {
+        const res = await fetch(`/api/dev/config?tenantId=${tenantId}`);
+        if (res.ok) {
+          currentConfig = await res.json();
+          loadedConfigUpdatedAt = res.headers.get('X-Config-Updated-At') || new Date().toISOString();
+          document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
+          syncJsonToVisual();
+          updateChatControlsVisibility();
+          isDirty = false;
+          isSaving = false;
+          currentRevision = 0;
+          lastSavedRevision = 0;
+          saveError = null;
+          updateSaveStatusUI('saved');
+        }
+      } finally {
+        isInitializing = false;
       }
     }
 
@@ -314,62 +894,48 @@
       }
     }
 
-    async function saveConfig() {
+    async function executeAutosave(options) {
+      const isManual = options?.isManual === true;
+
+      // If already in flight, exit (queued save will trigger after completion)
+      if (isSaving) {
+        return;
+      }
+
+      if (!isDirty && !isManual) {
+        return;
+      }
+
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+      }
+
+      const saveRevision = currentRevision;
+      const saveTenantId = tenantId;
+      isSaving = true;
+      updateSaveStatusUI('saving');
+
       try {
-        const isVisualActive = document.getElementById('tab-visual').classList.contains('active');
-        
-        // 1. Fetch fresh server config and check staleness guard
-        const freshRes = await fetch(`/api/dev/config?tenantId=${tenantId}`);
-        if (!freshRes.ok) {
-          alert('Failed to connect to server to verify config staleness.');
-          return;
-        }
-        const freshConfig = await freshRes.json();
-        const serverUpdatedAt = freshRes.headers.get('X-Config-Updated-At');
-
-        if (loadedConfigUpdatedAt && serverUpdatedAt && new Date(serverUpdatedAt).getTime() > new Date(loadedConfigUpdatedAt).getTime()) {
-          alert('Config has changed since you loaded it — click Reload Config before saving.');
-          return;
-        }
-
+        const isVisualActive = document.getElementById('tab-visual')?.classList.contains('active');
         let payloadConfig;
 
         if (isVisualActive) {
-          // Merge Visual Editor changes into the FRESH server config object
-          payloadConfig = JSON.parse(JSON.stringify(freshConfig));
-          payloadConfig.identity = payloadConfig.identity || {};
-          payloadConfig.identity.botName = document.getElementById('v_botName').value;
-          payloadConfig.identity.language = document.getElementById('v_language').value;
-
-          payloadConfig.behavior = payloadConfig.behavior || {};
-          payloadConfig.behavior.tone = document.getElementById('v_tone').value;
-          payloadConfig.behavior.verbosity = document.getElementById('v_verbosity').value;
-
-          payloadConfig.llm = payloadConfig.llm || {};
-          payloadConfig.llm.provider = document.getElementById('v_llmProvider').value;
-          payloadConfig.llm.model = document.getElementById('v_llmModel').value;
-
-          payloadConfig.knowledge = payloadConfig.knowledge || {};
-          payloadConfig.knowledge.enabled = document.getElementById('v_ragEnabled').value === "true";
-          payloadConfig.knowledge.topK = parseInt(document.getElementById('v_topK').value, 10);
-          payloadConfig.knowledge.minSimilarityScore = parseFloat(document.getElementById('v_minSim').value);
-
-          payloadConfig.prompts = payloadConfig.prompts || {};
-          payloadConfig.prompts.system = document.getElementById('v_sysPrompt').value;
-          payloadConfig.prompts.fallback = document.getElementById('v_fallbackPrompt').value;
-
-          payloadConfig.capabilities = payloadConfig.capabilities || {};
-          payloadConfig.capabilities.imageEnabled = document.getElementById('v_imageEnabled').value === "true";
-          payloadConfig.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
-          payloadConfig.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
-          payloadConfig.workflows = JSON.parse(JSON.stringify(workflowEntries));
+          payloadConfig = JSON.parse(JSON.stringify(currentConfig || {}));
+          applyVisualEditorToConfig(payloadConfig);
         } else {
-          // User is on the Raw JSON tab: serialize textarea content
           const jsonStr = document.getElementById('rawJsonEditor').value;
-          payloadConfig = JSON.parse(jsonStr);
+          try {
+            payloadConfig = JSON.parse(jsonStr);
+          } catch (err) {
+            saveError = 'Invalid JSON in Raw JSON Editor';
+            updateSaveStatusUI('failed', 'Save failed: Invalid JSON');
+            isSaving = false;
+            return;
+          }
         }
 
-        // Validate all workflows and collect states
+        // Validate workflows and collect states
         const CAMEL_CASE_REGEX = /^[a-z][a-zA-Z0-9]*$/;
         const wfsToValidate = payloadConfig.workflows || {};
         for (const wfKey of Object.keys(wfsToValidate)) {
@@ -381,17 +947,21 @@
               const fieldName = String(typeof st.field === 'string' ? st.field : (st.field?.name || '')).trim();
               const stepName = st.name || stKey;
               if (!fieldName) {
-                alert(`Error: Step "${stepName}" in workflow "${wf.name || wfKey}" is a Collect step, but the field name is empty.`);
+                saveError = `Step "${stepName}" collect field name is empty`;
+                updateSaveStatusUI('failed', saveError);
+                isSaving = false;
                 return;
               }
               if (!CAMEL_CASE_REGEX.test(fieldName)) {
-                alert(`Error: Step "${stepName}" in workflow "${wf.name || wfKey}" has an invalid field name "${fieldName}". Field names must be in camelCase (e.g. "email", "serialNumber", "fullName").`);
+                saveError = `Field "${fieldName}" in step "${stepName}" must be camelCase`;
+                updateSaveStatusUI('failed', saveError);
+                isSaving = false;
                 return;
               }
             }
           }
         }
-        
+
         const res = await fetch('/api/dev/config', {
           method: 'POST',
           headers: {
@@ -399,32 +969,59 @@
             'X-Config-Updated-At': loadedConfigUpdatedAt || ''
           },
           body: JSON.stringify({
-            tenantId,
+            tenantId: saveTenantId,
             config: payloadConfig,
             updatedAt: loadedConfigUpdatedAt
           })
         });
-        
+
         if (res.ok) {
           const saveResult = await res.json();
-          loadedConfigUpdatedAt = saveResult.updatedAt || res.headers.get('X-Config-Updated-At') || new Date().toISOString();
-          currentConfig = payloadConfig;
-          updateChatControlsVisibility();
-          currentConfig = payloadConfig;
-          document.getElementById('rawJsonEditor').value = JSON.stringify(currentConfig, null, 2);
-          syncJsonToVisual();
-          alert('Config saved successfully.');
-        } else {
-          const data = await res.json();
-          if (res.status === 409 || data.error === 'STALE_CONFIG') {
-            alert('Config has changed since you loaded it — click Reload Config before saving.');
-          } else {
-            alert('Failed to save config: ' + (data.message || data.error || 'Unknown error'));
+          if (saveTenantId === tenantId) {
+            loadedConfigUpdatedAt = saveResult.updatedAt || res.headers.get('X-Config-Updated-At') || new Date().toISOString();
+            currentConfig = payloadConfig;
+            updateChatControlsVisibility();
+
+            if (currentRevision === saveRevision) {
+              lastSavedRevision = saveRevision;
+              isDirty = false;
+              saveError = null;
+              updateSaveStatusUI('saved');
+            } else {
+              lastSavedRevision = saveRevision;
+              isDirty = true;
+              updateSaveStatusUI('dirty');
+              if (!autosaveTimer) {
+                autosaveTimer = setTimeout(() => executeAutosave(), AUTOSAVE_DEBOUNCE_MS);
+              }
+            }
           }
+        } else {
+          const data = await res.json().catch(() => ({ error: 'Network/Server Error' }));
+          if (res.status === 409 || data.error === 'STALE_CONFIG') {
+            saveError = 'Config has changed on server. Click Reload before saving.';
+            updateSaveStatusUI('stale', 'Server config updated. Reload before saving.');
+          } else {
+            saveError = data.message || data.error || `HTTP ${res.status}`;
+            updateSaveStatusUI('failed', `Save failed: ${saveError}`);
+          }
+          isDirty = true;
         }
       } catch (e) {
-        alert('Invalid JSON! Please fix syntax errors before saving: ' + e.message);
+        saveError = e.message || 'Network unreachable';
+        updateSaveStatusUI('failed', `Save failed: ${saveError}`);
+        isDirty = true;
+      } finally {
+        isSaving = false;
       }
+    }
+
+    async function saveConfig() {
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+      }
+      return await executeAutosave({ isManual: true });
     }
 
     // --- FAQ Logic ---
@@ -1452,6 +2049,64 @@
       syncVisualToJson();
     }
 
+    // --- Multilingual Prompt Helpers ---
+    function switchPromptLang(prefix, targetLang) {
+      const tabs = document.querySelectorAll(`.prompt-tab-${prefix}`);
+      const contents = document.querySelectorAll(`.prompt-content-${prefix}`);
+      const langs = ['en', 'fr', 'ar', 'darija'];
+      
+      tabs.forEach((tab, i) => {
+        tab.classList.toggle('active', langs[i] === targetLang);
+      });
+      contents.forEach(c => {
+        c.style.display = 'none';
+        c.classList.remove('active');
+      });
+      const target = document.getElementById(`prompt-${prefix}-${targetLang}`);
+      if (target) {
+        target.style.display = 'block';
+        target.classList.add('active');
+      }
+    }
+
+    function populateLocalizedPrompt(promptVal, prefix) {
+      if (!promptVal) {
+        document.getElementById(`v_${prefix}_en`).value = '';
+        document.getElementById(`v_${prefix}_fr`).value = '';
+        document.getElementById(`v_${prefix}_ar`).value = '';
+        document.getElementById(`v_${prefix}_darija`).value = '';
+        return;
+      }
+      if (typeof promptVal === 'string') {
+        document.getElementById(`v_${prefix}_en`).value = promptVal;
+        document.getElementById(`v_${prefix}_fr`).value = '';
+        document.getElementById(`v_${prefix}_ar`).value = '';
+        document.getElementById(`v_${prefix}_darija`).value = '';
+      } else if (typeof promptVal === 'object') {
+        document.getElementById(`v_${prefix}_en`).value = promptVal.en || '';
+        document.getElementById(`v_${prefix}_fr`).value = promptVal.fr || '';
+        document.getElementById(`v_${prefix}_ar`).value = promptVal.ar || '';
+        document.getElementById(`v_${prefix}_darija`).value = promptVal.darija || '';
+      }
+    }
+
+    function readLocalizedPrompt(prefix, originalVal) {
+      const en = document.getElementById(`v_${prefix}_en`).value;
+      const fr = document.getElementById(`v_${prefix}_fr`).value;
+      const ar = document.getElementById(`v_${prefix}_ar`).value;
+      const darija = document.getElementById(`v_${prefix}_darija`).value;
+
+      if ((originalVal && typeof originalVal === 'object') || fr || ar || darija) {
+        const obj = {};
+        if (en) obj.en = en;
+        if (fr) obj.fr = fr;
+        if (ar) obj.ar = ar;
+        if (darija) obj.darija = darija;
+        return Object.keys(obj).length > 0 ? obj : en;
+      }
+      return en;
+    }
+
     // --- Sync Logic ---
     function onLlmProviderChange() {
       const prov = document.getElementById('v_llmProvider').value;
@@ -1465,26 +2120,85 @@
     }
 
     function syncJsonToVisual() {
+      if (!currentConfig) {
+        try {
+          const rawVal = document.getElementById('rawJsonEditor')?.value;
+          if (rawVal) currentConfig = JSON.parse(rawVal);
+        } catch(e) {}
+      }
       if (!currentConfig) return;
+
+      // 1. Identity & Brand
       document.getElementById('v_botName').value = currentConfig.identity?.botName || '';
       document.getElementById('v_language').value = currentConfig.identity?.language || '';
+      document.getElementById('v_brand').value = currentConfig.identity?.brand || '';
+      document.getElementById('v_industry').value = currentConfig.identity?.industry || '';
+      document.getElementById('v_country').value = currentConfig.identity?.country || '';
+      document.getElementById('v_currency').value = currentConfig.identity?.currency || '';
+      document.getElementById('v_businessHours').value = currentConfig.identity?.businessHours || '';
+      document.getElementById('v_locations').value = Array.isArray(currentConfig.identity?.locations) ? currentConfig.identity.locations.join(', ') : '';
+      document.getElementById('v_supportEmail').value = currentConfig.identity?.support?.email || '';
+      document.getElementById('v_supportPhone').value = currentConfig.identity?.support?.phone || '';
+      document.getElementById('v_supportSales').value = currentConfig.identity?.support?.sales || '';
+      document.getElementById('v_supportReturns').value = currentConfig.identity?.support?.returns || '';
+
+      // 2. Behavior & Policy
       document.getElementById('v_tone').value = currentConfig.behavior?.tone || '';
       document.getElementById('v_verbosity').value = currentConfig.behavior?.verbosity || 'medium';
-      
+      document.getElementById('v_stayOnTopic').value = currentConfig.behavior?.stayOnTopic !== false ? "true" : "false";
+      document.getElementById('v_answerOnlyKnowledge').value = currentConfig.behavior?.answerOnlyFromKnowledge === true ? "true" : "false";
+      document.getElementById('v_allowSmallTalk').value = currentConfig.behavior?.allowSmallTalk !== false ? "true" : "false";
+      document.getElementById('v_allowHumanHandoff').value = currentConfig.behavior?.allowHumanHandoff === true ? "true" : "false";
+
+      // 3. Conversation Limits
+      document.getElementById('v_maxHistory').value = typeof currentConfig.limits?.maxConversationHistory === 'number' ? currentConfig.limits.maxConversationHistory : 20;
+      document.getElementById('v_maxWorkflowSteps').value = typeof currentConfig.limits?.maxWorkflowSteps === 'number' ? currentConfig.limits.maxWorkflowSteps : 10;
+      document.getElementById('v_maxResponseLength').value = typeof currentConfig.limits?.maxResponseLength === 'number' ? currentConfig.limits.maxResponseLength : 500;
+
+      // 4. LLM Configuration
       const prov = currentConfig.llm?.provider || 'deepseek';
       document.getElementById('v_llmProvider').value = prov;
       document.getElementById('v_llmModel').value = currentConfig.llm?.model || (prov === 'gemini' ? 'gemini-2.0-flash-001' : 'deepseek-chat');
+      document.getElementById('v_llmTemp').value = typeof currentConfig.llm?.temperature === 'number' ? currentConfig.llm.temperature : 0.2;
+      document.getElementById('v_llmMaxTokens').value = typeof currentConfig.llm?.maxTokens === 'number' ? currentConfig.llm.maxTokens : 1000;
+      document.getElementById('v_llmTimeoutMs').value = typeof currentConfig.llm?.timeoutMs === 'number' ? currentConfig.llm.timeoutMs : 15000;
 
-      document.getElementById('v_ragEnabled').value = currentConfig.knowledge?.enabled ? "true" : "false";
-      document.getElementById('v_topK').value = currentConfig.knowledge?.topK || 3;
-      document.getElementById('v_minSim').value = currentConfig.knowledge?.minSimilarityScore || 0.52;
+      // 5. Knowledge / RAG Settings
+      document.getElementById('v_ragEnabled').value = currentConfig.knowledge?.enabled !== false ? "true" : "false";
+      document.getElementById('v_topK').value = typeof currentConfig.knowledge?.topK === 'number' ? currentConfig.knowledge.topK : 3;
+      document.getElementById('v_minSim').value = typeof currentConfig.knowledge?.minSimilarityScore === 'number' ? currentConfig.knowledge.minSimilarityScore : 0.52;
+      document.getElementById('v_maxContextSize').value = typeof currentConfig.knowledge?.maxContextSize === 'number' ? currentConfig.knowledge.maxContextSize : 4000;
+
+      // Ingestion Settings
+      const ing = currentConfig.knowledge?.ingestion;
+      document.getElementById('v_chunkSize').value = typeof ing?.chunkSize === 'number' ? ing.chunkSize : 800;
+      document.getElementById('v_chunkOverlap').value = typeof ing?.chunkOverlap === 'number' ? ing.chunkOverlap : 100;
+      document.getElementById('v_maxFileSizeMb').value = typeof ing?.maxFileSizeMb === 'number' ? ing.maxFileSizeMb : 10;
+      document.getElementById('v_maxChunks').value = typeof ing?.maxChunks === 'number' ? ing.maxChunks : 500;
+      document.getElementById('v_maxExtractedTextLength').value = typeof ing?.maxExtractedTextLength === 'number' ? ing.maxExtractedTextLength : 100000;
+
+      // 6. Capabilities
+      document.getElementById('v_imageEnabled').value = currentConfig.capabilities?.imageEnabled === true ? "true" : "false";
+      document.getElementById('v_ecommerceEnabled').value = currentConfig.capabilities?.ecommerceEnabled === true ? "true" : "false";
+
+      // 7. Prompts & Messages
       document.getElementById('v_sysPrompt').value = currentConfig.prompts?.system || '';
-      document.getElementById('v_fallbackPrompt').value = currentConfig.prompts?.fallback || '';
+      populateLocalizedPrompt(currentConfig.prompts?.greeting, 'greeting');
+      populateLocalizedPrompt(currentConfig.prompts?.fallback, 'fallback');
+      document.getElementById('v_knowledgePrompt').value = currentConfig.prompts?.knowledge || '';
+      document.getElementById('v_workflowPrompt').value = currentConfig.prompts?.workflow || '';
+      document.getElementById('v_handoffPrompt').value = currentConfig.prompts?.handoff || '';
+      document.getElementById('v_limitExceededPrompt').value = currentConfig.prompts?.limitExceeded || '';
+      document.getElementById('v_workflowUnavailablePrompt').value = currentConfig.prompts?.workflowUnavailable || '';
+      document.getElementById('v_workflowCancelledPrompt').value = currentConfig.prompts?.workflowCancelled || '';
+      document.getElementById('v_missingFieldPrompt').value = currentConfig.prompts?.missingFieldPrompt || '';
+      document.getElementById('v_confirmationPrompt').value = currentConfig.prompts?.confirmationPrompt || '';
+      document.getElementById('v_intentClassificationPrompt').value = currentConfig.prompts?.intentClassification || '';
+      document.getElementById('v_fieldExtractionPrompt').value = currentConfig.prompts?.fieldExtraction || '';
 
+      // FAQ, Workflows, Intents
       faqEntries = JSON.parse(JSON.stringify(currentConfig.capabilities?.faq || []));
       renderFaqList();
-
-      document.getElementById('v_imageEnabled').value = currentConfig.capabilities?.imageEnabled === true ? "true" : "false";
 
       intentEntries = JSON.parse(JSON.stringify(currentConfig.capabilities?.intents || []));
       window.workflowEntries = workflowEntries = JSON.parse(JSON.stringify(currentConfig.workflows || {}));
@@ -1492,42 +2206,141 @@
       renderIntentList();
     }
 
+    function applyVisualEditorToConfig(config) {
+      // 1. Identity & Brand
+      config.identity = config.identity || {};
+      config.identity.botName = document.getElementById('v_botName').value;
+      config.identity.language = document.getElementById('v_language').value;
+
+      const brand = document.getElementById('v_brand').value.trim();
+      if (brand || config.identity.brand !== undefined) config.identity.brand = brand || undefined;
+
+      const industry = document.getElementById('v_industry').value.trim();
+      if (industry || config.identity.industry !== undefined) config.identity.industry = industry || undefined;
+
+      const country = document.getElementById('v_country').value.trim();
+      if (country || config.identity.country !== undefined) config.identity.country = country || undefined;
+
+      const currency = document.getElementById('v_currency').value.trim();
+      if (currency || config.identity.currency !== undefined) config.identity.currency = currency || undefined;
+
+      const businessHours = document.getElementById('v_businessHours').value.trim();
+      if (businessHours || config.identity.businessHours !== undefined) config.identity.businessHours = businessHours || undefined;
+
+      const locationsStr = document.getElementById('v_locations').value.trim();
+      if (locationsStr || config.identity.locations !== undefined) {
+        config.identity.locations = locationsStr ? locationsStr.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+      }
+
+      const email = document.getElementById('v_supportEmail').value.trim();
+      const phone = document.getElementById('v_supportPhone').value.trim();
+      const sales = document.getElementById('v_supportSales').value.trim();
+      const returns = document.getElementById('v_supportReturns').value.trim();
+      if (email || phone || sales || returns || config.identity.support !== undefined) {
+        config.identity.support = {
+          ...(config.identity.support || {}),
+          email: email || undefined,
+          phone: phone || undefined,
+          sales: sales || undefined,
+          returns: returns || undefined
+        };
+        if (!config.identity.support.email && !config.identity.support.phone && !config.identity.support.sales && !config.identity.support.returns) {
+          delete config.identity.support;
+        }
+      }
+
+      // 2. Behavior & Policy
+      config.behavior = config.behavior || {};
+      config.behavior.tone = document.getElementById('v_tone').value;
+      config.behavior.verbosity = document.getElementById('v_verbosity').value;
+      config.behavior.stayOnTopic = document.getElementById('v_stayOnTopic').value === "true";
+      config.behavior.answerOnlyFromKnowledge = document.getElementById('v_answerOnlyKnowledge').value === "true";
+      config.behavior.allowSmallTalk = document.getElementById('v_allowSmallTalk').value === "true";
+      config.behavior.allowHumanHandoff = document.getElementById('v_allowHumanHandoff').value === "true";
+
+      // 3. Conversation Limits
+      config.limits = config.limits || {};
+      const maxHist = parseInt(document.getElementById('v_maxHistory').value, 10);
+      if (!isNaN(maxHist)) config.limits.maxConversationHistory = maxHist;
+      const maxSteps = parseInt(document.getElementById('v_maxWorkflowSteps').value, 10);
+      if (!isNaN(maxSteps)) config.limits.maxWorkflowSteps = maxSteps;
+      const maxResp = parseInt(document.getElementById('v_maxResponseLength').value, 10);
+      if (!isNaN(maxResp)) config.limits.maxResponseLength = maxResp;
+
+      // 4. LLM Configuration
+      config.llm = config.llm || {};
+      config.llm.provider = document.getElementById('v_llmProvider').value;
+      config.llm.model = document.getElementById('v_llmModel').value;
+      const temp = parseFloat(document.getElementById('v_llmTemp').value);
+      if (!isNaN(temp)) config.llm.temperature = temp;
+      const maxTok = parseInt(document.getElementById('v_llmMaxTokens').value, 10);
+      if (!isNaN(maxTok)) config.llm.maxTokens = maxTok;
+      const timeout = parseInt(document.getElementById('v_llmTimeoutMs').value, 10);
+      if (!isNaN(timeout)) config.llm.timeoutMs = timeout;
+
+      // 5. Knowledge & Ingestion Settings
+      config.knowledge = config.knowledge || {};
+      config.knowledge.enabled = document.getElementById('v_ragEnabled').value === "true";
+      const topK = parseInt(document.getElementById('v_topK').value, 10);
+      if (!isNaN(topK)) config.knowledge.topK = topK;
+      const minSim = parseFloat(document.getElementById('v_minSim').value);
+      if (!isNaN(minSim)) config.knowledge.minSimilarityScore = minSim;
+      const maxCtx = parseInt(document.getElementById('v_maxContextSize').value, 10);
+      if (!isNaN(maxCtx)) config.knowledge.maxContextSize = maxCtx;
+
+      config.knowledge.ingestion = config.knowledge.ingestion || {};
+      const cSize = parseInt(document.getElementById('v_chunkSize').value, 10);
+      if (!isNaN(cSize)) config.knowledge.ingestion.chunkSize = cSize;
+      const cOverlap = parseInt(document.getElementById('v_chunkOverlap').value, 10);
+      if (!isNaN(cOverlap)) config.knowledge.ingestion.chunkOverlap = cOverlap;
+      const maxFile = parseInt(document.getElementById('v_maxFileSizeMb').value, 10);
+      if (!isNaN(maxFile)) config.knowledge.ingestion.maxFileSizeMb = maxFile;
+      const maxChunks = parseInt(document.getElementById('v_maxChunks').value, 10);
+      if (!isNaN(maxChunks)) config.knowledge.ingestion.maxChunks = maxChunks;
+      const maxExt = parseInt(document.getElementById('v_maxExtractedTextLength').value, 10);
+      if (!isNaN(maxExt)) config.knowledge.ingestion.maxExtractedTextLength = maxExt;
+
+      // 6. Capabilities
+      config.capabilities = config.capabilities || {};
+      config.capabilities.imageEnabled = document.getElementById('v_imageEnabled').value === "true";
+      config.capabilities.ecommerceEnabled = document.getElementById('v_ecommerceEnabled').value === "true";
+      config.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
+      config.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
+      config.workflows = JSON.parse(JSON.stringify(workflowEntries));
+
+      // 7. Prompts & Messages
+      config.prompts = config.prompts || {};
+      config.prompts.system = document.getElementById('v_sysPrompt').value;
+      config.prompts.greeting = readLocalizedPrompt('greeting', config.prompts.greeting);
+      config.prompts.fallback = readLocalizedPrompt('fallback', config.prompts.fallback);
+      config.prompts.knowledge = document.getElementById('v_knowledgePrompt').value;
+      config.prompts.workflow = document.getElementById('v_workflowPrompt').value;
+      config.prompts.handoff = document.getElementById('v_handoffPrompt').value;
+      config.prompts.limitExceeded = document.getElementById('v_limitExceededPrompt').value;
+      config.prompts.workflowUnavailable = document.getElementById('v_workflowUnavailablePrompt').value;
+      config.prompts.workflowCancelled = document.getElementById('v_workflowCancelledPrompt').value;
+      config.prompts.missingFieldPrompt = document.getElementById('v_missingFieldPrompt').value;
+      config.prompts.confirmationPrompt = document.getElementById('v_confirmationPrompt').value;
+      config.prompts.intentClassification = document.getElementById('v_intentClassificationPrompt').value;
+      config.prompts.fieldExtraction = document.getElementById('v_fieldExtractionPrompt').value;
+
+      return config;
+    }
+
     function syncVisualToJson() {
+      if (isInitializing) return;
       try {
         const jsonStr = document.getElementById('rawJsonEditor').value;
-        let config = JSON.parse(jsonStr);
-        
-        config.identity = config.identity || {};
-        config.identity.botName = document.getElementById('v_botName').value;
-        config.identity.language = document.getElementById('v_language').value;
-
-        config.behavior = config.behavior || {};
-        config.behavior.tone = document.getElementById('v_tone').value;
-        config.behavior.verbosity = document.getElementById('v_verbosity').value;
-
-        config.llm = config.llm || {};
-        config.llm.provider = document.getElementById('v_llmProvider').value;
-        config.llm.model = document.getElementById('v_llmModel').value;
-
-        config.knowledge = config.knowledge || {};
-        config.knowledge.enabled = document.getElementById('v_ragEnabled').value === "true";
-        config.knowledge.topK = parseInt(document.getElementById('v_topK').value, 10);
-        config.knowledge.minSimilarityScore = parseFloat(document.getElementById('v_minSim').value);
-
-        config.prompts = config.prompts || {};
-        config.prompts.system = document.getElementById('v_sysPrompt').value;
-        config.prompts.fallback = document.getElementById('v_fallbackPrompt').value;
-
-        config.capabilities = config.capabilities || {};
-        config.capabilities.imageEnabled = document.getElementById('v_imageEnabled').value === "true";
-        config.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
-        config.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
-        config.workflows = JSON.parse(JSON.stringify(workflowEntries));
-        
+        let config = jsonStr ? JSON.parse(jsonStr) : JSON.parse(JSON.stringify(currentConfig || {}));
+        applyVisualEditorToConfig(config);
         document.getElementById('rawJsonEditor').value = JSON.stringify(config, null, 2);
         currentConfig = config;
+        markConfigDirty();
       } catch(e) {
-        // If JSON is invalid, don't break visual typing, just ignore sync until valid
+        if (currentConfig) {
+          applyVisualEditorToConfig(currentConfig);
+        }
+        markConfigDirty();
       }
     }
 
@@ -1540,17 +2353,46 @@
       
       // Sync direction based on tab
       if (targetId === 'tab-visual') syncJsonToVisual();
+      if (targetId === 'tab-ecommerce') loadAccounts();
     }
 
     // --- Knowledge Base ---
+    async function onRagAccountChange() {
+      const select = document.getElementById('ragAccountSelect');
+      const badge = document.getElementById('ragScopeBadge');
+      const val = select ? select.value : 'global';
+      if (badge) {
+        if (val === 'global' || !val) {
+          badge.textContent = 'Scope: Global (All Stores)';
+          badge.style.background = '#e8f4fd';
+          badge.style.color = '#0c5460';
+        } else {
+          const opt = select.options[select.selectedIndex];
+          const accName = opt ? opt.text : val;
+          badge.textContent = `Scope: ${accName}`;
+          badge.style.background = '#e2f0d9';
+          badge.style.color = '#276a3c';
+        }
+      }
+      loadDocuments();
+    }
+
     async function uploadPdf(e) {
       e.preventDefault();
       const fileInput = document.getElementById('pdfFile');
       const file = fileInput.files[0];
       if (!file) return;
 
+      const ragSelect = document.getElementById('ragAccountSelect');
+      const selectedScope = ragSelect ? ragSelect.value : 'global';
+      const isGlobal = selectedScope === 'global' || !selectedScope;
+      const uploadAccountId = isGlobal ? '' : selectedScope;
+
       const formData = new FormData();
       formData.append('tenantId', tenantId);
+      if (uploadAccountId) {
+        formData.append('accountId', uploadAccountId);
+      }
       formData.append('document', file);
 
       const btn = e.target.querySelector('button');
@@ -1558,14 +2400,37 @@
       btn.textContent = 'Uploading...';
 
       try {
-        const res = await fetch('/api/dev/upload', { method: 'POST', body: formData });
-        const data = await res.json();
+        const queryParams = new URLSearchParams({ tenantId });
+        if (uploadAccountId) {
+          queryParams.set('accountId', uploadAccountId);
+        }
+
+        const res = await fetch(`/api/dev/upload?${queryParams.toString()}`, {
+          method: 'POST',
+          headers: {
+            'X-Tenant-Id': tenantId,
+            ...(uploadAccountId ? { 'X-Account-Id': uploadAccountId } : {})
+          },
+          body: formData
+        });
+        const data = await res.json().catch(() => ({ error: 'INVALID_RESPONSE', message: 'Invalid response from server' }));
         if (res.ok) {
-          alert('Upload successful. Source ID: ' + data.sourceId);
+          if (data.isReused) {
+            alert('This PDF is already ingested for this Store. Existing knowledge was reused.');
+          } else {
+            alert('Upload successful. Source ID: ' + data.sourceId);
+          }
           fileInput.value = '';
           loadDocuments();
         } else {
-          alert('Upload failed: ' + data.error);
+          if (res.status === 429) {
+            alert('Upload rate limit reached. You can upload up to 5 files per minute. Please wait before trying again.');
+          } else if (res.status === 404 && data.error === 'ACCOUNT_NOT_FOUND') {
+            alert('Upload failed: Account not found or access denied.');
+          } else {
+            const errorMsg = data.message || data.details || data.error || `HTTP ${res.status}`;
+            alert('Upload failed: ' + errorMsg);
+          }
         }
       } catch (err) {
         alert('Network error.');
@@ -1576,26 +2441,50 @@
     }
 
     async function loadDocuments() {
-      const res = await fetch(`/api/dev/documents?tenantId=${tenantId}`);
+      const ragSelect = document.getElementById('ragAccountSelect');
+      const selectedScope = ragSelect ? ragSelect.value : 'global';
+      const isGlobal = selectedScope === 'global' || !selectedScope;
+      const filterAccountId = isGlobal ? '' : selectedScope;
+
+      const queryParams = new URLSearchParams({ tenantId });
+      if (filterAccountId) {
+        queryParams.set('accountId', filterAccountId);
+      }
+
+      const res = await fetch(`/api/dev/documents?${queryParams.toString()}`, {
+        headers: {
+          'X-Tenant-Id': tenantId,
+          ...(filterAccountId ? { 'X-Account-Id': filterAccountId } : {})
+        }
+      });
+
       if (res.ok) {
         const docs = await res.json();
         const list = document.getElementById('documentList');
         list.innerHTML = '';
         if (docs.length === 0) {
-          list.innerHTML = '<div style="color: #888; font-size: 0.9em;">No documents found.</div>';
+          list.innerHTML = '<div style="color: #888; font-size: 0.9em;">No documents found for this scope.</div>';
           return;
         }
         docs.forEach(doc => {
           const docId = doc.sourceId || doc.id;
+          const isDocAccount = doc.scope === 'account' || !!doc.accountId;
+          const scopeBadge = isDocAccount 
+            ? `<span style="font-size:0.75em; padding:2px 6px; border-radius:3px; background:#e2f0d9; color:#276a3c; font-weight:bold;">🏬 ${escapeHtml(doc.accountName || 'Store Private')}</span>`
+            : `<span style="font-size:0.75em; padding:2px 6px; border-radius:3px; background:#e8f4fd; color:#0c5460; font-weight:bold;">🌐 Global</span>`;
+
           list.innerHTML += `
-            <div class="file-item" id="doc-${docId}">
+            <div class="file-item" id="doc-${docId}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #eee;">
               <div>
-                <strong>${doc.name}</strong><br>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <strong>${escapeHtml(doc.name)}</strong>
+                  ${scopeBadge}
+                </div>
                 <span style="font-size:0.8em; color:#888;">${new Date(doc.createdAt).toLocaleString()}</span>
               </div>
               <div style="display:flex; align-items:center; gap:10px;">
                 <span class="status-${doc.status}">${doc.status}</span>
-                <button class="danger" style="padding: 4px 10px; font-size: 0.8em;" onclick="deleteDocument('${docId}', '${encodeURIComponent(doc.name)}')">Delete</button>
+                <button class="danger" style="padding: 4px 10px; font-size: 0.8em;" onclick="deleteDocument('${docId}', '${encodeURIComponent(doc.name)}', '${doc.accountId || ''}')">Delete</button>
               </div>
             </div>
           `;
@@ -1603,17 +2492,477 @@
       }
     }
 
-    async function deleteDocument(sourceId, encodedFilename) {
+    // --- Ecommerce Logic ---
+    let currentAccountId = '';
+    let accountsList = [];
+    let productsList = [];
+
+    async function loadAccounts() {
+      try {
+        const res = await fetch(`/api/dev/accounts?tenantId=${encodeURIComponent(tenantId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          accountsList = data.accounts || [];
+
+          // 1. Knowledge Base Scope Selector
+          const ragSelect = document.getElementById('ragAccountSelect');
+          if (ragSelect) {
+            const currentRagVal = ragSelect.value;
+            if (accountsList.length === 0) {
+              ragSelect.innerHTML = '<option value="global">🌐 Global Tenant Knowledge (No store configured)</option>';
+              ragSelect.value = 'global';
+            } else if (accountsList.length === 1) {
+              const singleAcc = accountsList[0];
+              const accName = escapeHtml(singleAcc.name || singleAcc.id);
+              ragSelect.innerHTML = `
+                <option value="${escapeHtml(singleAcc.id)}">🏬 ${accName} (Store Knowledge)</option>
+                <option value="global">🌐 Global Tenant Knowledge</option>
+              `;
+              ragSelect.value = singleAcc.id;
+            } else {
+              ragSelect.innerHTML = '<option value="global">🌐 Global Tenant Knowledge (All Stores)</option>' +
+                accountsList.map(a => `<option value="${escapeHtml(a.id)}">🏬 ${escapeHtml(a.name || a.id)}</option>`).join('');
+              if (currentRagVal && (currentRagVal === 'global' || accountsList.some(a => a.id === currentRagVal))) {
+                ragSelect.value = currentRagVal;
+              } else {
+                ragSelect.value = 'global';
+              }
+            }
+            onRagAccountChange();
+          }
+
+          // 2. Ecommerce Account Selector
+          const ecomSelect = document.getElementById('ecomAccountSelect');
+          const ecomStatic = document.getElementById('ecomAccountStatic');
+          if (ecomSelect) {
+            if (accountsList.length === 0) {
+              ecomSelect.style.display = 'none';
+              if (ecomStatic) {
+                ecomStatic.textContent = 'No store configured';
+                ecomStatic.style.color = '#888';
+                ecomStatic.style.background = '#eee';
+                ecomStatic.style.border = 'none';
+                ecomStatic.style.display = 'inline-block';
+              }
+              currentAccountId = '';
+              const container = document.getElementById('productListContainer');
+              if (container) container.innerHTML = '<div style="color:#888; font-size:0.9em;">No store configured for this tenant.</div>';
+              const badge = document.getElementById('ecomFeatureBadge');
+              if (badge) { badge.textContent = 'No Store'; badge.style.background = '#eee'; }
+            } else if (accountsList.length === 1) {
+              const singleAcc = accountsList[0];
+              ecomSelect.style.display = 'none';
+              ecomSelect.innerHTML = `<option value="${escapeHtml(singleAcc.id)}">${escapeHtml(singleAcc.name || singleAcc.id)}</option>`;
+              ecomSelect.value = singleAcc.id;
+              currentAccountId = singleAcc.id;
+              if (ecomStatic) {
+                ecomStatic.innerHTML = `🏬 ${escapeHtml(singleAcc.name || singleAcc.id)}`;
+                ecomStatic.style.color = '#1e293b';
+                ecomStatic.style.background = '#f1f5f9';
+                ecomStatic.style.border = '1px solid #cbd5e1';
+                ecomStatic.style.display = 'inline-block';
+              }
+              onEcomAccountChange();
+            } else {
+              if (ecomStatic) ecomStatic.style.display = 'none';
+              ecomSelect.style.display = 'inline-block';
+              ecomSelect.innerHTML = '<option value="">-- Select Account --</option>' +
+                accountsList.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.id)}</option>`).join('');
+              if (currentAccountId && accountsList.some(a => a.id === currentAccountId)) {
+                ecomSelect.value = currentAccountId;
+              } else {
+                ecomSelect.value = accountsList[0].id;
+              }
+              onEcomAccountChange();
+            }
+          }
+
+          // 3. Test Chat & Diagnostics Account Selector
+          const chatSelect = document.getElementById('chatAccountSelect');
+          const chatStatic = document.getElementById('chatAccountStatic');
+          if (chatSelect) {
+            if (accountsList.length === 0) {
+              chatSelect.style.display = 'none';
+              chatSelect.value = '';
+              if (chatStatic) {
+                chatStatic.textContent = 'No store configured';
+                chatStatic.style.color = '#888';
+                chatStatic.style.background = '#eee';
+                chatStatic.style.border = 'none';
+                chatStatic.style.display = 'inline-block';
+              }
+            } else if (accountsList.length === 1) {
+              const singleAcc = accountsList[0];
+              chatSelect.style.display = 'none';
+              chatSelect.innerHTML = `<option value="${escapeHtml(singleAcc.id)}">${escapeHtml(singleAcc.name || singleAcc.id)}</option>`;
+              chatSelect.value = singleAcc.id;
+              if (chatStatic) {
+                chatStatic.innerHTML = `🏬 ${escapeHtml(singleAcc.name || singleAcc.id)}`;
+                chatStatic.style.color = '#1e293b';
+                chatStatic.style.background = '#f1f5f9';
+                chatStatic.style.border = '1px solid #cbd5e1';
+                chatStatic.style.display = 'inline-block';
+              }
+            } else {
+              if (chatStatic) chatStatic.style.display = 'none';
+              chatSelect.style.display = 'inline-block';
+              chatSelect.innerHTML = '<option value="">-- All / Default --</option>' +
+                accountsList.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.id)}</option>`).join('');
+              if (accountsList.length > 0) {
+                chatSelect.value = accountsList[0].id;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load accounts:', e);
+      }
+    }
+
+    async function onEcomAccountChange() {
+      const select = document.getElementById('ecomAccountSelect');
+      currentAccountId = select.value;
+      if (!currentAccountId) {
+        document.getElementById('productListContainer').innerHTML = '<div style="color:#888; font-size:0.9em;">Select an account to view and manage products.</div>';
+        document.getElementById('ecomFeatureBadge').textContent = 'No Account';
+        document.getElementById('ecomFeatureBadge').style.background = '#eee';
+        return;
+      }
+      loadProducts();
+    }
+
+    async function loadProducts() {
+      if (!currentAccountId) return;
+      const container = document.getElementById('productListContainer');
+      const badge = document.getElementById('ecomFeatureBadge');
+      const disabledBanner = document.getElementById('ecomDisabledBanner');
+      const btnAdd = document.getElementById('btnAddProduct');
+
+      container.innerHTML = '<div style="color:#666; font-size:0.9em;">Loading products...</div>';
+
+      try {
+        const res = await fetch(`/api/dev/products?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}&activeOnly=false`);
+        const data = await res.json();
+
+        if (res.status === 403 || data.error === 'ECOMMERCE_DISABLED') {
+          badge.textContent = 'Disabled';
+          badge.style.background = '#ffeeba';
+          badge.style.color = '#856404';
+          disabledBanner.style.display = 'block';
+          btnAdd.disabled = true;
+          container.innerHTML = '<div style="color:#888; font-size:0.9em;">Ecommerce is disabled for this account. Enable it in account capabilities.</div>';
+          return;
+        }
+
+        if (!res.ok) {
+          container.innerHTML = `<div style="color:red; font-size:0.9em;">Error loading products: ${escapeHtml(data.message || data.error)}</div>`;
+          return;
+        }
+
+        badge.textContent = 'Active';
+        badge.style.background = '#d4edda';
+        badge.style.color = '#155724';
+        disabledBanner.style.display = 'none';
+        btnAdd.disabled = false;
+
+        productsList = data.products || [];
+        renderProductsList();
+      } catch (e) {
+        container.innerHTML = `<div style="color:red; font-size:0.9em;">Network error: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    function renderProductsList() {
+      const container = document.getElementById('productListContainer');
+      if (!productsList || productsList.length === 0) {
+        container.innerHTML = '<div style="color:#888; font-size:0.9em; padding:15px; background:#fafafa; border:1px dashed #ccc; border-radius:4px;">No products found in this store. Click "+ Add Product" to create one.</div>';
+        return;
+      }
+
+      let html = '<div style="display:flex; flex-direction:column; gap:12px;">';
+      for (const p of productsList) {
+        const variants = p.variants || [];
+        html += `
+          <div style="border:1px solid #ddd; border-radius:6px; padding:12px; background:#fafafa;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <strong style="font-size:1.05em;">${escapeHtml(p.name)}</strong>
+                <span style="font-size:0.8em; color:#666; margin-left:8px;">SKU: <code>${escapeHtml(p.sku)}</code></span>
+                <span style="font-size:0.8em; padding:2px 6px; border-radius:3px; background:${p.active ? '#d4edda' : '#f8d7da'}; color:${p.active ? '#155724' : '#721c24'}; margin-left:8px;">${p.active ? 'Active' : 'Inactive'}</span>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button type="button" class="secondary" style="padding:3px 8px; font-size:0.75em;" onclick="openEditProductModal('${p.id}')">Edit</button>
+                <button type="button" class="secondary" style="padding:3px 8px; font-size:0.75em;" onclick="openAddVariantModal('${p.id}')">+ Variant</button>
+                <button type="button" class="danger" style="padding:3px 8px; font-size:0.75em;" onclick="deleteProduct('${p.id}')">Delete</button>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:20px; font-size:0.85em; color:#444; margin-top:6px;">
+              <div><strong>Price:</strong> ${escapeHtml(p.price)} ${escapeHtml(p.currency)}</div>
+              <div><strong>Stock:</strong> ${p.stock}</div>
+              <div><strong>Category:</strong> ${escapeHtml(p.category || 'General')}</div>
+              <div><strong>Variants:</strong> ${variants.length}</div>
+            </div>
+
+            ${p.description ? `<div style="font-size:0.82em; color:#666; margin-top:4px;">${escapeHtml(p.description)}</div>` : ''}
+
+            ${variants.length > 0 ? `
+              <div style="margin-top:8px; border-top:1px solid #eee; padding-top:6px;">
+                <span style="font-size:0.8em; font-weight:bold; color:#555;">Variants (${variants.length}):</span>
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">
+                  ${variants.map(v => `
+                    <span style="font-size:0.78em; background:#e9ecef; padding:2px 6px; border-radius:4px; display:inline-flex; align-items:center; gap:4px;">
+                      <code>${escapeHtml(v.sku)}</code>
+                      ${v.size ? `<span>Size:${escapeHtml(v.size)}</span>` : ''}
+                      ${v.color ? `<span>Color:${escapeHtml(v.color)}</span>` : ''}
+                      <span>Stock:${v.stock}</span>
+                      ${v.priceOverride ? `<span>(${escapeHtml(v.priceOverride)} ${escapeHtml(p.currency)})</span>` : ''}
+                      <button type="button" onclick="deleteVariant('${p.id}', '${v.id}')" style="background:none; border:none; color:#dc3545; cursor:pointer; padding:0 2px; font-weight:bold;">&times;</button>
+                    </span>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function openCreateProductModal() {
+      document.getElementById('productModalTitle').textContent = 'Create Product';
+      document.getElementById('p_id').value = '';
+      document.getElementById('p_name').value = '';
+      document.getElementById('p_sku').value = '';
+      document.getElementById('p_price').value = '';
+      document.getElementById('p_currency').value = 'USD';
+      document.getElementById('p_stock').value = '0';
+      document.getElementById('p_category').value = '';
+      document.getElementById('p_description').value = '';
+      document.getElementById('p_name_fr').value = '';
+      document.getElementById('p_name_ar').value = '';
+      document.getElementById('p_name_darija').value = '';
+      document.getElementById('p_desc_fr').value = '';
+      document.getElementById('p_desc_ar').value = '';
+      document.getElementById('p_desc_darija').value = '';
+      document.getElementById('p_active').checked = true;
+      document.getElementById('productModal').style.display = 'flex';
+    }
+
+    function openEditProductModal(id) {
+      const p = productsList.find(x => x.id === id);
+      if (!p) return;
+      document.getElementById('productModalTitle').textContent = 'Edit Product';
+      document.getElementById('p_id').value = p.id;
+      document.getElementById('p_name').value = p.name || '';
+      document.getElementById('p_sku').value = p.sku || '';
+      document.getElementById('p_price').value = p.price || '';
+      document.getElementById('p_currency').value = p.currency || 'USD';
+      document.getElementById('p_stock').value = p.stock || 0;
+      document.getElementById('p_category').value = p.category || '';
+      document.getElementById('p_description').value = p.description || '';
+      
+      const locNames = p.nameLocalized || {};
+      document.getElementById('p_name_fr').value = locNames.fr || '';
+      document.getElementById('p_name_ar').value = locNames.ar || '';
+      document.getElementById('p_name_darija').value = locNames.darija || '';
+
+      const locDesc = p.descriptionLocalized || {};
+      document.getElementById('p_desc_fr').value = locDesc.fr || '';
+      document.getElementById('p_desc_ar').value = locDesc.ar || '';
+      document.getElementById('p_desc_darija').value = locDesc.darija || '';
+
+      document.getElementById('p_active').checked = p.active !== false;
+      document.getElementById('productModal').style.display = 'flex';
+    }
+
+    function closeProductModal() {
+      document.getElementById('productModal').style.display = 'none';
+    }
+
+    async function saveProduct() {
+      const id = document.getElementById('p_id').value;
+      const name = document.getElementById('p_name').value.trim();
+      const sku = document.getElementById('p_sku').value.trim();
+      const price = parseFloat(document.getElementById('p_price').value);
+      const currency = document.getElementById('p_currency').value.trim() || 'USD';
+      const stock = parseInt(document.getElementById('p_stock').value, 10) || 0;
+      const category = document.getElementById('p_category').value.trim();
+      const description = document.getElementById('p_description').value.trim();
+      const active = document.getElementById('p_active').checked;
+
+      const nameLocalized = {};
+      const frName = document.getElementById('p_name_fr').value.trim();
+      if (frName) nameLocalized.fr = frName;
+      const arName = document.getElementById('p_name_ar').value.trim();
+      if (arName) nameLocalized.ar = arName;
+      const darijaName = document.getElementById('p_name_darija').value.trim();
+      if (darijaName) nameLocalized.darija = darijaName;
+
+      const descriptionLocalized = {};
+      const frDesc = document.getElementById('p_desc_fr').value.trim();
+      if (frDesc) descriptionLocalized.fr = frDesc;
+      const arDesc = document.getElementById('p_desc_ar').value.trim();
+      if (arDesc) descriptionLocalized.ar = arDesc;
+      const darijaDesc = document.getElementById('p_desc_darija').value.trim();
+      if (darijaDesc) descriptionLocalized.darija = darijaDesc;
+
+      if (!name || !sku || isNaN(price)) {
+        alert('Please fill in required fields (Name, SKU, Price).');
+        return;
+      }
+
+      const payload = {
+        tenantId,
+        accountId: currentAccountId,
+        name,
+        sku,
+        price,
+        currency,
+        stock,
+        category: category || null,
+        description,
+        nameLocalized: Object.keys(nameLocalized).length ? nameLocalized : null,
+        descriptionLocalized: Object.keys(descriptionLocalized).length ? descriptionLocalized : null,
+        active
+      };
+
+      try {
+        const method = id ? 'PATCH' : 'POST';
+        const url = id ? `/api/dev/products/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}` : `/api/dev/products?tenantId=${encodeURIComponent(tenantId)}`;
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          closeProductModal();
+          loadProducts();
+        } else {
+          alert('Failed to save product: ' + (data.message || data.error));
+        }
+      } catch (e) {
+        alert('Network error saving product: ' + e.message);
+      }
+    }
+
+    async function deleteProduct(id) {
+      if (!confirm('Are you sure you want to delete this product?')) return;
+      try {
+        const res = await fetch(`/api/dev/products/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          loadProducts();
+        } else {
+          const data = await res.json();
+          alert('Failed to delete product: ' + (data.message || data.error));
+        }
+      } catch (e) {
+        alert('Network error deleting product: ' + e.message);
+      }
+    }
+
+    function openAddVariantModal(productId) {
+      document.getElementById('variantModalTitle').textContent = 'Add Product Variant';
+      document.getElementById('v_productId').value = productId;
+      document.getElementById('v_variantId').value = '';
+      document.getElementById('var_sku').value = '';
+      document.getElementById('var_size').value = '';
+      document.getElementById('var_color').value = '';
+      document.getElementById('var_price').value = '';
+      document.getElementById('var_stock').value = '0';
+      document.getElementById('var_active').checked = true;
+      document.getElementById('variantModal').style.display = 'flex';
+    }
+
+    function closeVariantModal() {
+      document.getElementById('variantModal').style.display = 'none';
+    }
+
+    async function saveVariant() {
+      const productId = document.getElementById('v_productId').value;
+      const sku = document.getElementById('var_sku').value.trim();
+      const size = document.getElementById('var_size').value.trim();
+      const color = document.getElementById('var_color').value.trim();
+      const priceStr = document.getElementById('var_price').value.trim();
+      const priceOverride = priceStr ? parseFloat(priceStr) : null;
+      const stock = parseInt(document.getElementById('var_stock').value, 10) || 0;
+      const active = document.getElementById('var_active').checked;
+
+      if (!sku) {
+        alert('Variant SKU is required.');
+        return;
+      }
+
+      const payload = {
+        tenantId,
+        accountId: currentAccountId,
+        sku,
+        size: size || null,
+        color: color || null,
+        priceOverride,
+        stock,
+        active
+      };
+
+      try {
+        const res = await fetch(`/api/dev/products/${encodeURIComponent(productId)}/variants?tenantId=${encodeURIComponent(tenantId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          closeVariantModal();
+          loadProducts();
+        } else {
+          alert('Failed to add variant: ' + (data.message || data.error));
+        }
+      } catch (e) {
+        alert('Network error saving variant: ' + e.message);
+      }
+    }
+
+    async function deleteVariant(productId, variantId) {
+      if (!confirm('Are you sure you want to delete this variant?')) return;
+      try {
+        const res = await fetch(`/api/dev/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          loadProducts();
+        } else {
+          const data = await res.json();
+          alert('Failed to delete variant: ' + (data.message || data.error));
+        }
+      } catch (e) {
+        alert('Network error deleting variant: ' + e.message);
+      }
+    }
+
+    async function deleteDocument(sourceId, encodedFilename, docAccountId) {
       const filename = decodeURIComponent(encodedFilename);
       if (!confirm(`Are you sure you want to delete "${filename}"? All associated chunks and embeddings will be removed.`)) {
         return;
       }
 
       try {
-        const res = await fetch(`/api/dev/documents/${sourceId}?tenantId=${tenantId}`, {
+        const queryParams = new URLSearchParams({ tenantId });
+        if (docAccountId) {
+          queryParams.set('accountId', docAccountId);
+        }
+
+        const res = await fetch(`/api/dev/documents/${sourceId}?${queryParams.toString()}`, {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId })
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-Id': tenantId,
+            ...(docAccountId ? { 'X-Account-Id': docAccountId } : {})
+          },
+          body: JSON.stringify({ tenantId, accountId: docAccountId || undefined })
         });
 
         const data = await res.json();
@@ -1624,7 +2973,7 @@
           }
           loadDocuments();
         } else {
-          alert(`Failed to delete document: ${data.error || 'Unknown error'}`);
+          alert(`Failed to delete document: ${data.message || data.error || 'Unknown error'}`);
         }
       } catch (err) {
         alert(`Network error while deleting document: ${err.message}`);
@@ -1784,6 +3133,9 @@
         appendMsg('user', text);
       }
       
+      const activeAccount = document.getElementById('chatAccountSelect')?.value || currentAccountId || undefined;
+      const activeCustomer = document.getElementById('chatCustomerId')?.value?.trim() || customerId;
+      
       let res;
       try {
         res = await fetch('/api/dev/chat', {
@@ -1791,7 +3143,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tenantId,
-            customerId,
+            accountId: activeAccount,
+            customerId: activeCustomer,
             message: text || '',
             imageBase64: imgBase64,
             mimeType: imgMime
@@ -1826,10 +3179,11 @@
     }
 
     async function resetChat() {
+      const activeCustomer = document.getElementById('chatCustomerId')?.value?.trim() || customerId;
       const res = await fetch('/api/dev/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, customerId })
+        body: JSON.stringify({ tenantId, customerId: activeCustomer })
       });
       if (res.ok) {
         document.getElementById('messages').innerHTML = '';

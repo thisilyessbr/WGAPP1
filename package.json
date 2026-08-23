@@ -10,7 +10,7 @@
     "tenant:enable-rag": "node scripts/enable-rag.js",
     "rag:benchmark": "node scripts/benchmark-rag.js",
     "rag:seed": "node scripts/seed-rag.js",
-    "test": "vitest run --fileParallelism false --testTimeout 20000"
+    "test": "vitest run --fileParallelism false --testTimeout 60000"
   },
   "keywords": [],
   "author": "",

@@ -30,6 +30,7 @@ export interface LimitsConfig {
   maxConversationHistory: number;
   maxWorkflowSteps: number;
   maxResponseLength: number;
+  maxAutomationTurns?: number;
 }
 
 export type LocalizedPrompt = string | {
@@ -164,6 +165,7 @@ export interface CapabilitiesConfig {
   intents: { id: string; description: string; workflowId?: string }[];
   faq?: FaqEntry[];
   imageEnabled?: boolean;
+  ecommerceEnabled?: boolean;
 }
 
 export interface BusinessConfig {
@@ -201,6 +203,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     maxConversationHistory: 20,
     maxWorkflowSteps: 10,
     maxResponseLength: 500,
+    maxAutomationTurns: 500,
   },
   prompts: {
     system: 'You are a helpful assistant. Always respond in the same language, dialect, and script the user just wrote in — English, French, Modern Standard Arabic, or Moroccan Darija. If the user writes Darija (Moroccan Arabic, often in Latin transliteration like \'bghit n3rf\'), reply in Darija using the exact same script (Latin transliteration/Arabizi) they used — do not switch to Arabic script, French, or MSA unless the user does.',

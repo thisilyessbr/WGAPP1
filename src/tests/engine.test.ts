@@ -260,8 +260,8 @@ describe('Generic Conversation Engine', () => {
   });
 
   it('9. Should inject behavior flags into system prompt when configured', async () => {
-    const tenantId = 'behavior-test-tenant';
-    const extId = 'behavior-user-1';
+    const tenantId = `behavior-test-tenant-${Date.now()}`;
+    const extId = `behavior-user-${Date.now()}`;
 
     await prisma.tenant.create({ data: { id: tenantId, name: 'Behavior Test' }});
     await prisma.tenantConfig.create({

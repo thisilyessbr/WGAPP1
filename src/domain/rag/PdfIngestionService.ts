@@ -28,14 +28,15 @@ export class PdfIngestionService {
   ) {}
 
   /**
-   * Orchestrates the ingestion of a PDF document into tenant-scoped KnowledgeChunks.
+   * Orchestrates the ingestion of a PDF document into tenant-scoped (and optional account-scoped) KnowledgeChunks.
    * Completely generic; no business-specific logic.
    */
   async ingestPdf(
     tenantId: string,
     fileBuffer: Buffer,
     filename: string,
-    config: BusinessConfig
+    config: BusinessConfig,
+    accountId?: string | null
   ): Promise<string> { // Returns KnowledgeSource ID
     const {
       maxFileSizeMb,
@@ -47,6 +48,33 @@ export class PdfIngestionService {
 
     // Sanitize filename to prevent path traversal in metadata
     const sanitizedFilename = path.basename(filename || 'document.pdf');
+
+    // AccountId normalization:
+    // undefined -> null
+    // empty string -> null
+    // whitespace -> null
+    // 'null' / 'global' -> null
+    // valid accountId -> trimmed string
+    let normalizedAccountId: string | null = null;
+    if (accountId && typeof accountId === 'string') {
+      const trimmed = accountId.trim();
+      if (trimmed && trimmed.toLowerCase() !== 'null' && trimmed.toLowerCase() !== 'global' && trimmed.toLowerCase() !== 'undefined') {
+        normalizedAccountId = trimmed;
+      }
+    }
+
+    // Account validation if accountId is provided
+    if (normalizedAccountId) {
+      const account = await this.prisma.account.findUnique({
+        where: { id: normalizedAccountId }
+      });
+      if (!account || account.tenantId !== tenantId) {
+        throw new Error(`Account [${normalizedAccountId}] not found for tenant [${tenantId}]`);
+      }
+      if (!account.enabled) {
+        throw new Error(`Account [${normalizedAccountId}] is disabled`);
+      }
+    }
 
     // 1. Security limit: Max file size
     const sizeInMb = fileBuffer.length / (1024 * 1024);
@@ -62,19 +90,25 @@ export class PdfIngestionService {
     // 3. Hash computation for idempotency
     const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
-    // Check idempotency (Has this exact file been successfully ingested for this tenant before?)
+    // Check idempotency (Has this exact file been successfully ingested for this tenant + account scope before?)
     const existingSource = await this.prisma.knowledgeSource.findFirst({
-      where: { tenantId, hash, status: 'COMPLETED' }
+      where: {
+        tenantId,
+        accountId: normalizedAccountId,
+        hash,
+        status: 'COMPLETED'
+      }
     });
 
     if (existingSource) {
-      return existingSource.id; // Already ingested, safe idempotency return
+      return existingSource.id; // Already ingested for this scope, safe idempotency return
     }
 
     // 4. Create the ingestion record (PENDING)
     const source = await this.prisma.knowledgeSource.create({
       data: {
         tenantId,
+        accountId: normalizedAccountId,
         name: sanitizedFilename,
         type: 'PDF',
         status: 'PENDING',
@@ -130,6 +164,7 @@ export class PdfIngestionService {
       const document = await this.prisma.knowledgeDocument.create({
         data: {
           tenantId,
+          accountId: normalizedAccountId,
           sourceId: source.id,
           title: filename, // Naive title is filename for generic ingestion
           content: extractedText,
@@ -151,8 +186,8 @@ export class PdfIngestionService {
         // Embed the chunk
         const embedding = await this.embeddingProvider.embedText(chunk);
         
-        // Persist using KnowledgeRepository which enforces tenant bounds
-        await this.knowledgeRepository.insertChunk(tenantId, document.id, chunk, embedding);
+        // Persist using KnowledgeRepository which enforces tenant and account bounds
+        await this.knowledgeRepository.insertChunk(tenantId, document.id, chunk, embedding, normalizedAccountId);
         chunkIndex++;
       }
 
