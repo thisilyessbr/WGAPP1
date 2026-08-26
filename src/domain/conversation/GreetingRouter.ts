@@ -19,7 +19,7 @@ export class GreetingRouter {
 
     // Darija / Arabizi
     'salam', 'ssalam', 'ahlan', 'sbah lkhir', 'sbah nour', 'sbah ennour', 'sbah el khir', 'sbah lkheir',
-    'msa lkhir', 'msa nour', 'labas', 'la bas', 'cv',
+    'msa lkhir', 'msa nour', 'labas', 'la bas', 'cv', 'salam labas', 'salam cv',
     'kidayr', 'kidayra', 'kif dayr', 'kif dayra', 'salamo 3alaykom', 'salamo3alaykom',
     'wesh', 'wach rak', 'ach khbark', 'ca va', 'chokran', 'shukran', 'chokran bzaf', 'wakha', 'mzyan'
   ]);

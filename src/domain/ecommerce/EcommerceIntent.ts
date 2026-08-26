@@ -2,9 +2,20 @@ import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductContext } from '../conversation/ConversationContext';
 import { HandoffService } from '../conversation/HandoffService';
 
+export type AttributeFamily =
+  | 'MATERIAL'
+  | 'PERFORMANCE'
+  | 'FEATURE'
+  | 'FIT'
+  | 'DIMENSIONS'
+  | 'WEIGHT'
+  | 'CARE'
+  | string;
+
 export type CommerceIntentType =
   | 'PRODUCT_SEARCH'
   | 'PRODUCT_DETAIL'
+  | 'ATTRIBUTE_QUERY'
   | 'PRICE'
   | 'AVAILABILITY'
   | 'VARIANT_SELECTION'
@@ -14,6 +25,9 @@ export type CommerceIntentType =
 
 export interface ExtractedCommerceParams {
   intent: CommerceIntentType;
+  attributeFamily?: AttributeFamily;
+  attributeKeywords?: string;
+  attributeName?: string;
   sku?: string;
   productName?: string;
   category?: string;
@@ -26,10 +40,15 @@ export interface ExtractedCommerceParams {
   compareProductNames?: string[];
 }
 
-import { CategoryVocabulary } from '../conversation/CategoryVocabulary';
-
 export class EcommerceIntentParser {
-  public static readonly CANONICAL_CATEGORIES: Record<string, string[]> = CategoryVocabulary.getCanonicalMap();
+  public static readonly CANONICAL_CATEGORIES: Record<string, string[]> = {
+    'T-Shirts': ['t-shirt', 't-shirts', 'tshirt', 'tshirts', 'tee', 'tees', 'shirt', 'shirts', 't-shirten', 'تيشورت', 'تيشورتات', 'تيشيرت', 'تيشيرتات', 'قميص', 'قمصان'],
+    'Hoodies': ['hoodie', 'hoodies', 'sweat', 'sweats', 'sweatshirt', 'sweatshirts', 'pull', 'capuchon', 'هودي', 'هوديات', 'سويت', 'سويتشرت', 'كابوشون'],
+    'Jackets': ['jacket', 'jackets', 'veste', 'vestes', 'blouson', 'blousons', 'manteau', 'manteaux', 'جاكيط', 'جاكيطات', 'جاكيت', 'جاكيتات', 'سترة', 'سترات'],
+    'Shoes': ['shoes', 'shoe', 'sneakers', 'sneaker', 'chaussures', 'chaussure', 'baskets', 'basket', 'حذاء', 'أحذية', 'احذية', 'سباط', 'صباط', 'سبابط', 'صبابط', 'سبرديلة', 'صبرديلة', 'سبراديل', 'صنادل', 'صندالة'],
+    'Pants': ['pants', 'pant', 'jeans', 'jean', 'trousers', 'pantalon', 'pantalons', 'jogging', 'سروال', 'سراول', 'بنطلون', 'بناطيل', 'جينز'],
+    'Accessories': ['accessories', 'accessory', 'accessoires', 'accessoire', 'إكسسوارات', 'اكسسوارات', 'إكسسوار', 'اكسسوار', 'حزام', 'أحزمة', 'كاب', 'طاقية', 'كاسكيط', 'casquette', 'chapeau', 'bonnet', 'sac', 'sacoche', 'محفظة', 'صاك']
+  };
 
   private static readonly COLOR_MAP: Record<string, string> = {
     black: 'Black',
@@ -168,6 +187,61 @@ export class EcommerceIntentParser {
     thaleth: 2
   };
 
+  public static readonly FUNCTIONAL_STATE_TOKENS = new Set([
+    // Arabic state & availability verbs/adjectives/particles
+    'كاين', 'كاينة', 'كاينا', 'كاينه', 'كاينين', 'كاينينش', 'مكاينش', 'ماكاينش', 'ما كاينش', 'ماكاينينش', 'ما كاينينش',
+    'متوفر', 'متوفرة', 'متوفره', 'متوفرين', 'متوفرات', 'توفير', 'يتوفر', 'تتوفر',
+    'موجود', 'موجودة', 'موجوده', 'موجودين', 'يوجد', 'توجد',
+    'باقي', 'مازال', 'ما زال', 'مزال', 'عاد', 'دابا', 'الان', 'الآن',
+    'مخزون', 'المخزون', 'ستوك', 'الستوك', 'محل', 'المحل', 'متجر', 'المتجر',
+    'عندكم', 'عندك', 'كتبيعو', 'تبيعو', 'تبيعوا', 'كتوفرو', 'متاح', 'متاحة', 'متاحين',
+    // Arabizi
+    'kayn', 'kayna', 'kaynin', 'makaynch', 'makayninch', 'dispo', 'disponible', 'disponibles', 'dispos', 'stock',
+    'mowjoud', 'mowjouda', 'ba9i', 'baki', 'mazal', 'mzal', '3ndkom', '3ndkoum', '3ndkm', '3ndek', 'katbi3o',
+    // French
+    'disponible', 'disponibles', 'dispo', 'dispos', 'stock', 'avez-vous', 'vous avez', 'vendez-vous', 'existe', 'existent',
+    // English
+    'available', 'availability', 'stock', 'have', 'sell', 'exist', 'exists'
+  ]);
+
+  public static readonly FUNCTIONAL_PRONOUN_ANAPHORA_TOKENS = new Set([
+    // Arabic pronouns & demonstratives
+    'هاد', 'هذا', 'هدا', 'هادي', 'هدي', 'هادو', 'هادوك', 'هادشي', 'هذه', 'ذلك', 'تلك', 'هو', 'هي', 'هم', 'هن',
+    'ديالو', 'ديالها', 'ديالهم', 'ديالي', 'ديالنا', 'ديالكم',
+    'منو', 'منها', 'منهم', 'مني', 'منا', 'منكم',
+    'عليه', 'عليها', 'عليهم', 'عليا', 'علينا', 'عليكم',
+    'فيه', 'فيها', 'فيهم', 'فيا', 'فينا', 'فيكم',
+    'معاه', 'معاها', 'معاهم', 'معايا', 'معانا', 'معاكم',
+    'واحد', 'وحدة', 'ديك', 'داك', 'هادوك', 'هاذي', 'هذي',
+    // Arabizi
+    'hada', 'hadi', 'had', 'hado', 'hadok', 'hadchi', 'dyalo', 'dyalha', 'dyalhom', 'dyali', 'dyalna', 'dyalkom',
+    '3lih', '3liha', '3lihom', 'mno', 'mnha', 'mnkom', 'fih', 'fiha', 'fihom', 'm3ah', 'm3aha', 'm3ahom',
+    // French
+    'ce', 'cet', 'cette', 'ces', 'ceci', 'cela', 'ça', 'ca', 'il', 'elle', 'ils', 'elles', 'le', 'la', 'les', 'lui', 'leur', 'en', 'y',
+    // English
+    'this', 'that', 'these', 'those', 'it', 'its', 'them', 'they', 'one', 'ones'
+  ]);
+
+  public static readonly FUNCTIONAL_QUESTION_TOKENS = new Set([
+    // Arabic question particles
+    'واش', 'هل', 'أ', 'شنو', 'وشنو', 'شكون', 'وشكون', 'فين', 'وفين', 'شحال', 'وشحال', 'بشحال', 'وبشحال', 'كم', 'كان', 'سعر', 'وسعر', 'ثمن', 'والثمن',
+    'كيسوى', 'كاتسوى', 'كتسوى', 'يسوى', 'تسوى', 'كيسوا', 'يسوا', 'تسوا', 'كيساوي', 'يساوي', 'تساوي', 'كيعمل', 'يعمل', 'تعمل', 'يكلف', 'تكلف', 'ثمنه', 'سعرها', 'سعره', 'ثمنها', 'كيدير', 'كادير', 'كتدير',
+    'كيفاش', 'علاش', 'وقتاش', 'فوقاش',
+    // Arabizi
+    'wach', 'wash', 'ach', 'chnou', 'chnu', 'chkon', 'chkoun', 'fin', 'ch7al', 'chhal', 'bch7al', 'taman', 'kayswa', 'katswa', 'kaysawi', 'kaydir', 'kadir',
+    // French
+    'qui', 'who', 'which', 'lequel', 'laquelle', 'comment', 'combien', 'coute', 'coûte', 'coutent', 'coûtent', 'vaut', 'valent', 'est', 'sont', 'avez', 'avez-vous', 'est-ce', 'est-elle', 'est-il',
+    // English
+    'where', 'what', 'how', 'which', 'who', 'costs', 'cost', 'price', 'priced', 'worth', 'is', 'are', 'do', 'does'
+  ]);
+
+  public static readonly FUNCTIONAL_INTENT_VERBS = new Set([
+    'بغيت', 'بغينا', 'أريد', 'اريد', 'نقلب', 'كنقلب', 'نبحث', 'كنبحث', 'وريني', 'وروني', 'عطيني', 'عطوني', 'شوف',
+    'bghit', 'bghina', 'kan9leb', 'kanqleb', 'wrini', 'werini', 'chof', '3tini', 'atoni',
+    'je veux', 'cherche', 'cherche-moi', 'montre-moi', 'donne-moi', 'voir',
+    'want', 'need', 'looking', 'show', 'give', 'find'
+  ]);
+
   private static readonly MODIFIER_OR_ANAPHORA_TOKENS = new Set([
     'black', 'white', 'red', 'blue', 'silver', 'noir', 'blanc', 'rouge', 'bleu', 'grey', 'gray', 'yellow', 'green',
     'كحل', 'بيض', 'حمر', 'زرق', 'أسود', 'أبيض', 'أحمر', 'أزرق', 'رمادي', 'خضر', 'صفر', 'الكحل', 'الأسود', 'فالأسود', 'بالأسود', 'فالكحل', 'بالكحل',
@@ -191,66 +265,306 @@ export class EcommerceIntentParser {
     'ها', 'ه', 'هاذي', 'هذي', 'هادو', 'هادوك', 'one', 'them', 'him', 'her', 'ceci', 'cela', 'lui', 'ha', 'm3aha', 'm3ah', 'm3ahom', 'معاها', 'معاه', 'معاهم', 'شي', 'shi', 'chi',
     'شكون', 'وشكون', 'chkon', 'chkoun', 'qui', 'who', 'which', 'lequel', 'laquelle', 'أرخص', 'ارخص', 'أغلى', 'اغلى', 'رخيص', 'غالي', 'rkhis', 'arkhas', 'ghali', 'agla', 'cheaper', 'cheapest', 'expensive', 'plus cher', 'moins cher', 'le moins cher', 'le plus cher'
   ]);
+ 
+  private static escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
   /**
-   * Identifies generic category mention from user text and normalizes to canonical category string.
+   * Identifies category mention from user text:
+   * 1. Exact / Plural / Singular match against dynamic catalog categories
+   * 2. Configured custom category aliases (from BusinessConfig)
+   * 3. Legacy compatibility fallback (CANONICAL_CATEGORIES)
    */
-  public static extractCategory(text: string): string | undefined {
-    return CategoryVocabulary.matchCategory(text);
+  public static extractCategory(
+    text: string,
+    catalogCategories?: string[] | null,
+    customCategoryAliases?: Record<string, string[]> | null
+  ): string | undefined {
+    if (!text || !text.trim()) return undefined;
+    const lower = text.toLowerCase().trim();
+
+    // 1. Exact / Plural / Singular match against dynamic catalog categories
+    if (catalogCategories && catalogCategories.length > 0) {
+      for (const cat of catalogCategories) {
+        if (!cat) continue;
+        const catLower = cat.toLowerCase().trim();
+        const catSingular = catLower.endsWith('s') && catLower.length > 3 ? catLower.slice(0, -1) : catLower;
+        const catPlural = catLower.endsWith('s') ? catLower : `${catLower}s`;
+        const forms = Array.from(new Set([catLower, catSingular, catPlural]));
+
+        for (const form of forms) {
+          const regex = new RegExp(`(?:^|\\s|[.,!?;:()،؟])(?:f-|l-|d-|al-|ال|فال|بال|ف|ب|le|la|les|the)?${this.escapeRegex(form)}(?:$|\\s|[.,!?;:()،؟])`, 'iu');
+          if (regex.test(lower)) {
+            return cat;
+          }
+        }
+      }
+    }
+
+    // 2. Configured custom category aliases (from BusinessConfig)
+    if (customCategoryAliases && Object.keys(customCategoryAliases).length > 0) {
+      for (const [canonical, aliases] of Object.entries(customCategoryAliases)) {
+        if (!aliases || !Array.isArray(aliases)) continue;
+        for (const alias of aliases) {
+          if (!alias) continue;
+          const aliasLower = alias.toLowerCase().trim();
+          const regex = new RegExp(`(?:^|\\s|[.,!?;:()،؟])(?:f-|l-|d-|al-|ال|فال|بال|ف|ب|le|la|les|the)?${this.escapeRegex(aliasLower)}(?:$|\\s|[.,!?;:()،؟])`, 'iu');
+          if (regex.test(lower)) {
+            return canonical;
+          }
+        }
+      }
+    }
+
+    // 3. Legacy compatibility fallback
+    for (const [canonical, aliases] of Object.entries(this.CANONICAL_CATEGORIES)) {
+      for (const alias of aliases) {
+        const regex = new RegExp(`(?:^|\\s|[.,!?;:()،؟])(?:f-|l-|d-|al-|ال|فال|بال|ف|ب|le|la|les|the)?${this.escapeRegex(alias)}(?:$|\\s|[.,!?;:()،؟])`, 'iu');
+        if (regex.test(lower)) {
+          return canonical;
+        }
+      }
+    }
+    return undefined;
   }
 
-  public static isCategoryReference(token: string): boolean {
-    return CategoryVocabulary.isCategoryToken(token);
+  public static isCategoryReference(
+    token: string,
+    catalogCategories?: string[] | null,
+    customCategoryAliases?: Record<string, string[]> | null
+  ): boolean {
+    if (!token) return false;
+    const lower = token.toLowerCase().trim();
+
+    if (catalogCategories && catalogCategories.length > 0) {
+      for (const cat of catalogCategories) {
+        if (!cat) continue;
+        const catLower = cat.toLowerCase().trim();
+        const catSingular = catLower.endsWith('s') && catLower.length > 3 ? catLower.slice(0, -1) : catLower;
+        const catPlural = catLower.endsWith('s') ? catLower : `${catLower}s`;
+        const forms = [catLower, catSingular, catPlural];
+        for (const f of forms) {
+          if (lower === f || lower === `ال${f}` || lower === `l-${f}` || lower === `f-${f}` || lower === `al-${f}`) {
+            return true;
+          }
+        }
+      }
+    }
+
+    if (customCategoryAliases && Object.keys(customCategoryAliases).length > 0) {
+      for (const aliases of Object.values(customCategoryAliases)) {
+        if (!aliases || !Array.isArray(aliases)) continue;
+        for (const alias of aliases) {
+          if (!alias) continue;
+          const aLower = alias.toLowerCase().trim();
+          if (lower === aLower || lower === `ال${aLower}` || lower === `l-${aLower}` || lower === `f-${aLower}` || lower === `al-${aLower}`) {
+            return true;
+          }
+        }
+      }
+    }
+
+    // 3. Legacy compatibility fallback
+    for (const aliases of Object.values(this.CANONICAL_CATEGORIES)) {
+      for (const alias of aliases) {
+        if (lower === alias || lower === `ال${alias}` || lower === `l-${alias}` || lower === `f-${alias}`) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
-  public static isNonProductReference(name: string): boolean {
+  public static readonly ATTRIBUTE_FAMILY_PATTERNS: Record<string, RegExp> = {
+    MATERIAL: /(?:^|\s|[.,!?;:()،؟])(?:materials?|compositions?|fabrics?|cottons?|polyesters?|leathers?|fleeces?|linens?|wools?|silks?|denims?|nylons?|mati[èe]res?|tissus?|cotons?|cuirs?|laines?|soies?|lins?|مادة|المادة|قماش|القماش|أقمشة|اقمشة|ثوب|الثوب|توب|التوب|لتوب|قطن|القطن|قطني|قطنية|جلد|الجلد|جلدي|جلدية|صوف|حرير|tissou?|9mach|l9mach|toub|ltoub|9ton|l9ton|9otn|jeld|ljeld)(?:$|\s|[.,!?;:()،؟])/iu,
+    PERFORMANCE: /(?:^|\s|[.,!?;:()،؟])(?:waterproof|water-resistant|water\s+resistant|rainproof|warm|breathable|windproof|thermal|insulation|quick\s+dry|imperm[ée]ables?|r[ée]sistant\s+[àa]\s+l['’]eau|chaud|chaude|respirant|respirante|coupe-vent|thermique|مقاوم\s+للماء|ضد\s+الماء|ضد\s+الما|مضاد\s+للماء|مضاد\s+للما|دافئ|دافئة|سخون|سخونة|يدفي|كتدفي|بارد|باردة|كيبرد|مبرد|يتنفس|تنفس|ddefy|d\s*ded\s*l-?ma|skhoun|skhona|dafi|waterproof|m9awem\s+lma)(?:$|\s|[.,!?;:()،؟])/iu,
+    FEATURE: /(?:^|\s|[.,!?;:()،؟])(?:pockets?|hooded|hoods?|zippers?|zips?|drawstrings?|collars?|cuffs?|sleeves?|lining|buttons?|poches?|capuches?|fermetures?\s+[ée]clair|fermetures?|cordons?|cols?|manches?|doublures?|boutons?|جيوب|جيب|كابوشون|قب|سنسلة|سلسلة|سحاب|خيط|كمام|أكمام|ازرار|أزرار|صدفي|poches?|capuchon|sensla|9ob|jyoub|jiyoub)(?:$|\s|[.,!?;:()،؟])/iu,
+    FIT: /(?:^|\s|[.,!?;:()،؟])(?:fits?|oversized?|slim\s+fit|regular\s+fit|tight|loose|relaxed|cuts?|tailoring|coupes?|coupe\s+large|coupe\s+ajust[ée]e|ajust[ée]e?|large|serr[ée]e?|amples?|oversize|فصالة|الفصالة|قصة|القصة|واسع|واسعة|عريض|عريضة|مزير|مزيرة|طاي\s+عريضة|مفصل|la\s+coupe|was3|was3a|3rid|3rida|mzyer|mzyra|oversize|serr[ée])(?:$|\s|[.,!?;:()،؟])/iu,
+    DIMENSIONS: /(?:^|\s|[.,!?;:()،؟])(?:dimensions?|measurements?|lengths?|widths?|heights?|size\s+charts?|measurement|mesures?|longueurs?|largeurs?|hauteurs?|taille\s+en\s+cm|guide\s+des\s+tailles|أبعاد|ابعاد|قياسات|القياسات|مقاسات|المقاسات|طول|الطول|عرض|العرض|ارتفاع|الارتفاع|عبار|العبار|عبارات|العبارات|سنتيمتر|3bar|l-?3bar|toul|3ord)(?:$|\s|[.,!?;:()،؟])/iu,
+    WEIGHT: /(?:^|\s|[.,!?;:()،؟])(?:weights?|heavy|lightweight|light|grams?|gsm|thickness|thick|thin|poids|lourds?|l[ée]gers?|l[ée]g[èe]re|grammages?|[ée]paisseurs?|[ée]pais|fins?|وزن|الوزن|ثقيل|ثقيلة|خفيف|خفيفة|غليظ|غليظة|رقيق|رقيقة|سمك|السمك|تقل|التقل|lourde?|khfif|khfifa|t9il|t9ila|ghlid|rqiq|wzen)(?:$|\s|[.,!?;:()،؟])/iu,
+    CARE: /(?:^|\s|[.,!?;:()،؟])(?:wash\s+temperature|washing\s+instructions?|how\s+to\s+wash|dry\s+clean|ironing|temperature|bleach|machine\s+wash|temp[ée]rature\s+de\s+lavage|repassage|nettoyage\s+[àa]\s+sec|طريقة\s+الغسيل|كيفاش\s+نغسل|تصبين|مكواة|حديد|صلوح|درجة\s+حرارة)(?:$|\s|[.,!?;:()،؟])/iu
+  };
+
+  public static detectAttributeFamily(
+    text: string,
+    customAttributeAliases?: Record<string, string[]> | null,
+    candidateMetadataKeys?: string[] | null
+  ): { family: string; keyword: string; attributeName?: string } | undefined {
+    if (!text || !text.trim()) return undefined;
+    const lower = text.toLowerCase();
+
+    if (customAttributeAliases && Object.keys(customAttributeAliases).length > 0) {
+      for (const [canonicalAttr, aliases] of Object.entries(customAttributeAliases)) {
+        if (!aliases || !Array.isArray(aliases)) continue;
+        for (const alias of aliases) {
+          if (!alias) continue;
+          const aliasLower = alias.toLowerCase().trim();
+          const regex = new RegExp(`(?:^|\\s|[.,!?;:()،؟])(?:f-|l-|d-|b-|al-|ال|فال|بال|ف|ب|ل|لـ|le|la|les|l['’]|d['’]|the)?\\s*${this.escapeRegex(aliasLower)}(?:$|\\s|[.,!?;:()،؟])`, 'iu');
+          const match = lower.match(regex);
+          if (match) {
+            return { family: canonicalAttr.toUpperCase(), keyword: match[0].trim(), attributeName: canonicalAttr };
+          }
+        }
+      }
+    }
+
+    if (candidateMetadataKeys && candidateMetadataKeys.length > 0) {
+      for (const key of candidateMetadataKeys) {
+        if (!key) continue;
+        const keyLower = key.toLowerCase().trim();
+        const keyWithSpaces = keyLower.replace(/[-_]/g, ' ');
+        const forms = Array.from(new Set([keyLower, keyWithSpaces]));
+        for (const form of forms) {
+          const regex = new RegExp(`(?:^|\\s|[.,!?;:()،؟])(?:f-|l-|d-|b-|al-|ال|فال|بال|ف|ب|ل|لـ|le|la|les|l['’]|d['’]|the)?\\s*${this.escapeRegex(form)}(?:$|\\s|[.,!?;:()،؟])`, 'iu');
+          const match = lower.match(regex);
+          if (match) {
+            return { family: key.toUpperCase(), keyword: match[0].trim(), attributeName: key };
+          }
+        }
+      }
+    }
+
+    const universalFamilies: [string, RegExp][] = [
+      ['DIMENSIONS', /(?:^|\s|[.,!?;:()،؟])(?:dimensions?|measurements?|lengths?|widths?|heights?|size\s+charts?|measurement|mesures?|longueurs?|largeurs?|hauteurs?|taille\s+en\s+cm|guide\s+des\s+tailles|أبعاد|ابعاد|قياسات|القياسات|مقاسات|المقاسات|طول|الطول|عرض|العرض|ارتفاع|الارتفاع|عبار|العبار|عبارات|العبارات|سنتيمتر|3bar|l-?3bar|toul|3ord)(?:$|\s|[.,!?;:()،؟])/iu],
+      ['WEIGHT', /(?:^|\s|[.,!?;:()،؟])(?:weights?|heavy|lightweight|light|grams?|gsm|thickness|thick|thin|poids|lourds?|l[ée]gers?|l[ée]g[èe]re|grammages?|[ée]paisseurs?|[ée]pais|fins?|وزن|الوزن|ثقيل|ثقيلة|خفيف|خفيفة|غليظ|غليظة|رقيق|رقيقة|سمك|السمك|تقل|التقل|lourde?|khfif|khfifa|t9il|t9ila|ghlid|rqiq|wzen)(?:$|\s|[.,!?;:()،؟])/iu]
+    ];
+
+    for (const [family, regex] of universalFamilies) {
+      const match = lower.match(regex);
+      if (match) {
+        return { family, keyword: match[0].trim(), attributeName: family.toLowerCase() };
+      }
+    }
+
+    for (const [family, regex] of Object.entries(this.ATTRIBUTE_FAMILY_PATTERNS)) {
+      const match = lower.match(regex);
+      if (match) {
+        return { family, keyword: match[0].trim(), attributeName: family.toLowerCase() };
+      }
+    }
+
+    return undefined;
+  }
+
+  public static hasQuestionOrInquiryStructure(text: string): boolean {
+    const lower = text.toLowerCase();
+    if (/[?؟]/.test(text)) return true;
+    if (/(?:^|\s|[.,!?;:()،؟])(?:what|which|is|are|does|do|how|can|tell|details|شنو|واش|هل|أ|شحال|كيفاش|معلومات|تفاصيل|وريني|عطيني|شوف|est-ce|quelle|quel|quels|quelles|comment|est-il|est-elle|sont-ils|sont-elles|y\s+a-t-il|c'est|wach|wash|ach|chnou|chnu|chhal|ch7al|kifach|werini|wrini|3tini)(?:$|\s|[.,!?;:()،؟])/iu.test(lower)) {
+      return true;
+    }
+    return false;
+  }
+
+  public static isNonProductToken(
+    token: string,
+    catalogCategories?: string[] | null,
+    customCategoryAliases?: Record<string, string[]> | null,
+    customAttributeAliases?: Record<string, string[]> | null,
+    candidateMetadataKeys?: string[] | null
+  ): boolean {
+    if (!token) return true;
+    const lower = token.toLowerCase();
+    const SIZES = new Set(['xs', 's', 'm', 'l', 'xl', 'xxl', '2xl', '3xl', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48']);
+
+    if (this.FUNCTIONAL_STATE_TOKENS.has(lower)) return true;
+    if (this.FUNCTIONAL_PRONOUN_ANAPHORA_TOKENS.has(lower)) return true;
+    if (this.FUNCTIONAL_QUESTION_TOKENS.has(lower)) return true;
+    if (this.FUNCTIONAL_INTENT_VERBS.has(lower)) return true;
+    if (this.MODIFIER_OR_ANAPHORA_TOKENS.has(lower)) return true;
+    if (this.ORDINAL_MAP[lower] !== undefined) return true;
+    if (SIZES.has(lower)) return true;
+    if (this.isCategoryReference(lower, catalogCategories, customCategoryAliases)) return true;
+    if (this.COLOR_MAP[lower]) return true;
+    if (this.detectAttributeFamily(lower, customAttributeAliases, candidateMetadataKeys)) return true;
+
+    if (['اول', 'أول', 'اولى', 'أولى', 'تاني', 'ثاني', 'تانية', 'ثانية', 'تالت', 'ثالث', 'تالتة', 'ثالثة', 'premier', 'premiere', 'première', 'deuxieme', 'deuxième', 'troisieme', 'troisième', 'first', 'second', 'third'].includes(lower)) return true;
+
+    if (['و', 'في', 'فـ', 'ف', 'بـ', 'ب', 'لـ', 'ل', 'من', 'عن', 'مع', 'على', 'ديال', 'dyal', 'dial', 'de', 'du', 'des', 'en', 'in', 'at', 'on', 'with', 'for', 'and', 'et', 'f', 'b', 'l', 'm3a', '3la', 'sur', 'pour', 'dans', 'of', 'made', 'to', 'is', 'are', 'was', 'were', 'our', 'your', 'my', 'its', 'sa', 'son', 'ses', 'vos', 'nos', 'leur', 'leurs', 'ولا', 'او', 'أو', 'أم', 'ام', 'اللي', 'لي', 'عندكم', 'عندك', 'عندنا', 'zippe', 'zippee', 'zippees', 'zippes', 'zippé', 'zippée', 'zippées', 'zippés'].includes(lower)) return true;
+
+    if (['منتج', 'المنتج', 'منتوج', 'المنتوج', 'منتجات', 'المنتجات', 'منتوجات', 'المنتوجات', 'سلعة', 'السلعة', 'حاجة', 'الحاجة', 'موديل', 'الموديل', 'بياسة', 'البياسة', 'قطعة', 'القطعة', 'produit', 'produits', 'article', 'articles', 'item', 'items', 'product', 'products'].includes(lower)) return true;
+
+    if (lower.startsWith('و') && lower.length > 2 && this.isNonProductToken(lower.slice(1), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('ال') && lower.length > 3 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('لـ') && lower.length > 3 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('ل') && lower.length > 2 && this.isNonProductToken(lower.slice(1), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('فـ') && lower.length > 3 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('ف') && lower.length > 2 && this.isNonProductToken(lower.slice(1), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('بـ') && lower.length > 3 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('ب') && lower.length > 2 && this.isNonProductToken(lower.slice(1), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('ما') && lower.length > 3 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if (lower.startsWith('م') && lower.length > 2 && this.isNonProductToken(lower.slice(1), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+
+    if ((lower.startsWith('f-') || lower.startsWith('l-') || lower.startsWith('d-') || lower.startsWith('b-')) && lower.length > 2 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if ((lower.startsWith('fl') || lower.startsWith('bl')) && lower.length > 3 && this.isNonProductToken(lower.slice(2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+
+    if ((lower.endsWith('ها') || lower.endsWith('هم') || lower.endsWith('كم') || lower.endsWith('نا') || lower.endsWith('ين') || lower.endsWith('ات') || lower.endsWith('ية')) && lower.length > 3 && this.isNonProductToken(lower.slice(0, -2), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+    if ((lower.endsWith('ه') || lower.endsWith('ك') || lower.endsWith('ي') || lower.endsWith('ة')) && lower.length > 2 && this.isNonProductToken(lower.slice(0, -1), catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) return true;
+
+    if (lower.length <= 2) return true;
+
+    return false;
+  }
+
+  public static isNonProductReference(
+    name: string,
+    catalogCategories?: string[] | null,
+    customCategoryAliases?: Record<string, string[]> | null,
+    customAttributeAliases?: Record<string, string[]> | null,
+    candidateMetadataKeys?: string[] | null
+  ): boolean {
     if (!name || !name.trim()) return true;
-    const tokens = name.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, '').split(/\s+/).filter(Boolean);
-    const SIZES = new Set(['xs', 's', 'm', 'l', 'xl', 'xxl', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48']);
-    return tokens.length === 0 || tokens.every(t => {
-      if (this.MODIFIER_OR_ANAPHORA_TOKENS.has(t)) return true;
-      if (SIZES.has(t)) return true;
-      if (this.isCategoryReference(t)) return true;
-      if (t.startsWith('و') && t.length > 2 && this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(1))) return true;
-      if (t.startsWith('ال') && t.length > 3 && this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(2))) return true;
-      if (t.startsWith('ل') && t.length > 2 && this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(1))) return true;
-      if (t.startsWith('فـ') && t.length > 2 && (this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(2)) || SIZES.has(t.slice(2)))) return true;
-      if (t.startsWith('ف') && t.length > 1 && (this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(1)) || SIZES.has(t.slice(1)))) return true;
-      if (t.startsWith('بـ') && t.length > 2 && (this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(2)) || SIZES.has(t.slice(2)))) return true;
-      if (t.startsWith('ب') && t.length > 1 && (this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(1)) || SIZES.has(t.slice(1)))) return true;
-      if ((t.startsWith('f-') || t.startsWith('l-') || t.startsWith('d-')) && t.length > 2 && (this.MODIFIER_OR_ANAPHORA_TOKENS.has(t.slice(2)) || SIZES.has(t.slice(2)))) return true;
-      return false;
-    });
+    const normalized = name.replace(/\u0640/g, '').trim();
+    const cleanChars = normalized.replace(/[^\p{L}\p{N}]/gu, '');
+    if (cleanChars.length < 3) return true;
+
+    const tokens = normalized.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, '').split(/[\s-]+/).filter(Boolean);
+    if (tokens.length === 0) return true;
+
+    return tokens.every(t => this.isNonProductToken(t, catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys));
   }
 
-  public static cleanProductName(raw: string): string {
-    let cleaned = raw;
+  public static cleanProductName(
+    raw: string,
+    catalogCategories?: string[] | null,
+    customCategoryAliases?: Record<string, string[]> | null,
+    customAttributeAliases?: Record<string, string[]> | null,
+    candidateMetadataKeys?: string[] | null
+  ): string {
+    if (!raw || !raw.trim()) return '';
+    let cleaned = raw.replace(/\u0640/g, '');
 
-    // 1. Strip color words and prefixes
     for (const colorKey of Object.keys(this.COLOR_MAP)) {
       const colorRegex = new RegExp(`(?:^|\\s|[.,!?;:()،؟])(?:f-|b-|fl|f|b|l|en|in|de|du|with|مع|في|فـ|ف|بـ|ب|لـ|ل)?\\s*${colorKey}(?:$|\\s|[.,!?;:()،؟])`, 'giu');
       cleaned = cleaned.replace(colorRegex, ' ');
     }
 
-    // 2. Strip explicit size tokens and prefixes
-    const sizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:size|taille|قياس|نمرة|pointure|f\s+taille|en\s+taille|in\s+size|مقاس|حجم|فالمقاس|بالمقاس|فالحجم)\s*[:=]?\s*(?:4[0-8]|3[5-9]|xs|s|m|l|xl|xxl)(?:$|\s|[.,!?;:()،؟])/giu;
+    const sizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:taille|size|pointure|قياس|نمرة)\s*(?:de|du|en|f|fl|d|l)?\s*(?:4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/giu;
     cleaned = cleaned.replace(sizePrefixRegex, ' ');
 
-    // 3. Strip standalone size letter tokens (including attached prepositions f-, f, fl, ف, فـ, ب, بـ, etc.)
-    const standaloneSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f|b-|b|l-|l|en|in|de|du|فـ|ف|بـ|ب|لـ|ل)?\s*(?:4[0-8]|3[5-9]|xs|s|m|l|xl|xxl)(?:$|\s|[.,!?;:()،؟])/giu;
+    const standaloneSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f|b-|b|l-|l|en|in|de|du|فـ|ف|بـ|ب|لـ|ل)?\s*(?:4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/giu;
     cleaned = cleaned.replace(standaloneSizeRegex, ' ');
 
-    // 4. Strip availability / question patterns
-    cleaned = cleaned
-      .replace(/(?:^|\s|[.,!?;:()،؟])(?:واش\s+عندكم|عندكم|واش\s+عندك|عندك|واش\s+كاينين|واش\s+كاين|واش\s+متوفر|واش\s+متوفرين|هل\s+متوفر|هل\s+عندكم|كتبيعو|واش\s+كتبيعو|avez-vous|avez\s+vous|vous\s+avez|do\s+you\s+have|have\s+you|3ndkom|3ndkoum|3ndkm|3ndek|wach\s+3ndkom|wash\s+3ndkom|wach\s+kayn|wash\s+kayn|is\s+it\s+available|is\s+available|in\s+stock|disponible|dispo)(?:$|\s|[.,!?;:()،؟])/giu, ' ');
+    const statePatternsRegex = /(?:^|\s|[.,!?;:()،؟])(?:واش\s+عندكم|عندكم|واش\s+عندك|عندك|واش\s+كاينين|واش\s+كاين|واش\s+كاينة|واش\s+كاينا|واش\s+متوفر|واش\s+متوفرة|واش\s+متوفرين|هل\s+متوفر|هل\s+متوفرة|هل\s+متوفرين|هل\s+عندكم|كتبيعو|واش\s+كتبيعو|واش\s+باقي\s+كاين|واش\s+باقي\s+كاينة|واش\s+باقي\s+متوفر|واش\s+باقي|باقي\s+كاين|باقي\s+كاينة|باقي\s+متوفر|باقي|مازال\s+كاين|مازال\s+كاينة|مازال|مزال|موجود|موجودة|موجودين|avez-vous|avez\s+vous|vous\s+avez|vendez-vous|do\s+you\s+have|have\s+you|3ndkom|3ndkoum|3ndkm|3ndek|wach\s+3ndkom|wash\s+3ndkom|wach\s+kayn|wash\s+kayn|wach\s+kayna|wash\s+kayna|wach\s+kaynin|wash\s+kaynin|wach\s+ba9i|wash\s+ba9i|is\s+it\s+available|is\s+available|are\s+they\s+available|in\s+stock|disponible|disponibles|dispo|dispos)(?:$|\s|[.,!?;:()،؟])/giu;
+    cleaned = cleaned.replace(statePatternsRegex, ' ');
 
-    // 5. Strip leftover trailing/leading prepositions, price markers, or punctuation
+    const anaphoraRegex = /(?:^|\s|[.,!?;:()،؟])(?:had|hada|hadi|hadchi|hado|hadok|dyalo|dyalha|dyalhom|3lih|3liha|mno|mnha|fih|fiha|ce|cet|cette|ces|ceci|cela|ça|ca|it|this|that|these|those|هاد|هذا|هدا|هادي|هدي|هادو|هادوك|هادشي|ديالو|ديالها|ديالهم|منو|منها|منهم|عليه|عليها|عليهم|فيه|فيها|فيهم|واحد|وحدة|ديك|داك)(?:$|\s|[.,!?;:()،؟])/giu;
+    cleaned = cleaned.replace(anaphoraRegex, ' ');
+
+    cleaned = cleaned.replace(/^[?؟,،.!;:()[\]{}'"]+|[?؟,،.!;:()[\]{}'"]+$/g, '').trim();
     cleaned = cleaned
-      .replace(/^(?:bghit|bghina|بغيت|أريد|اريد|je veux|i want|i need|montre-moi|show me|وريني|عطيني|شحال|وشحال|بشحال|ch7al|chhal|taman|ثمن|سعر)\s+/iu, '')
-      .replace(/(?:^|\s)(?:f|b|fl|en|in|de|du|with|مع|في|فـ|ف|بـ|ب|لـ|ل|ديال|dyal|dial|شحال|وشحال|بشحال|ثمن|سعر|ch7al|taman)\s*$/giu, '')
+      .replace(/^(?:bghit|bghina|بغيت|أريد|اريد|je veux|i want|i need|montre-moi|show me|وريني|عطيني|شحال|وشحال|بشحال|ch7al|chhal|taman|ثمن|سعر|how much(?:\s+is|\s+was)?|what is the price of|what was the price of|what's the price of|combien(?:\s+coûte|\s+coute|\s+vaut|\s+ça vaut|\s+ca vaut)?|quel est le prix de|quel était le prix de|كم سعر|what\s+material(?:\s+is|\s+are)?|what\s+is|what\s+are|what|is\s+it|is\s+the|is|are|does|do|how|quelle\s+est|quel\s+est|est-ce\s+qu['’]il\s+a|est-ce\s+qu['’]il|est-ce\s+que|est-ce|en\s+quelle(?:\s+matière)?|de\s+quelle(?:\s+matière)?|شنو\s+هي\s+المادة|شنو\s+المادة|شنو\s+هي|شنو\s+هو|شنو|واش\s+هي|واش\s+هو|واش|هل|أ|wach|wash|ach|chnou|chnu)\s+/iu, '')
+      .replace(/^(?:the|le|la|les|l'|d'|el|al|al-|ال|had|hada|hadi|هاد|هذا|هادي|your|our|vos|nos|sa|son|ses|its|their|est|sont|ديال|dyal|dial|any|some|des|du|d'un|d'une|شي|chi)\s+/iu, '')
+      .replace(/(?:^|\s)(?:f|b|fl|en|in|de|du|des|with|مع|في|فـ|ف|بـ|ب|لـ|ل|ديال|dyal|dial|شحال|وشحال|بشحال|ثمن|سعر|ch7al|taman|worth|coute|coûte|vaut|تسوى|يسوى|كيسوى|price|cost|made\s+of|made|of|pour|for|zippée|zippées|zippé|zippés|waterproof|water-resistant|imperméable|impermeable|respirant|chaud|chaude|oversize|oversized|large|serré|slim|heavy|light|cotton|coton|leather|cuir|مقاوم\s+للماء|ضد\s+الما|ضد\s+الماء|سخون|دافئ|قطن|واسع|عريض|مزير|ولا|أو|او|أم|ام)\s*$/giu, '')
       .replace(/^[?؟,،.!;:()[\]{}'"]+|[?؟,،.!;:()[\]{}'"]+$/g, '')
-      .replace(/\s+/g, ' ')
       .trim();
+
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+    if (this.isNonProductReference(cleaned, catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) {
+      return '';
+    }
 
     return cleaned;
   }
@@ -258,9 +572,16 @@ export class EcommerceIntentParser {
   static parse(
     text: string,
     productContext?: ProductContext | null,
-    lang: SupportedLanguage = 'en'
+    lang: SupportedLanguage = 'en',
+    options?: {
+      catalogCategories?: string[] | null;
+      customCategoryAliases?: Record<string, string[]> | null;
+      customAttributeAliases?: Record<string, string[]> | null;
+      candidateMetadataKeys?: string[] | null;
+    }
   ): ExtractedCommerceParams {
-    const trimmed = text.trim();
+    const normalizedText = text.replace(/\u0640/g, '');
+    const trimmed = normalizedText.trim();
     const lower = trimmed.toLowerCase();
 
     if (HandoffService.isHandoffRequested(trimmed)) {
@@ -268,7 +589,7 @@ export class EcommerceIntentParser {
     }
 
     // 0. Extract Category
-    const category = this.extractCategory(trimmed);
+    const category = this.extractCategory(trimmed, options?.catalogCategories, options?.customCategoryAliases);
 
     // 1. Ordinal index
     let ordinalIndex: number | undefined;
@@ -293,14 +614,16 @@ export class EcommerceIntentParser {
     // 3. Size extraction
     let size: string | undefined;
     const explicitSizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:size|taille|قياس|نمرة|pointure|f\s+taille|en\s+taille|in\s+size|مقاس|حجم|فالمقاس|بالمقاس|فالحجم|طاي)\s*[:=]?\s*(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const procliticSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f\s+|en\s+|in\s+|فـ|ف\s+|بـ|ب\s+|لـ|ل\s+)(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const procliticSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f\s+|en\s+|in\s+|فـ?|بـ?|لـ?)\s*(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const intentVerbSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:bghit|bghina|بغيت|أريد|اريد|je\s+veux|i\s+want|i\s+need|prends|take|khtar|choisir|نختار)\s+(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
     const suffixAvailabilityRegex = /(?:^|\s|[.,!?;:()،؟])(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)\s*(?:واش\s+)?(?:kayn|kayna|dispo|disponible|available|in\s+stock|متوفر|متوفرة|كاين|كاينة|\?|؟)(?:$|\s|[.,!?;:()،؟])/iu;
     const colorPrecedingSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:black|white|red|blue|noir|blanc|rouge|bleu|كحل|بيض|حمر|زرق|أسود|أبيض|أحمر|أزرق|فالأسود|بالأسود|فالكحل|بالكحل)\s+(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
     const multiCharOrNumericRegex = /(?:^|\s|[.,!?;:()،؟])(4[0-8]|3[5-9]|xs|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const shortTurnIsolatedRegex = /^(?:(?:size|taille|قياس|f|en|in|فـ|ف)\s+)?(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)[.?!؟]*$/iu;
+    const shortTurnIsolatedRegex = /^(?:(?:size|taille|قياس|f|en|in|فـ|ف|bghit|بغيت|اريد)\s+)?(4[0-8]|3[5-9]|xs|s|m|l|xl|xxl|2xl|3xl)[.?!؟]*$/iu;
 
     const prefixMatch = trimmed.match(explicitSizePrefixRegex);
     const procliticMatch = trimmed.match(procliticSizeRegex);
+    const intentVerbMatch = trimmed.match(intentVerbSizeRegex);
     const suffixMatch = trimmed.match(suffixAvailabilityRegex);
     const colorPrecedingMatch = trimmed.match(colorPrecedingSizeRegex);
     const shortTurnMatch = trimmed.trim().match(shortTurnIsolatedRegex);
@@ -310,6 +633,8 @@ export class EcommerceIntentParser {
       size = prefixMatch[1].toUpperCase();
     } else if (procliticMatch && procliticMatch[1]) {
       size = procliticMatch[1].toUpperCase();
+    } else if (intentVerbMatch && intentVerbMatch[1]) {
+      size = intentVerbMatch[1].toUpperCase();
     } else if (suffixMatch && suffixMatch[1]) {
       size = suffixMatch[1].toUpperCase();
     } else if (colorPrecedingMatch && colorPrecedingMatch[1]) {
@@ -334,7 +659,7 @@ export class EcommerceIntentParser {
       maxPrice = parseFloat(priceFilterMatch[1]);
     }
 
-    const KNOWLEDGE_POLICY_TERMS = /(?:shipping|delivery|deliver|deliveries|delivered|livraison|livrer|expédition|envoi|retour|retours|retourner|remboursement|rembourser|remboursé|rendre|reprise|échange|échanges|échanger|echange|echanger|exchange|exchanges|exchanging|exchanged|refund|refunds|refunding|refunded|send\s+back|money\s+back|warranty|guarantee|garantie|garantir|care|wash|washing|how\s+to\s+wash|care\s+instructions|entretien|lavage|laver|comment\s+laver|nettoyage|guide|hours|opening\s+hours|business\s+hours|horaires|heures\s+d['’]ouverture|politique|suivi|tracking|suivre|suis\s+ma\s+commande|track|track\s+order|order\s+status|where\s+is\s+my\s+order|où\s+est\s+ma\s+commande|ou\s+est\s+ma\s+commande|nghsel|nghslo|nghselha|ghsil|lghsil|tghsel|tasbin|nsben|nsbno|nrje3|nrje3o|nrje3ha|rje3|rje3o|rje3ha|nbdel|nbdelo|nbdelha|bdel|bdelo|bdelha|tawsil|tawseel|twsil|ywsl|twsl|kiwsl|kitwsl|ywsal|twsal|fin\s+wsel|fin\s+wsl|payment|paiement|payer|cash\s+on\s+delivery|cod|daman|ldaman|khalas|l5las|n5les|daf3|dafa3|frou3|fara3|reccommand|توصيل|التوصيل|شحن|الشحن|مصاريف\s+الشحن|ثمن\s+التوصيل|سعر\s+التوصيل|وقت\s+التوصيل|مدة\s+التوصيل|توصل|توصلو|كيوصل|كتوصل|يوصل|يوصلو|توصلني|يوصلني|استرجاع|استبدال|إرجاع|ارجاع|الإرجاع|الارجاع|الاسترجاع|الاستبدال|ترجيع|الترجيع|تبديل|التبديل|نرجع|نرجعو|نرجعها|نرجعوا|نرجعوه|نرجعهم|نبدل|نبدلو|نبدلها|نبدلوه|نبدلوا|رجع|بدل|يرجع|يبدل|ترجع|تبدل|سياسة|ضمان|الضمان|غسيل|الغسيل|طريقة\s+الغسيل|كيفاش\s+نغسل|كيفية\s+الغسيل|نغسل|نغسلو|نغسلها|تصبين|التصبين|نصبن|نصبنو|نعتني|عناية|العناية|تنظيف|التنظيف|طريقة|ساعات|ساعات\s+العمل|أوقات\s+العمل|مواعيد|نتبع|تتبع|تتبع\s+الطلب|تتبع\s+طلبي|فين\s+وصل|فين\s+واصل|فين\s+كاين|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|أجل\s+الإرجاع|أجل\s+الاسترجاع|أجل\s+التبديل|مهلة\s+الإرجاع|مهلة\s+الاسترجاع|مهلة\s+التبديل|مدة\s+الإرجاع|مدة\s+الاسترجاع|مدة\s+التبديل|شحال\s+عندي\s+من\s+الوقت|شحال\s+ديال\s+الوقت|قداش\s+بقا\s+ليا|قداش\s+عندي|combien\s+de\s+temps|délai\s+de\s+retour|delai\s+de\s+retour|délai\s+d['’]échange|delai\s+d['’]echange|how\s+long\s+do\s+i\s+have|how\s+many\s+days|return\s+window|exchange\s+window|return\s+period|exchange\s+period|chhal\s+3ndi\s+dlwa9t|9adach\s+b9a|9eddach\s+b9a|9dach\s+b9a)/iu;
+    const KNOWLEDGE_POLICY_TERMS = /(?:shipping|delivery|deliver|deliveries|delivered|livraison|livrer|expédition|envoi|retour|retours|retourner|remboursement|rembourser|remboursé|rendre|reprise|échange|échanges|échanger|echange|echanger|exchange|exchanges|exchanging|exchanged|refund|refunds|refunding|refunded|send\s+back|money\s+back|warranty|guarantee|garantie|garantir|care|how\s+to\s+wash|wash\s+instructions|washing|machine\s+wash|easy\s+care|entretien|lavage|laver|comment\s+laver|nettoyage|guide|hours|opening\s+hours|business\s+hours|horaires|heures\s+d['’]ouverture|politique|suivi|tracking|suivre|suis\s+ma\s+commande|track|track\s+order|order\s+status|where\s+is\s+my\s+order|où\s+est\s+ma\s+commande|ou\s+est\s+ma\s+commande|nghsel|nghslo|nghselha|ghsil|lghsil|tghsel|tasbin|nsben|nsbno|nrje3|nrje3o|nrje3ha|rje3|rje3o|rje3ha|nbdel|nbdelo|nbdelha|bdel|bdelo|bdelha|tawsil|tawseel|twsil|ywsl|twsl|kiwsl|kitwsl|ywsal|twsal|fin\s+wsel|fin\s+wsl|payment|paiement|payer|cash\s+on\s+delivery|cod|daman|ldaman|khalas|l5las|n5les|daf3|dafa3|frou3|fara3|reccommand|support|customer\s+service|support\s+email|support\s+phone|phone\s+number|service\s+client|contact|contact\s+support|email\s+support|numéro|numero|téléphone|telephone|خدمة\s+العملاء|خدمة\s+الزبناء|تواصل|اتصال|رقم\s+الهاتف|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|size\s+guide|size\s+chart|size\s+recommendation|which\s+size|what\s+size|which\s+size\s+fits|what\s+fits|size\s+should|guide\s+des\s+tailles|guide\s+de\s+taille|tableau\s+des\s+tailles|quelle\s+taille|quelle\s+est\s+ma\s+taille|choisir\s+(?:sa\s+|une\s+)?taille|دليل\s+المقاسات|جدول\s+المقاسات|المقاس\s+المناسب|أي\s+مقاس|اي\s+مقاس|ما\s+هو\s+المقاس|شكون\s+لاطاي|شنو\s+هي\s+لاطاي|شمن\s+طاي|شمن\s+لاطاي|la\s+taille\s+li\s+tji|la\s+taille\s+li\s+mzyana|ashna\s+hiya\s+la\s+taille|tour\s+de\s+poitrine|chest\s+measurement|body\s+measurement|chest\s+size|محيط\s+الصدر|قياس\s+الصدر|مقاس\s+الصدر|f\s+sder|f\s+l-sder|توصيل|التوصيل|شحن|الشحن|مصاريف\s+الشحن|ثمن\s+التوصيل|سعر\s+التوصيل|وقت\s+التوصيل|مدة\s+التوصيل|توصل|توصلو|كيوصل|كتوصل|يوصل|يوصلو|توصلني|يوصلني|استرجاع|استبدال|إرجاع|ارجاع|الإرجاع|الارجاع|الاسترجاع|الاستبدال|ترجيع|الترجيع|تبديل|التبديل|نرجع|نرجعو|نرجعها|نرجعوا|نرجعوه|نرجعهم|نبدل|نبدلو|نبدلها|نبدلوه|نبدلوا|رجع|بدل|يرجع|يبدل|ترجع|تبدل|سياسة|ضمان|الضمان|غسيل|الغسيل|طريقة\s+الغسيل|كيفاش\s+نغسل|كيفية\s+الغسيل|نغسل|نغسلو|نغسلها|تصبين|التصبين|نصبن|نصبنو|نعتني|عناية|العناية|تنظيف|التنظيف|طريقة|ساعات|ساعات\s+العمل|أوقات\s+العمل|مواعيد|نتبع|تتبع|تتبع\s+الطلب|تتبع\s+طلبي|فين\s+وصل|فين\s+واصل|فين\s+كاين|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|أجل\s+الإرجاع|أجل\s+الاسترجاع|أجل\s+التبديل|مهلة\s+الإرجاع|مهلة\s+الاسترجاع|مهلة\s+التبديل|مدة\s+الإرجاع|مدة\s+الاسترجاع|مدة\s+التبديل|شحال\s+عندي\s+من\s+الوقت|شحال\s+ديال\s+الوقت|قداش\s+بقا\s+ليا|قداش\s+عندي|combien\s+de\s+temps|délai\s+de\s+retour|delai\s+de\s+retour|délai\s+d['’]échange|delai\s+d['’]echange|how\s+long\s+do\s+i\s+have|how\s+many\s+days|return\s+window|exchange\s+window|return\s+period|exchange\s+period|chhal\s+3ndi\s+dlwa9t|9adach\s+b9a|9eddach\s+b9a|9dach\s+b9a)/iu;
 
     if (KNOWLEDGE_POLICY_TERMS.test(lower)) {
       let explicitProd: string | undefined;
@@ -345,13 +670,13 @@ export class EcommerceIntentParser {
       if (prodMatch && prodMatch[1]) {
         let candidate = prodMatch[1].replace(/[?؟,،.!;:()[\]{}'"]/g, '').trim();
         candidate = candidate.replace(/^(?:retour|retours|refund|exchange|livraison|shipping|delivery|care|wash|guide|politique|استرجاع|استبدال|إرجاع|ارجاع|ترجيع|توصيل|شحن|غسيل|نغسل|عناية|باش\s+نرجع|باش\s+نبدل|باش\s+نغسل)\s*(?:de|du|pour|sur|3la|dial|dyal|ديال|حول)?\s*/iu, '').trim();
-        if (!this.isNonProductReference(candidate) && candidate.length > 2) {
-          explicitProd = this.cleanProductName(candidate);
+        if (!this.isNonProductReference(candidate, options?.catalogCategories, options?.customCategoryAliases) && candidate.length > 2) {
+          explicitProd = this.cleanProductName(candidate, options?.catalogCategories, options?.customCategoryAliases);
         }
       }
 
       return {
-        intent: 'POLICY_INQUIRY',
+        intent: 'UNKNOWN',
         sku,
         productName: explicitProd || undefined,
         category,
@@ -360,20 +685,37 @@ export class EcommerceIntentParser {
       };
     }
 
+    // Indefinite entity reference detection
+    const hasIndefiniteMarker = /(?:^|\s|[.,!?;:()،؟])(?:something|anything|other|another|un\s+autre|une\s+autre|autre|autres|quelque\s+chose|des\s+articles|des\s+produits|شي\s+حاجة|شي\s+حاجه|حاجة|حاجه|واحد\s+اخر|واحد\s+آخر|شي\s+واحد|chi\s+7aja|chi\s+haja|chi\s+khor|wa7ed\s+akhor|شي|chi)\b/iu.test(lower);
+    const hasIntentVerb = /(?:^|\s|[.,!?;:()،؟])(?:bghit|bghina|بغيت|وبغيت|أريد|واريد|اريد|je\s+veux|i\s+want|i\s+need|show\s+me|montre-moi|عطيني|وريني|cherche|looking\s+for)\b/iu.test(lower);
+    const isComparativeBudget = /(?:cheaper|moins\s+cher|plus\s+abordable|أرخص|ارخص|رخيص|rkhis|arkhas|أقل\s+ثمن|اقل\s+ثمن|أقل\s+سعر)\b/iu.test(lower);
+
+    // Rule B: Indefinite alternative request + comparative/budget semantics -> RECOMMENDATION
+    const isComparativeAlternative = isComparativeBudget && (hasIndefiniteMarker || hasIntentVerb);
+
     const isRecommendation = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
-      /(?:^|\s|[.,!?;:()،؟])(?:best|recommend|recommendation|recommander|meilleur|meilleure|conseiller|conseille-moi|conseille\s+moi|أحسن|افضل|أفضل|شنو\s+أحسن|شنو\s+افضل|احسن\s+حاجة|ahsan|lmeilleur|bghit\s+chi\s+7aja|bghit\s+chi\s+haja|بغيت\s+شي\s+حاجة|بغيت\s+شي\s+حاجه|ach\s+t-?nss7ni|ach\s+tnss7ni|شنو\s+تنصحني|which\s+(?:one\s+)?should\s+i\s+(?:choose|get|buy)|quel\s+produit\s+choisir)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
-      /(?:which\s+(?:one|hoodie|t-shirt|jacket|product)\s+is\s+best|lequel\s+est\s+le\s+meilleur|quel\s+est\s+le\s+meilleur)/iu.test(lower) ||
-      (/(?:daily\s+use|everyday|every\s+day|tous\s+les\s+jours|quotidien|استعمال\s+يومي|للاستعمال\s+اليومي|كل\s+نهار|l\s*kol\s*nhar|lkol\s*nhar|kol\s*nhar|kolnhar|winter|chita|chitta|chta|hiver|شتاء|البراد|برد|lyali|summer|été|ete|صيف|الصيف|sports?|gym|running|outdoor|رياضة|casual|sortie)\b/iu.test(lower) && /(?:bghit|بغيت|je\s+cherche|i\s+want|looking\s+for|i\s+need|montre-moi|وريني|chi\s+7aja|شي\s+حاجة)/iu.test(lower)) ||
-      (maxPrice !== undefined && /(?:winter|chita|chitta|chta|hiver|شتاء|daily|kol\s*nhar|summer|été|sport|رياضة)/iu.test(lower))
+      isComparativeAlternative ||
+      /(?:^|\s|[.,!?;:()،؟])(?:best|recommend|recommendation|recommander|recommandez|recommande|meilleur|meilleure|conseil|conseiller|conseille|conseillez|conseille-(?:moi|nous)|conseillez-(?:moi|vous|nous)|conseille\s+moi|conseillez\s+moi|أحسن|افضل|أفضل|شنو\s+أحسن|شنو\s+افضل|احسن\s+حاجة|ahsan|lmeilleur|bghit\s+chi\s+7aja|bghit\s+chi\s+haja|بغيت\s+شي\s+حاجة|بغيت\s+شي\s+حاجه|ach\s+t-?n[e]?s+[a-z0-9]*|شنو\s+تنصحني|which\s+.*should\s+i\s+(?:choose|get|buy|pick|take)|which\s+should\s+i\s+(?:choose|get|buy|pick|take)|quel\s+produit\s+(?:choisir|acheter|me\s+conseillez|conseillez)|quelle\s+option\s+choisir)(?:$|\s|[.,!?;:()،؟-])/iu.test(lower) ||
+      /(?:which\s+(?:one|product|item|model|option|article)\s+is\s+best|lequel\s+est\s+le\s+meilleur|quel\s+est\s+le\s+meilleur|أيهم\s+أفضل|اي\s+واحد\s+احسن|اشمن\s+واحد\s+احسن)/iu.test(lower)
     );
     if (isRecommendation) {
+      const cleanKeywords = trimmed
+        .replace(/^(?:salam|salut|bonjour|hello|hi|hey|ahlan|السلام عليكم|سلام|أهلا|اهلا|صباح الخير|مساء الخير)[،,\s]+/iu, '')
+        .replace(/^(?:best|recommend|recommendation|recommander|meilleur|meilleure|conseiller|conseille-moi|conseille\s+moi|أحسن|افضل|أفضل|شنو\s+أحسن|شنو\s+افضل|احسن\s+حاجة|ahsan|lmeilleur|bghit\s+chi\s+7aja|bghit\s+chi\s+haja|بغيت\s+شي\s+حاجة|بغيت\s+شي\s+حاجه|ach\s+t-?nss7ni|ach\s+tnss7ni|شنو\s+تنصحني|which\s+(?:one\s+)?should\s+i\s+(?:choose|get|buy)|quel\s+produit\s+choisir)\s+/iu, '')
+        .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
+        .trim();
+
+      const cleanedSearchKeywords = this.cleanProductName(cleanKeywords, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
+
       return {
         intent: 'RECOMMENDATION',
         sku,
+        productName: (!this.isNonProductReference(cleanedSearchKeywords, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys) && cleanedSearchKeywords) ? cleanedSearchKeywords : undefined,
         category,
         color,
         size,
-        maxPrice
+        maxPrice,
+        searchKeywords: cleanedSearchKeywords || undefined
       };
     }
 
@@ -387,10 +729,10 @@ export class EcommerceIntentParser {
       const compareWithPattern = /(?:compare|comparer|comparaison|مقارنة|قارن بين|قارن هاد|قارنها|قارنو|9aren bin|9arenha|قارن|9aren)\s*(?:ha|it|ça|hada|hadi|hadchi|ها|ه|هذا|هادي|هدا|هدي)?\s*(?:liya|lia|m3aya|لي|ليا|معايا)?\s*(?:with|avec|مع|m3a|to|vs)\s+(.+)/iu;
       const compareWithMatch = trimmed.match(compareWithPattern);
       if (compareWithMatch && compareWithMatch[1]) {
-        const targetB = this.cleanProductName(compareWithMatch[1].replace(/^(?:shi|chi|un|une|some|le|la|les|al-|ال|شي|هاد|had)\s+/iu, ''));
+        const targetB = this.cleanProductName(compareWithMatch[1].replace(/^(?:shi|chi|un|une|some|le|la|les|al-|ال|شي|هاد|had)\s+/iu, ''), options?.catalogCategories, options?.customCategoryAliases);
         return {
           intent: 'COMPARE',
-          compareProductNames: targetB && !this.isNonProductReference(targetB) ? [targetB] : undefined,
+          compareProductNames: targetB && !this.isNonProductReference(targetB, options?.catalogCategories, options?.customCategoryAliases) ? [targetB] : undefined,
           sku,
           category,
           color,
@@ -401,12 +743,12 @@ export class EcommerceIntentParser {
       // 6B. Compare two explicit products: "compare X and Y" / "قارن بين X و Y"
       const compareMatch = trimmed.match(/(?:compare|comparer|comparaison|مقارنة|قارن بين|قارن هاد|قارنها|قارنو|9aren bin|9arenha|قارن|9aren)\s*(?:bin|بين)?\s*(.+?)\s+(?:and|et|و|مع|avec|vs|versus|w|wa)\s+(.+)/iu);
       if (compareMatch && compareMatch[1] && compareMatch[2]) {
-        const prod1 = this.cleanProductName(compareMatch[1].replace(/^(?:bin|بين|هاد|had|ce|cet|cette|le|la|les|al-|ال)\s+/iu, ''));
-        const prod2 = this.cleanProductName(compareMatch[2].replace(/^(?:bin|بين|هاد|had|ce|cet|cette|le|la|les|al-|ال)\s+/iu, ''));
-        if (prod1 && !this.isNonProductReference(prod1)) {
+        const prod1 = this.cleanProductName(compareMatch[1].replace(/^(?:bin|بين|هاد|had|ce|cet|cette|le|la|les|al-|ال)\s+/iu, ''), options?.catalogCategories, options?.customCategoryAliases);
+        const prod2 = this.cleanProductName(compareMatch[2].replace(/^(?:bin|بين|هاد|had|ce|cet|cette|le|la|les|al-|ال)\s+/iu, ''), options?.catalogCategories, options?.customCategoryAliases);
+        if (prod1 && !this.isNonProductReference(prod1, options?.catalogCategories, options?.customCategoryAliases)) {
           return {
             intent: 'COMPARE',
-            compareProductNames: [prod1, prod2].filter(p => !this.isNonProductReference(p)),
+            compareProductNames: [prod1, prod2].filter(p => !this.isNonProductReference(p, options?.catalogCategories, options?.customCategoryAliases)),
             sku,
             category,
             color,
@@ -425,37 +767,32 @@ export class EcommerceIntentParser {
     );
 
     if (isPriceKeyword) {
-      let cleanName = trimmed;
-      const startsWithPriceQuery = /^(?:and\s+|et\s+|w\s+|و\s*)?(?:ch7al|chhal|bch7al|bchhal|bchal|شحال|وشحال|بشحال|وبشحال|كم|سعر|وسعر|ثمن|والثمن|taman|how much|what was|what is|quel|combien|كيسوى|يسوى|تسوى)/iu.test(trimmed);
+      const explicitMonetary = /(?:price|cost|worth|prix|coûte|coute|vaut|cheaper|moins cher|أرخص|ارخص|ثمن|سعر|بشحال|bch7al|bchhal|taman|mad|usd|eur|درهم)/iu.test(lower);
+      const attrMatch = !explicitMonetary ? this.detectAttributeFamily(lower, options?.customAttributeAliases, options?.candidateMetadataKeys) : undefined;
 
-      if (startsWithPriceQuery) {
-        const priceAfterNounPattern = /(?:ch7al\s+kan\s+taman\s+dyal|ch7al\s+taman\s+dyal|ch7al\s+kan\s+taman|ch7al\s+taman|ch7al\s+dyal|ch7al|chhal|bch7al|bchhal|bchal|quel est le prix de|quel était le prix de|combien coûte|combien coute|شحال كان ثمن ديال|شحال كان ثمن|شحال الثمن ديال|شحال ثمن ديال|شحال ثمن|شحال كان|شحال|وشحال|كم سعر|what was the price of|what is the price of|how much was|how much is)\s+([a-zA-Z\u0600-\u06FF\s-]+)/iu;
-        const priceAfterNounMatch = trimmed.match(priceAfterNounPattern);
-        if (priceAfterNounMatch && priceAfterNounMatch[1]) {
-          const candidate = priceAfterNounMatch[1].replace(/[?؟,،.!;:()[\]{}'"]/g, '').trim();
-          cleanName = !this.isNonProductReference(candidate) ? candidate : '';
-        } else {
-          cleanName = '';
-        }
-      } else {
-        const switchPattern = /^(?:and\s+|et\s+|w\s+|و\s*)?(?:l\s+|le\s+|la\s+|the\s+|al-|ال)?([a-zA-Z\u0600-\u06FF\s-]+?)[,،]?\s+(?:ch7al|chhal|bch7al|bchhal|bchal|شحال|وشحال|بشحال|وبشحال|كم|سعر|وسعر|ثمن|والثمن|taman|how much|what was|what is|quel|كيسوى|يسوى|تسوى|coûte|coute|vaut)/iu;
-        const switchMatch = trimmed.match(switchPattern);
-        if (switchMatch && switchMatch[1] && !this.isNonProductReference(switchMatch[1])) {
-          cleanName = switchMatch[1].trim();
-        } else {
-          cleanName = cleanName
-            .replace(/^(?:and\s+|et\s+|w\s+|و\s*|\s*)?(?:what was the price of|what is the price of|what's the price of|how much is|how much was|quel était le prix de|quel est le prix de|combien coûte|combien coute|combien|كم سعر|شحال كان الثمن ديال|شحال الثمن ديال|وشحال كان الثمن ديال|وشحال الثمن ديال|شحال كان ثمن|شحال الثمن|وشحال الثمن|شحال كان|شحال|وشحال|بشحال|وبشحال|bch7al had|bch7al|bchhal|ch7al kan taman dyal|ch7al taman dyal|ch7al kan taman|ch7al taman|ch7al|chhal|taman dyal|taman)\s*/iu, '')
-            .replace(/\b(?:it|that one|this one|ce modèle|cette paire|هذا|هادي|هادشي|ديالو|ديالها|دابا|الان|الآن|had|hada|hadi|hadchi|dyalo|dyalha|daba|now|kan|was)\b/giu, '')
-            .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
-            .trim();
-        }
+      if (attrMatch) {
+        const cleanedProductName = this.cleanProductName(trimmed, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
+        return {
+          intent: 'ATTRIBUTE_QUERY',
+          attributeFamily: attrMatch.family,
+          attributeKeywords: attrMatch.keyword,
+          attributeName: attrMatch.attributeName,
+          sku,
+          productName: (!this.isNonProductReference(cleanedProductName, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys) && cleanedProductName) ? cleanedProductName : undefined,
+          category,
+          color,
+          size,
+          ordinalIndex
+        };
       }
 
-      const cleanedProductName = this.cleanProductName(cleanName);
+      const cleanedProductName = this.cleanProductName(trimmed, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
+      const extractedProdName = (!this.isNonProductReference(cleanedProductName, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys) && cleanedProductName) ? cleanedProductName : undefined;
+
       return {
         intent: 'PRICE',
         sku,
-        productName: (!this.isNonProductReference(cleanedProductName) && cleanedProductName) ? cleanedProductName : undefined,
+        productName: extractedProdName,
         category,
         color,
         size,
@@ -481,20 +818,26 @@ export class EcommerceIntentParser {
 
     // 9. Availability / Stock intent
     const isAvailabilityKeyword = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
-      /(?:^|\s|[.,!?;:()،؟])(?:in stock|available|availability|disponible|dispo|متوفر|كاين|واش كاين|واش كاينين|واش متوفر|هل متوفر|stock|kayn|dispo)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
-      ((color !== undefined || size !== undefined) && /(?:do you have|avez-vous|avez vous|you have|have you|واش عندكم|عندكم)/iu.test(lower)) ||
-      lower.includes('متوفر') || lower.includes('واش كاين')
+      /(?:^|\s|[.,!?;:()،؟])(?:in stock|available|availability|disponible|dispo|متوفر|متوفرة|متوفرين|كاين|كاينة|كاينين|واش كاين|واش كاينة|واش كاينين|واش متوفر|واش متوفرة|هل متوفر|هل متوفرة|stock|kayn|kayna|dispo|ba9i|باقي|مازال)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
+      ((color !== undefined || size !== undefined) && /(?:do you have|avez-vous|avez vous|you have|have you|واش عندكم|عندكم|كتبيعو)/iu.test(lower)) ||
+      lower.includes('متوفر') || lower.includes('متوفرة') || lower.includes('واش كاين') || lower.includes('واش كاينة')
     );
 
     if (isAvailabilityKeyword) {
-      let cleanName = trimmed
-        .replace(/^(?:is|are|do you have|est-ce que|avez-vous|واش كاين|واش متوفر|هل متوفر|واش كاينين|wach kayn|wash kayn)\s*/iu, '')
-        .replace(/\b(?:in stock|available|availability|disponible|dispo|متوفر|كاين|stock|it|that one|had|hada|hadi|dyalo|dyalha|فالأسود|بالأسود|فالكحل|بالكحل|en noir|in black|f\s+[a-z0-9]+|en\s+[a-z0-9]+)\b/giu, '')
-        .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
-        .trim();
+      const cleanedProductName = this.cleanProductName(trimmed, options?.catalogCategories, options?.customCategoryAliases);
+      const extractedProdName = (!this.isNonProductReference(cleanedProductName, options?.catalogCategories, options?.customCategoryAliases) && cleanedProductName) ? cleanedProductName : undefined;
 
-      const cleanedProductName = this.cleanProductName(cleanName);
-      const extractedProdName = (!this.isNonProductReference(cleanedProductName) && cleanedProductName) ? cleanedProductName : undefined;
+      // Rule C: Indefinite / New Entity Discovery vs Definite Product Availability
+      const hasDefiniteReference = /(?:^|\s|[.,!?;:()،؟])(?:this|that|ce|cet|cette|ces|هاد|هذا|هدا|هادي|هدي|هادو|هادوك|هادشي|dyalo|dyalha|3lih|3liha|منو|منها|فيه|فيها)\b/iu.test(lower) || Boolean(sku);
+
+      if (hasIndefiniteMarker && !hasDefiniteReference && !extractedProdName) {
+        return {
+          intent: 'RECOMMENDATION',
+          category,
+          color,
+          size
+        };
+      }
 
       if (category && !extractedProdName && !sku) {
         return {
@@ -509,6 +852,27 @@ export class EcommerceIntentParser {
         intent: 'AVAILABILITY',
         sku,
         productName: extractedProdName,
+        category,
+        color,
+        size,
+        ordinalIndex
+      };
+    }
+
+    // 9.5 Attribute / Feature Inquiry (Precedence: ATTRIBUTE_QUERY > PRODUCT_SEARCH)
+    const attrMatch = !KNOWLEDGE_POLICY_TERMS.test(lower) ? this.detectAttributeFamily(lower, options?.customAttributeAliases, options?.candidateMetadataKeys) : undefined;
+    const hasInquiryStructure = this.hasQuestionOrInquiryStructure(trimmed) || Boolean(productContext?.selectedProductId);
+    const isExplicitSearchVerb = /(?:^|\s|[.,!?;:()،؟])(?:bghit|bghina|بغيت|أريد|اريد|je\s+veux|i\s+want|i\s+need|looking\s+for|je\s+cherche|كنقلب|نقلب|وريني|وروني|show\s+me|find|search\s+for)(?:$|\s|[.,!?;:()،؟])/iu.test(lower);
+
+    if (attrMatch && hasInquiryStructure && !isExplicitSearchVerb) {
+      const cleanedProductName = this.cleanProductName(trimmed, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
+      return {
+        intent: 'ATTRIBUTE_QUERY',
+        attributeFamily: attrMatch.family,
+        attributeKeywords: attrMatch.keyword,
+        attributeName: attrMatch.attributeName,
+        sku,
+        productName: (!this.isNonProductReference(cleanedProductName, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys) && cleanedProductName) ? cleanedProductName : undefined,
         category,
         color,
         size,
@@ -532,11 +896,11 @@ export class EcommerceIntentParser {
         .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
         .trim();
 
-      const cleanedProductName = this.cleanProductName(cleanKeywords);
+      const cleanedProductName = this.cleanProductName(cleanKeywords, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
       return {
         intent: 'PRODUCT_DETAIL',
         sku,
-        productName: (!this.isNonProductReference(cleanedProductName) && cleanedProductName) ? cleanedProductName : undefined,
+        productName: (!this.isNonProductReference(cleanedProductName, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys) && cleanedProductName) ? cleanedProductName : undefined,
         category,
         color,
         size,
@@ -584,10 +948,10 @@ export class EcommerceIntentParser {
         .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
         .trim();
 
-      const cleanedSearchKeywords = this.cleanProductName(cleanKeywords);
+      const cleanedSearchKeywords = this.cleanProductName(cleanKeywords, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
       return {
         intent: 'PRODUCT_SEARCH',
-        productName: (!this.isNonProductReference(cleanedSearchKeywords) && cleanedSearchKeywords) ? cleanedSearchKeywords : undefined,
+        productName: (!this.isNonProductReference(cleanedSearchKeywords, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys) && cleanedSearchKeywords) ? cleanedSearchKeywords : undefined,
         category,
         searchKeywords: cleanedSearchKeywords || undefined,
         maxPrice,

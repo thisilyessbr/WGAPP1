@@ -22,9 +22,13 @@ export class LLMFactory {
    * Resolves an LLM provider and per-request execution options for a tenant's LlmConfig.
    * Provider instances are cached and reused strictly by (provider, model).
    */
-  getProvider(config: LlmConfig): ResolvedLLM {
-    const providerName = (config.provider || 'deepseek').toLowerCase();
-    const model = config.model || (providerName === 'gemini' ? DEFAULT_GEMINI_MODEL : 'deepseek-chat');
+  getProvider(config?: LlmConfig): ResolvedLLM {
+    const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
+    const useRealAi = process.env.USE_REAL_AI === 'true';
+
+    const requestedProvider = (config?.provider || 'deepseek').toLowerCase();
+    const providerName = (isTestEnv && !useRealAi && requestedProvider !== 'mock') ? 'mock' : requestedProvider;
+    const model = (providerName === 'mock') ? 'mock-model' : (config?.model || (providerName === 'gemini' ? DEFAULT_GEMINI_MODEL : 'deepseek-chat'));
     const cacheKey = `${providerName}:${model}`;
 
     let provider = this.providerCache.get(cacheKey);

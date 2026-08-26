@@ -5,6 +5,8 @@ export interface RetrievedChunk {
   documentId: string;
   content: string;
   similarity: number;
+  documentTitle?: string;
+  metadata?: any;
 }
 
 export class KnowledgeRepository {
@@ -42,6 +44,8 @@ export class KnowledgeRepository {
             kc.id,
             kc."documentId",
             kc.content,
+            kd.title as "documentTitle",
+            kc.metadata,
             1 - (kc.embedding <=> ${embeddingString}::vector) as similarity
           FROM "KnowledgeChunk" kc
           JOIN "KnowledgeDocument" kd ON kc."documentId" = kd.id
@@ -60,6 +64,8 @@ export class KnowledgeRepository {
             kc.id,
             kc."documentId",
             kc.content,
+            kd.title as "documentTitle",
+            kc.metadata,
             1 - (kc.embedding <=> ${embeddingString}::vector) as similarity
           FROM "KnowledgeChunk" kc
           JOIN "KnowledgeDocument" kd ON kc."documentId" = kd.id
@@ -78,7 +84,9 @@ export class KnowledgeRepository {
       id: r.id,
       documentId: r.documentId,
       content: r.content,
-      similarity: r.similarity
+      similarity: r.similarity,
+      documentTitle: r.documentTitle || undefined,
+      metadata: r.metadata || undefined
     }));
   }
 }

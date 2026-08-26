@@ -3,14 +3,24 @@
  *
  * Catalog-Constrained Deterministic Product Recommendation Engine.
  * Scores and ranks catalog products based strictly on authoritative catalog
- * attributes, tags, categories, variants, and budget constraints.
+ * attributes, tags, categories, variants, metadata, and budget constraints.
  * 100% deterministic, 0 LLM calls, 0 embeddings.
  */
 
 import { ProductWithVariants } from './ProductRepository';
-import { RecommendationCriteria } from '../conversation/NormalizedTurn';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductLookupResult } from './EcommerceService';
+
+export interface RecommendationCriteria {
+  category?: string;
+  budget?: number;
+  color?: string;
+  size?: string;
+  searchKeywords?: string;
+  attributeKeywords?: string;
+  attributeName?: string;
+  preferredAttributes?: Record<string, string | number | boolean>;
+}
 
 export interface ScoredRecommendation {
   fact: ProductLookupResult;
@@ -53,7 +63,7 @@ export class ProductRecommendationService {
       const locDesc = (product.descriptionLocalized as Record<string, string> | null)?.[lang] || product.description || '';
       const combinedText = `${product.name} ${locName} ${product.description} ${locDesc} ${product.category || ''}`.toLowerCase();
 
-      // 1. In-stock weighting
+      // 1. In-stock weighting (+20 / -50)
       const inStock = product.stock > 0;
       if (inStock) {
         score += 20;
@@ -71,36 +81,7 @@ export class ProductRecommendationService {
         }
       }
 
-      // 3. Use-Case Match (+25)
-      if (criteria.useCase) {
-        const useCasePatterns: Record<string, RegExp> = {
-          daily_use: /(?:daily|everyday|all-day|tous\s+les\s+jours|quotidien|يومي|استعمال\s+يومي|للاستعمال\s+اليومي|كل\s+نهار|casual)/iu,
-          sports: /(?:sport|sports|gym|running|workout|رياضة|رياضي)/iu,
-          streetwear: /(?:streetwear|urban|style|anime|graphic)/iu
-        };
-
-        const pattern = useCasePatterns[criteria.useCase] || new RegExp(criteria.useCase, 'iu');
-        if (pattern.test(combinedText)) {
-          score += 25;
-          matchedReasons.push(`Use-case: ${criteria.useCase}`);
-        }
-      }
-
-      // 4. Season Match (+20)
-      if (criteria.season) {
-        const seasonPatterns: Record<string, RegExp> = {
-          winter: /(?:winter|hiver|cold|warm|fleece|heavy|شتاء|برد|شتوي|ثقيل)/iu,
-          summer: /(?:summer|été|light|breathable|صيف|صيفي|خفيف)/iu
-        };
-
-        const pattern = seasonPatterns[criteria.season] || new RegExp(criteria.season, 'iu');
-        if (pattern.test(combinedText)) {
-          score += 20;
-          matchedReasons.push(`Season: ${criteria.season}`);
-        }
-      }
-
-      // 5. Budget Constraint Match (+15)
+      // 3. Budget Constraint Match (+15 / -30)
       const priceNum = Number(product.price);
       if (criteria.budget !== undefined && criteria.budget !== null) {
         if (priceNum <= criteria.budget) {
@@ -111,7 +92,7 @@ export class ProductRecommendationService {
         }
       }
 
-      // 6. Variant Match (Color / Size) (+15)
+      // 4. Variant Match (Color / Size) (+15 / -20)
       let selectedVariant = null;
       let availableStock = product.stock;
 
@@ -132,6 +113,56 @@ export class ProductRecommendationService {
             }
           } else {
             score -= 20; // Requested variant does not exist
+          }
+        }
+      }
+
+      // 5. Metadata / Preferred Attributes / Tags Match (+25)
+      const productMeta = (product.metadata as Record<string, any>) || {};
+      const variantMeta = (selectedVariant?.metadata as Record<string, any>) || {};
+      const combinedMeta = { ...productMeta, ...variantMeta };
+
+      if (criteria.preferredAttributes && Object.keys(criteria.preferredAttributes).length > 0) {
+        for (const [key, val] of Object.entries(criteria.preferredAttributes)) {
+          if (combinedMeta[key] !== undefined) {
+            const metaStr = String(combinedMeta[key]).toLowerCase();
+            const valStr = String(val).toLowerCase();
+            if (metaStr === valStr || metaStr.includes(valStr)) {
+              score += 25;
+              matchedReasons.push(`Attribute match: ${key}=${val}`);
+            }
+          }
+        }
+      }
+
+      if (criteria.attributeName && combinedMeta[criteria.attributeName] !== undefined) {
+        score += 25;
+        matchedReasons.push(`Attribute match: ${criteria.attributeName}`);
+      }
+
+      // Metadata tags match
+      const tags: string[] = Array.isArray(productMeta.tags) ? productMeta.tags : [];
+      if (tags.length > 0 && (criteria.searchKeywords || criteria.attributeKeywords)) {
+        const queryTerms = `${criteria.searchKeywords || ''} ${criteria.attributeKeywords || ''}`.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+        for (const tag of tags) {
+          const tagLower = String(tag).toLowerCase();
+          if (queryTerms.some(term => tagLower.includes(term) || term.includes(tagLower))) {
+            score += 20;
+            matchedReasons.push(`Tag match: ${tag}`);
+            break;
+          }
+        }
+      }
+
+      // 6. Generic Product Name / Description Keyword Match (+15)
+      const inquiryKeywords = (criteria.searchKeywords || criteria.attributeKeywords || '').toLowerCase().trim();
+      if (inquiryKeywords) {
+        const tokens = inquiryKeywords.split(/\s+/).filter(t => t.length > 2);
+        if (tokens.length > 0) {
+          const matchedToken = tokens.find(t => combinedText.includes(t));
+          if (matchedToken) {
+            score += 15;
+            matchedReasons.push(`Keyword match: ${matchedToken}`);
           }
         }
       }
@@ -159,7 +190,9 @@ export class ProductRecommendationService {
 
     const top = scoredList[0];
     const hasCriteriaSpecified = Boolean(
-      criteria.category || criteria.useCase || criteria.season || criteria.budget || criteria.color || criteria.size
+      criteria.category || criteria.budget || criteria.color || criteria.size ||
+      criteria.searchKeywords || criteria.attributeKeywords || criteria.attributeName ||
+      (criteria.preferredAttributes && Object.keys(criteria.preferredAttributes).length > 0)
     );
 
     // Require positive score and at least 1 explicit criteria match if criteria were requested

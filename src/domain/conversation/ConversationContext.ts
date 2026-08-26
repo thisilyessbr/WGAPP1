@@ -1,4 +1,5 @@
 import { ConversationMemory, ConversationMemoryManager } from './ConversationMemory';
+import { PolicyEvidence } from '../rag/PolicyEvidence';
 
 export type ConversationCapability =
   | 'GREETING'
@@ -20,14 +21,6 @@ export interface ConversationTurn {
 
 import { SupportedLanguage, LanguageDetector } from '../faq/FaqMatcher';
 
-export interface UnresolvedTarget {
-  rawQuery: string;
-  normalizedEntity?: string;
-  category?: string;
-  reason: 'NOT_FOUND' | 'OUT_OF_STOCK' | 'INVALID_CATEGORY';
-  timestamp?: number;
-}
-
 export interface ProductContext {
   selectedProductId?: string | null;
   selectedVariantId?: string | null;
@@ -36,7 +29,6 @@ export interface ProductContext {
   selectedSize?: string | null;
   lastViewedProductIds?: string[];
   comparisonTargets?: Array<{ id: string; name: string; sku?: string; price: number }>;
-  unresolvedTarget?: UnresolvedTarget | null;
 }
 
 export interface ConversationContext {
@@ -60,6 +52,9 @@ export interface ConversationContext {
 
   /** Transient product references (Phase 13B) - NEVER caches stale price/stock */
   productContext?: ProductContext | null;
+
+  /** Session-scoped active PolicyEvidence cache (Phase 37E) */
+  activePolicyEvidence?: Record<string, PolicyEvidence[]> | null;
 
   recentTurns: ConversationTurn[];
 
@@ -86,6 +81,7 @@ export interface BuildConversationContextParams {
   currentTopic?: string | null;
   activeCapability?: ConversationCapability | null;
   productContext?: ProductContext | null;
+  activePolicyEvidence?: Record<string, PolicyEvidence[]> | null;
   activeSession?: {
     workflowId: string;
     stateId: string;
@@ -173,6 +169,7 @@ export function buildConversationContext(params: BuildConversationContextParams)
     activeCapability: params.activeCapability ?? null,
     workflowState,
     productContext: params.productContext || (params.contextData as any)?.productContext || null,
+    activePolicyEvidence: params.activePolicyEvidence || (params.contextData as any)?.activePolicyEvidence || null,
     recentTurns: memory.recentTurns,
     structuredFacts: memory.structuredFacts,
     memory,

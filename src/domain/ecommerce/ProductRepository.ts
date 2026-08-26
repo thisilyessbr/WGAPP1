@@ -19,6 +19,11 @@ export interface ProductSearchParams {
 export class ProductRepository {
   constructor(private prisma: PrismaClient) {}
 
+  async findAll(tenantId: string, accountId: string, activeOnly = true): Promise<ProductWithVariants[]> {
+    if (!tenantId || !accountId) return [];
+    return this.search({ tenantId, accountId, activeOnly });
+  }
+
   async findById(tenantId: string, accountId: string, id: string, activeOnly = true): Promise<ProductWithVariants | null> {
     if (!tenantId || !accountId || !id) return null;
     return this.prisma.product.findFirst({
@@ -361,6 +366,21 @@ export class ProductRepository {
     return [...directResults, ...localizedMatches].slice(0, limit);
   }
 
+  async getDistinctCategories(tenantId: string, accountId: string, activeOnly = true): Promise<string[]> {
+    if (!tenantId || !accountId) return [];
+    const products = await this.prisma.product.findMany({
+      where: {
+        tenantId,
+        accountId,
+        ...(activeOnly ? { active: true } : {}),
+        category: { not: null }
+      },
+      select: { category: true },
+      distinct: ['category']
+    });
+    return products.map(p => p.category!).filter(Boolean);
+  }
+
   async findAvailableVariants(tenantId: string, accountId: string, productId: string): Promise<ProductVariant[]> {
     if (!tenantId || !accountId || !productId) return [];
     return this.prisma.productVariant.findMany({
@@ -390,6 +410,7 @@ export class ProductRepository {
       category?: string;
       nameLocalized?: Record<string, string>;
       descriptionLocalized?: Record<string, string>;
+      metadata?: Record<string, unknown> | null;
       active?: boolean;
     }
   ): Promise<ProductWithVariants> {
@@ -406,6 +427,7 @@ export class ProductRepository {
         category: data.category ? data.category.trim() : null,
         nameLocalized: data.nameLocalized || null,
         descriptionLocalized: data.descriptionLocalized || null,
+        metadata: data.metadata !== undefined ? (data.metadata as any) : null,
         active: data.active !== undefined ? data.active : true
       },
       include: {
@@ -430,6 +452,7 @@ export class ProductRepository {
       category?: string;
       nameLocalized?: Record<string, string>;
       descriptionLocalized?: Record<string, string>;
+      metadata?: Record<string, unknown> | null;
       active?: boolean;
     }
   ): Promise<ProductWithVariants | null> {
@@ -448,6 +471,7 @@ export class ProductRepository {
         ...(data.category !== undefined ? { category: data.category ? data.category.trim() : null } : {}),
         ...(data.nameLocalized !== undefined ? { nameLocalized: data.nameLocalized } : {}),
         ...(data.descriptionLocalized !== undefined ? { descriptionLocalized: data.descriptionLocalized } : {}),
+        ...(data.metadata !== undefined ? { metadata: data.metadata as any } : {}),
         ...(data.active !== undefined ? { active: data.active } : {})
       },
       include: {
@@ -479,6 +503,7 @@ export class ProductRepository {
       color?: string;
       priceOverride?: number | null;
       stock?: number;
+      metadata?: Record<string, unknown> | null;
       active?: boolean;
     }
   ): Promise<ProductVariant | null> {
@@ -494,6 +519,7 @@ export class ProductRepository {
         color: data.color ? data.color.trim() : null,
         priceOverride: data.priceOverride !== undefined ? data.priceOverride : null,
         stock: data.stock !== undefined ? data.stock : 0,
+        metadata: data.metadata !== undefined ? (data.metadata as any) : null,
         active: data.active !== undefined ? data.active : true
       }
     });
@@ -511,6 +537,7 @@ export class ProductRepository {
       color?: string;
       priceOverride?: number | null;
       stock?: number;
+      metadata?: Record<string, unknown> | null;
       active?: boolean;
     }
   ): Promise<ProductVariant | null> {
@@ -531,6 +558,7 @@ export class ProductRepository {
         ...(data.color !== undefined ? { color: data.color ? data.color.trim() : null } : {}),
         ...(data.priceOverride !== undefined ? { priceOverride: data.priceOverride } : {}),
         ...(data.stock !== undefined ? { stock: data.stock } : {}),
+        ...(data.metadata !== undefined ? { metadata: data.metadata as any } : {}),
         ...(data.active !== undefined ? { active: data.active } : {})
       }
     });

@@ -1,7 +1,10 @@
+import * as crypto from 'crypto';
 import { EmbeddingProvider } from '../../core/rag/EmbeddingProvider';
 import { KnowledgeRepository, RetrievedChunk } from './KnowledgeRepository';
 import { BusinessConfig } from '../tenant/BusinessConfig';
 import { DirectRagGuard } from './DirectRagGuard';
+import { ChunkClassifier, ChunkQualityType } from './ChunkQuality';
+import { PolicyEvidence, MultiPolicyEvidenceResult } from './PolicyEvidence';
 
 export interface RAGChunk {
   id: string;
@@ -9,30 +12,101 @@ export interface RAGChunk {
   content: string;
   score: number;
   similarity: number;
+  documentTitle?: string;
+  chunkType?: ChunkQualityType;
 }
 
 export interface RAGResult {
   context: string;
   chunks: RAGChunk[];
+  evidence?: PolicyEvidence[];
 }
 
-export interface MultiPolicyEvidenceResult {
-  context: string;
-  chunks: RAGChunk[];
-  coverage: Record<string, RAGChunk[]>;
-  availableIntents: string[];
-  missingIntents: string[];
-  telemetry: {
-    policySubqueries: Record<string, string>;
-    embeddingCalls: number;
-    retrievedCandidates: number;
-    filteredInternalChunks: number;
-    finalEvidenceChunks: number;
-    missingPolicyIntents: string[];
-  };
+export { PolicyEvidence, MultiPolicyEvidenceResult };
+
+interface QueryEmbeddingCacheEntry {
+  vector: number[];
+  createdAt: number;
+  expiresAt: number;
+  lastAccess: number;
 }
 
 export class RAGService {
+  public static readonly MAX_CACHE_ENTRIES = 500;
+  public static readonly CACHE_TTL_MS = 3600 * 1000; // 1 hour sliding TTL
+  private static readonly queryEmbeddingCache = new Map<string, QueryEmbeddingCacheEntry>();
+  private static cacheStats = { hits: 0, misses: 0 };
+
+  public static buildCacheKey(tenantId: string, provider: string, model: string, normalizedQuery: string): string {
+    const queryHash = crypto.createHash('sha256').update(normalizedQuery.trim().toLowerCase()).digest('hex');
+    return `query_embed:${tenantId}:${provider}:${model}:${queryHash}`;
+  }
+
+  public static clearEmbeddingCache(): void {
+    RAGService.queryEmbeddingCache.clear();
+    RAGService.cacheStats = { hits: 0, misses: 0 };
+  }
+
+  public static getEmbeddingCacheStats(): { hits: number; misses: number; size: number } {
+    return {
+      hits: RAGService.cacheStats.hits,
+      misses: RAGService.cacheStats.misses,
+      size: RAGService.queryEmbeddingCache.size
+    };
+  }
+
+  public async getOrGenerateQueryEmbedding(
+    tenantId: string,
+    normalizedQuery: string,
+    config?: BusinessConfig
+  ): Promise<{ embedding: number[]; fromCache: boolean }> {
+    if (!normalizedQuery || !normalizedQuery.trim()) {
+      const vector = await this.embeddingProvider.embedText(normalizedQuery);
+      return { embedding: vector, fromCache: false };
+    }
+
+    const provider = config?.knowledge?.embeddingProvider || 'gemini';
+    const model = config?.knowledge?.embeddingModel || 'gemini-embedding-001';
+    const cacheKey = RAGService.buildCacheKey(tenantId, provider, model, normalizedQuery);
+
+    const now = Date.now();
+    const cached = RAGService.queryEmbeddingCache.get(cacheKey);
+
+    if (cached && now < cached.expiresAt) {
+      cached.lastAccess = now;
+      cached.expiresAt = now + RAGService.CACHE_TTL_MS;
+      RAGService.cacheStats.hits++;
+      // Re-insert to maintain LRU order (most recently accessed at end)
+      RAGService.queryEmbeddingCache.delete(cacheKey);
+      RAGService.queryEmbeddingCache.set(cacheKey, cached);
+      return { embedding: cached.vector, fromCache: true };
+    }
+
+    if (cached) {
+      RAGService.queryEmbeddingCache.delete(cacheKey);
+    }
+
+    RAGService.cacheStats.misses++;
+    const vector = await this.embeddingProvider.embedText(normalizedQuery);
+
+    // Evict oldest if full
+    if (RAGService.queryEmbeddingCache.size >= RAGService.MAX_CACHE_ENTRIES) {
+      const oldestKey = RAGService.queryEmbeddingCache.keys().next().value;
+      if (oldestKey) {
+        RAGService.queryEmbeddingCache.delete(oldestKey);
+      }
+    }
+
+    RAGService.queryEmbeddingCache.set(cacheKey, {
+      vector,
+      createdAt: now,
+      expiresAt: now + RAGService.CACHE_TTL_MS,
+      lastAccess: now
+    });
+
+    return { embedding: vector, fromCache: false };
+  }
+
   constructor(
     private embeddingProvider: EmbeddingProvider,
     private knowledgeRepository: KnowledgeRepository
@@ -43,7 +117,11 @@ export class RAGService {
    */
   public static isInternalOrExampleChunk(content: string): boolean {
     if (!content) return false;
-    return DirectRagGuard.hasInternalArtifacts(content);
+    const classification = ChunkClassifier.classify(content);
+    return classification.type === 'CUSTOMER_EXAMPLE' || 
+           classification.type === 'FAQ_EXAMPLE' || 
+           classification.type === 'INTERNAL_CONTENT' ||
+           DirectRagGuard.hasInternalArtifacts(content);
   }
 
   /**
@@ -64,65 +142,65 @@ export class RAGService {
       switch (intent) {
         case 'RETURNS':
           if (isArabic) {
-            subqueries[intent] = `سياسة الإرجاع والاستبدال واسترجاع الأموال ومدة الإرجاع${entitySuffix}`;
+            subqueries[intent] = `سياسة الإرجاع والاستبدال واسترجاع الأموال ومدة الإرجاع return exchange refund policy${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `politique de retour échange remboursement et délai pour retourner${entitySuffix}`;
+            subqueries[intent] = `politique de retour échange remboursement et délai pour retourner return exchange refund policy${entitySuffix}`;
           } else {
             subqueries[intent] = `return exchange policy refund and return window time limit${entitySuffix}`;
           }
           break;
         case 'SHIPPING':
           if (isArabic) {
-            subqueries[intent] = `مصاريف الشحن والتوصيل ومدة التوصيل والمدن${entitySuffix}`;
+            subqueries[intent] = `مصاريف الشحن والتوصيل ومدة التوصيل والمدن shipping delivery fees${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `frais de livraison délais de livraison expédition et villes${entitySuffix}`;
+            subqueries[intent] = `frais de livraison délais de livraison expédition shipping delivery fees${entitySuffix}`;
           } else {
             subqueries[intent] = `shipping delivery fees delivery time and shipping zones${entitySuffix}`;
           }
           break;
         case 'CARE':
           if (isArabic) {
-            subqueries[intent] = `طريقة الغسيل والعناية بالمنتج وتنظيف الملابس والتصبين${entitySuffix}`;
+            subqueries[intent] = `طريقة الغسيل والعناية بالمنتج وتنظيف الملابس والتصبين washing care instructions${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `conseils d'entretien lavage température comment laver et sécher${entitySuffix}`;
+            subqueries[intent] = `conseils d'entretien lavage température comment laver washing care instructions${entitySuffix}`;
           } else {
             subqueries[intent] = `care instructions washing temperature how to wash and clean${entitySuffix}`;
           }
           break;
         case 'TRACKING':
           if (isArabic) {
-            subqueries[intent] = `تتبع الطلب ومعرفة مكان الشحنة ورقم التتبع${entitySuffix}`;
+            subqueries[intent] = `تتبع الطلب ومعرفة مكان الشحنة ورقم التتبع order tracking shipment status${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `suivi de commande suivre mon colis numéro de suivi${entitySuffix}`;
+            subqueries[intent] = `suivi de commande suivre mon colis numéro de suivi order tracking${entitySuffix}`;
           } else {
             subqueries[intent] = `order tracking track parcel shipment status tracking number${entitySuffix}`;
           }
           break;
         case 'WARRANTY':
           if (isArabic) {
-            subqueries[intent] = `الضمان وشروط الضمان ومدة الضمان${entitySuffix}`;
+            subqueries[intent] = `الضمان وشروط الضمان ومدة الضمان warranty guarantee policy${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `garantie conditions de garantie durée et couverture${entitySuffix}`;
+            subqueries[intent] = `garantie conditions de garantie durée et couverture warranty policy${entitySuffix}`;
           } else {
             subqueries[intent] = `warranty guarantee policy coverage and duration${entitySuffix}`;
           }
           break;
         case 'PAYMENT':
           if (isArabic) {
-            subqueries[intent] = `طرق الدفع والدفع عند الاستلام كاش${entitySuffix}`;
+            subqueries[intent] = `طرق الدفع والدفع عند الاستلام كاش cash on delivery payment methods${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `modes de paiement paiement à la livraison espèces${entitySuffix}`;
+            subqueries[intent] = `modes de paiement paiement à la livraison espèces cash on delivery payment${entitySuffix}`;
           } else {
             subqueries[intent] = `payment methods cash on delivery payment options${entitySuffix}`;
           }
           break;
         case 'STORE_INFO':
           if (isArabic) {
-            subqueries[intent] = `مواقع المحلات والفروع وأوقات العمل والعنوان${entitySuffix}`;
+            subqueries[intent] = `مواقع المحلات والفروع وأوقات العمل والعنوان store locations opening business hours contact support email${entitySuffix}`;
           } else if (isFrench) {
-            subqueries[intent] = `adresses des magasins boutiques horaires d'ouverture localisation${entitySuffix}`;
+            subqueries[intent] = `adresses des magasins boutiques horaires d'ouverture localisation store business hours contact email${entitySuffix}`;
           } else {
-            subqueries[intent] = `store locations addresses opening business hours contact${entitySuffix}`;
+            subqueries[intent] = `store locations addresses opening business hours contact support email${entitySuffix}`;
           }
           break;
         default:
@@ -148,8 +226,50 @@ export class RAGService {
   }
 
   /**
-   * Retrieves raw matching chunks from the knowledge repository scoped to tenant and optional account.
-   * Prioritizes factual policy chunks over internal/example chunks.
+   * Deterministically normalizes and expands query tokens (sizing, Arabizi, and Darija dialect concepts)
+   * for cross-lingual vector embedding and semantic retrieval without extra LLM calls.
+   */
+  public static normalizeDialectQuery(text: string): string {
+    if (!text) return '';
+    let normalized = this.normalizeSizingQuery(text);
+    const lower = normalized.toLowerCase();
+
+    // 1. Arabizi & Darija Shipping / Delivery vocabulary
+    if (/\b(?:twsil|tawsil|tawseel|tewsil|livraison|shipping|deliver|fin\s+kaywsal|fin\s+wslat|chhal\s+taman\s+twsil)\b/i.test(lower)) {
+      normalized += ' livraison shipping delivery';
+    }
+
+    // 2. Arabizi & Darija Returns / Exchanges vocabulary
+    if (/\b(?:rje3|rjou3|irja3|tbdel|tabdil|rje3ou|nrje3|nbdel|retour|exchange|refund|siyasat\s+rje3)\b/i.test(lower)) {
+      normalized += ' retour return exchange';
+    }
+
+    // 3. Arabizi & Darija Care / Washing vocabulary
+    if (/\b(?:nghsel|nghssal|ghsil|tassbine|tasbin|nsben|lavage|wash)\b/i.test(lower)) {
+      normalized += ' lavage wash care instructions';
+    }
+
+    // 4. Arabizi & Darija Tracking / Order Status vocabulary
+    if (/\b(?:ttalab|talab|fin\s+wsel|fin\s+wsl|suivi|tracking|colis)\b/i.test(lower)) {
+      normalized += ' suivi tracking order status';
+    }
+
+    // 5. Arabizi & Darija Payment / COD vocabulary
+    if (/\b(?:khlas|flous|kheles|daf3|paiement|payment|cod)\b/i.test(lower)) {
+      normalized += ' paiement cash on delivery payment';
+    }
+
+    // 6. Store Info / Opening Hours / Support vocabulary
+    if (/\b(?:hours?|opening|horaires|horaire|aw9at|khedma|ouvert|opening\s+hours|business\s+hours|contact|support\s+email)\b/i.test(lower)) {
+      normalized += ' store opening business hours support email';
+    }
+
+    return normalized.replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Retrieves matching chunks from repository and ranks them deterministically using
+   * the Global Chunk Quality Model (Factual Policy > Mixed > Customer Examples > Document Headers).
    */
   async retrieveChunks(
     tenantId: string,
@@ -157,60 +277,79 @@ export class RAGService {
     config: BusinessConfig,
     accountId?: string | null
   ): Promise<RAGChunk[]> {
-    if (!config.knowledge.enabled) {
+    if (!config.knowledge.enabled || !query || !query.trim()) {
       return [];
     }
 
-    // 0. Normalize sizing notation if present
-    const normalizedQuery = RAGService.normalizeSizingQuery(query);
+    // 0. Normalize dialect notation and sizing if present
+    const normalizedQuery = RAGService.normalizeDialectQuery(query);
 
-    // 1. Generate query embedding
-    const queryEmbedding = await this.embeddingProvider.embedText(normalizedQuery);
+    // 1. Generate or reuse cached query embedding
+    const { embedding: queryEmbedding } = await this.getOrGenerateQueryEmbedding(tenantId, normalizedQuery, config);
 
     // 2. Search repository securely scoped to tenant and account
+    // Request an expanded candidate pool to allow quality re-ranking
+    const candidateLimit = Math.max(config.knowledge.topK || 4, 8);
+    const minSim = typeof config.knowledge.minSimilarityScore === 'number' 
+      ? config.knowledge.minSimilarityScore 
+      : 0.45;
+
     const rawChunks = await this.knowledgeRepository.searchSimilar(
       tenantId,
       queryEmbedding,
-      Math.max(config.knowledge.topK || 4, 6),
-      config.knowledge.minSimilarityScore,
+      candidateLimit,
+      minSim,
       accountId
     );
 
-    // 3. Deduplicate and separate factual chunks from internal/example chunks
-    const validChunks: RAGChunk[] = [];
-    const exampleChunks: RAGChunk[] = [];
+    // 3. Deduplicate, classify, and score candidates
+    const classifiedChunks: RAGChunk[] = [];
+    const seenContent = new Set<string>();
 
     for (const c of rawChunks) {
       const normContent = c.content.trim().toLowerCase();
-      const isDuplicate = [...validChunks, ...exampleChunks].some(u => {
-        const uNorm = u.content.trim().toLowerCase();
-        return uNorm === normContent || (normContent.length > 50 && (uNorm.includes(normContent) || normContent.includes(uNorm)));
-      });
+      if (!normContent || seenContent.has(normContent)) continue;
+      
+      const isSubstringDuplicate = Array.from(seenContent).some(
+        seen => normContent.length > 50 && (seen.includes(normContent) || normContent.includes(seen))
+      );
+      if (isSubstringDuplicate) continue;
+      seenContent.add(normContent);
 
-      if (!isDuplicate) {
-        const chunkObj: RAGChunk = {
-          id: c.id,
-          documentId: c.documentId,
-          content: c.content,
-          score: c.similarity,
-          similarity: c.similarity
-        };
+      const classification = ChunkClassifier.classify(c.content, c.metadata);
 
-        if (RAGService.isInternalOrExampleChunk(c.content)) {
-          exampleChunks.push(chunkObj);
-        } else {
-          validChunks.push(chunkObj);
-        }
+      // Discard hard noise (page numbers, developer internal notes, empty chunks)
+      if (classification.type === 'PAGE_LABEL' || 
+          classification.type === 'INTERNAL_CONTENT' || 
+          classification.type === 'LOW_VALUE') {
+        continue;
       }
+
+      // Compute composite quality score: similarity * quality multiplier
+      const effectiveScore = c.similarity * classification.qualityMultiplier;
+
+      classifiedChunks.push({
+        id: c.id,
+        documentId: c.documentId,
+        content: c.content,
+        score: effectiveScore,
+        similarity: c.similarity,
+        documentTitle: c.documentTitle,
+        chunkType: classification.type
+      });
     }
 
-    // Factual chunks outrank internal example chunks
-    return [...validChunks, ...exampleChunks].slice(0, config.knowledge.topK || 4);
+    // 4. Deterministic Sort: Rank by composite score descending
+    // (Factual Policy strictly outranks Customer Examples and Document Headers)
+    classifiedChunks.sort((a, b) => b.score - a.score);
+
+    return classifiedChunks.slice(0, config.knowledge.topK || 4);
   }
 
   /**
    * Performs targeted retrieval across multiple detected policy topics without wasting retrieval slots.
    * Maximum 4 intents, maximum 2 chunks per intent.
+   * Returns structured PolicyEvidence objects for each selected piece of evidence.
    */
   async retrieveMultiPolicy(
     tenantId: string,
@@ -224,6 +363,7 @@ export class RAGService {
       return {
         context: '',
         chunks: [],
+        evidence: [],
         coverage: {},
         availableIntents: [],
         missingIntents: [...intents],
@@ -240,10 +380,11 @@ export class RAGService {
 
     const boundedIntents = intents.slice(0, 4);
     const subqueries = RAGService.buildPolicySubqueries(boundedIntents, language, productName);
-    const coverage: Record<string, RAGChunk[]> = {};
+    const coverage: Record<string, PolicyEvidence[]> = {};
     const availableIntents: string[] = [];
     const missingIntents: string[] = [];
     const allSelectedChunks: RAGChunk[] = [];
+    const allSelectedEvidence: PolicyEvidence[] = [];
 
     let totalEmbeddingCalls = 0;
     let totalCandidates = 0;
@@ -253,56 +394,84 @@ export class RAGService {
       const subquery = subqueries[intent];
       if (!subquery) continue;
 
-      // 1. Generate query embedding
-      const queryEmbedding = await this.embeddingProvider.embedText(subquery);
-      totalEmbeddingCalls++;
+      // 1. Generate or reuse cached query embedding
+      const { embedding: queryEmbedding, fromCache } = await this.getOrGenerateQueryEmbedding(tenantId, subquery, config);
+      if (!fromCache) {
+        totalEmbeddingCalls++;
+      }
 
-      // 2. Retrieve candidates (top 4 to allow filtering internal/example chunks)
+      // 2. Retrieve candidates (top 6 to allow quality classification)
       const rawCandidates = await this.knowledgeRepository.searchSimilar(
         tenantId,
         queryEmbedding,
-        4,
+        6,
         config.knowledge.minSimilarityScore || 0.45,
         accountId
       );
       totalCandidates += rawCandidates.length;
 
-      // 3. Filter / classify internal & example chunks
-      const validCandidates: RAGChunk[] = [];
-      const exampleCandidates: RAGChunk[] = [];
+      // 3. Classify and rank candidates
+      const intentCandidates: RAGChunk[] = [];
 
       for (const c of rawCandidates) {
-        const chunk: RAGChunk = {
+        const classification = ChunkClassifier.classify(c.content, c.metadata);
+
+        if (classification.type === 'PAGE_LABEL' || 
+            classification.type === 'INTERNAL_CONTENT' || 
+            classification.type === 'LOW_VALUE') {
+          totalFilteredInternal++;
+          continue;
+        }
+
+        const effectiveScore = c.similarity * classification.qualityMultiplier;
+
+        intentCandidates.push({
           id: c.id,
           documentId: c.documentId,
           content: c.content,
-          score: c.similarity,
-          similarity: c.similarity
-        };
-
-        if (RAGService.isInternalOrExampleChunk(c.content)) {
-          totalFilteredInternal++;
-          exampleCandidates.push(chunk);
-        } else {
-          validCandidates.push(chunk);
-        }
+          score: effectiveScore,
+          similarity: c.similarity,
+          documentTitle: c.documentTitle,
+          chunkType: classification.type
+        });
       }
 
-      // Factual chunks outrank internal example chunks. Only use example chunk if 0 factual chunks found.
-      const candidatesToUse = validCandidates.length > 0 ? validCandidates : exampleCandidates;
-      const topChunksForIntent = candidatesToUse.slice(0, 2);
+      // Sort intent candidates by composite quality score descending
+      intentCandidates.sort((a, b) => b.score - a.score);
+
+      const topChunksForIntent = intentCandidates.slice(0, 2);
 
       if (topChunksForIntent.length > 0) {
-        coverage[intent] = topChunksForIntent;
         availableIntents.push(intent);
+        const intentEvidenceList: PolicyEvidence[] = [];
+
         for (const ch of topChunksForIntent) {
+          const evidenceObj: PolicyEvidence = {
+            intent,
+            sourceDocumentId: ch.documentId,
+            sourceChunkId: ch.id,
+            factualContent: ch.content,
+            confidence: ch.similarity,
+            chunkType: ch.chunkType || 'FACTUAL_POLICY',
+            provenance: {
+              documentTitle: ch.documentTitle,
+              tenantId,
+              accountId
+            }
+          };
+
+          intentEvidenceList.push(evidenceObj);
+
           const alreadyInList = allSelectedChunks.some(
             s => s.id === ch.id || s.content.trim().toLowerCase() === ch.content.trim().toLowerCase()
           );
           if (!alreadyInList) {
             allSelectedChunks.push(ch);
+            allSelectedEvidence.push(evidenceObj);
           }
         }
+
+        coverage[intent] = intentEvidenceList;
       } else {
         missingIntents.push(intent);
       }
@@ -313,6 +482,7 @@ export class RAGService {
     return {
       context,
       chunks: allSelectedChunks,
+      evidence: allSelectedEvidence,
       coverage,
       availableIntents,
       missingIntents,
@@ -372,8 +542,6 @@ export class RAGService {
             assembledContext += `${separator}${truncated}`;
           }
         } else if (assembledContext.length === 0) {
-          // If assembledContext is empty and remainingBudget < separator.length,
-          // slice content directly to fill available budget
           const directTruncated = content.slice(0, remainingBudget).trimEnd();
           if (directTruncated.length > 0) {
             assembledContext += directTruncated;

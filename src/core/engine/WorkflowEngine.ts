@@ -5,6 +5,7 @@ import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES } from '../../domain/conversation/ResponseBuilder';
 import { FieldValidator } from './FieldValidator';
 import { FaqMatcher, LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
 import { telemetry } from '../telemetry/TelemetryClient';
@@ -189,7 +190,9 @@ export class WorkflowEngine {
     llmOverride?: LLMProvider,
     llmOptions?: LLMRequestOptions,
     ragService?: RAGService,
-    correlationId?: string
+    correlationId?: string,
+    effectiveLang?: string,
+    effectiveScript?: string
   ): Promise<WorkflowResult> {
     const startTime = Date.now();
     const currentStateId = session.stateId;
@@ -224,8 +227,8 @@ export class WorkflowEngine {
       let validationError: string | null = null;
       const history = [...(session.stateHistory || [])];
 
-      // Detect / resolve session language
-      const detectedLang = LanguageDetector.detect(message);
+      // Detect / resolve session language (reusing canonical effectiveLang if supplied)
+      const detectedLang = effectiveLang || LanguageDetector.detect(message);
       const isShortCommand = message.trim().length <= 5;
       const lang = (currentContext['_lang'] && (isShortCommand || detectedLang === 'en'))
         ? currentContext['_lang']
@@ -435,9 +438,10 @@ export class WorkflowEngine {
             isComplete = true;
             const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
             const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
-            response = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt) || typeof nextStateConfig.prompt === 'object')
+            const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
               ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
               : defaultCompletion;
+            response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
           } else if (nextStateConfig.type === 'choice') {
             response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
           } else if (nextStateConfig.type === 'collect') {
@@ -460,8 +464,10 @@ export class WorkflowEngine {
           const consecutive = currentContext['_consecutiveUnmatched'] || 0;
           let matchedAnswer: string | null = null;
 
-          // P0 §10 Cost Guard: Only allow FAQ/RAG for first 1–2 unmatched messages
-          if (consecutive < 2) {
+          const allowsInterruption = workflowConfig.allowInterruption !== false;
+
+          // P0 §10 Cost Guard: Only allow FAQ/RAG for first 1–2 unmatched messages if allowInterruption is enabled
+          if (allowsInterruption && consecutive < 2) {
             logger.info(`WorkflowEngine: [Cost Guard] Evaluating FAQ/RAG for unmatched message (attempt ${consecutive + 1}/2)`);
             
             // Layer 2: High-confidence FAQ match check (cheap-first in-memory, 0 LLM calls, 0 network API calls)
@@ -529,8 +535,12 @@ export class WorkflowEngine {
         }
       }
 
+      // 2. Process Confirmation State (type: 'confirm' or legacy prompt: 'confirm')
+      const isExplicitConfirm = stateConfig.type === 'confirm';
+      const isLegacyConfirm = !stateConfig.type || ((stateConfig.type as any) === 'collect' && !stateConfig.field && stateConfig.prompt === 'confirm');
+
       // 1. Process Collect State (Free-text intake)
-      if (stateConfig.type === 'collect') {
+      if (stateConfig.type === 'collect' && !isLegacyConfirm) {
         const fieldName = typeof stateConfig.field === 'string'
           ? stateConfig.field
           : (stateConfig.field?.name || currentStateId);
@@ -550,40 +560,95 @@ export class WorkflowEngine {
           });
         }
 
-        // 2. Off-script FAQ / PDF / RAG check side-path
-        const consecutive = currentContext['_consecutiveUnmatched'] || 0;
-        let matchedAnswer: string | null = null;
+        const normMsg = GreetingRouter.normalize(trimmedMsg);
+        const lowerMsg = trimmedMsg.toLowerCase();
 
-        if (consecutive < 2) {
-          // Layer 2: FAQ match
-          if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-            const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq);
-            if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
-              matchedAnswer = faqMatch.answer;
-              logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] during collect step [${currentStateId}]`);
+        // 2. Cancellation check
+        if (WorkflowCancellationDetector.isCancellation(trimmedMsg)) {
+          isComplete = true;
+          const defaultCancel = DEFAULT_WORKFLOW_MESSAGES.workflowCancelled[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.workflowCancelled] || DEFAULT_WORKFLOW_MESSAGES.workflowCancelled.en;
+          const promptToUse = businessConfig.prompts?.workflowCancelled;
+          const rawCancelMsg = promptToUse && (typeof promptToUse === 'object' || !Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled).includes(promptToUse))
+            ? resolveLocalizedPrompt(promptToUse, lang, defaultCancel)
+            : defaultCancel;
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: rawCancelMsg,
+            isComplete: true,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
+
+        // 3. Configured workflow / intent interruption check
+        // Check if user input matches a configured workflow intent/keyword (do NOT swallow intent phrases into slot values)
+        const declaredIntents = businessConfig.capabilities?.intents || [];
+        let isIntentInterruption = false;
+
+        for (const intent of declaredIntents) {
+          if (intent.keywords && Array.isArray(intent.keywords)) {
+            for (const kw of intent.keywords) {
+              const kwLower = kw.toLowerCase().trim();
+              const kwNorm = GreetingRouter.normalize(kwLower);
+              if (kwLower && (lowerMsg === kwLower || normMsg === kwNorm || lowerMsg.includes(kwLower) || normMsg.includes(kwNorm))) {
+                isIntentInterruption = true;
+                break;
+              }
+              const kwWords = kwLower.split(/\s+/).filter(Boolean);
+              if (kwWords.length > 1 && kwWords.every(w => lowerMsg.includes(w) || normMsg.includes(w))) {
+                isIntentInterruption = true;
+                break;
+              }
             }
           }
+          if (isIntentInterruption) break;
+        }
 
-          // Layer 3: PDF / RAG match
-          if (!matchedAnswer && businessConfig.knowledge?.enabled && ragService) {
-            try {
-              logger.info(`WorkflowEngine: Calling RAGService search during collect step for query: "${message}"`);
-              const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig);
-              const topChunk = ragResult.chunks?.[0];
-              const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
-              if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
-                matchedAnswer = topChunk.content.trim();
-                logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) during collect step [${currentStateId}]`);
-              }
-            } catch (err: any) {
-              logger.warn(`WorkflowEngine: Mid-collect RAG retrieval error: ${err.message || err}`);
+        if (isIntentInterruption) {
+          // Do not store intent as field value. Reprompt current step preserving collectedData and state
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: currentCollectPrompt,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
+
+        // 4. Known Greeting check
+        if (GreetingRouter.isKnownGreeting(normMsg)) {
+          // Do not store greeting as field value. Friendly reprompt current step preserving state
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: currentCollectPrompt,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
+
+        // 5. Off-script FAQ / PDF / RAG check side-path
+        const consecutive = currentContext['_consecutiveUnmatched'] || 0;
+        let matchedFaqAnswer: string | null = null;
+        const allowsInterruption = workflowConfig.allowInterruption !== false;
+
+        // Layer 1: Fast deterministic FAQ check (in-memory, 0 AI)
+        if (allowsInterruption && consecutive < 2) {
+          if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
+            const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq, lang as any);
+            if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
+              matchedFaqAnswer = faqMatch.answer;
+              logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] during collect step [${currentStateId}]`);
             }
           }
         }
 
-        if (matchedAnswer) {
+        if (matchedFaqAnswer) {
           // Answer off-script question, keep stateId and collectedData unchanged, reprompt collect step
-          response = `${matchedAnswer}\n\n---\n${currentCollectPrompt}`;
+          response = `${matchedFaqAnswer}\n\n---\n${currentCollectPrompt}`;
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
@@ -594,9 +659,92 @@ export class WorkflowEngine {
           });
         }
 
-        const isQuestionIntent = trimmedMsg.endsWith('?') || /^(what|how|why|when|where|who|is|are|can|could|do|does|will|would|tell me)\b/i.test(trimmedMsg);
+        // 6. Question indicator detection & Field validation check
+        const isQuestion = GreetingRouter.hasQuestionIndicator(trimmedMsg, normMsg);
+        let fieldValidationErr: string | null = null;
+        if (stateConfig.field && typeof stateConfig.field === 'object') {
+          fieldValidationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);
+        }
 
-        if (isQuestionIntent) {
+        // Fast-path: Valid field value and NOT a question -> store text into collectedData immediately (0 RAG, 0 Embedding, 0 LLM)
+        if (!isQuestion && !fieldValidationErr) {
+          collectedData[fieldName] = trimmedMsg;
+          currentContext[fieldName] = trimmedMsg;
+          currentContext['_consecutiveUnmatched'] = 0;
+
+          const newHistory = [...history, currentStateId];
+          nextStateId = stateConfig.next || stateConfig.transitions?.[0]?.target || null;
+
+          if (!nextStateId) {
+            isComplete = true;
+            const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+            response = defaultCompletion;
+          } else {
+            const nextStateConfig = workflowConfig.states[nextStateId];
+            if (!nextStateConfig) {
+              throw new Error(`Unauthorized or missing target state: ${nextStateId}`);
+            }
+
+            if (nextStateConfig.type === 'end') {
+              isComplete = true;
+              const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+              const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
+              const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
+                ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
+                : defaultCompletion;
+              response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
+            } else if (nextStateConfig.type === 'choice') {
+              response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
+            } else if (nextStateConfig.type === 'collect') {
+              response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang);
+            } else if (nextStateConfig.type === 'confirm' || nextStateConfig.prompt === 'confirm') {
+              response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang);
+            } else {
+              response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang);
+            }
+          }
+
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId,
+            response,
+            isComplete,
+            updatedStateHistory: newHistory,
+            updatedCollectedData: collectedData
+          });
+        }
+
+        // 7. Off-script question handling (only when isQuestion is true)
+        let matchedRagAnswer: string | null = null;
+        if (isQuestion && allowsInterruption && consecutive < 2 && businessConfig.knowledge?.enabled && ragService) {
+          try {
+            logger.info(`WorkflowEngine: Calling RAGService search during collect step for query: "${message}"`);
+            const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig);
+            const topChunk = ragResult.chunks?.[0];
+            const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
+            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+              matchedRagAnswer = topChunk.content.trim();
+              logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) during collect step [${currentStateId}]`);
+            }
+          } catch (err: any) {
+            logger.warn(`WorkflowEngine: Mid-collect RAG retrieval error: ${err.message || err}`);
+          }
+        }
+
+        if (matchedRagAnswer) {
+          // Answer off-script question, keep stateId and collectedData unchanged, reprompt collect step
+          response = `${matchedRagAnswer}\n\n---\n${currentCollectPrompt}`;
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
+
+        if (isQuestion) {
           // Off-script question with no high-confidence FAQ/RAG match -> return clean fallback redirect, keep state and collectedData unchanged
           currentContext['_consecutiveUnmatched'] = consecutive + 1;
           const defaultCollectFallback = DEFAULT_WORKFLOW_MESSAGES.collectFallback[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.collectFallback] || DEFAULT_WORKFLOW_MESSAGES.collectFallback.en;
@@ -616,55 +764,16 @@ export class WorkflowEngine {
           });
         }
 
-        // 3. Field schema validation (if field configuration object is provided)
-        if (stateConfig.field && typeof stateConfig.field === 'object') {
-          const validationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);
-          if (validationErr) {
-            return finishAndReturn({
-              updatedContext: currentContext,
-              nextStateId: currentStateId,
-              response: `${validationErr}\n\n${currentCollectPrompt}`,
-              isComplete: false,
-              updatedStateHistory: history,
-              updatedCollectedData: collectedData
-            });
-          }
-        }
-
-        // 4. Valid non-empty user message -> store text into collectedData (no LLM call)
-        collectedData[fieldName] = trimmedMsg;
-        currentContext[fieldName] = trimmedMsg;
-        currentContext['_consecutiveUnmatched'] = 0;
-
-        const newHistory = [...history, currentStateId];
-        nextStateId = stateConfig.next || stateConfig.transitions?.[0]?.target || null;
-
-        if (!nextStateId) {
-          isComplete = true;
-          const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
-          response = defaultCompletion;
-        } else {
-          const nextStateConfig = workflowConfig.states[nextStateId];
-          if (!nextStateConfig) {
-            throw new Error(`Unauthorized or missing target state: ${nextStateId}`);
-          }
-
-          if (nextStateConfig.type === 'end') {
-            isComplete = true;
-            const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
-            const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
-            response = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt) || typeof nextStateConfig.prompt === 'object')
-              ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
-              : defaultCompletion;
-          } else if (nextStateConfig.type === 'choice') {
-            response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
-          } else if (nextStateConfig.type === 'collect') {
-            response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang);
-          } else if (nextStateConfig.type === 'confirm' || nextStateConfig.prompt === 'confirm') {
-            response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang);
-          } else {
-            response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang);
-          }
+        // If not a question and field validation failed, return validation error
+        if (fieldValidationErr) {
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: `${fieldValidationErr}\n\n${currentCollectPrompt}`,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
         }
 
         return finishAndReturn({
@@ -678,9 +787,6 @@ export class WorkflowEngine {
       }
 
       // 2. Process Confirmation State (type: 'confirm' or legacy prompt: 'confirm')
-      const isExplicitConfirm = stateConfig.type === 'confirm';
-      const isLegacyConfirm = !stateConfig.type || ((stateConfig.type as any) === 'collect' && !stateConfig.field && stateConfig.prompt === 'confirm');
-
       if (isExplicitConfirm || isLegacyConfirm) {
         if (isLegacyConfirm && !isExplicitConfirm) {
           logger.warn(`[DEPRECATION] Workflow state "${currentStateId}" in workflow "${workflowConfig.id}" for tenant "${session.tenantId}" uses legacy prompt === 'confirm'. Please migrate to state type: 'confirm'.`);
@@ -698,9 +804,10 @@ export class WorkflowEngine {
             isComplete = true;
             const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
             const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
-            response = stateConfig.prompt && (!defaultVals.includes(stateConfig.prompt) || typeof stateConfig.prompt === 'object')
+            const endPrompt = stateConfig.prompt && (!defaultVals.includes(stateConfig.prompt as string) || typeof stateConfig.prompt === 'object')
               ? resolveLocalizedPrompt(stateConfig.prompt, lang, defaultCompletion)
               : defaultCompletion;
+            response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
             return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true });
           }
         } else if (isConfirmCancel) {
@@ -737,9 +844,10 @@ export class WorkflowEngine {
           isComplete = true;
           const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
           const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
-          response = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt) || typeof nextStateConfig.prompt === 'object')
+          const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
             ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
             : defaultCompletion;
+          response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
         } else if (nextStateConfig.type === 'choice') {
           response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
         } else if (nextStateConfig.type === 'collect' && nextStateConfig.field) {

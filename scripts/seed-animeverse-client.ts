@@ -3,6 +3,55 @@ import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { DEFAULT_BUSINESS_CONFIG } from '../src/domain/tenant/BusinessConfig';
+import { PdfIngestionService } from '../src/domain/rag/PdfIngestionService';
+import { KnowledgeRepository } from '../src/domain/rag/KnowledgeRepository';
+import { FaqKnowledgeAdapter } from '../src/domain/rag/FaqKnowledgeAdapter';
+import { EmbeddingProvider, MockEmbeddingProvider, GeminiEmbeddingProvider } from '../src/core/rag/EmbeddingProvider';
+
+function createPdfBuffer(title: string, bodyText: string): Buffer {
+  const safeTitle = title.replace(/[()\\]/g, '');
+  const lines: string[] = [];
+  const words = bodyText.replace(/[()\\]/g, '').split(/\s+/);
+  let cur = '';
+  for (const w of words) {
+    if ((cur + ' ' + w).trim().length > 60) {
+      if (cur) lines.push(cur);
+      cur = w;
+    } else {
+      cur = (cur + ' ' + w).trim();
+    }
+  }
+  if (cur) lines.push(cur);
+
+  let y = 750;
+  let streamContent = `BT /F1 16 Tf 50 ${y} Td (${safeTitle}) Tj ET\n`;
+  y -= 30;
+  for (const line of lines) {
+    streamContent += `BT /F1 12 Tf 50 ${y} Td (${line}) Tj ET\n`;
+    y -= 20;
+  }
+  const streamLen = Buffer.byteLength(streamContent, 'utf-8');
+
+  const obj1 = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
+  const obj2 = `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`;
+  const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n`;
+  const obj4 = `4 0 obj\n<< /Length ${streamLen} >>\nstream\n${streamContent}endstream\nendobj\n`;
+  const obj5 = `5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
+
+  const header = `%PDF-1.4\n`;
+  const offset1 = Buffer.byteLength(header, 'utf-8');
+  const offset2 = offset1 + Buffer.byteLength(obj1, 'utf-8');
+  const offset3 = offset2 + Buffer.byteLength(obj2, 'utf-8');
+  const offset4 = offset3 + Buffer.byteLength(obj3, 'utf-8');
+  const offset5 = offset4 + Buffer.byteLength(obj4, 'utf-8');
+  const xrefOffset = offset5 + Buffer.byteLength(obj5, 'utf-8');
+
+  const pad = (n: number) => String(n).padStart(10, '0');
+  const xref = `xref\n0 6\n0000000000 65535 f \n${pad(offset1)} 00000 n \n${pad(offset2)} 00000 n \n${pad(offset3)} 00000 n \n${pad(offset4)} 00000 n \n${pad(offset5)} 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  const pdfStr = header + obj1 + obj2 + obj3 + obj4 + obj5 + xref;
+  return Buffer.from(pdfStr, 'utf-8');
+}
 
 function getPrismaClient(connectionUrl: string | undefined, schema?: string): { prisma: PrismaClient; pool: Pool } | null {
   if (!connectionUrl) return null;
@@ -339,6 +388,58 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
   });
 
   console.log(`Seeded 3 real AnimeVerse products with variants.`);
+
+  // 6. Ingest standard AnimeVerse Knowledge Base PDFs via PdfIngestionService
+  try {
+    let embeddingProvider: EmbeddingProvider;
+    if (process.env.GOOGLE_API_KEY) {
+      embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
+    } else {
+      embeddingProvider = new MockEmbeddingProvider();
+    }
+    const knowledgeRepo = new KnowledgeRepository(prisma);
+    const pdfIngestionService = new PdfIngestionService(prisma, embeddingProvider, knowledgeRepo);
+
+    const pdfs = [
+      {
+        filename: 'AnimeVerse_Shipping_Policy.pdf',
+        title: 'AnimeVerse Shipping Policy',
+        content: 'Delivery within Morocco: Standard delivery fee is 30 MAD per order. Typical delivery time is 24 to 48 hours for most Moroccan destinations. Cash on delivery (COD) is available for eligible Moroccan orders. Order dispatch and tracking: After an order is prepared for dispatch, the customer receives tracking information by SMS.'
+      },
+      {
+        filename: 'AnimeVerse_Returns_Exchanges.pdf',
+        title: 'AnimeVerse Returns and Exchanges Policy',
+        content: 'Return window: Customers may request a return or exchange within 14 days of delivery. Condition requirements: Items must be unworn, unwashed, with original tags attached, and in original condition. Exchanges: Exchanges are allowed when the requested replacement size or item is available. Damaged or incorrect items should be reported within 48 hours of delivery.'
+      },
+      {
+        filename: 'AnimeVerse_Clothing_Care_Guide.pdf',
+        title: 'AnimeVerse Clothing Care Guide',
+        content: 'Hoodie care: Wash at 30 degrees Celsius or colder. Turn garments inside out before washing. Use a gentle cycle when possible. Use mild detergent. Do not use bleach on printed designs. Air dry or tumble dry on a low-temperature setting. Avoid direct high heat on printed graphics.'
+      },
+      {
+        filename: 'AnimeVerse_Order_Tracking.pdf',
+        title: 'AnimeVerse Order and Delivery Tracking',
+        content: 'Dispatch and tracking: When an order is dispatched and tracking is available, AnimeVerse sends tracking information by SMS. The customer can use the tracking link provided by AnimeVerse to follow shipment status. If an expected tracking message has not arrived, the customer should contact support with their order reference and delivery phone number.'
+      },
+      {
+        filename: 'AnimeVerse_Size_Guide.pdf',
+        title: 'AnimeVerse Size Guide',
+        content: 'Size Guide: Size XS fits chest 86 to 90 cm. Size S fits chest 91 to 96 cm. Size M fits chest 97 to 102 cm. Size L fits chest 103 to 108 cm. Size XL fits chest 109 to 114 cm. For a chest size of 98 cm we recommend Size M for a relaxed fit.'
+      }
+    ];
+
+    for (const doc of pdfs) {
+      const buf = createPdfBuffer(doc.title, doc.content);
+      await pdfIngestionService.ingestPdf(tenantId, buf, doc.filename, config, null);
+    }
+    console.log(`Successfully ingested 5 standard Knowledge Base PDFs for tenant [${tenantId}].`);
+
+    // Synchronize FAQ-derived knowledge (support email, store hours, etc.)
+    await FaqKnowledgeAdapter.syncTenantFaqs(tenantId, null, config.capabilities?.faq || [], knowledgeRepo, embeddingProvider, prisma);
+    console.log(`Successfully synchronized FAQ knowledge records for tenant [${tenantId}].`);
+  } catch (pdfErr: any) {
+    console.warn(`PDF/FAQ knowledge ingestion warning: ${pdfErr.message}`);
+  }
 }
 
 async function main() {

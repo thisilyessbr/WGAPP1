@@ -316,8 +316,8 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
       });
     }
 
-    // 3. Verify Tenant Existence in Database (skip for /bootstrap)
-    if (req.path === '/bootstrap') {
+    // 3. Verify Tenant Existence in Database (skip for /bootstrap and /tenants)
+    if (req.path === '/bootstrap' || req.path === '/tenants') {
       return next();
     }
 
@@ -333,13 +333,79 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     }
   });
 
+  // GET /tenants - List existing tenants for tenant discovery in Dev Control Center
+  router.get('/tenants', async (req: Request, res: Response) => {
+    try {
+      const tenants = await deps.prisma.tenant.findMany({
+        select: {
+          id: true,
+          name: true,
+          createdAt: true
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+      res.json({ tenants });
+    } catch (e: any) {
+      console.error("GET TENANTS ERROR:", e);
+      res.status(500).json({ error: e.message || String(e) });
+    }
+  });
+
+  // POST /tenants - Explicit tenant creation endpoint
+  router.post('/tenants', async (req: Request, res: Response) => {
+    try {
+      const { name, id } = req.body || {};
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'TENANT_NAME_REQUIRED', message: 'Tenant name is required.' });
+      }
+
+      const trimmedName = name.trim();
+      let tenantId = id && typeof id === 'string' && id.trim()
+        ? id.trim()
+        : trimmedName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+
+      if (!tenantId) {
+        tenantId = `tenant-${Date.now()}`;
+      }
+
+      // Check if tenant ID already exists
+      const existingById = await deps.prisma.tenant.findUnique({ where: { id: tenantId } });
+      if (existingById) {
+        return res.status(409).json({ error: 'TENANT_EXISTS', message: `Tenant ID '${tenantId}' already exists.` });
+      }
+
+      const tenant = await deps.prisma.tenant.create({
+        data: {
+          id: tenantId,
+          name: trimmedName,
+          config: {
+            create: {
+              config: DEFAULT_BUSINESS_CONFIG as any
+            }
+          }
+        },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true
+        }
+      });
+
+      res.status(201).json({ success: true, tenant });
+    } catch (e: any) {
+      console.error("POST TENANT ERROR:", e);
+      res.status(500).json({ error: e.message || String(e) });
+    }
+  });
+
   // Explicit bootstrap endpoint to create a dev tenant and seed default config
   router.post('/bootstrap', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
+      const tenantName = req.body?.name || 'Development Tenant';
       let tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId } });
       if (!tenant) {
-        tenant = await deps.prisma.tenant.create({ data: { id: tenantId, name: 'Development Tenant' } });
+        tenant = await deps.prisma.tenant.create({ data: { id: tenantId, name: tenantName } });
       }
 
       await deps.tenantConfigService.updateConfig(tenantId, DEFAULT_BUSINESS_CONFIG);
@@ -861,9 +927,15 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         const latencyMs = Date.now() - start;
 
         if (!diagnosticContext.intent && message) {
-          const ecomParsed = EcommerceIntentParser.parse(message);
-          if (ecomParsed.intent !== 'UNKNOWN') {
-            diagnosticContext.intent = ecomParsed.intent;
+          const tenantConfig = deps.accountConfigService && accountId
+            ? await deps.accountConfigService.getEffectiveConfig(tenantId, accountId)
+            : await deps.tenantConfigService.getConfig(tenantId);
+          const isEcommerceEnabled = Boolean(tenantConfig?.capabilities?.ecommerceEnabled);
+          if (isEcommerceEnabled) {
+            const ecomParsed = EcommerceIntentParser.parse(message);
+            if (ecomParsed.intent !== 'UNKNOWN') {
+              diagnosticContext.intent = ecomParsed.intent;
+            }
           }
         }
 
@@ -986,19 +1058,57 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
 
     try {
-      const existing = await deps.prisma.conversation.findFirst({
-        where: { tenantId, customerId, status: 'ACTIVE' }
+      // 1. Resolve customer by tenantId + externalId (or id directly)
+      const customer = await deps.prisma.customer.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { externalId: customerId },
+            { id: customerId }
+          ]
+        }
       });
-      
-      if (existing) {
-        await deps.prisma.conversation.update({
-          where: { id: existing.id },
-          data: {
-            customerId: `${customerId}_archived_${Date.now()}`,
-            status: 'COMPLETED'
-          }
-        });
+
+      if (!customer) {
+        return res.json({ success: true, message: 'No active conversation to reset.' });
       }
+
+      // 2. Find ALL ACTIVE conversations for that customer
+      const activeConversations = await deps.prisma.conversation.findMany({
+        where: {
+          tenantId,
+          customerId: customer.id,
+          status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] }
+        },
+        select: { id: true }
+      });
+
+      if (activeConversations.length > 0) {
+        const convIds = activeConversations.map(c => c.id);
+
+        // 3. In one Prisma transaction, complete active workflow sessions and archive active conversations
+        await deps.prisma.$transaction([
+          deps.prisma.workflowSession.updateMany({
+            where: {
+              tenantId,
+              conversationId: { in: convIds },
+              status: 'ACTIVE'
+            },
+            data: {
+              status: 'COMPLETED'
+            }
+          }),
+          deps.prisma.conversation.updateMany({
+            where: {
+              id: { in: convIds }
+            },
+            data: {
+              status: 'ARCHIVED'
+            }
+          })
+        ]);
+      }
+
       res.json({ success: true, message: 'Conversation archived.' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -1041,6 +1151,58 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
+  // POST /api/dev/accounts - Create a new account for the authenticated tenant
+  router.post('/accounts', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const { name, config } = req.body;
+
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'Account name is required.'
+        });
+      }
+
+      const trimmedName = name.trim();
+      if (trimmedName.length > 100) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'Account name must not exceed 100 characters.'
+        });
+      }
+
+      // Check duplicate name within same tenant
+      const existing = await deps.prisma.account.findFirst({
+        where: { tenantId, name: trimmedName }
+      });
+      if (existing) {
+        return res.status(409).json({
+          error: 'DUPLICATE_ACCOUNT',
+          message: `An account with the name '${trimmedName}' already exists for this tenant.`
+        });
+      }
+
+      const account = await deps.prisma.account.create({
+        data: {
+          tenantId,
+          name: trimmedName,
+          ...(config && typeof config === 'object' && !Array.isArray(config) ? { config: config as any } : {})
+        }
+      });
+
+      res.status(201).json({ success: true, account });
+    } catch (e: any) {
+      if (e.code === 'P2002') {
+        return res.status(409).json({
+          error: 'DUPLICATE_ACCOUNT',
+          message: 'An account with this name already exists for this tenant.'
+        });
+      }
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/dev/products - List products for an account
   router.get('/products', async (req: Request, res: Response) => {
     try {
@@ -1065,32 +1227,31 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       const category = req.query.category as string | undefined;
       const activeOnly = req.query.activeOnly !== 'false';
 
-      const products = await productRepo.search({
-        tenantId,
-        accountId: check.account.id,
-        query,
-        category,
-        activeOnly,
-        limit: 100
-      });
+      let products;
+      if (query && query.trim()) {
+        products = await productRepo.search({
+          tenantId,
+          accountId: check.account.id,
+          query: query.trim(),
+          category,
+          activeOnly,
+          limit: 100
+        });
+      } else {
+        products = await productRepo.findAll(tenantId, check.account.id, activeOnly);
+      }
 
-      res.json({
-        ecommerceEnabled: true,
-        accountId: check.account.id,
-        count: products.length,
-        products
-      });
+      res.json({ success: true, count: products.length, products });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  // GET /api/dev/products/:id - Get single product with variants
+  // GET /api/dev/products/:id - Get product details
   router.get('/products/:id', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
       const accountId = (req.query.accountId as string) || (req.headers['x-account-id'] as string);
-      const productId = req.params.id;
 
       const check = await resolveAccountScope(tenantId, accountId);
       if (!check.valid) {
@@ -1101,12 +1262,12 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
       }
 
-      const product = await productRepo.findById(tenantId, check.account.id, productId, false);
+      const product = await productRepo.findById(tenantId, check.account.id, req.params.id, false);
       if (!product) {
         return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
       }
 
-      res.json({ product });
+      res.json({ success: true, product });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -1127,6 +1288,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         category,
         nameLocalized,
         descriptionLocalized,
+        metadata,
         active = true
       } = req.body;
 
@@ -1157,6 +1319,10 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be a non-negative integer.' });
       }
 
+      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      }
+
       // Check duplicate SKU in this account
       const existing = await productRepo.findBySku(tenantId, check.account.id, sku);
       if (existing) {
@@ -1173,6 +1339,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         category,
         nameLocalized,
         descriptionLocalized,
+        metadata,
         active
       });
 
@@ -1198,10 +1365,12 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         category,
         nameLocalized,
         descriptionLocalized,
+        metadata,
         active
       } = req.body;
 
-      const check = await resolveAccountScope(tenantId, accountId);
+      const targetAccountId = accountId || (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+      const check = await resolveAccountScope(tenantId, targetAccountId);
       if (!check.valid) {
         return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
       }
@@ -1224,6 +1393,10 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         }
       }
 
+      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      }
+
       if (sku !== undefined) {
         const existing = await productRepo.findBySku(tenantId, check.account.id, sku);
         if (existing && existing.id !== productId) {
@@ -1241,6 +1414,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         category,
         nameLocalized,
         descriptionLocalized,
+        metadata,
         active
       });
 
@@ -1258,8 +1432,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   router.delete('/products/:id', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
-      const productId = req.params.id;
-      const accountId = (req.query.accountId as string) || (req.body?.accountId as string);
+      const accountId = (req.query.accountId as string) || (req.headers['x-account-id'] as string) || req.body?.accountId;
 
       const check = await resolveAccountScope(tenantId, accountId);
       if (!check.valid) {
@@ -1270,7 +1443,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
       }
 
-      const deleted = await productRepo.deleteProduct(tenantId, check.account.id, productId);
+      const deleted = await productRepo.deleteProduct(tenantId, check.account.id, req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
       }
@@ -1281,7 +1454,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
-  // POST /api/dev/products/:id/variants - Add variant to product
+  // POST /api/dev/products/:id/variants - Create variant
   router.post('/products/:id/variants', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
@@ -1294,6 +1467,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         color,
         priceOverride,
         stock = 0,
+        metadata,
         active = true
       } = req.body;
 
@@ -1315,6 +1489,10 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be non-negative.' });
       }
 
+      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      }
+
       let numPriceOverride: number | null = null;
       if (priceOverride !== undefined && priceOverride !== null && priceOverride !== '') {
         numPriceOverride = Number(priceOverride);
@@ -1330,6 +1508,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         color,
         priceOverride: numPriceOverride,
         stock: Math.floor(numStock),
+        metadata,
         active
       });
 
@@ -1359,16 +1538,22 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         color,
         priceOverride,
         stock,
+        metadata,
         active
       } = req.body;
 
-      const check = await resolveAccountScope(tenantId, accountId);
+      const targetAccountId = accountId || (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+      const check = await resolveAccountScope(tenantId, targetAccountId);
       if (!check.valid) {
         return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
       }
 
       if (!check.ecommerceEnabled) {
         return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+      }
+
+      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
       }
 
       let numPriceOverride: number | null | undefined = undefined;
@@ -1390,11 +1575,12 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         color,
         priceOverride: numPriceOverride,
         stock: stock !== undefined ? Math.floor(Number(stock)) : undefined,
+        metadata,
         active
       });
 
       if (!variant) {
-        return res.status(404).json({ error: 'NOT_FOUND', message: 'Product or variant not found.' });
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Variant not found.' });
       }
 
       res.json({ success: true, variant });

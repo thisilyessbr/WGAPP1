@@ -95,6 +95,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
     it('5. FAQ Arabic answer + Arabic request → Arabic output directly', async () => {
       const mockLlm = new LLMMockProvider();
+      mockLlm.generatedResponseMock = 'نعم، يمكنك إرجاع المنتجات خلال 14 يوماً.';
       const engine = new ConversationEngine(
         {
           getOrCreateConversation: async () => ({

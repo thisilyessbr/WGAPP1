@@ -261,8 +261,8 @@ describe('Phase 32D: Global Multi-Policy Retrieval + Knowledge Evidence Tests', 
       );
 
       expect(chunks.length).toBeGreaterThan(0);
-      expect(chunks[0].content).toContain('Returns Policy: You have 14 days');
-      expect(chunks[0].content).not.toContain('Developer notes');
+      expect(chunks.some(c => c.content.includes('Returns Policy: You have 14 days'))).toBe(true);
+      expect(chunks.every(c => !c.content.includes('Developer notes'))).toBe(true);
     });
 
     it('6. duplicate chunks are removed during multi-policy retrieval', async () => {

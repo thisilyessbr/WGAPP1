@@ -33,7 +33,7 @@ export class TenantConfigService {
 
         if (!versionRecord) {
           this.cache.delete(tenantId);
-          throw new Error(`Configuration not found for tenant: ${tenantId}`);
+          return JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
         }
 
         // If updatedAt matches, cache is fresh and consistent across all replicas
@@ -42,9 +42,6 @@ export class TenantConfigService {
         }
         // If updatedAt changed, fall through to reload full config
       } catch (err: any) {
-        if (err.message && err.message.startsWith('Configuration not found')) {
-          throw err;
-        }
         // If DB is temporarily down, serve unexpired cached config as resilience fallback
         return JSON.parse(JSON.stringify(cached.config));
       }
@@ -56,7 +53,7 @@ export class TenantConfigService {
 
     if (!record) {
       this.cache.delete(tenantId);
-      throw new Error(`Configuration not found for tenant: ${tenantId}`);
+      return JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
     }
 
     const rawConfig = record.config as Record<string, any>;
@@ -188,6 +185,15 @@ export class TenantConfigService {
       }
       if (typeof overrides.capabilities.imageEnabled === 'boolean') {
         merged.capabilities.imageEnabled = overrides.capabilities.imageEnabled;
+      }
+      if (typeof overrides.capabilities.ecommerceEnabled === 'boolean') {
+        merged.capabilities.ecommerceEnabled = overrides.capabilities.ecommerceEnabled;
+      }
+      if (overrides.capabilities.ecommerceTaxonomy) {
+        merged.capabilities.ecommerceTaxonomy = overrides.capabilities.ecommerceTaxonomy;
+      }
+      if (overrides.capabilities.shippingScope) {
+        merged.capabilities.shippingScope = overrides.capabilities.shippingScope;
       }
     }
     

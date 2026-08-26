@@ -39,6 +39,7 @@ describe('Phase 1: Account Foundation Integration Tests', () => {
     deps = bootstrapChatbot(prisma);
     mockLlm = new LLMMockProvider();
     deps.llmFactory.registerProvider('mock', 'mock-model', mockLlm);
+    deps.llmFactory.registerProvider('deepseek', 'deepseek-chat', mockLlm);
     deps.tenantConfigService.clearCache();
     accountConfigService = new AccountConfigService(prisma, deps.tenantConfigService);
   });
@@ -352,6 +353,7 @@ describe('Phase 1: Account Foundation Integration Tests', () => {
     expect(resGreeting).toBe('Hello! How can I help you today?');
 
     // 3. Fallback test with accountId
+    mockLlm.generatedResponseMock = 'UNANSWERABLE';
     const resFallback = await deps.conversationEngine.handleMessage(
       tenant.id,
       `cust-fallback-${Date.now()}`,

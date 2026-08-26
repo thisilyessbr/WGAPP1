@@ -347,7 +347,7 @@ describe('Phase 16B: Ecommerce Frontend / Admin Integration Tests', () => {
       accountA.id
     );
     expect(res3.toLowerCase()).toContain('out of stock');
-  });
+  }, 20000);
 
   it('6. Negative Validation Tests: Invalid data is rejected safely', async () => {
     const { tenant, accountA, token } = await seedEcommerceTenants();

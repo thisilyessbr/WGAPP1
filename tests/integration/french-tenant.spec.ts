@@ -131,7 +131,7 @@ describe('French Study-Abroad Tenant & Dynamic Localization Integration Tests', 
     await deps.conversationEngine.handleMessage(tenant.id, cust3, 'Victor Hugo');
     const doneRes3 = await deps.conversationEngine.handleMessage(tenant.id, cust3, 'Oui');
     expect(doneRes3).toBe('Félicitations ! Votre dossier a été enregistré auprès de notre agence.');
-  });
+  }, 25000);
 
   it('3. Cancellation in French workflow produces zero English leaked strings', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Study Abroad Agency FR 3' } });

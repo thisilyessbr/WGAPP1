@@ -1,4 +1,4 @@
-import { BusinessConfig } from '../tenant/BusinessConfig';
+import { BusinessConfig, DEFAULT_IMAGE_FALLBACK_MESSAGES } from '../tenant/BusinessConfig';
 import { ImageCapabilityGateway } from '../../core/gateway/ImageCapabilityGateway';
 import { ImageUnderstandingResult } from '../../../packages/shared/contracts/image.contract';
 
@@ -29,12 +29,7 @@ export interface RoutedMessage {
   imageAnalysis?: ImageUnderstandingResult | null;
 }
 
-export const DEFAULT_IMAGE_FALLBACK_MESSAGES = {
-  en: "I can't process images right now — could you describe what you're looking for?",
-  fr: "Je ne peux pas traiter les images pour le moment — pourriez-vous décrire ce que vous recherchez ?",
-  ar: "لا يمكنني معالجة الصور في الوقت الحالي — هل يمكنك وصف ما تبحث عنه؟",
-  darija: "ما كنعالجش التصاور دابا — عفاك واش تقدر توصف ليا شنو بغيتي؟"
-};
+export { DEFAULT_IMAGE_FALLBACK_MESSAGES };
 
 export class CapabilityRouter {
   constructor(private imageGateway: ImageCapabilityGateway) {}
@@ -71,12 +66,11 @@ export class CapabilityRouter {
     // CHANGE 1 & 2: Explicit opt-in capability check + Short-circuit before Image Gateway
     const isImageEnabled = config.capabilities?.imageEnabled === true;
     if (!isImageEnabled) {
-      const fallback = "I can't process images right now — could you describe what you're looking for?";
       return {
         type,
         allowed: false,
         status: 'IMAGE_DISABLED',
-        fallbackMessage: fallback,
+        fallbackMessage: DEFAULT_IMAGE_FALLBACK_MESSAGES.en,
         effectiveContent: text || '[Image]',
         userDisplayContent: text ? `[Image] ${text}` : '[Image]',
         imageAnalysis: null
@@ -94,8 +88,6 @@ export class CapabilityRouter {
         }, correlationId);
 
     if (!analysis.success) {
-      const fallback = "I can't process images right now — could you describe what you're looking for?";
-      
       // CHANGE 3: Distinguish image failure states
       let failureStatus: ImageRoutingStatus = 'IMAGE_SERVICE_UNAVAILABLE';
       if (analysis.model === 'validator' || analysis.error?.includes('Invalid request') || analysis.error?.includes('exceeds maximum allowed size')) {
@@ -110,7 +102,7 @@ export class CapabilityRouter {
         type,
         allowed: false,
         status: failureStatus,
-        fallbackMessage: fallback,
+        fallbackMessage: DEFAULT_IMAGE_FALLBACK_MESSAGES.en,
         effectiveContent: text || '[Image]',
         userDisplayContent: text ? `[Image] ${text}` : '[Image]',
         imageAnalysis: analysis

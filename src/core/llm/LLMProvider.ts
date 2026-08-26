@@ -39,13 +39,16 @@ export class LLMMockProvider implements LLMProvider {
   public intentMock: string | null = null;
   public extractedFieldMock: any | null = null;
   public generatedResponseMock: string = 'Mocked response';
+  public responseResolver?: (systemPrompt: string, history: {role: string, content: string}[], options?: LLMRequestOptions) => string | Promise<string>;
   public shouldFail: boolean = false;
   public failureType: LLMErrorType = 'unknown';
   public lastSystemPrompt: string | null = null;
   public lastHistory: any[] | null = null;
   public lastOptions: LLMRequestOptions | null = null;
+  public callCount: number = 0;
 
   async classifyIntent(systemPrompt: string, message: string, allowedIntents: string[], options?: LLMRequestOptions): Promise<string | null> {
+    this.callCount++;
     this.lastOptions = options || null;
     if (this.shouldFail) {
       throw new LLMProviderError({
@@ -58,6 +61,7 @@ export class LLMMockProvider implements LLMProvider {
   }
 
   async extractField(systemPrompt: string, message: string, fieldType: string, options?: LLMRequestOptions): Promise<any | null> {
+    this.callCount++;
     this.lastOptions = options || null;
     if (this.shouldFail) {
       throw new LLMProviderError({
@@ -70,6 +74,7 @@ export class LLMMockProvider implements LLMProvider {
   }
 
   async generateResponse(systemPrompt: string, history: {role: string, content: string}[], options?: LLMRequestOptions): Promise<string> {
+    this.callCount++;
     this.lastSystemPrompt = systemPrompt;
     this.lastHistory = history;
     this.lastOptions = options || null;
@@ -79,6 +84,9 @@ export class LLMMockProvider implements LLMProvider {
         type: this.failureType,
         provider: 'mock'
       });
+    }
+    if (this.responseResolver) {
+      return this.responseResolver(systemPrompt, history, options);
     }
     return this.generatedResponseMock;
   }

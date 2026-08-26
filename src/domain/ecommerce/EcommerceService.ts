@@ -1,8 +1,7 @@
 import { ProductRepository, ProductWithVariants } from './ProductRepository';
 import { ProductVariant } from '@prisma/client';
 import { SupportedLanguage } from '../faq/FaqMatcher';
-import { RecommendationCriteria } from '../conversation/NormalizedTurn';
-import { ProductRecommendationService, RecommendationResult } from './ProductRecommendationService';
+import { ProductRecommendationService, RecommendationCriteria, RecommendationResult } from './ProductRecommendationService';
 
 export interface ProductLookupResult {
   product: ProductWithVariants;
@@ -32,6 +31,13 @@ export class EcommerceService {
   getDisplayDescription(product: ProductWithVariants, lang: SupportedLanguage = 'en'): string {
     const loc = product.descriptionLocalized as Record<string, string> | null;
     return loc?.[lang] || loc?.en || product.description;
+  }
+
+  /**
+   * Retrieves distinct active product categories for an account.
+   */
+  async getDistinctCategories(tenantId: string, accountId: string): Promise<string[]> {
+    return this.productRepo.getDistinctCategories(tenantId, accountId);
   }
 
   /**
@@ -263,6 +269,7 @@ export class EcommerceService {
       maxPrice: criteria.budget,
       color: criteria.color,
       size: criteria.size,
+      query: criteria.searchKeywords,
       limit: 10
     });
 

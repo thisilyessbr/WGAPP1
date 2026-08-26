@@ -20,6 +20,8 @@ export function isValidPdfBuffer(buffer: Buffer | Uint8Array): boolean {
          buffer[4] === 0x2D;   // -
 }
 
+import { RtlTextNormalizer } from './RtlTextNormalizer';
+
 export class PdfIngestionService {
   constructor(
     private prisma: PrismaClient,
@@ -50,11 +52,6 @@ export class PdfIngestionService {
     const sanitizedFilename = path.basename(filename || 'document.pdf');
 
     // AccountId normalization:
-    // undefined -> null
-    // empty string -> null
-    // whitespace -> null
-    // 'null' / 'global' -> null
-    // valid accountId -> trimmed string
     let normalizedAccountId: string | null = null;
     if (accountId && typeof accountId === 'string') {
       const trimmed = accountId.trim();
@@ -166,7 +163,7 @@ export class PdfIngestionService {
           tenantId,
           accountId: normalizedAccountId,
           sourceId: source.id,
-          title: filename, // Naive title is filename for generic ingestion
+          title: filename, // Title is filename for generic ingestion
           content: extractedText,
           metadata: { pages: pdfData.numpages }
         }
@@ -223,10 +220,14 @@ export class PdfIngestionService {
   }
 
   private normalizeText(text: string): string {
-    return text
-      .replace(/\r\n/g, '\n')                  // Windows newlines
-      .replace(/--\s*\d+\s*of\s*\d+\s*--/gi, '') // Page markers e.g. "-- 1 of 2 --"
-      .replace(/\n{3,}/g, '\n\n')              // Collapse 3+ newlines to double newline
+    // Apply RTL and Arabic extraction normalization
+    let normalized = RtlTextNormalizer.normalize(text);
+
+    return normalized
+      .replace(/\r\n/g, '\n')
+      .replace(/--\s*\d+\s*(?:of\s*\d+)?\s*--/gi, '') // Page markers e.g. "-- 1 of 2 --"
+      .replace(/^(?:[A-Za-z0-9\s—–-]+\s+)?Page\s+\d+(?:\s+of\s+\d+)?$/gim, '') // Standalone page headers
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
 
@@ -235,8 +236,10 @@ export class PdfIngestionService {
     if (trimmed.length < 3 || trimmed.length > 60) return false;
     // Does not end in sentence punctuation
     if (/[.:,;!?]$/.test(trimmed)) return false;
-    // Must start with capital letter
-    if (!/^[A-Z]/.test(trimmed)) return false;
+    // Must start with capital letter or Arabic letter
+    if (!/^[A-Z\u0600-\u06FF]/.test(trimmed)) return false;
+    // Not a page marker
+    if (/^(?:Page\s+\d+|[A-Za-z0-9\s—–-]+\s+Page\s+\d+)$/i.test(trimmed)) return false;
     // Not a list or tier item
     if (/^(Tier\s+\d+|Step\s+\d+|\d+\.|\*|-)/i.test(trimmed)) return false;
     // Not a table data line (containing Yes / No values or specific table field names)
@@ -248,21 +251,24 @@ export class PdfIngestionService {
   }
 
   private splitIntoSentences(block: string): string[] {
-    // Regex splits on sentence terminators (. ! ?) that are NOT decimal points (e.g. 1.2, 3.4)
-    // followed by whitespace and a capital letter/number
+    // Regex splits on sentence terminators (. ! ? ؟) that are NOT decimal points (e.g. 1.2, 3.4)
+    // followed by whitespace and a capital letter/number/Arabic letter
     return block
-      .split(/(?<=[.!?])\s+(?=[A-Z0-9])/g)
+      .split(/(?<=[.!?؟])\s+(?=[A-Z0-9\u0600-\u06FF])/g)
       .map(s => s.trim())
       .filter(s => s.length > 0);
   }
 
   /**
    * Paragraph and section-aware text chunking strategy.
-   * Detects section headings, table blocks, and paragraph boundaries.
-   * Splits oversized sections strictly on complete sentence boundaries without breaking decimals.
+   * Merges orphan headers with their content, suppresses standalone page labels,
+   * and splits oversized sections strictly on complete sentence boundaries without breaking decimals.
    */
   private chunkText(text: string, chunkSize: number, chunkOverlap: number): string[] {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // Filter out pure page label lines
+    const lines = rawLines.filter(l => !/^(?:Page\s+\d+|--\s*\d+\s*(?:of\s*\d+)?\s*--|[A-Za-z0-9\s—–-]+\s+Page\s+\d+)$/i.test(l));
+
     const sections: { title: string; lines: string[] }[] = [];
     let currentSection: { title: string; lines: string[] } = { title: '', lines: [] };
 
@@ -270,8 +276,14 @@ export class PdfIngestionService {
       const line = lines[i];
 
       if (this.isSectionHeading(line) && currentSection.lines.length > 0) {
-        sections.push(currentSection);
-        currentSection = { title: line, lines: [line] };
+        // If the current section is just a heading/title with no substantive body, merge the next heading with it
+        const currentText = currentSection.lines.join('\n').trim();
+        if (currentText.length < 80 && !/[•\-*]/.test(currentText) && !/\b\d+\b/.test(currentText)) {
+          currentSection.lines.push(line);
+        } else {
+          sections.push(currentSection);
+          currentSection = { title: line, lines: [line] };
+        }
       } else {
         currentSection.lines.push(line);
         if (!currentSection.title && this.isSectionHeading(line)) {
@@ -283,27 +295,41 @@ export class PdfIngestionService {
       sections.push(currentSection);
     }
 
-    const chunks: string[] = [];
-    for (const sec of sections) {
-      const fullText = sec.lines.join('\n');
+    const rawChunks: string[] = [];
+    for (let i = 0; i < sections.length; i++) {
+      const sec = sections[i];
+      const fullText = sec.lines.join('\n').trim();
+      
+      // If a section is very short (e.g. title only under 90 chars) and there is a next section, merge it
+      if (fullText.length < 90 && i + 1 < sections.length) {
+        sections[i + 1].lines.unshift(fullText);
+        continue;
+      }
+
       if (fullText.length <= chunkSize) {
-        chunks.push(fullText);
+        rawChunks.push(fullText);
       } else {
         // Split large section on safe sentence boundaries
         const sentences = this.splitIntoSentences(fullText);
         let currentChunk = '';
         for (const s of sentences) {
           if (currentChunk && (currentChunk.length + 1 + s.length) > chunkSize) {
-            chunks.push(currentChunk);
+            rawChunks.push(currentChunk.trim());
             currentChunk = s;
           } else {
             currentChunk = currentChunk ? `${currentChunk} ${s}` : s;
           }
         }
-        if (currentChunk) chunks.push(currentChunk);
+        if (currentChunk.trim()) rawChunks.push(currentChunk.trim());
       }
     }
 
-    return chunks.length > 0 ? chunks : [text.trim()];
+    // Discard any chunks that are purely low-value or empty
+    const filteredChunks = rawChunks.filter(c => {
+      const t = c.trim();
+      return t.length >= 35 && !/^(?:Page\s+\d+|[A-Za-z0-9\s—–-]+\s+Page\s+\d+)$/i.test(t);
+    });
+
+    return filteredChunks.length > 0 ? filteredChunks : [text.trim()];
   }
 }

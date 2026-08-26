@@ -30,21 +30,23 @@ const INTERNAL_ARTIFACT_PATTERNS = [
 // Common English numeric patterns that are NOT Arabizi phonemes
 const ENGLISH_NUMERIC_TIME_REGEX = /\b(\d+(?:am|pm|h|min|sec|nd|rd|th|st|k|m|g|gb|mb|tb|fps|v\d+)?)\b|\b(?:v\d+|sha\d+|utf\d+|b2b|b2c|p2p|mp\d+)\b/gi;
 
-import { InternalArtifactDetector } from './InternalArtifactDetector';
-
 export class DirectRagGuard {
   /**
    * Checks if content contains un-sanitized internal labels, example blocks, or prompt instructions.
    */
   static hasInternalArtifacts(text: string): boolean {
-    return InternalArtifactDetector.hasInternalArtifacts(text);
+    return INTERNAL_ARTIFACT_PATTERNS.some(pattern => pattern.test(text));
   }
 
   /**
    * Strips internal example/instruction labels from text if possible.
    */
   static sanitizeInternalArtifacts(text: string): string {
-    return InternalArtifactDetector.sanitize(text);
+    let sanitized = text;
+    for (const pattern of INTERNAL_ARTIFACT_PATTERNS) {
+      sanitized = sanitized.replace(pattern, '').trim();
+    }
+    return sanitized;
   }
   /**
    * Cleans standard English numeric/time tokens before checking for Arabizi digits.

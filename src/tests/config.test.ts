@@ -18,9 +18,10 @@ describe('Generic Business Configuration Layer', () => {
     await prisma.customer.deleteMany();
     await prisma.tenant.deleteMany();
   });
-  it('1. Should throw error for missing configuration', async () => {
+  it('1. Should return default configuration fallback for missing configuration', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'No Config Tenant' } });
-    await expect(configService.getConfig(tenant.id)).rejects.toThrow(/Configuration not found/);
+    const snapshot = await configService.getConfig(tenant.id);
+    expect(snapshot.identity.botName).toBe(DEFAULT_BUSINESS_CONFIG.identity.botName);
   });
   it('2. Should load generic defaults when config is mostly empty', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Empty Config Tenant' } });

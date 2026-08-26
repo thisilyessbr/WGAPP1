@@ -66,9 +66,13 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
 export class ResponseBuilder {
   buildMissingFieldResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en'): string {
     const field = state.field;
-    if (state.prompt) return resolveLocalizedPrompt(state.prompt, lang, state.prompt);
+    if (state.prompt) {
+      const defaultP = typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      return resolveLocalizedPrompt(state.prompt, lang, defaultP);
+    }
     if (typeof field !== 'string' && field?.extractionPrompt) {
-      return resolveLocalizedPrompt(field.extractionPrompt, lang, field.extractionPrompt);
+      const defaultP = typeof field.extractionPrompt === 'string' ? field.extractionPrompt : (field.extractionPrompt.en || '');
+      return resolveLocalizedPrompt(field.extractionPrompt, lang, defaultP);
     }
 
     const fieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
@@ -86,6 +90,27 @@ export class ResponseBuilder {
     return template.replace('{{fieldName}}', fieldName);
   }
 
+  /**
+   * Generic deterministic template interpolation helper.
+   * Supports both {fieldName} and {{fieldName}}, as well as {summary} and {{summary}}.
+   * Ignores internal keys beginning with '_'.
+   * Replaces null/undefined with empty string.
+   */
+  public static interpolateTemplate(template: string, data: Record<string, unknown>): string {
+    if (!template || typeof template !== 'string') return '';
+    return template.replace(/\{\{([a-zA-Z0-9_]+)\}\}|\{([a-zA-Z0-9_]+)\}/g, (_match, p1, p2) => {
+      const key = p1 || p2;
+      if (!key || key.startsWith('_')) {
+        return '';
+      }
+      const val = data[key];
+      if (val === null || val === undefined) {
+        return '';
+      }
+      return String(val);
+    });
+  }
+
   buildConfirmationResponse(
     contextData: Record<string, any>,
     config: BusinessConfig,
@@ -97,9 +122,15 @@ export class ResponseBuilder {
       .map(([key, val]) => `${key}: ${val}`)
       .join('\n');
 
+    const interpolationData: Record<string, unknown> = {
+      ...contextData,
+      summary
+    };
+
     if (state?.prompt && state.prompt !== 'confirm') {
-      const localized = resolveLocalizedPrompt(state.prompt, lang, state.prompt);
-      return localized.replace('{{summary}}', summary);
+      const defaultP = typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      const localized = resolveLocalizedPrompt(state.prompt, lang, defaultP);
+      return ResponseBuilder.interpolateTemplate(localized, interpolationData);
     }
 
     const defaultTpl = DEFAULT_WORKFLOW_MESSAGES.confirmation[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.confirmation] || DEFAULT_WORKFLOW_MESSAGES.confirmation.en;
@@ -111,13 +142,13 @@ export class ResponseBuilder {
     } else if (config.prompts?.confirmationPrompt && typeof config.prompts.confirmationPrompt === 'object') {
       template = resolveLocalizedPrompt(config.prompts.confirmationPrompt, lang, defaultTpl);
     }
-    return template.replace('{{summary}}', summary);
+    return ResponseBuilder.interpolateTemplate(template, interpolationData);
   }
 
   buildChoiceResponse(state: WorkflowStateConfig, lang: string = 'en'): string {
     const defaultPrompt = DEFAULT_WORKFLOW_MESSAGES.choice[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.choice] || DEFAULT_WORKFLOW_MESSAGES.choice.en;
     const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choice);
-    const prompt = state.prompt && (!defaultVals.includes(state.prompt) || typeof state.prompt === 'object')
+    const prompt = state.prompt && (!defaultVals.includes(state.prompt as string) || typeof state.prompt === 'object')
       ? resolveLocalizedPrompt(state.prompt, lang, defaultPrompt)
       : defaultPrompt;
     if (!state.options || state.options.length === 0) {
@@ -146,7 +177,10 @@ export class ResponseBuilder {
   }
 
   buildGenericResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en'): string {
-    if (state.prompt) return resolveLocalizedPrompt(state.prompt, lang, state.prompt);
+    if (state.prompt) {
+      const defaultP = typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      return resolveLocalizedPrompt(state.prompt, lang, defaultP);
+    }
     const defaultFallback = DEFAULT_WORKFLOW_MESSAGES.fallback[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.fallback] || DEFAULT_WORKFLOW_MESSAGES.fallback.en;
     return resolveLocalizedPrompt(config.prompts?.fallback, lang, defaultFallback);
   }

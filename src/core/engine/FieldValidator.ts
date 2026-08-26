@@ -24,6 +24,27 @@ export class FieldValidator {
     }
     if (config.type === 'boolean' && typeof value !== 'boolean') return 'Value must be a boolean.';
 
+    if (config.type === 'email') {
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (typeof value !== 'string' || !emailPattern.test(value.trim())) {
+        return 'Value must be a valid email address.';
+      }
+    }
+
+    if (config.type === 'phone') {
+      const phonePattern = /^[0-9+() -]{7,25}$/;
+      if (typeof value !== 'string' || !phonePattern.test(value.trim())) {
+        return 'Value must be a valid phone number.';
+      }
+    }
+
+    if (config.type === 'time') {
+      const timePattern = /^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\s*(?:AM|PM|am|pm))?$/;
+      if (typeof value !== 'string' || !timePattern.test(value.trim())) {
+        return 'Value must be a valid time.';
+      }
+    }
+
     // Enum validation
     if (config.type === 'enum' && config.options) {
       const strVal = String(value);

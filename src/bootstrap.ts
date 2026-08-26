@@ -48,12 +48,20 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   const workflowEngine = new WorkflowEngine(evaluator, undefined, responseBuilder, fieldValidator);
 
   // RAG Components
+  const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
+  const useRealAi = process.env.USE_REAL_AI === 'true';
+
   let embeddingProvider: EmbeddingProvider;
-  if (process.env.GOOGLE_API_KEY) {
-    logger.info('Using GeminiEmbeddingProvider for RAG embeddings.');
-    embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
+  if (!isTestEnv || useRealAi) {
+    if (process.env.GOOGLE_API_KEY) {
+      logger.info('Using GeminiEmbeddingProvider for RAG embeddings.');
+      embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
+    } else {
+      logger.warn('GOOGLE_API_KEY missing. Using MockEmbeddingProvider.');
+      embeddingProvider = new MockEmbeddingProvider();
+    }
   } else {
-    logger.warn('GOOGLE_API_KEY missing. Using MockEmbeddingProvider.');
+    logger.info('Test environment detected without USE_REAL_AI=true. Using MockEmbeddingProvider.');
     embeddingProvider = new MockEmbeddingProvider();
   }
   const knowledgeRepo = new KnowledgeRepository(prisma);
