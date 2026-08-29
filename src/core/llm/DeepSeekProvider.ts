@@ -24,10 +24,14 @@ export class DeepSeekProvider implements LLMProvider {
 
     try {
       const response = await this.callApi(systemPrompt, message, temperature, maxTokens, 3, timeoutMs, model);
-      const intent = response.trim().replace(/^["']|["']$/g, '');
+      const intent = response.trim().replace(/^["']|["']$/g, '').replace(/[.,;:\n\r]+$/, '').trim();
 
       if (allowedIntents.includes(intent)) {
         return intent;
+      }
+      const match = allowedIntents.find(i => i.toLowerCase() === intent.toLowerCase());
+      if (match) {
+        return match;
       }
       return null;
     } catch (err: any) {

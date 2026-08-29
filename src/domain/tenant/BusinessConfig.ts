@@ -101,6 +101,13 @@ export const DEFAULT_LIMIT_EXCEEDED_MESSAGES = {
   darija: "l-mo7adatha wslat l l-7add l-aqsa. 3afak bda mo7adatha jdida."
 };
 
+export const DEFAULT_EXECUTION_LIMIT_MESSAGES = {
+  en: "You have already completed this request.",
+  fr: "Vous avez déjà complété cette demande.",
+  ar: "لقد أكملت هذا الطلب بالفعل.",
+  darija: "rak kmmelti had t-talab mn 9bel."
+};
+
 export interface PromptsConfig {
   system: string;
   knowledge: string;
@@ -162,7 +169,14 @@ export interface WorkflowStateConfig {
 export interface WorkflowActivationConfig {
   mode?: 'explicit_intent' | 'auto_start';
   intents?: string[];
+  keywords?: string[];
   allowManualStart?: boolean;
+}
+
+export interface WorkflowExecutionLimitConfig {
+  mode?: 'unlimited' | 'once' | 'custom';
+  maxExecutions?: number;
+  limitReachedMessage?: string | LocalizedPrompt;
 }
 
 export interface WorkflowConfig {
@@ -173,6 +187,7 @@ export interface WorkflowConfig {
   states: Record<string, WorkflowStateConfig>;
   allowInterruption?: boolean;
   activation?: WorkflowActivationConfig;
+  executionLimit?: WorkflowExecutionLimitConfig;
 }
 
 export interface KnowledgeConfig {
@@ -225,7 +240,7 @@ export interface ShippingScopeConfig {
 }
 
 export interface CapabilitiesConfig {
-  intents: { id: string; description: string; workflowId?: string }[];
+  intents: { id: string; description: string; workflowId?: string; keywords?: string[] }[];
   faq?: FaqEntry[];
   imageEnabled?: boolean;
   ecommerceEnabled?: boolean;

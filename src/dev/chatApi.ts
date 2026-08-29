@@ -12,11 +12,21 @@ import { EcommerceIntentParser } from '../domain/ecommerce/EcommerceIntent';
 import { createRouteProtectionMiddleware } from '../utils/rateLimiter';
 import { CostSummaryReporter } from '../core/telemetry/CostSummaryReporter';
 import { CostAnalyticsService } from '../core/telemetry/CostAnalyticsService';
+import { CRMService, VALID_LEAD_STATUSES, LeadStatus } from '../domain/crm/CRMService';
+
+export interface ChatMedia {
+  type: 'image' | 'video';
+  url: string;
+  thumbnailUrl?: string;
+  title?: string;
+  alt?: string;
+}
 
 export interface RequestDiagnosticContext {
   intent: string | null;
   classificationError: string | null;
   chunks: any[];
+  media?: ChatMedia[];
 }
 
 export const chatDiagnosticStorage = new AsyncLocalStorage<RequestDiagnosticContext>();
@@ -149,8 +159,11 @@ export function resolvePrincipal(req: Request): AuthenticatedPrincipal | null {
     // Check if bearer token is a valid signed token
     const signedPayload = verifySignedToken(bearerToken);
     if (signedPayload) {
+      const targetTenant = (signedPayload.role === 'admin' && (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId))
+        ? (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId) as string
+        : signedPayload.tenantId;
       return {
-        tenantId: signedPayload.tenantId,
+        tenantId: targetTenant,
         customerId: signedPayload.customerId,
         role: signedPayload.role
       };
@@ -292,7 +305,7 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
 
   // Global Authentication & Tenant Authorization Middleware
   router.use(async (req: Request, res: Response, next) => {
-    if (req.path.startsWith('/pilot-harness/preset-image')) {
+    if (req.path.startsWith('/pilot-harness/preset-image') || req.path === '/health') {
       return next();
     }
 
@@ -316,8 +329,8 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
       });
     }
 
-    // 3. Verify Tenant Existence in Database (skip for /bootstrap and /tenants)
-    if (req.path === '/bootstrap' || req.path === '/tenants') {
+    // 3. Verify Tenant Existence in Database (skip for /bootstrap, /tenants, or admin role)
+    if (req.path === '/bootstrap' || req.path === '/tenants' || req.path.endsWith('/tenants') || req.path.endsWith('/bootstrap') || principal.role === 'admin') {
       return next();
     }
 
@@ -330,6 +343,24 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     } catch (e: any) {
       console.error("AUTH MIDDLEWARE ERROR:", e);
       return res.status(500).json({ error: e.message || String(e) });
+    }
+  });
+
+  // GET /health - Public health check endpoint
+  router.get('/health', async (req: Request, res: Response) => {
+    try {
+      await deps.prisma.$queryRaw`SELECT 1`;
+      res.json({
+        status: 'healthy',
+        service: 'chatbot-api',
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      res.status(503).json({
+        status: 'unhealthy',
+        error: 'DATABASE_UNAVAILABLE',
+        message: err.message || String(err)
+      });
     }
   });
 
@@ -382,12 +413,24 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
             create: {
               config: DEFAULT_BUSINESS_CONFIG as any
             }
+          },
+          accounts: {
+            create: {
+              name: 'Main',
+              config: {}
+            }
           }
         },
         select: {
           id: true,
           name: true,
-          createdAt: true
+          createdAt: true,
+          accounts: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
         }
       });
 
@@ -403,9 +446,29 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     try {
       const tenantId = req.principal!.tenantId;
       const tenantName = req.body?.name || 'Development Tenant';
-      let tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId } });
+      let tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId }, include: { accounts: true } });
       if (!tenant) {
-        tenant = await deps.prisma.tenant.create({ data: { id: tenantId, name: tenantName } });
+        tenant = await deps.prisma.tenant.create({
+          data: {
+            id: tenantId,
+            name: tenantName,
+            accounts: {
+              create: {
+                name: 'Main',
+                config: {}
+              }
+            }
+          },
+          include: { accounts: true }
+        });
+      } else if (tenant.accounts.length === 0) {
+        await deps.prisma.account.create({
+          data: {
+            tenantId,
+            name: 'Main',
+            config: {}
+          }
+        });
       }
 
       await deps.tenantConfigService.updateConfig(tenantId, DEFAULT_BUSINESS_CONFIG);
@@ -907,7 +970,8 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     const diagnosticContext: RequestDiagnosticContext = {
       intent: null,
       classificationError: null,
-      chunks: []
+      chunks: [],
+      media: []
     };
 
     try {
@@ -943,9 +1007,28 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         const customer = await deps.prisma.customer.findUnique({
           where: { tenantId_externalId: { tenantId, externalId: customerId } }
         });
-        const conversation = customer ? await deps.prisma.conversation.findFirst({
-          where: { tenantId, customerId: customer.id }
-        }) : null;
+        const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+        let conversation: any = null;
+        if (customer) {
+          const baseWhere: any = {
+            tenantId,
+            customerId: customer.id,
+            ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+          };
+          conversation = await deps.prisma.conversation.findFirst({
+            where: {
+              ...baseWhere,
+              status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] }
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+          if (!conversation) {
+            conversation = await deps.prisma.conversation.findFirst({
+              where: baseWhere,
+              orderBy: { createdAt: 'desc' }
+            });
+          }
+        }
 
         let activeWorkflowId: string | null = null;
         let activeStateId: string | null = null;
@@ -1020,6 +1103,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
             ...activeSessionContext,
             _collectedData: sessionCollectedData
           },
+          media: diagnosticContext.media || [],
           debug: {
             latencyMs,
             intent: diagnosticContext.intent,
@@ -1045,10 +1129,79 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
+  // GET Latest Conversation with Message History (Read-only)
+  router.get('/conversations/latest', async (req: Request, res: Response) => {
+    const tenantId = req.principal!.tenantId;
+    const accountId = req.query.accountId as string | undefined;
+    const customerId = req.query.customerId as string | undefined;
+
+    if (!customerId || typeof customerId !== 'string' || !customerId.trim()) {
+      return res.status(400).json({
+        error: 'BAD_REQUEST',
+        message: 'customerId query parameter is required'
+      });
+    }
+
+    if (req.principal!.customerId && req.principal!.customerId !== customerId.trim()) {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: `Customer authorization mismatch: Principal is restricted to customer ${req.principal!.customerId}`
+      });
+    }
+
+    // If accountId provided, verify it belongs to tenant
+    if (accountId && typeof accountId === 'string' && accountId.trim()) {
+      const scope = await resolveAccountScope(tenantId, accountId.trim());
+      if (!scope.valid) {
+        return res.status(scope.status || 404).json({
+          error: 'ACCOUNT_NOT_FOUND',
+          message: scope.error || 'Account not found for tenant'
+        });
+      }
+    }
+
+    try {
+      const convWithMessages = await deps.conversationService.getLatestConversation(
+        tenantId,
+        customerId.trim(),
+        accountId ? accountId.trim() : null
+      );
+
+      if (!convWithMessages) {
+        return res.json({
+          success: true,
+          conversation: null,
+          messages: []
+        });
+      }
+
+      return res.json({
+        success: true,
+        conversation: {
+          id: convWithMessages.id,
+          status: convWithMessages.status,
+          createdAt: convWithMessages.createdAt,
+          updatedAt: convWithMessages.updatedAt
+        },
+        messages: (convWithMessages.messages || []).map((m: any) => ({
+          id: m.id,
+          role: (m.role || '').toLowerCase(),
+          content: m.content,
+          createdAt: m.createdAt
+        }))
+      });
+    } catch (error: any) {
+      logger.error('Error fetching conversation history', { error });
+      return res.status(500).json({ error: 'Failed to retrieve conversation history' });
+    }
+  });
+
   // POST Reset Conversation
   router.post('/reset', resetProtection.middleware, async (req: Request, res: Response) => {
     const tenantId = req.principal!.tenantId;
     const { customerId } = req.body;
+    const accountId = (req.body.accountId as string) || (req.headers['x-account-id'] as string) || undefined;
+    const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
 
     if (req.principal!.customerId && req.principal!.customerId !== customerId) {
       return res.status(403).json({
@@ -1073,12 +1226,13 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.json({ success: true, message: 'No active conversation to reset.' });
       }
 
-      // 2. Find ALL ACTIVE conversations for that customer
+      // 2. Find ALL ACTIVE conversations for that customer (scoped to accountId if provided)
       const activeConversations = await deps.prisma.conversation.findMany({
         where: {
           tenantId,
           customerId: customer.id,
-          status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] }
+          status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
+          ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
         },
         select: { id: true }
       });
@@ -1203,6 +1357,58 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
+  function validateMediaUrl(url: any): boolean {
+    if (typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.length > 2048) return false;
+    if (/[\r\n\0]/g.test(trimmed)) return false;
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  function validateProductMetadata(meta: any): string | null {
+    if (meta === undefined || meta === null) return null;
+    if (typeof meta !== 'object' || Array.isArray(meta)) {
+      return 'Metadata must be a valid JSON object or null.';
+    }
+    if (meta.images !== undefined && meta.images !== null) {
+      if (!Array.isArray(meta.images)) {
+        return 'metadata.images must be an array of URL strings.';
+      }
+      if (meta.images.length > 20) {
+        return 'metadata.images cannot contain more than 20 items.';
+      }
+      for (const img of meta.images) {
+        if (!validateMediaUrl(img)) {
+          return `Invalid image URL: '${String(img).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL (max 2048 chars).`;
+        }
+      }
+    }
+    if (meta.image !== undefined && meta.image !== null && !validateMediaUrl(meta.image)) {
+      return `Invalid image URL: '${String(meta.image).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL.`;
+    }
+    if (meta.imageUrl !== undefined && meta.imageUrl !== null && !validateMediaUrl(meta.imageUrl)) {
+      return `Invalid imageUrl: '${String(meta.imageUrl).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL.`;
+    }
+    if (meta.video !== undefined && meta.video !== null && !validateMediaUrl(meta.video)) {
+      return `Invalid video URL: '${String(meta.video).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL.`;
+    }
+    if (meta.videoUrl !== undefined && meta.videoUrl !== null && !validateMediaUrl(meta.videoUrl)) {
+      return `Invalid videoUrl: '${String(meta.videoUrl).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL.`;
+    }
+    if (meta.thumbnail !== undefined && meta.thumbnail !== null && !validateMediaUrl(meta.thumbnail)) {
+      return `Invalid thumbnail URL: '${String(meta.thumbnail).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL.`;
+    }
+    if (meta.thumbnailUrl !== undefined && meta.thumbnailUrl !== null && !validateMediaUrl(meta.thumbnailUrl)) {
+      return `Invalid thumbnailUrl: '${String(meta.thumbnailUrl).slice(0, 50)}'. Must be a valid HTTP or HTTPS URL.`;
+    }
+    return null;
+  }
+
   // GET /api/dev/products - List products for an account
   router.get('/products', async (req: Request, res: Response) => {
     try {
@@ -1319,8 +1525,9 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be a non-negative integer.' });
       }
 
-      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
-        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      const metaErr = validateProductMetadata(metadata);
+      if (metaErr) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: metaErr });
       }
 
       // Check duplicate SKU in this account
@@ -1393,8 +1600,9 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         }
       }
 
-      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
-        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      const metaErr = validateProductMetadata(metadata);
+      if (metaErr) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: metaErr });
       }
 
       if (sku !== undefined) {
@@ -1489,8 +1697,9 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock must be non-negative.' });
       }
 
-      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
-        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      const metaErr = validateProductMetadata(metadata);
+      if (metaErr) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: metaErr });
       }
 
       let numPriceOverride: number | null = null;
@@ -1552,8 +1761,9 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
       }
 
-      if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
-        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Metadata must be a valid JSON object or null.' });
+      const metaErr = validateProductMetadata(metadata);
+      if (metaErr) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: metaErr });
       }
 
       let numPriceOverride: number | null | undefined = undefined;
@@ -1759,21 +1969,84 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
-  // GET Cost Analytics & Budget Alerts
-  router.get('/cost-analytics', async (req: Request, res: Response) => {
-    try {
-      const clientTenantId = (req.headers['x-tenant-id'] as string) || (req.query?.tenantId as string) || req.principal?.tenantId;
-      const events = deps.telemetryClient ? deps.telemetryClient.getRecentEvents() : [];
-      const tenantEvents = clientTenantId && req.principal?.role !== 'admin'
-        ? events.filter(e => e.tenantId === clientTenantId)
-        : events;
+  // ==========================================
+  // CRM / LEADS ENDPOINTS (Phase CRM-B)
+  // ==========================================
 
-      const report = CostAnalyticsService.generateReport(tenantEvents);
-      res.json(report);
+  const crmService = deps.crmService || new CRMService(deps.prisma);
+
+  // GET /crm/leads - List leads for an account
+  router.get('/crm/leads', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const accountId = (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      const status = req.query.status as string | undefined;
+      const leads = await crmService.listLeads(tenantId, check.account.id, status);
+      res.json({ success: true, count: leads.length, leads });
     } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /crm/leads/:id - Get a single lead with customer info
+  router.get('/crm/leads/:id', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const accountId = (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      const lead = await crmService.getLead(tenantId, check.account.id, req.params.id);
+      if (!lead) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: `Lead [${req.params.id}] not found` });
+      }
+
+      res.json({ success: true, lead });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PATCH /crm/leads/:id - Update lead status
+  router.patch('/crm/leads/:id', async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.principal!.tenantId;
+      const accountId = (req.body.accountId as string) || (req.query.accountId as string) || (req.headers['x-account-id'] as string);
+
+      const check = await resolveAccountScope(tenantId, accountId);
+      if (!check.valid) {
+        return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
+      }
+
+      const { status } = req.body;
+      if (!status || !VALID_LEAD_STATUSES.includes(status as LeadStatus)) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: `Invalid status "${status}". Allowed values: ${VALID_LEAD_STATUSES.join(', ')}`
+        });
+      }
+
+      const updatedLead = await crmService.updateLeadStatus(tenantId, check.account.id, req.params.id, status);
+      res.json({ success: true, lead: updatedLead });
+    } catch (e: any) {
+      if (e.message && e.message.includes('not found')) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: e.message });
+      }
       res.status(500).json({ error: e.message });
     }
   });
 
   return router;
 }
+
+export const createApiRouter = createDevChatRouter;
+

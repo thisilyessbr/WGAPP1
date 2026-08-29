@@ -14,6 +14,7 @@ export interface RAGChunk {
   similarity: number;
   documentTitle?: string;
   chunkType?: ChunkQualityType;
+  metadata?: any;
 }
 
 export interface RAGResult {
@@ -335,7 +336,8 @@ export class RAGService {
         score: effectiveScore,
         similarity: c.similarity,
         documentTitle: c.documentTitle,
-        chunkType: classification.type
+        chunkType: classification.type,
+        metadata: c.metadata
       });
     }
 

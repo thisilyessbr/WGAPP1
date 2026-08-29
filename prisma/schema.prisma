@@ -23,6 +23,7 @@ model Tenant {
   config           TenantConfig?
   workflowSessions WorkflowSession[]
   products         Product[]
+  leads            Lead[]
 }
 
 model TenantConfig {
@@ -48,6 +49,7 @@ model Account {
   knowledgeDocs    KnowledgeDocument[]
   knowledgeChunks  KnowledgeChunk[]
   products         Product[]
+  leads            Lead[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -61,6 +63,7 @@ model Customer {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   conversations Conversation[]
+  leads         Lead[]
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, externalId])
@@ -230,4 +233,21 @@ model ProductVariant {
   @@unique([productId, sku])
   @@index([productId])
   @@index([productId, active])
+}
+
+model Lead {
+  id         String   @id @default(uuid())
+  tenantId   String
+  accountId  String
+  customerId String
+  status     String   @default("NEW")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, accountId, customerId])
+  @@index([tenantId, accountId, status])
 }

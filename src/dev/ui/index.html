@@ -70,6 +70,23 @@
     .faq-lang-content { display: none; }
     .faq-lang-content.active { display: block; }
     
+    /* Media & Gallery UX */
+    .chat-media-container { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; max-width: 100%; }
+    .chat-media-single { max-width: 240px; max-height: 200px; width: auto; height: auto; border-radius: 8px; object-fit: cover; cursor: pointer; border: 1px solid rgba(0,0,0,0.08); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .chat-media-single:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .chat-media-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; max-width: 290px; width: 100%; }
+    .chat-media-grid img { width: 100%; height: 90px; border-radius: 6px; object-fit: cover; cursor: pointer; border: 1px solid rgba(0,0,0,0.08); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .chat-media-grid img:hover { transform: scale(1.03); box-shadow: 0 3px 8px rgba(0,0,0,0.18); }
+    .chat-media-video { max-width: 100%; width: 280px; max-height: 190px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08); display: block; background: #000; }
+    
+    /* Lightbox Modal */
+    #mediaLightbox { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; padding: 20px; box-sizing: border-box; }
+    #mediaLightbox.active { display: flex; }
+    #lightboxImg { max-width: 90vw; max-height: 85vh; border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); object-fit: contain; }
+    #lightboxCaption { color: #f1f1f1; font-size: 0.9em; margin-top: 10px; text-align: center; max-width: 80vw; }
+    .lightbox-close-btn { position: absolute; top: 15px; right: 20px; background: rgba(255, 255, 255, 0.2); border: none; color: white; font-size: 24px; line-height: 1; padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: background 0.15s; }
+    .lightbox-close-btn:hover { background: rgba(255, 255, 255, 0.4); }
+
     #overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; display: none; }
     #overlay h2 { margin-top: 0; }
   </style>
@@ -91,6 +108,7 @@
         <option value="">Loading tenants...</option>
       </select>
       <button onclick="openCreateTenantModal()" class="secondary" style="padding:4px 8px; font-size:0.85em; margin:0;">+ Create Tenant</button>
+      <button onclick="openCreateAccountModal()" style="padding:4px 8px; font-size:0.85em; margin:0; background:#0284c7; color:white; border:none; border-radius:4px; cursor:pointer;">+ Add Account</button>
       <input type="text" id="tenantId" value="" style="display:none;" onchange="onTenantChange()">
       <div id="saveStatusIndicator" class="save-status saved" style="display:inline-flex; align-items:center; font-size:0.85em; font-weight:500; padding:4px 8px; border-radius:4px; background:#e6f4ea; color:#1e7e34; border:1px solid #c3e6cb;">
         <span id="saveStatusDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#28a745; margin-right:6px;"></span>
@@ -113,6 +131,7 @@
         <div class="tab" onclick="switchTab(this, 'tab-visual')">Visual Editor</div>
         <div class="tab" onclick="switchTab(this, 'tab-rag')">Knowledge Base (PDF)</div>
         <div class="tab" onclick="switchTab(this, 'tab-ecommerce')">Ecommerce (Products)</div>
+        <div class="tab" onclick="switchTab(this, 'tab-crm')">CRM (Leads)</div>
       </div>
       
       <div class="panel-content">
@@ -548,12 +567,11 @@
         <div id="tab-ecommerce" class="tab-content">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
             <div style="display:flex; align-items:center; gap:8px;">
-              <label style="display:inline-block; margin:0;">Account / Store:</label>
+              <label style="display:inline-block; margin:0;">Account:</label>
               <select id="ecomAccountSelect" style="width:200px; display:inline-block;" onchange="onEcomAccountChange()">
                 <option value="">-- Select Account --</option>
               </select>
               <span id="ecomAccountStatic" style="display:none; font-weight:bold; font-size:0.88em; padding:3px 10px; border-radius:4px; background:#f1f5f9; color:#1e293b; border:1px solid #cbd5e1;"></span>
-              <button type="button" onclick="openCreateAccountModal()" style="padding:4px 8px; font-size:0.8em; background:#0284c7; color:white; border:none; border-radius:4px; cursor:pointer;">+ Add Store</button>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <span id="ecomFeatureBadge" style="font-size:0.8em; padding:3px 8px; border-radius:4px; font-weight:bold; background:#eee;">Loading...</span>
@@ -569,146 +587,34 @@
           <div id="productListContainer">
             <div style="color: #888; font-size: 0.9em;">Select an account to view and manage products.</div>
           </div>
+        </div>
 
-          <!-- Tenant Creation Modal -->
-          <div id="tenantModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1300; justify-content:center; align-items:center;">
-            <div style="background:white; padding:20px; border-radius:8px; width:440px; max-width:90%;">
-              <h3 style="margin-top:0;">Create Tenant</h3>
-              <label>Tenant Name*</label>
-              <input type="text" id="new_tenant_name" placeholder="e.g. Sahara Voyages, Tech Haven" required>
-              <label style="margin-top:10px;">Tenant ID (Optional slug / identifier)</label>
-              <input type="text" id="new_tenant_id" placeholder="e.g. sahara-voyages (auto-generated if blank)">
-              <div id="tenant_error" style="display:none; color:#dc3545; font-size:0.85em; margin-top:8px;"></div>
-              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
-                <button type="button" class="secondary" onclick="closeCreateTenantModal()">Cancel</button>
-                <button type="button" onclick="submitCreateTenant()">Create Tenant</button>
-              </div>
+        <!-- CRM (Leads) Tab -->
+        <div id="tab-crm" class="tab-content">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <label style="display:inline-block; margin:0;">Account:</label>
+              <select id="crmAccountSelect" style="width:200px; display:inline-block;" onchange="onCrmAccountChange()">
+                <option value="">-- Select Account --</option>
+              </select>
+              <span id="crmAccountStatic" style="display:none; font-weight:bold; font-size:0.88em; padding:3px 10px; border-radius:4px; background:#f1f5f9; color:#1e293b; border:1px solid #cbd5e1;"></span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <label style="margin:0; font-size:0.85em; font-weight:bold;">Filter Status:</label>
+              <select id="crmStatusFilter" style="width:140px; margin:0; padding:4px 8px; font-size:0.85em;" onchange="loadLeads()">
+                <option value="">All Statuses</option>
+                <option value="NEW">NEW</option>
+                <option value="CONTACTED">CONTACTED</option>
+                <option value="QUALIFIED">QUALIFIED</option>
+                <option value="WON">WON</option>
+                <option value="LOST">LOST</option>
+              </select>
+              <button type="button" onclick="loadLeads()" class="secondary" style="padding:4px 10px; font-size:0.85em;">Refresh</button>
             </div>
           </div>
 
-          <!-- Account Creation Modal -->
-          <div id="accountModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1200; justify-content:center; align-items:center;">
-            <div style="background:white; padding:20px; border-radius:8px; width:420px; max-width:90%;">
-              <h3 style="margin-top:0;">Create Store Account</h3>
-              <label>Account / Store Name*</label>
-              <input type="text" id="acc_name" placeholder="e.g. Casablanca Flagship, TechStore" required>
-              <div id="acc_error" style="display:none; color:#dc3545; font-size:0.85em; margin-top:5px;"></div>
-              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button type="button" class="secondary" onclick="closeAccountModal()">Cancel</button>
-                <button type="button" onclick="saveAccount()">Create Account</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Product Form Modal -->
-          <div id="productModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1100; justify-content:center; align-items:center;">
-            <div style="background:white; padding:20px; border-radius:8px; width:600px; max-width:90%; max-height:90vh; overflow-y:auto;">
-              <h3 id="productModalTitle" style="margin-top:0;">Create Product</h3>
-              <input type="hidden" id="p_id">
-              
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div>
-                  <label>Product Name (Default / EN)*</label>
-                  <input type="text" id="p_name" required>
-                </div>
-                <div>
-                  <label>SKU*</label>
-                  <input type="text" id="p_sku" required>
-                </div>
-                <div>
-                  <label>Price*</label>
-                  <input type="number" id="p_price" step="0.01" min="0" required>
-                </div>
-                <div>
-                  <label>Currency</label>
-                  <input type="text" id="p_currency" value="USD">
-                </div>
-                <div>
-                  <label>Stock*</label>
-                  <input type="number" id="p_stock" min="0" value="0">
-                </div>
-                <div>
-                  <label>Category</label>
-                  <input type="text" id="p_category">
-                </div>
-              </div>
-
-              <label>Description</label>
-              <textarea id="p_description" style="height:60px;"></textarea>
-
-              <div style="margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
-                <strong>Localized Names & Descriptions</strong>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px;">
-                  <div>
-                    <label>French Name</label><input type="text" id="p_name_fr">
-                    <label>Arabic Name</label><input type="text" id="p_name_ar">
-                    <label>Darija Name</label><input type="text" id="p_name_darija">
-                  </div>
-                  <div>
-                    <label>French Description</label><textarea id="p_desc_fr" style="height:35px;"></textarea>
-                    <label>Arabic Description</label><textarea id="p_desc_ar" style="height:35px;"></textarea>
-                    <label>Darija Description</label><textarea id="p_desc_darija" style="height:35px;"></textarea>
-                  </div>
-                </div>
-              </div>
-
-              <div style="margin-top:10px;">
-                <label>Metadata (Optional JSON Specifications)</label>
-                <textarea id="p_metadata" style="height:55px; font-family:monospace; font-size:0.85em;" placeholder='{\n  "ram": "32GB",\n  "storage": "1TB"\n}'></textarea>
-                <div id="p_metadata_error" style="display:none; color:#dc3545; font-size:0.82em; margin-top:2px;"></div>
-              </div>
-
-              <div style="margin-top:10px;">
-                <label><input type="checkbox" id="p_active" checked style="width:auto; display:inline-block; margin-right:6px;"> Active in store catalog</label>
-              </div>
-
-              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button type="button" class="secondary" onclick="closeProductModal()">Cancel</button>
-                <button type="button" onclick="saveProduct()">Save Product</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Variant Modal -->
-          <div id="variantModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1150; justify-content:center; align-items:center;">
-            <div style="background:white; padding:20px; border-radius:8px; width:450px; max-width:90%;">
-              <h3 id="variantModalTitle" style="margin-top:0;">Add Product Variant</h3>
-              <input type="hidden" id="v_productId">
-              <input type="hidden" id="v_variantId">
-              
-              <label>Variant SKU*</label>
-              <input type="text" id="var_sku" required>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div>
-                  <label>Size</label><input type="text" id="var_size" placeholder="e.g. 42, L">
-                </div>
-                <div>
-                  <label>Color</label><input type="text" id="var_color" placeholder="e.g. Blue, Noir">
-                </div>
-                <div>
-                  <label>Price Override (Optional)</label><input type="number" id="var_price" step="0.01" min="0" placeholder="Base price">
-                </div>
-                <div>
-                  <label>Stock</label><input type="number" id="var_stock" min="0" value="0">
-                </div>
-              </div>
-
-              <div style="margin-top:10px;">
-                <label>Metadata (Optional JSON)</label>
-                <textarea id="var_metadata" style="height:45px; font-family:monospace; font-size:0.85em;" placeholder='{\n  "gpu": "RTX 4080"\n}'></textarea>
-                <div id="var_metadata_error" style="display:none; color:#dc3545; font-size:0.82em; margin-top:2px;"></div>
-              </div>
-
-              <div style="margin-top:10px;">
-                <label><input type="checkbox" id="var_active" checked style="width:auto; display:inline-block; margin-right:6px;"> Active variant</label>
-              </div>
-
-              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button type="button" class="secondary" onclick="closeVariantModal()">Cancel</button>
-                <button type="button" onclick="saveVariant()">Save Variant</button>
-              </div>
-            </div>
+          <div id="crmLeadsContainer">
+            <div style="color: #888; font-size: 0.9em;">Select an account to view and manage leads.</div>
           </div>
         </div>
       </div>
@@ -1432,16 +1338,20 @@
       const wfKeys = Object.keys(workflowEntries || {});
 
       list.innerHTML = intentEntries.map((intent, idx) => `
-        <div class="intent-row" style="display:flex; gap:10px; align-items:center; margin-bottom:8px; padding:10px; border:1px solid #ddd; border-radius:4px; background:#fff;">
-          <div style="flex:1;">
+        <div class="intent-row" style="display:flex; gap:10px; align-items:center; margin-bottom:8px; padding:10px; border:1px solid #ddd; border-radius:4px; background:#fff; flex-wrap:wrap;">
+          <div style="flex:1; min-width:140px;">
             <label style="margin-top:0; font-size:0.75em; color:#888;">Intent ID</label>
             <input type="text" value="${intent.id || ''}" placeholder="e.g. SUPPORT_REQUEST" oninput="updateIntentField(${idx}, 'id', this.value)" style="margin-top:2px;">
           </div>
-          <div style="flex:2;">
+          <div style="flex:2; min-width:200px;">
             <label style="margin-top:0; font-size:0.75em; color:#888;">Description (for LLM intent classifier)</label>
             <input type="text" value="${intent.description || ''}" placeholder="Description of user intent..." oninput="updateIntentField(${idx}, 'description', this.value)" style="margin-top:2px;">
           </div>
-          <div style="flex:1.5;">
+          <div style="flex:1.5; min-width:180px;">
+            <label style="margin-top:0; font-size:0.75em; color:#888;">Trigger Keywords (comma-separated)</label>
+            <input type="text" value="${(intent.keywords || []).join(', ')}" placeholder="e.g. book session, appointment" oninput="updateIntentKeywords(${idx}, this.value)" style="margin-top:2px;">
+          </div>
+          <div style="flex:1.2; min-width:140px;">
             <label style="margin-top:0; font-size:0.75em; color:#888;">Linked Workflow</label>
             <select onchange="updateIntentField(${idx}, 'workflowId', this.value)" style="margin-top:2px;">
               <option value="" ${!intent.workflowId ? 'selected' : ''}>(None - Fallthrough)</option>
@@ -1475,6 +1385,17 @@
         delete intentEntries[idx].workflowId;
       } else {
         intentEntries[idx][field] = val;
+      }
+      syncVisualToJson();
+    }
+
+    function updateIntentKeywords(idx, val) {
+      if (!intentEntries[idx]) return;
+      const kwList = val.split(',').map(s => s.trim()).filter(Boolean);
+      if (kwList.length > 0) {
+        intentEntries[idx].keywords = kwList;
+      } else {
+        delete intentEntries[idx].keywords;
       }
       syncVisualToJson();
     }
@@ -1560,6 +1481,50 @@
                   <input type="checkbox" ${wf.allowInterruption !== false ? 'checked' : ''} onchange="updateWorkflowMeta('${wfKey}', 'allowInterruption', this.checked)">
                   Allow Side Questions (FAQ/RAG)
                 </label>
+              </div>
+            </div>
+
+            <!-- Workflow Trigger Phrases / Keywords -->
+            <div style="margin-bottom:14px; background:#fff; padding:10px; border:1px solid #e0e0e0; border-radius:6px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="margin-top:0; font-size:0.8em; color:#555; font-weight:600;">Trigger Phrases / Keywords (Fast Deterministic Matching):</label>
+                <button type="button" class="secondary" style="padding:2px 8px; font-size:0.75em;" onclick="addWorkflowKeyword('${wfKey}')">+ Add Phrase</button>
+              </div>
+              <div style="font-size:0.75em; color:#888; margin-bottom:6px;">Matching user messages immediately start this workflow without LLM intent classification delay.</div>
+              <div id="wfKeywordsList_${esc(wfKey)}" style="display:flex; flex-direction:column; gap:4px;">
+                ${(wf.activation?.keywords || []).length === 0 ? '<div style="font-size:0.8em; color:#999; font-style:italic;">No trigger phrases configured. (Click "+ Add Phrase" to add fast triggers)</div>' : ''}
+                ${(wf.activation?.keywords || []).map((kw, kwIdx) => `
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <input type="text" value="${esc(kw)}" placeholder="e.g. book a session" style="margin:0; font-size:0.85em; padding:3px 8px; flex:1;" oninput="updateWorkflowKeyword('${wfKey}', ${kwIdx}, this.value)">
+                    <button type="button" class="danger" style="padding:2px 6px; font-size:0.75em;" onclick="deleteWorkflowKeyword('${wfKey}', ${kwIdx})">✕</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Workflow Execution Limit Settings -->
+            <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; background:#fff; padding:10px; border:1px solid #e0e0e0; border-radius:6px; align-items:center;">
+              <div style="flex:1; min-width:280px;">
+                <label style="margin-top:0; font-size:0.8em; color:#555; display:block; margin-bottom:4px; font-weight:600;">Execution Limit (Per Customer)</label>
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                  <label style="display:flex; align-items:center; gap:4px; font-size:0.85em; cursor:pointer; margin:0;">
+                    <input type="radio" name="execLimitMode_${esc(wfKey)}" value="unlimited" ${(wf.executionLimit?.mode || 'unlimited') === 'unlimited' ? 'checked' : ''} onchange="updateWorkflowExecutionLimitMode('${wfKey}', 'unlimited')">
+                    Unlimited
+                  </label>
+                  <label style="display:flex; align-items:center; gap:4px; font-size:0.85em; cursor:pointer; margin:0;">
+                    <input type="radio" name="execLimitMode_${esc(wfKey)}" value="once" ${wf.executionLimit?.mode === 'once' ? 'checked' : ''} onchange="updateWorkflowExecutionLimitMode('${wfKey}', 'once')">
+                    Once per customer
+                  </label>
+                  <label style="display:flex; align-items:center; gap:4px; font-size:0.85em; cursor:pointer; margin:0;">
+                    <input type="radio" name="execLimitMode_${esc(wfKey)}" value="custom" ${wf.executionLimit?.mode === 'custom' ? 'checked' : ''} onchange="updateWorkflowExecutionLimitMode('${wfKey}', 'custom')">
+                    Custom
+                  </label>
+                  <input type="number" min="1" step="1" id="execLimitCustomInput_${esc(wfKey)}" value="${wf.executionLimit?.maxExecutions || 2}" style="width:65px; padding:2px 6px; font-size:0.85em; margin:0; display:${wf.executionLimit?.mode === 'custom' ? 'inline-block' : 'none'};" onchange="updateWorkflowExecutionLimitMax('${wfKey}', this.value)" placeholder="Max">
+                </div>
+              </div>
+              <div style="flex:1.5; min-width:240px;">
+                <label style="margin-top:0; font-size:0.8em; color:#555; display:block; margin-bottom:2px; font-weight:600;">Limit Reached Message (Optional)</label>
+                <input type="text" placeholder="You have already completed this request." value="${esc(typeof wf.executionLimit?.limitReachedMessage === 'string' ? wf.executionLimit.limitReachedMessage : (wf.executionLimit?.limitReachedMessage?.en || ''))}" onchange="updateWorkflowExecutionLimitMessage('${wfKey}', this.value)" style="margin:0; font-size:0.85em; padding:4px 8px;">
               </div>
             </div>
 
@@ -2376,10 +2341,90 @@
     function updateWorkflowActivationIntents(wfKey, selectElem) {
       if (!workflowEntries[wfKey]) return;
       if (!workflowEntries[wfKey].activation) {
-        workflowEntries[wfKey].activation = { mode: 'explicit_intent', allowManualStart: true, intents: [] };
+        workflowEntries[wfKey].activation = { mode: 'explicit_intent', allowManualStart: true, intents: [], keywords: [] };
       }
       const selected = Array.from(selectElem.selectedOptions).map(o => o.value);
       workflowEntries[wfKey].activation.intents = selected;
+      syncVisualToJson();
+    }
+
+    function addWorkflowKeyword(wfKey) {
+      if (!workflowEntries[wfKey]) return;
+      if (!workflowEntries[wfKey].activation) {
+        workflowEntries[wfKey].activation = { mode: 'explicit_intent', allowManualStart: true, intents: [], keywords: [] };
+      }
+      workflowEntries[wfKey].activation.keywords = workflowEntries[wfKey].activation.keywords || [];
+      workflowEntries[wfKey].activation.keywords.push('');
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function updateWorkflowKeyword(wfKey, kwIdx, val) {
+      if (!workflowEntries[wfKey] || !workflowEntries[wfKey].activation?.keywords) return;
+      const trimmed = val.trim();
+      if (trimmed) {
+        workflowEntries[wfKey].activation.keywords[kwIdx] = trimmed;
+      } else {
+        workflowEntries[wfKey].activation.keywords.splice(kwIdx, 1);
+        renderWorkflowList();
+      }
+      syncVisualToJson();
+    }
+
+    function deleteWorkflowKeyword(wfKey, kwIdx) {
+      if (!workflowEntries[wfKey] || !workflowEntries[wfKey].activation?.keywords) return;
+      workflowEntries[wfKey].activation.keywords.splice(kwIdx, 1);
+      renderWorkflowList();
+      syncVisualToJson();
+    }
+
+    function updateWorkflowExecutionLimitMode(wfKey, mode) {
+      if (!workflowEntries[wfKey]) return;
+      if (!workflowEntries[wfKey].executionLimit) {
+        workflowEntries[wfKey].executionLimit = { mode: 'unlimited' };
+      }
+      workflowEntries[wfKey].executionLimit.mode = mode;
+      if (mode === 'once') {
+        workflowEntries[wfKey].executionLimit.maxExecutions = 1;
+      } else if (mode === 'custom') {
+        const inputElem = document.getElementById(`execLimitCustomInput_${wfKey}`);
+        const parsed = parseInt(inputElem?.value, 10);
+        workflowEntries[wfKey].executionLimit.maxExecutions = (!isNaN(parsed) && parsed >= 1) ? parsed : 2;
+      } else {
+        delete workflowEntries[wfKey].executionLimit.maxExecutions;
+      }
+      const customInput = document.getElementById(`execLimitCustomInput_${wfKey}`);
+      if (customInput) {
+        customInput.style.display = mode === 'custom' ? 'inline-block' : 'none';
+      }
+      syncVisualToJson();
+    }
+
+    function updateWorkflowExecutionLimitMax(wfKey, val) {
+      if (!workflowEntries[wfKey]) return;
+      if (!workflowEntries[wfKey].executionLimit) {
+        workflowEntries[wfKey].executionLimit = { mode: 'custom', maxExecutions: 1 };
+      }
+      const parsed = parseInt(val, 10);
+      if (!isNaN(parsed) && parsed >= 1) {
+        workflowEntries[wfKey].executionLimit.maxExecutions = parsed;
+      } else {
+        workflowEntries[wfKey].executionLimit.maxExecutions = 1;
+      }
+      syncVisualToJson();
+    }
+
+    function updateWorkflowExecutionLimitMessage(wfKey, val) {
+      if (!workflowEntries[wfKey]) return;
+      if (!workflowEntries[wfKey].executionLimit) {
+        workflowEntries[wfKey].executionLimit = { mode: 'unlimited' };
+      }
+      const trimmed = val ? val.trim() : '';
+      if (trimmed) {
+        workflowEntries[wfKey].executionLimit.limitReachedMessage = trimmed;
+      } else {
+        delete workflowEntries[wfKey].executionLimit.limitReachedMessage;
+      }
       syncVisualToJson();
     }
 
@@ -2642,8 +2687,23 @@
       config.capabilities.imageEnabled = document.getElementById('v_imageEnabled').value === "true";
       config.capabilities.ecommerceEnabled = document.getElementById('v_ecommerceEnabled').value === "true";
       config.capabilities.faq = JSON.parse(JSON.stringify(faqEntries));
-      config.capabilities.intents = JSON.parse(JSON.stringify(intentEntries));
-      config.workflows = JSON.parse(JSON.stringify(workflowEntries));
+      // Ensure bi-directional consistency between capabilities.intents[].workflowId and workflow.activation.intents
+      const syncedWorkflows = JSON.parse(JSON.stringify(workflowEntries || {}));
+      const syncedIntents = JSON.parse(JSON.stringify(intentEntries || []));
+
+      for (const intent of syncedIntents) {
+        if (intent.workflowId && syncedWorkflows[intent.workflowId]) {
+          const wf = syncedWorkflows[intent.workflowId];
+          wf.activation = wf.activation || { mode: 'explicit_intent', allowManualStart: true, intents: [] };
+          wf.activation.intents = wf.activation.intents || [];
+          if (!wf.activation.intents.includes(intent.id)) {
+            wf.activation.intents.push(intent.id);
+          }
+        }
+      }
+
+      config.capabilities.intents = syncedIntents;
+      config.workflows = syncedWorkflows;
 
       // 7. Prompts & Messages
       config.prompts = config.prompts || {};
@@ -2694,6 +2754,7 @@
       // Sync direction based on tab
       if (targetId === 'tab-visual') syncJsonToVisual();
       if (targetId === 'tab-ecommerce') loadAccounts();
+      if (targetId === 'tab-crm') { loadAccounts(); loadLeads(); }
     }
 
     // --- Knowledge Base ---
@@ -2849,18 +2910,18 @@
           if (ragSelect) {
             const currentRagVal = ragSelect.value;
             if (accountsList.length === 0) {
-              ragSelect.innerHTML = '<option value="global">🌐 Global Tenant Knowledge (No store configured)</option>';
+              ragSelect.innerHTML = '<option value="global">🌐 Global Tenant Knowledge (No account configured)</option>';
               ragSelect.value = 'global';
             } else if (accountsList.length === 1) {
               const singleAcc = accountsList[0];
               const accName = escapeHtml(singleAcc.name || singleAcc.id);
               ragSelect.innerHTML = `
-                <option value="${escapeHtml(singleAcc.id)}">🏬 ${accName} (Store Knowledge)</option>
+                <option value="${escapeHtml(singleAcc.id)}">🏬 ${accName} (Account Knowledge)</option>
                 <option value="global">🌐 Global Tenant Knowledge</option>
               `;
               ragSelect.value = singleAcc.id;
             } else {
-              ragSelect.innerHTML = '<option value="global">🌐 Global Tenant Knowledge (All Stores)</option>' +
+              ragSelect.innerHTML = '<option value="global">🌐 Global Tenant Knowledge (All Accounts)</option>' +
                 accountsList.map(a => `<option value="${escapeHtml(a.id)}">🏬 ${escapeHtml(a.name || a.id)}</option>`).join('');
               if (currentRagVal && (currentRagVal === 'global' || accountsList.some(a => a.id === currentRagVal))) {
                 ragSelect.value = currentRagVal;
@@ -2878,7 +2939,7 @@
             if (accountsList.length === 0) {
               ecomSelect.style.display = 'none';
               if (ecomStatic) {
-                ecomStatic.textContent = 'No store configured';
+                ecomStatic.textContent = 'No account configured';
                 ecomStatic.style.color = '#888';
                 ecomStatic.style.background = '#eee';
                 ecomStatic.style.border = 'none';
@@ -2886,9 +2947,9 @@
               }
               currentAccountId = '';
               const container = document.getElementById('productListContainer');
-              if (container) container.innerHTML = '<div style="color:#888; font-size:0.9em;">No store configured for this tenant.</div>';
+              if (container) container.innerHTML = '<div style="color:#888; font-size:0.9em;">No account configured for this tenant.</div>';
               const badge = document.getElementById('ecomFeatureBadge');
-              if (badge) { badge.textContent = 'No Store'; badge.style.background = '#eee'; }
+              if (badge) { badge.textContent = 'No Account'; badge.style.background = '#eee'; }
             } else if (accountsList.length === 1) {
               const singleAcc = accountsList[0];
               ecomSelect.style.display = 'none';
@@ -2925,7 +2986,7 @@
               chatSelect.style.display = 'none';
               chatSelect.value = '';
               if (chatStatic) {
-                chatStatic.textContent = 'No store configured';
+                chatStatic.textContent = 'No account configured';
                 chatStatic.style.color = '#888';
                 chatStatic.style.background = '#eee';
                 chatStatic.style.border = 'none';
@@ -2953,9 +3014,232 @@
               }
             }
           }
+
+          // 4. CRM Account Selector
+          const crmSelect = document.getElementById('crmAccountSelect');
+          const crmStatic = document.getElementById('crmAccountStatic');
+          if (crmSelect) {
+            if (accountsList.length === 0) {
+              crmSelect.style.display = 'none';
+              if (crmStatic) {
+                crmStatic.textContent = 'No account configured';
+                crmStatic.style.color = '#888';
+                crmStatic.style.background = '#eee';
+                crmStatic.style.border = 'none';
+                crmStatic.style.display = 'inline-block';
+              }
+              currentCrmAccountId = '';
+              const container = document.getElementById('crmLeadsContainer');
+              if (container) container.innerHTML = '<div style="color:#888; font-size:0.9em;">No account configured for this tenant.</div>';
+            } else if (accountsList.length === 1) {
+              const singleAcc = accountsList[0];
+              crmSelect.style.display = 'none';
+              crmSelect.innerHTML = `<option value="${escapeHtml(singleAcc.id)}">${escapeHtml(singleAcc.name || singleAcc.id)}</option>`;
+              crmSelect.value = singleAcc.id;
+              currentCrmAccountId = singleAcc.id;
+              if (crmStatic) {
+                crmStatic.innerHTML = `🏬 ${escapeHtml(singleAcc.name || singleAcc.id)}`;
+                crmStatic.style.color = '#1e293b';
+                crmStatic.style.background = '#f1f5f9';
+                crmStatic.style.border = '1px solid #cbd5e1';
+                crmStatic.style.display = 'inline-block';
+              }
+              onCrmAccountChange();
+            } else {
+              if (crmStatic) crmStatic.style.display = 'none';
+              crmSelect.style.display = 'inline-block';
+              crmSelect.innerHTML = '<option value="">-- Select Account --</option>' +
+                accountsList.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.id)}</option>`).join('');
+              if (currentCrmAccountId && accountsList.some(a => a.id === currentCrmAccountId)) {
+                crmSelect.value = currentCrmAccountId;
+              } else {
+                crmSelect.value = accountsList[0].id;
+              }
+              onCrmAccountChange();
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to load accounts:', e);
+      }
+    }
+
+    // --- CRM / Leads Logic ---
+    let currentCrmAccountId = '';
+    let leadsList = [];
+
+    async function onCrmAccountChange() {
+      const select = document.getElementById('crmAccountSelect');
+      if (select && select.value) {
+        currentCrmAccountId = select.value;
+      }
+      loadLeads();
+    }
+
+    async function loadLeads() {
+      const container = document.getElementById('crmLeadsContainer');
+      if (!container) return;
+
+      const tenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+      const accountId = currentCrmAccountId || currentAccountId;
+
+      if (!accountId) {
+        container.innerHTML = '<div style="color:#888; font-size:0.9em;">Please select an account to view leads.</div>';
+        return;
+      }
+
+      const filterStatus = (document.getElementById('crmStatusFilter') || {}).value || '';
+      let url = `/api/dev/crm/leads?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(accountId)}`;
+      if (filterStatus) {
+        url += `&status=${encodeURIComponent(filterStatus)}`;
+      }
+
+      container.innerHTML = '<div style="color:#666; font-size:0.9em; padding:15px;">Loading leads...</div>';
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          container.innerHTML = `<div style="color:#dc3545; padding:10px; background:#f8d7da; border-radius:4px; font-size:0.9em;">Error loading leads: ${escapeHtml(errData.message || res.statusText)}</div>`;
+          return;
+        }
+
+        const data = await res.json();
+        leadsList = data.leads || [];
+
+        if (leadsList.length === 0) {
+          container.innerHTML = `<div style="color:#888; font-size:0.9em; padding:20px; text-align:center; background:#fafafa; border-radius:6px; border:1px dashed #ccc;">No leads found ${filterStatus ? 'for status ' + escapeHtml(filterStatus) : 'for this account'}.</div>`;
+          return;
+        }
+
+        let html = `
+          <table style="width:100%; border-collapse:collapse; font-size:0.88em; margin-top:8px;">
+            <thead>
+              <tr style="background:#f8f9fa; border-bottom:2px solid #dee2e6; text-align:left;">
+                <th style="padding:10px;">Customer</th>
+                <th style="padding:10px;">Identifier / Phone</th>
+                <th style="padding:10px;">Status</th>
+                <th style="padding:10px;">Last Activity</th>
+                <th style="padding:10px; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        const statusColors = {
+          'NEW': { bg: '#e0f2fe', text: '#0369a1' },
+          'CONTACTED': { bg: '#fef3c7', text: '#b45309' },
+          'QUALIFIED': { bg: '#dcfce7', text: '#15803d' },
+          'WON': { bg: '#ecfdf5', text: '#047857' },
+          'LOST': { bg: '#fee2e2', text: '#b91c1c' }
+        };
+
+        leadsList.forEach(lead => {
+          const cust = lead.customer || {};
+          const meta = cust.metadata || {};
+          const displayName = meta.name || cust.externalId || 'Anonymous Customer';
+          const contactInfo = meta.phone || meta.email || cust.externalId || 'N/A';
+          const statusStyle = statusColors[lead.status] || { bg: '#f1f5f9', text: '#475569' };
+          const updatedDate = lead.updatedAt ? new Date(lead.updatedAt).toLocaleString() : 'N/A';
+
+          html += `
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:10px; font-weight:600; color:#1e293b;">${escapeHtml(displayName)}</td>
+              <td style="padding:10px; color:#64748b;">${escapeHtml(contactInfo)}</td>
+              <td style="padding:10px;">
+                <span style="display:inline-block; padding:3px 8px; border-radius:12px; font-size:0.82em; font-weight:bold; background:${statusStyle.bg}; color:${statusStyle.text};">
+                  ${escapeHtml(lead.status)}
+                </span>
+              </td>
+              <td style="padding:10px; color:#64748b; font-size:0.85em;">${escapeHtml(updatedDate)}</td>
+              <td style="padding:10px; text-align:right;">
+                <button type="button" onclick="openLeadDetail('${escapeHtml(lead.id)}')" style="padding:4px 10px; font-size:0.82em; background:#0284c7;">View / Manage</button>
+              </td>
+            </tr>
+          `;
+        });
+
+        html += `
+            </tbody>
+          </table>
+        `;
+
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = `<div style="color:#dc3545; padding:10px; background:#f8d7da; border-radius:4px; font-size:0.9em;">Network error loading leads: ${escapeHtml(err.message || err)}</div>`;
+      }
+    }
+
+    function openLeadDetail(leadId) {
+      const lead = leadsList.find(l => l.id === leadId);
+      if (!lead) return;
+
+      const cust = lead.customer || {};
+      const meta = cust.metadata || {};
+      const displayName = meta.name || cust.externalId || 'Anonymous Customer';
+      const contactInfo = [meta.phone, meta.email, cust.externalId ? `ID: ${cust.externalId}` : null].filter(Boolean).join(' • ') || 'No contact details recorded';
+
+      document.getElementById('lead_id').value = lead.id;
+      document.getElementById('lead_customer_external_id').value = cust.externalId || cust.id || '';
+      document.getElementById('lead_customer_name').textContent = displayName;
+      document.getElementById('lead_customer_contact').textContent = contactInfo;
+      document.getElementById('lead_status_select').value = lead.status;
+      document.getElementById('lead_updated_at').textContent = lead.updatedAt ? new Date(lead.updatedAt).toLocaleString() : 'N/A';
+      document.getElementById('lead_error').style.display = 'none';
+
+      const modal = document.getElementById('leadModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeLeadModal() {
+      const modal = document.getElementById('leadModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function saveLeadStatus() {
+      const leadId = document.getElementById('lead_id').value;
+      const status = document.getElementById('lead_status_select').value;
+      const tenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+      const accountId = currentCrmAccountId || currentAccountId;
+      const errDiv = document.getElementById('lead_error');
+
+      try {
+        const res = await fetch(`/api/dev/crm/leads/${encodeURIComponent(leadId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, accountId, status })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          errDiv.textContent = errData.message || 'Failed to update lead status';
+          errDiv.style.display = 'block';
+          return;
+        }
+
+        const data = await res.json();
+        const idx = leadsList.findIndex(l => l.id === leadId);
+        if (idx !== -1 && data.lead) {
+          leadsList[idx].status = data.lead.status;
+          leadsList[idx].updatedAt = data.lead.updatedAt;
+        }
+
+        closeLeadModal();
+        loadLeads();
+      } catch (e) {
+        errDiv.textContent = e.message || 'Network error updating lead status';
+        errDiv.style.display = 'block';
+      }
+    }
+
+    function openLeadConversation() {
+      const externalId = document.getElementById('lead_customer_external_id')?.value?.trim();
+      const crmAccId = currentCrmAccountId || currentAccountId;
+
+      closeLeadModal();
+
+      if (externalId) {
+        loadConversationHistory(externalId, crmAccId);
       }
     }
 
@@ -3109,6 +3393,22 @@
       }
     }
 
+    function validateMediaUrlInput(url, label) {
+      if (!url) return null;
+      const trimmed = url.trim();
+      if (!trimmed) return null;
+      if (trimmed.length > 2048) {
+        return `${label} must be 2048 characters or less.`;
+      }
+      if (/^(?:javascript|data|file):/i.test(trimmed)) {
+        return `${label} protocol is not allowed.`;
+      }
+      if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(trimmed)) {
+        return `${label} must be a valid HTTP or HTTPS URL.`;
+      }
+      return null;
+    }
+
     function openCreateProductModal() {
       document.getElementById('productModalTitle').textContent = 'Create Product';
       document.getElementById('p_id').value = '';
@@ -3125,6 +3425,16 @@
       document.getElementById('p_desc_fr').value = '';
       document.getElementById('p_desc_ar').value = '';
       document.getElementById('p_desc_darija').value = '';
+      
+      // Clear media fields
+      document.getElementById('p_img_1').value = '';
+      document.getElementById('p_img_2').value = '';
+      document.getElementById('p_img_3').value = '';
+      document.getElementById('p_video_url').value = '';
+      document.getElementById('p_video_thumb').value = '';
+      const pMediaErr = document.getElementById('p_media_error');
+      if (pMediaErr) pMediaErr.style.display = 'none';
+
       document.getElementById('p_metadata').value = '';
       document.getElementById('p_metadata_error').style.display = 'none';
       document.getElementById('p_active').checked = true;
@@ -3154,8 +3464,33 @@
       document.getElementById('p_desc_ar').value = locDesc.ar || '';
       document.getElementById('p_desc_darija').value = locDesc.darija || '';
 
-      document.getElementById('p_metadata').value = p.metadata ? JSON.stringify(p.metadata, null, 2) : '';
+      const meta = p.metadata ? JSON.parse(JSON.stringify(p.metadata)) : {};
+
+      // Extract images from images array or legacy image/imageUrl
+      const rawImgs = Array.isArray(meta.images) ? meta.images : (meta.imageUrl ? [meta.imageUrl] : (meta.image ? [meta.image] : []));
+      document.getElementById('p_img_1').value = rawImgs[0] || '';
+      document.getElementById('p_img_2').value = rawImgs[1] || '';
+      document.getElementById('p_img_3').value = rawImgs[2] || '';
+
+      // Extract video from video or legacy videoUrl
+      document.getElementById('p_video_url').value = meta.video || meta.videoUrl || '';
+
+      // Extract thumbnail from thumbnail or legacy thumbnailUrl
+      document.getElementById('p_video_thumb').value = meta.thumbnail || meta.thumbnailUrl || '';
+
+      // Clean ONLY media keys from meta before displaying in Advanced Metadata JSON editor
+      delete meta.images;
+      delete meta.image;
+      delete meta.imageUrl;
+      delete meta.video;
+      delete meta.videoUrl;
+      delete meta.thumbnail;
+      delete meta.thumbnailUrl;
+
+      document.getElementById('p_metadata').value = Object.keys(meta).length ? JSON.stringify(meta, null, 2) : '';
       document.getElementById('p_metadata_error').style.display = 'none';
+      const pMediaErr = document.getElementById('p_media_error');
+      if (pMediaErr) pMediaErr.style.display = 'none';
 
       document.getElementById('p_active').checked = p.active !== false;
       document.getElementById('productModal').style.display = 'flex';
@@ -3176,17 +3511,43 @@
       const description = document.getElementById('p_description').value.trim();
       const metadataStr = document.getElementById('p_metadata').value.trim();
       const metadataErr = document.getElementById('p_metadata_error');
+      const mediaErr = document.getElementById('p_media_error');
       const active = document.getElementById('p_active').checked;
 
-      let metadata = null;
+      // Media URL validation
+      const img1 = document.getElementById('p_img_1').value.trim();
+      const img2 = document.getElementById('p_img_2').value.trim();
+      const img3 = document.getElementById('p_img_3').value.trim();
+      const videoUrl = document.getElementById('p_video_url').value.trim();
+      const videoThumb = document.getElementById('p_video_thumb').value.trim();
+
+      const mediaValidationError = validateMediaUrlInput(img1, 'Primary Image') ||
+        validateMediaUrlInput(img2, 'Gallery Image 2') ||
+        validateMediaUrlInput(img3, 'Gallery Image 3') ||
+        validateMediaUrlInput(videoUrl, 'Video URL') ||
+        validateMediaUrlInput(videoThumb, 'Video Poster');
+
+      if (mediaValidationError) {
+        if (mediaErr) {
+          mediaErr.textContent = mediaValidationError;
+          mediaErr.style.display = 'block';
+        } else {
+          alert(mediaValidationError);
+        }
+        return;
+      }
+      if (mediaErr) mediaErr.style.display = 'none';
+
+      let metadata = {};
       if (metadataStr) {
         try {
-          metadata = JSON.parse(metadataStr);
-          if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+          const parsed = JSON.parse(metadataStr);
+          if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
             metadataErr.textContent = 'Metadata must be a JSON object (e.g. {"ram": "16GB"}).';
             metadataErr.style.display = 'block';
             return;
           }
+          metadata = parsed;
           metadataErr.style.display = 'none';
         } catch (err) {
           metadataErr.textContent = 'Invalid JSON syntax: ' + err.message;
@@ -3196,6 +3557,34 @@
       } else {
         metadataErr.style.display = 'none';
       }
+
+      // Merge media fields into metadata
+      const images = [img1, img2, img3].filter(Boolean);
+      if (images.length > 0) {
+        metadata.images = images;
+      } else {
+        delete metadata.images;
+      }
+
+      if (videoUrl) {
+        metadata.video = videoUrl;
+      } else {
+        delete metadata.video;
+      }
+
+      if (videoThumb) {
+        metadata.thumbnail = videoThumb;
+      } else {
+        delete metadata.thumbnail;
+      }
+
+      // Clean legacy media keys if present in custom metadata
+      delete metadata.image;
+      delete metadata.imageUrl;
+      delete metadata.videoUrl;
+      delete metadata.thumbnailUrl;
+
+      const finalMetadata = Object.keys(metadata).length ? metadata : null;
 
       const nameLocalized = {};
       const frName = document.getElementById('p_name_fr').value.trim();
@@ -3230,7 +3619,7 @@
         description,
         nameLocalized: Object.keys(nameLocalized).length ? nameLocalized : null,
         descriptionLocalized: Object.keys(descriptionLocalized).length ? descriptionLocalized : null,
-        metadata,
+        metadata: finalMetadata,
         active
       };
 
@@ -3280,6 +3669,10 @@
       document.getElementById('var_color').value = '';
       document.getElementById('var_price').value = '';
       document.getElementById('var_stock').value = '0';
+      const varImg = document.getElementById('var_img_1');
+      if (varImg) varImg.value = '';
+      const varMediaErr = document.getElementById('var_media_error');
+      if (varMediaErr) varMediaErr.style.display = 'none';
       document.getElementById('var_metadata').value = '';
       document.getElementById('var_metadata_error').style.display = 'none';
       document.getElementById('var_active').checked = true;
@@ -3298,6 +3691,8 @@
       const priceStr = document.getElementById('var_price').value.trim();
       const priceOverride = priceStr ? parseFloat(priceStr) : null;
       const stock = parseInt(document.getElementById('var_stock').value, 10) || 0;
+      const varImg = document.getElementById('var_img_1') ? document.getElementById('var_img_1').value.trim() : '';
+      const varMediaErr = document.getElementById('var_media_error');
       const metadataStr = document.getElementById('var_metadata').value.trim();
       const metadataErr = document.getElementById('var_metadata_error');
       const active = document.getElementById('var_active').checked;
@@ -3307,15 +3702,28 @@
         return;
       }
 
-      let metadata = null;
+      const imgErr = validateMediaUrlInput(varImg, 'Variant Image URL');
+      if (imgErr) {
+        if (varMediaErr) {
+          varMediaErr.textContent = imgErr;
+          varMediaErr.style.display = 'block';
+        } else {
+          alert(imgErr);
+        }
+        return;
+      }
+      if (varMediaErr) varMediaErr.style.display = 'none';
+
+      let metadata = {};
       if (metadataStr) {
         try {
-          metadata = JSON.parse(metadataStr);
-          if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+          const parsed = JSON.parse(metadataStr);
+          if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
             metadataErr.textContent = 'Metadata must be a JSON object.';
             metadataErr.style.display = 'block';
             return;
           }
+          metadata = parsed;
           metadataErr.style.display = 'none';
         } catch (err) {
           metadataErr.textContent = 'Invalid JSON syntax: ' + err.message;
@@ -3326,6 +3734,16 @@
         metadataErr.style.display = 'none';
       }
 
+      if (varImg) {
+        metadata.images = [varImg];
+      } else {
+        delete metadata.images;
+      }
+      delete metadata.image;
+      delete metadata.imageUrl;
+
+      const finalMetadata = Object.keys(metadata).length ? metadata : null;
+
       const payload = {
         tenantId,
         accountId: currentAccountId,
@@ -3334,7 +3752,7 @@
         color: color || null,
         priceOverride,
         stock,
-        metadata,
+        metadata: finalMetadata,
         active
       };
 
@@ -3411,7 +3829,43 @@
     }
 
     // --- Chat & Diagnostics ---
-    function appendMsg(sender, text, options, imgDataUrl) {
+    function sanitizeMediaUrl(url) {
+      if (!url || typeof url !== 'string') return '';
+      const trimmed = url.trim();
+      if (/^https?:\/\/[^\s$.?#].[^\s]*$/i.test(trimmed) || /^data:image\/(?:png|jpeg|jpg|webp|gif);base64,/i.test(trimmed)) {
+        return trimmed;
+      }
+      return '';
+    }
+
+    function openLightbox(url, title) {
+      const safeUrl = sanitizeMediaUrl(url);
+      if (!safeUrl) return;
+      const lightbox = document.getElementById('mediaLightbox');
+      const img = document.getElementById('lightboxImg');
+      const caption = document.getElementById('lightboxCaption');
+      if (!lightbox || !img || !caption) return;
+      img.src = safeUrl;
+      img.alt = title || 'Preview Image';
+      caption.textContent = title || '';
+      lightbox.classList.add('active');
+    }
+
+    function closeLightbox() {
+      const lightbox = document.getElementById('mediaLightbox');
+      if (!lightbox) return;
+      lightbox.classList.remove('active');
+      const img = document.getElementById('lightboxImg');
+      if (img) img.src = '';
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeLightbox();
+      }
+    });
+
+    function appendMsg(sender, text, options, imgDataUrl, media) {
       const container = document.getElementById('messages');
       
       const div = document.createElement('div');
@@ -3432,6 +3886,86 @@
         const textSpan = document.createElement('span');
         textSpan.textContent = text;
         div.appendChild(textSpan);
+      }
+
+      if (Array.isArray(media) && media.length > 0) {
+        const mediaContainer = document.createElement('div');
+        mediaContainer.className = 'chat-media-container';
+
+        const images = media.filter(item => item && item.type !== 'video');
+        const videos = media.filter(item => item && item.type === 'video');
+
+        // Video rendering (Max 1 video)
+        if (videos.length > 0) {
+          const vItem = videos[0];
+          const safeVideoUrl = sanitizeMediaUrl(vItem.url);
+          if (safeVideoUrl) {
+            const video = document.createElement('video');
+            video.src = safeVideoUrl;
+            video.controls = true;
+            video.preload = 'metadata';
+            video.className = 'chat-media-video';
+            if (vItem.title) {
+              video.setAttribute('title', vItem.title);
+            }
+            if (vItem.thumbnailUrl) {
+              const safeThumb = sanitizeMediaUrl(vItem.thumbnailUrl);
+              if (safeThumb) {
+                video.poster = safeThumb;
+              }
+            }
+            video.onerror = () => { video.style.display = 'none'; };
+            mediaContainer.appendChild(video);
+          }
+        }
+
+        // Image rendering: 1 image vs 2-3 images
+        if (images.length === 1) {
+          const item = images[0];
+          const safeUrl = sanitizeMediaUrl(item.url);
+          if (safeUrl) {
+            const img = document.createElement('img');
+            img.src = safeUrl;
+            img.loading = 'lazy';
+            img.alt = item.alt || item.title || 'Product Image';
+            img.className = 'chat-media-single';
+            img.tabIndex = 0;
+            img.setAttribute('role', 'button');
+            img.setAttribute('aria-label', `View larger ${item.title || 'image'}`);
+            img.onclick = () => openLightbox(safeUrl, item.title);
+            img.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') openLightbox(safeUrl, item.title); };
+            img.onerror = () => { img.style.display = 'none'; };
+            mediaContainer.appendChild(img);
+          }
+        } else if (images.length > 1) {
+          const grid = document.createElement('div');
+          grid.className = 'chat-media-grid';
+
+          images.slice(0, 3).forEach(item => {
+            const safeUrl = sanitizeMediaUrl(item.url);
+            if (!safeUrl) return;
+
+            const img = document.createElement('img');
+            img.src = safeUrl;
+            img.loading = 'lazy';
+            img.alt = item.alt || item.title || 'Product Image';
+            img.tabIndex = 0;
+            img.setAttribute('role', 'button');
+            img.setAttribute('aria-label', `View larger ${item.title || 'image'}`);
+            img.onclick = () => openLightbox(safeUrl, item.title);
+            img.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') openLightbox(safeUrl, item.title); };
+            img.onerror = () => { img.style.display = 'none'; };
+            grid.appendChild(img);
+          });
+
+          if (grid.children.length > 0) {
+            mediaContainer.appendChild(grid);
+          }
+        }
+
+        if (mediaContainer.children.length > 0) {
+          div.appendChild(mediaContainer);
+        }
       }
 
       container.appendChild(div);
@@ -3596,7 +4130,7 @@
       }
       
       if (res.ok) {
-        appendMsg('bot', data.message, data.debug?.options);
+        appendMsg('bot', data.message, data.debug?.options, null, data.media);
         try {
           renderDiagnostics(data);
         } catch (uiErr) {
@@ -3608,12 +4142,89 @@
       }
     }
 
+    async function loadConversationHistory(customerIdToLoad, accountIdToLoad) {
+      if (!customerIdToLoad) return;
+
+      const custInput = document.getElementById('chatCustomerId');
+      if (custInput) {
+        custInput.value = customerIdToLoad;
+      }
+
+      const chatAccSelect = document.getElementById('chatAccountSelect');
+      if (chatAccSelect && accountIdToLoad) {
+        chatAccSelect.value = accountIdToLoad;
+      }
+
+      const container = document.getElementById('messages');
+      if (container) {
+        container.innerHTML = '<div class="msg bot"><div class="msg-bubble"><span>Loading conversation...</span></div></div>';
+      }
+
+      const diagContent = document.getElementById('diagnostics-content');
+      if (diagContent) {
+        diagContent.innerHTML = 'Loading conversation history...';
+      }
+
+      const badge = document.getElementById('workflow-badge');
+      if (badge) badge.style.display = 'none';
+
+      try {
+        const tenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+        const url = `/api/dev/conversations/latest?tenantId=${encodeURIComponent(tenantId)}&customerId=${encodeURIComponent(customerIdToLoad)}${accountIdToLoad ? `&accountId=${encodeURIComponent(accountIdToLoad)}` : ''}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          if (container) {
+            container.innerHTML = '';
+            if (res.status === 404) {
+              appendMsg('bot', 'Conversation not found.');
+            } else {
+              appendMsg('error', errData.message || 'Could not load conversation.');
+            }
+          }
+          return;
+        }
+
+        const data = await res.json();
+        if (container) {
+          container.innerHTML = '';
+        }
+
+        if (data.conversation && Array.isArray(data.messages) && data.messages.length > 0) {
+          for (const m of data.messages) {
+            const sender = (m.role === 'user' || m.role === 'customer') ? 'user' : 'bot';
+            appendMsg(sender, m.content);
+          }
+          if (diagContent) {
+            diagContent.innerHTML = `Loaded conversation ${data.conversation.id} (Status: ${data.conversation.status})`;
+          }
+        } else if (data.conversation && data.conversation.status === 'ARCHIVED') {
+          appendMsg('bot', 'Archived conversation loaded (read-only).');
+          if (diagContent) {
+            diagContent.innerHTML = `Loaded archived conversation ${data.conversation.id}`;
+          }
+        } else {
+          appendMsg('bot', 'No conversation history yet.');
+          if (diagContent) {
+            diagContent.innerHTML = 'No conversation found for this customer.';
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load conversation history:', err);
+        if (container) {
+          container.innerHTML = '';
+          appendMsg('error', 'Could not load conversation.');
+        }
+      }
+    }
+
     async function resetChat() {
+      const activeAccount = document.getElementById('chatAccountSelect')?.value || currentAccountId || undefined;
       const activeCustomer = document.getElementById('chatCustomerId')?.value?.trim() || customerId;
       const res = await fetch('/api/dev/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, customerId: activeCustomer })
+        body: JSON.stringify({ tenantId, customerId: activeCustomer, accountId: activeAccount })
       });
       if (res.ok) {
         document.getElementById('messages').innerHTML = '';
@@ -3630,5 +4241,236 @@
     }
     checkBootstrap();
   </script>
+
+  <!-- Tenant Creation Modal -->
+  <div id="tenantModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1300; justify-content:center; align-items:center;">
+    <div style="background:white; padding:20px; border-radius:8px; width:440px; max-width:90%;">
+      <h3 style="margin-top:0;">Create Tenant</h3>
+      <label>Tenant Name*</label>
+      <input type="text" id="new_tenant_name" placeholder="e.g. Sahara Voyages, Tech Haven" required>
+      <label style="margin-top:10px;">Tenant ID (Optional slug / identifier)</label>
+      <input type="text" id="new_tenant_id" placeholder="e.g. sahara-voyages (auto-generated if blank)">
+      <div id="tenant_error" style="display:none; color:#dc3545; font-size:0.85em; margin-top:8px;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
+        <button type="button" class="secondary" onclick="closeCreateTenantModal()">Cancel</button>
+        <button type="button" onclick="submitCreateTenant()">Create Tenant</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Creation Modal -->
+  <div id="accountModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1200; justify-content:center; align-items:center;">
+    <div style="background:white; padding:20px; border-radius:8px; width:420px; max-width:90%;">
+      <h3 style="margin-top:0;">Create Account</h3>
+      <label>Account Name*</label>
+      <input type="text" id="acc_name" placeholder="e.g. Main, Casablanca Branch, Online Support" required>
+      <div id="acc_error" style="display:none; color:#dc3545; font-size:0.85em; margin-top:5px;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+        <button type="button" class="secondary" onclick="closeAccountModal()">Cancel</button>
+        <button type="button" onclick="saveAccount()">Create Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product Form Modal -->
+  <div id="productModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1100; justify-content:center; align-items:center;">
+    <div style="background:white; padding:20px; border-radius:8px; width:600px; max-width:90%; max-height:90vh; overflow-y:auto;">
+      <h3 id="productModalTitle" style="margin-top:0;">Create Product</h3>
+      <input type="hidden" id="p_id">
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div>
+          <label>Product Name (Default / EN)*</label>
+          <input type="text" id="p_name" required>
+        </div>
+        <div>
+          <label>SKU*</label>
+          <input type="text" id="p_sku" required>
+        </div>
+        <div>
+          <label>Price*</label>
+          <input type="number" id="p_price" step="0.01" min="0" required>
+        </div>
+        <div>
+          <label>Currency</label>
+          <input type="text" id="p_currency" value="USD">
+        </div>
+        <div>
+          <label>Stock*</label>
+          <input type="number" id="p_stock" min="0" value="0">
+        </div>
+        <div>
+          <label>Category</label>
+          <input type="text" id="p_category">
+        </div>
+      </div>
+
+      <label>Description</label>
+      <textarea id="p_description" style="height:60px;"></textarea>
+
+      <div style="margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
+        <strong>Localized Names & Descriptions</strong>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px;">
+          <div>
+            <label>French Name</label><input type="text" id="p_name_fr">
+            <label>Arabic Name</label><input type="text" id="p_name_ar">
+            <label>Darija Name</label><input type="text" id="p_name_darija">
+          </div>
+          <div>
+            <label>French Description</label><textarea id="p_desc_fr" style="height:35px;"></textarea>
+            <label>Arabic Description</label><textarea id="p_desc_ar" style="height:35px;"></textarea>
+            <label>Darija Description</label><textarea id="p_desc_darija" style="height:35px;"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
+        <strong>Product Media (Images & Video)</strong>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:6px;">
+          <div>
+            <label style="font-size:0.82em;">Primary Image (Image 1)</label>
+            <input type="text" id="p_img_1" placeholder="https://.../main.webp">
+          </div>
+          <div>
+            <label style="font-size:0.82em;">Gallery Image 2</label>
+            <input type="text" id="p_img_2" placeholder="https://.../angle.webp">
+          </div>
+          <div>
+            <label style="font-size:0.82em;">Gallery Image 3</label>
+            <input type="text" id="p_img_3" placeholder="https://.../side.webp">
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px;">
+          <div>
+            <label style="font-size:0.82em;">Video URL (Optional)</label>
+            <input type="text" id="p_video_url" placeholder="https://.../trailer.mp4">
+          </div>
+          <div>
+            <label style="font-size:0.82em;">Video Poster Thumbnail (Optional)</label>
+            <input type="text" id="p_video_thumb" placeholder="https://.../poster.webp">
+          </div>
+        </div>
+        <div id="p_media_error" style="display:none; color:#dc3545; font-size:0.82em; margin-top:4px;"></div>
+      </div>
+
+      <details style="margin-top:10px; border:1px solid #e2e8f0; border-radius:6px; padding:8px 10px; background:#f8fafc;">
+        <summary style="cursor:pointer; font-weight:600; font-size:0.85em; color:#334155;">Advanced Custom Specifications (JSON)</summary>
+        <div style="margin-top:6px;">
+          <label style="font-size:0.8em; color:#64748b;">Custom attributes (e.g. RAM, GPU, Material). Media fields are managed above.</label>
+          <textarea id="p_metadata" style="height:55px; font-family:monospace; font-size:0.85em;" placeholder='{\n  "ram": "32GB",\n  "storage": "1TB"\n}'></textarea>
+          <div id="p_metadata_error" style="display:none; color:#dc3545; font-size:0.82em; margin-top:2px;"></div>
+        </div>
+      </details>
+
+      <div style="margin-top:10px;">
+        <label><input type="checkbox" id="p_active" checked style="width:auto; display:inline-block; margin-right:6px;"> Active in store catalog</label>
+      </div>
+
+      <div id="product_error" style="display:none; color:#dc3545; font-size:0.85em; margin-top:10px;"></div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+        <button type="button" class="secondary" onclick="closeProductModal()">Cancel</button>
+        <button type="button" onclick="saveProduct()">Save Product</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Variant Modal -->
+  <div id="variantModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1150; justify-content:center; align-items:center;">
+    <div style="background:white; padding:20px; border-radius:8px; width:450px; max-width:90%;">
+      <h3 id="variantModalTitle" style="margin-top:0;">Add Product Variant</h3>
+      <input type="hidden" id="v_productId">
+      <input type="hidden" id="v_variantId">
+      
+      <label>Variant SKU*</label>
+      <input type="text" id="var_sku" required>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div>
+          <label>Size</label><input type="text" id="var_size" placeholder="e.g. 42, L">
+        </div>
+        <div>
+          <label>Color</label><input type="text" id="var_color" placeholder="e.g. Blue, Noir">
+        </div>
+        <div>
+          <label>Price Override (Optional)</label><input type="number" id="var_price" step="0.01" min="0" placeholder="Base price">
+        </div>
+        <div>
+          <label>Stock</label><input type="number" id="var_stock" min="0" value="0">
+        </div>
+      </div>
+
+      <div style="margin-top:8px;">
+        <label style="font-size:0.82em;">Variant Image URL (Optional)</label>
+        <input type="text" id="var_img_1" placeholder="https://.../variant-color.webp">
+        <div id="var_media_error" style="display:none; color:#dc3545; font-size:0.82em; margin-top:2px;"></div>
+      </div>
+
+      <details style="margin-top:8px; border:1px solid #e2e8f0; border-radius:6px; padding:6px 8px; background:#f8fafc;">
+        <summary style="cursor:pointer; font-weight:600; font-size:0.82em; color:#334155;">Advanced Variant Metadata (JSON)</summary>
+        <div style="margin-top:4px;">
+          <textarea id="var_metadata" style="height:45px; font-family:monospace; font-size:0.85em;" placeholder='{\n  "gpu": "RTX 4080"\n}'></textarea>
+          <div id="var_metadata_error" style="display:none; color:#dc3545; font-size:0.82em; margin-top:2px;"></div>
+        </div>
+      </details>
+
+      <div style="margin-top:10px;">
+        <label><input type="checkbox" id="var_active" checked style="width:auto; display:inline-block; margin-right:6px;"> Active variant</label>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+        <button type="button" class="secondary" onclick="closeVariantModal()">Cancel</button>
+        <button type="button" onclick="saveVariant()">Save Variant</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lead Detail Modal -->
+  <div id="leadModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1150; justify-content:center; align-items:center;">
+    <div style="background:white; padding:20px; border-radius:8px; width:480px; max-width:90%; box-shadow:0 4px 15px rgba(0,0,0,0.2);">
+      <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px;">Lead Details</h3>
+      <input type="hidden" id="lead_id">
+      <input type="hidden" id="lead_customer_external_id">
+      
+      <div style="margin-bottom:12px;">
+        <label style="color:#666; font-size:0.8em; text-transform:uppercase;">Customer</label>
+        <div id="lead_customer_name" style="font-weight:bold; font-size:1.05em; color:#111; margin-top:2px;"></div>
+        <div id="lead_customer_contact" style="font-size:0.85em; color:#555; margin-top:2px;"></div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="color:#666; font-size:0.8em; text-transform:uppercase;">Pipeline Status</label>
+        <select id="lead_status_select" style="margin-top:4px;">
+          <option value="NEW">NEW</option>
+          <option value="CONTACTED">CONTACTED</option>
+          <option value="QUALIFIED">QUALIFIED</option>
+          <option value="WON">WON</option>
+          <option value="LOST">LOST</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:15px;">
+        <label style="color:#666; font-size:0.8em; text-transform:uppercase;">Last Activity / Updated</label>
+        <div id="lead_updated_at" style="font-size:0.85em; color:#666; margin-top:2px;"></div>
+      </div>
+
+      <div id="lead_error" style="display:none; color:#dc3545; font-size:0.85em; margin-bottom:10px;"></div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eee; padding-top:15px; margin-top:15px;">
+        <button type="button" class="secondary" onclick="openLeadConversation()" style="background:#0284c7; color:white;">💬 Open Conversation</button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="secondary" onclick="closeLeadModal()">Cancel</button>
+          <button type="button" onclick="saveLeadStatus()">Update Status</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Media Lightbox Modal -->
+  <div id="mediaLightbox" role="dialog" aria-modal="true" aria-label="Media Preview" onclick="if (event.target === this) closeLightbox()">
+    <button type="button" class="lightbox-close-btn" aria-label="Close preview" onclick="closeLightbox()">&times;</button>
+    <img id="lightboxImg" src="" alt="Preview">
+    <div id="lightboxCaption"></div>
+  </div>
 </body>
 </html>

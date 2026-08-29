@@ -69,9 +69,9 @@ export class LLMFactory {
 
     const options: LLMRequestOptions = {
       model,
-      temperature: config.temperature,
-      maxTokens: config.maxTokens,
-      timeoutMs: config.timeoutMs
+      temperature: config?.temperature,
+      maxTokens: config?.maxTokens,
+      timeoutMs: config?.timeoutMs
     };
 
     return { provider, options };

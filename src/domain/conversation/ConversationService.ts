@@ -2,8 +2,81 @@ import { PrismaClient, Conversation, WorkflowSession, Message } from '@prisma/cl
 import { ConversationContext, buildConversationContext } from './ConversationContext';
 import { logger } from '../../utils/logger';
 
+export interface ConversationWithMessages extends Conversation {
+  messages: Message[];
+}
+
 export class ConversationService {
   constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Retrieves the latest conversation for a customer within a tenant and optional account.
+   * Priority:
+   * 1. ACTIVE / HANDOFF_REQUESTED / HUMAN_ACTIVE (newest first)
+   * 2. Latest ARCHIVED (newest first)
+   * 3. null if no conversation exists.
+   * Messages are included in chronological order (createdAt ASC).
+   */
+  async getLatestConversation(
+    tenantId: string,
+    customerId: string,
+    accountId?: string | null
+  ): Promise<ConversationWithMessages | null> {
+    if (!tenantId || !customerId) return null;
+
+    // 1. Resolve Customer by tenantId + externalId (or id)
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        tenantId,
+        OR: [
+          { externalId: customerId },
+          { id: customerId }
+        ]
+      }
+    });
+
+    if (!customer) return null;
+
+    const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+
+    const baseWhere: any = {
+      tenantId,
+      customerId: customer.id,
+      ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+    };
+
+    // 2. Check for active/handoff conversations first
+    let conversation = await this.prisma.conversation.findFirst({
+      where: {
+        ...baseWhere,
+        status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] }
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    });
+
+    // 3. If no active conversation, look for the latest archived conversation
+    if (!conversation) {
+      conversation = await this.prisma.conversation.findFirst({
+        where: {
+          ...baseWhere,
+          status: 'ARCHIVED'
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          messages: {
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+    }
+
+    return conversation as ConversationWithMessages | null;
+  }
 
   async getOrCreateConversation(tenantId: string, externalId: string, accountId?: string | null): Promise<Conversation> {
     const customer = await this.prisma.customer.upsert({
@@ -116,6 +189,41 @@ export class ConversationService {
     return this.prisma.workflowSession.findFirst({
       where: { tenantId, conversationId, status: 'COMPLETED' },
       orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async countCompletedWorkflowSessions(
+    tenantId: string,
+    customerId: string,
+    workflowId: string,
+    accountId?: string | null
+  ): Promise<number> {
+    if (!tenantId || !customerId || !workflowId) return 0;
+    const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        tenantId,
+        OR: [
+          { externalId: customerId },
+          { id: customerId }
+        ]
+      }
+    });
+
+    if (!customer) return 0;
+
+    return this.prisma.workflowSession.count({
+      where: {
+        tenantId,
+        workflowId,
+        status: 'COMPLETED',
+        conversation: {
+          tenantId,
+          customerId: customer.id,
+          ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+        }
+      }
     });
   }
 

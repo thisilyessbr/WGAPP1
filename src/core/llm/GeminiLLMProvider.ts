@@ -45,9 +45,13 @@ export class GeminiLLMProvider implements LLMProvider {
         timeoutMs
       });
 
-      const intent = responseText.trim().replace(/^["']|["']$/g, '');
+      const intent = responseText.trim().replace(/^["']|["']$/g, '').replace(/[.,;:\n\r]+$/, '').trim();
       if (allowedIntents.includes(intent)) {
         return intent;
+      }
+      const match = allowedIntents.find(i => i.toLowerCase() === intent.toLowerCase());
+      if (match) {
+        return match;
       }
       return null;
     } catch (err: any) {

@@ -42,6 +42,7 @@ export interface TurnDecision {
   ordinalIndex?: number | null;
   maxPrice?: number | null;
   compareProductNames?: string[] | null;
+  requestedMediaType?: 'image' | 'video' | null;
   isMultiPolicy?: boolean;
   policyIntents?: string[] | null;
   isComparative?: boolean;
@@ -420,6 +421,7 @@ export class TurnDecisionResolver {
         ordinalIndex: ecomParams?.ordinalIndex ?? null,
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
+        requestedMediaType: ecomParams?.requestedMediaType ?? null,
         isMultiPolicy,
         policyIntents,
         isComparative,
@@ -447,6 +449,7 @@ export class TurnDecisionResolver {
         ordinalIndex: ecomParams?.ordinalIndex ?? null,
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
+        requestedMediaType: ecomParams?.requestedMediaType ?? null,
         isMultiPolicy,
         policyIntents,
         isComparative,
@@ -462,7 +465,7 @@ export class TurnDecisionResolver {
     if (
       isEcommerceEnabled &&
       (input.responseSource === 'ECOMMERCE' ||
-      (ecomParams && ['PRODUCT_SEARCH', 'PRODUCT_DETAIL', 'ATTRIBUTE_QUERY', 'PRICE', 'AVAILABILITY', 'VARIANT_SELECTION', 'COMPARE', 'RECOMMENDATION'].includes(ecomParams.intent)))
+      (ecomParams && ['BUY_INTENT', 'PRODUCT_SEARCH', 'PRODUCT_DETAIL', 'ATTRIBUTE_QUERY', 'PRICE', 'AVAILABILITY', 'VARIANT_SELECTION', 'COMPARE', 'RECOMMENDATION'].includes(ecomParams.intent)))
     ) {
       return {
         domain: 'ECOMMERCE',
@@ -482,6 +485,7 @@ export class TurnDecisionResolver {
         ordinalIndex: ecomParams?.ordinalIndex ?? null,
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
+        requestedMediaType: ecomParams?.requestedMediaType ?? null,
         isComparative,
         isPluralReference,
         isScopeExpansion,
@@ -510,6 +514,7 @@ export class TurnDecisionResolver {
       ordinalIndex: ecomParams?.ordinalIndex ?? null,
       maxPrice: ecomParams?.maxPrice ?? null,
       compareProductNames: ecomParams?.compareProductNames || null,
+      requestedMediaType: ecomParams?.requestedMediaType ?? null,
       isComparative,
       isPluralReference,
       isScopeExpansion,

@@ -8,7 +8,54 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { config } from './config/env';
 import { logger } from './utils/logger';
 import { bootstrapChatbot } from './bootstrap';
+import { createApiRouter } from './dev/chatApi';
 
+export async function createApp(deps: ReturnType<typeof bootstrapChatbot>): Promise<express.Application> {
+  const app = express();
+
+  // Configure Express for 1-hop reverse proxy (Nginx, Caddy, Cloudflare, AWS ALB)
+  app.set('trust proxy', 1);
+
+  app.use(cors());
+  app.use(express.json({ limit: '15mb' }));
+
+  // Root-level health check endpoint
+  app.get('/health', async (req, res) => {
+    try {
+      await deps.prisma.$queryRaw`SELECT 1`;
+      res.json({
+        status: 'healthy',
+        service: 'chatbot-api',
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      res.status(503).json({
+        status: 'unhealthy',
+        error: 'DATABASE_UNAVAILABLE',
+        message: err.message || String(err)
+      });
+    }
+  });
+
+  const apiRouter = createApiRouter(deps);
+
+  // Production API Routes (/api/v1 and /api)
+  app.use('/api/v1', apiRouter);
+  app.use('/api', apiRouter);
+
+  // Development Control Center UI and dev endpoint alias
+  if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
+    app.use('/api/dev', apiRouter);
+    app.use('/', express.static(path.join(__dirname, 'dev/ui')));
+    logger.info(`Developer Control Center available at http://localhost:${config.port}/`);
+  } else {
+    // Keep /api/dev aliased for backward compatibility with integration test scripts
+    app.use('/api/dev', apiRouter);
+    logger.info('Development Control Center UI is disabled.');
+  }
+
+  return app;
+}
 
 async function bootstrap() {
   try {
@@ -29,24 +76,7 @@ async function bootstrap() {
     logger.info('Database connected');
 
     const deps = bootstrapChatbot(prisma);
-
-    const app = express();
-    app.use(cors());
-    app.use(express.json({ limit: '15mb' }));
-
-    // Development-only Control Center
-    if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
-      const { createDevChatRouter } = require('./dev/chatApi');
-      const devRouter = createDevChatRouter(deps);
-      app.use('/api/dev', devRouter);
-      app.use('/api', (req, res) => {
-        res.status(404).json({ error: 'NOT_FOUND', message: `Route not found: ${req.method} ${req.originalUrl}` });
-      });
-      app.use('/', express.static(path.join(__dirname, 'dev/ui')));
-      logger.info(`Developer Control Center available at http://localhost:${config.port}/`);
-    } else {
-      logger.info('Development Control Center is disabled.');
-    }
+    const app = await createApp(deps);
 
     app.listen(config.port, () => {
       logger.info(`Server started on port ${config.port}`);
@@ -68,4 +98,7 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+  bootstrap();
+}
+

@@ -7,10 +7,20 @@ import { SupportedLanguage } from '../faq/FaqMatcher';
 import { DirectRagGuard } from '../rag/DirectRagGuard';
 import { logger } from '../../utils/logger';
 
+export interface ChatMedia {
+  type: 'image' | 'video';
+  url: string;
+  thumbnailUrl?: string;
+  title?: string;
+  alt?: string;
+}
+
 export interface AnswerContext {
   turnDecision: TurnDecision;
   productFacts?: ProductFact | ProductFact[] | null;
   knowledgeFacts?: string[] | null;
+  chunks?: any[] | null;
+  userMessage?: string;
   responseLanguage: 'en' | 'fr' | 'ar' | 'darija';
   responseScript: 'latin' | 'arabic' | 'arabizi';
   config?: BusinessConfig;
@@ -25,6 +35,16 @@ export class AnswerComposer {
    */
   public static async compose(context: AnswerContext): Promise<string> {
     const { turnDecision } = context;
+
+    // Deterministically extract and attach media to request context
+    const media = this.extractMedia({
+      productFacts: context.productFacts,
+      chunks: context.chunks,
+      userMessage: context.userMessage,
+      intent: turnDecision.intent,
+      requestedMediaType: (turnDecision as any).requestedMediaType
+    });
+    this.attachMediaToContext(media);
 
     switch (turnDecision.domain) {
       case 'HANDOFF':
@@ -43,6 +63,158 @@ export class AnswerComposer {
         return this.composeGreeting(context);
       default:
         return this.composeFallback(context);
+    }
+  }
+
+  public static isValidMediaUrl(url: any): boolean {
+    if (typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.length > 2048) return false;
+    // Strictly require https:// or http:// or data:image/
+    if (!/^https?:\/\/[^\s$.?#].[^\s]*$/i.test(trimmed) && !/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
+      return false;
+    }
+    // Reject dangerous schemes
+    if (/(?:javascript|data:text|file):/i.test(trimmed)) return false;
+    return true;
+  }
+
+  public static sanitizeString(str: any, maxLen = 100): string | undefined {
+    if (typeof str !== 'string') return undefined;
+    const clean = str.replace(/<[^>]*>/g, '').trim();
+    return clean.slice(0, maxLen) || undefined;
+  }
+
+  public static extractMedia(params: {
+    productFacts?: ProductFact | ProductFact[] | null;
+    chunks?: any[];
+    userMessage?: string;
+    intent?: string;
+    requestedMediaType?: 'image' | 'video' | 'all';
+  }): ChatMedia[] {
+    const results: ChatMedia[] = [];
+    const seenUrls = new Set<string>();
+
+    const msgLower = (params.userMessage || '').toLowerCase();
+    const isExplicitVideo = params.requestedMediaType === 'video' ||
+      /(?:^|\s|[.,!?;:()،؟])(?:videos?|clips?|watch\s+video|demo\s+video|vidéo|vidéos|voir\s+la\s+vidéo|فيديو|فيديوهات|فديو|مقطع|شوف\s+الفيديو|lvideo|chof\s+lvideo|wrini\s+video)(?:$|\s|[.,!?;:()،؟])/iu.test(msgLower);
+
+    const isExplicitImage = params.requestedMediaType === 'image' ||
+      /(?:^|\s|[.,!?;:()،؟])(?:images?|pictures?|photos?|pics?|voir\s+en\s+photo|صور|صورة|تصوير|شوف\s+الصور|وريني\s+صور|tsawer|tswira|tsawir|chof\s+tsawer|wrini\s+tsawer|تصاور|تصويرة)(?:$|\s|[.,!?;:()،؟])/iu.test(msgLower);
+
+    // 1. Extract from Product Facts
+    const facts = Array.isArray(params.productFacts)
+      ? params.productFacts
+      : (params.productFacts ? [params.productFacts] : []);
+
+    for (const fact of facts) {
+      if (!fact || !fact.product) continue;
+      const meta = (fact.product.metadata || {}) as Record<string, any>;
+      const variantMeta = (fact.selectedVariant?.metadata || {}) as Record<string, any>;
+      const displayName = fact.displayName || fact.product.name;
+
+      // Video extraction (strictly if explicit video requested)
+      if (isExplicitVideo) {
+        const videoUrl = variantMeta.video || variantMeta.videoUrl || meta.video || meta.videoUrl;
+        if (this.isValidMediaUrl(videoUrl) && !seenUrls.has(videoUrl)) {
+          seenUrls.add(videoUrl);
+          const thumbUrl = variantMeta.thumbnail || variantMeta.thumbnailUrl || meta.thumbnail || meta.thumbnailUrl;
+          results.push({
+            type: 'video',
+            url: videoUrl,
+            thumbnailUrl: this.isValidMediaUrl(thumbUrl) ? thumbUrl : undefined,
+            title: this.sanitizeString(displayName),
+            alt: this.sanitizeString(`${displayName} Video`)
+          });
+          // Cap at 1 video
+          break;
+        }
+      }
+
+      // Image extraction (strictly when explicit image requested)
+      if (isExplicitImage) {
+        const rawImages: any[] = [];
+        if (Array.isArray(variantMeta.images)) rawImages.push(...variantMeta.images);
+        if (variantMeta.imageUrl) rawImages.push(variantMeta.imageUrl);
+        if (variantMeta.image) rawImages.push(variantMeta.image);
+
+        if (Array.isArray(meta.images)) rawImages.push(...meta.images);
+        if (meta.imageUrl) rawImages.push(meta.imageUrl);
+        if (meta.image) rawImages.push(meta.image);
+
+        for (const img of rawImages) {
+          if (this.isValidMediaUrl(img) && !seenUrls.has(img)) {
+            seenUrls.add(img);
+            results.push({
+              type: 'image',
+              url: img,
+              title: this.sanitizeString(displayName),
+              alt: this.sanitizeString(`${displayName} Image`)
+            });
+            if (results.filter(m => m.type === 'image').length >= 3) {
+              break;
+            }
+          }
+        }
+
+        // Hard response caps: max 3 images
+        if (results.filter(m => m.type === 'image').length >= 3) {
+          break;
+        }
+      }
+    }
+
+    // 2. Extract from Knowledge Chunks (if no product media or in addition up to cap)
+    if (Array.isArray(params.chunks)) {
+      for (const chunk of params.chunks) {
+        const meta = (chunk.metadata || {}) as Record<string, any>;
+        const mediaList: any[] = [];
+        if (Array.isArray(meta.media)) mediaList.push(...meta.media);
+        if (Array.isArray(meta.images)) mediaList.push(...meta.images.map((url: string) => ({ type: 'image', url })));
+        if (meta.imageUrl) mediaList.push({ type: 'image', url: meta.imageUrl });
+        if (meta.image) mediaList.push({ type: 'image', url: meta.image });
+        if (meta.videoUrl) mediaList.push({ type: 'video', url: meta.videoUrl });
+        if (meta.video) mediaList.push({ type: 'video', url: meta.video });
+
+        for (const item of mediaList) {
+          if (!item || !this.isValidMediaUrl(item.url) || seenUrls.has(item.url)) continue;
+          const mType = item.type === 'video' ? 'video' : 'image';
+          if (mType === 'video' && results.filter(m => m.type === 'video').length >= 1) continue;
+          if (mType === 'image' && results.filter(m => m.type === 'image').length >= (isExplicitImage ? 3 : 1)) continue;
+
+          seenUrls.add(item.url);
+          results.push({
+            type: mType,
+            url: item.url,
+            thumbnailUrl: this.isValidMediaUrl(item.thumbnailUrl) ? item.thumbnailUrl : undefined,
+            title: this.sanitizeString(item.title || chunk.documentTitle || 'Knowledge Document'),
+            alt: this.sanitizeString(item.alt || chunk.documentTitle || 'Knowledge Media')
+          });
+        }
+      }
+    }
+
+    return results;
+  }
+
+  public static attachMediaToContext(media: ChatMedia[]): void {
+    if (!media || media.length === 0) return;
+    try {
+      // Access chatDiagnosticStorage from dev chatApi if in runtime
+      const { chatDiagnosticStorage } = require('../../dev/chatApi');
+      const store = chatDiagnosticStorage.getStore();
+      if (store) {
+        if (!store.media) {
+          store.media = [];
+        }
+        for (const item of media) {
+          if (!store.media.some((m: ChatMedia) => m.url === item.url)) {
+            store.media.push(item);
+          }
+        }
+      }
+    } catch {
+      // Safe no-op outside chatApi runtime
     }
   }
 
@@ -226,6 +398,15 @@ export class AnswerComposer {
   public static composeEcommerce(context: AnswerContext): string {
     const { turnDecision, productFacts, responseLanguage, responseScript } = context;
 
+    // Extract and attach media to request context
+    const media = this.extractMedia({
+      productFacts,
+      userMessage: context.userMessage,
+      intent: turnDecision.intent,
+      requestedMediaType: (turnDecision as any).requestedMediaType
+    });
+    this.attachMediaToContext(media);
+
     // 1. Comparison
     if (turnDecision.intent === 'COMPARE') {
       const facts = Array.isArray(productFacts) ? productFacts : (productFacts ? [productFacts] : []);
@@ -267,18 +448,18 @@ export class AnswerComposer {
         const top = facts[0];
         const topName = this.getSafeName(top, responseScript);
         if (responseLanguage === 'fr') {
-          return `Nous vous recommandons ${topName} (${top.effectivePrice} ${top.currency}) : ${top.inStock ? `En stock (${top.availableStock} disponibles)` : 'Rupture'}.`;
+          return `Nous vous recommandons ${topName} (${top.effectivePrice} ${top.currency}) : ${top.inStock ? 'En stock' : 'Rupture'}.`;
         }
         if (responseLanguage === 'ar') {
-          return `نوصيك بـ ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? `متوفر (${top.availableStock} قطع)` : 'غير متوفر'}.`;
+          return `نوصيك بـ ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'متوفر' : 'غير متوفر'}.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `Kansehok b ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? `Kayen (${top.availableStock} pieces)` : 'Msali'}.`;
+            return `Kansehok b ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'Kayen' : 'Msali'}.`;
           }
-          return `كننصحوك بـ ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? `متوفر (${top.availableStock} بياسات)` : 'مسالي'}.`;
+          return `كننصحوك بـ ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'متوفر' : 'مسالي'}.`;
         }
-        return `We recommend ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? `In stock (${top.availableStock} available)` : 'Out of stock'}.`;
+        return `We recommend ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'In stock' : 'Out of stock'}.`;
       } else {
         if (responseLanguage === 'fr') {
           return `Désolé, nous n'avons pas assez d'informations dans notre catalogue pour faire une recommandation fiable.`;
@@ -529,17 +710,53 @@ export class AnswerComposer {
           const variantsText = fact.product.variants?.length
             ? `\nKheyarat (taille w lwan): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join(', ')}`
             : '';
-          return `${safeFactName}\n${safeFactDesc}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}\nStock: ${fact.inStock ? `Kayen (${fact.availableStock} pieces)` : 'Msali db'}`;
+          return `${safeFactName}\n${safeFactDesc}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}\nStock: ${fact.inStock ? 'Kayen' : 'Msali db'}`;
         }
         const variantsText = fact.product.variants?.length
           ? `\nالخيارات اللي كاينين (القياس والألوان): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join('، ')}`
           : '';
-        return `${safeFactName}\n${safeFactDesc}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالمخزون: ${fact.inStock ? `كاين (${fact.availableStock} بياسات)` : 'مسالي حالياً'}`;
+        return `${safeFactName}\n${safeFactDesc}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالمخزون: ${fact.inStock ? 'كاين' : 'مسالي حالياً'}`;
       }
       const variantsText = fact.product.variants?.length
         ? `\nAvailable options (colors & sizes): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join(', ')}`
         : '';
-      return `${safeFactName}\n${safeFactDesc}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}\nAvailability: ${fact.inStock ? `In stock (${fact.availableStock} available)` : 'Out of stock'}`;
+      return `${safeFactName}\n${safeFactDesc}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}\nAvailability: ${fact.inStock ? 'In stock' : 'Out of stock'}`;
+    }
+
+    if (turnDecision.intent === 'BUY_INTENT') {
+      const variant = fact.selectedVariant;
+      const variantLabel = this.formatVariantLabel(variant?.color || turnDecision.color, variant?.size || turnDecision.size, responseLanguage, responseScript);
+      const productSubject = variantLabel ? `${safeFactName} (${variantLabel})` : safeFactName;
+
+      if (!fact.inStock) {
+        if (responseLanguage === 'fr') {
+          return `Désolé, ${productSubject} est actuellement en rupture de stock.`;
+        }
+        if (responseLanguage === 'ar') {
+          return `عذراً، ${productSubject} غير متوفر حالياً في المخزون.`;
+        }
+        if (responseLanguage === 'darija') {
+          if (responseScript === 'arabizi') {
+            return `Smeh liya, ${productSubject} msali db f l-stock.`;
+          }
+          return `سمح ليا، ${productSubject} مسالي حالياً فالمخزون.`;
+        }
+        return `Sorry, ${productSubject} is currently out of stock.`;
+      }
+
+      if (responseLanguage === 'fr') {
+        return `Parfait ! Pour commander ${productSubject} (${fact.effectivePrice} ${fact.currency}), veuillez indiquer votre adresse de livraison et votre mode de paiement préféré (paiement à la livraison disponible).`;
+      }
+      if (responseLanguage === 'ar') {
+        return `ممتاز! لطلب ${productSubject} (${fact.effectivePrice} ${fact.currency})، يرجى تزويدنا بعنوان التوصيل وطريقة الدفع المفضلة (الدفع عند الاستلام متوفر).`;
+      }
+      if (responseLanguage === 'darija') {
+        if (responseScript === 'arabizi') {
+          return `Mzyan bzaf! Bach tcommandi ${productSubject} (${fact.effectivePrice} ${fact.currency}), 3tina l-3onwan d l-livraison w tari9at l-khalas li katfeddel (kayn l-khalas 3nd l-istilam).`;
+        }
+        return `مزيان بزاف! باش تكموندي ${productSubject} (${fact.effectivePrice} ${fact.currency})، عطينا العنوان ديال التوصيل وطريقة الخلاص اللي كتفضل (كاين الخلاص عند الاستلام).`;
+      }
+      return `Great choice! To order ${productSubject} (${fact.effectivePrice} ${fact.currency}), please provide your delivery address and preferred payment method (Cash on Delivery is available).`;
     }
 
     if (turnDecision.intent === 'PRICE') {

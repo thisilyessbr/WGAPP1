@@ -17,6 +17,7 @@ import { ImageCapabilityGateway } from './core/gateway/ImageCapabilityGateway';
 import { AccountConfigService } from './domain/tenant/AccountConfigService';
 import { ProductRepository } from './domain/ecommerce/ProductRepository';
 import { EcommerceService } from './domain/ecommerce/EcommerceService';
+import { CRMService } from './domain/crm/CRMService';
 
 export interface ChatbotDependencies {
   prisma: PrismaClient;
@@ -29,6 +30,7 @@ export interface ChatbotDependencies {
   imageGateway: ImageCapabilityGateway;
   accountConfigService?: AccountConfigService;
   ecommerceService?: EcommerceService;
+  crmService?: CRMService;
 }
 
 export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
@@ -72,6 +74,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   const accountConfigService = new AccountConfigService(prisma, tenantConfigService);
   const productRepository = new ProductRepository(prisma);
   const ecommerceService = new EcommerceService(productRepository);
+  const crmService = new CRMService(prisma);
 
   // Core Engine
   const conversationEngine = new ConversationEngine(
@@ -84,7 +87,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     imageGateway,
     undefined,
     accountConfigService,
-    ecommerceService
+    ecommerceService,
+    crmService
   );
 
   return {
@@ -97,6 +101,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     llmFactory,
     imageGateway,
     accountConfigService,
-    ecommerceService
+    ecommerceService,
+    crmService
   };
 }

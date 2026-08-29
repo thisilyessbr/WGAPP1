@@ -12,7 +12,7 @@ import { PolicyEvidenceReuse, CANONICAL_POLICY_INTENTS } from '../rag/PolicyEvid
 import { ChunkClassifier } from '../rag/ChunkQuality';
 import { ContentSafetyGuard } from '../safety/ContentSafetyGuard';
 import { FaqMatcher, LanguageDetector } from '../faq/FaqMatcher';
-import { BusinessConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES } from '../tenant/BusinessConfig';
+import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES } from '../tenant/BusinessConfig';
 import { AccountConfigService } from '../tenant/AccountConfigService';
 import { GreetingRouter } from './GreetingRouter';
 import { ImageCapabilityGateway } from '../../core/gateway/ImageCapabilityGateway';
@@ -25,6 +25,7 @@ import { HandoffService } from './HandoffService';
 import { TurnDecision, TurnDecisionResolver } from './TurnDecision';
 import { AnswerComposer } from './AnswerComposer';
 import { ProductLookupResult } from '../ecommerce/EcommerceService';
+import { CRMService } from '../crm/CRMService';
 import { logger } from '../../utils/logger';
 import { telemetry, TelemetryClient } from '../../core/telemetry/TelemetryClient';
 
@@ -35,6 +36,7 @@ export class ConversationEngine {
   private capabilityRouter: CapabilityRouter;
   private accountConfigService?: AccountConfigService;
   private ecommerceService?: EcommerceService;
+  private crmService?: CRMService;
 
   constructor(
     private conversationService: ConversationService,
@@ -46,17 +48,19 @@ export class ConversationEngine {
     imageGateway?: ImageCapabilityGateway,
     capabilityRouter?: CapabilityRouter,
     accountConfigService?: AccountConfigService,
-    ecommerceService?: EcommerceService
+    ecommerceService?: EcommerceService,
+    crmService?: CRMService
   ) {
-    if ('getProvider' in llmOrFactory) {
+    if (llmOrFactory && typeof llmOrFactory === 'object' && 'getProvider' in llmOrFactory) {
       this.llmFactory = llmOrFactory as LLMFactory;
-    } else {
+    } else if (llmOrFactory) {
       this.defaultLlm = llmOrFactory as LLMProvider;
     }
     this.imageGateway = imageGateway || new ImageCapabilityGateway();
     this.capabilityRouter = capabilityRouter || new CapabilityRouter();
     this.accountConfigService = accountConfigService;
     this.ecommerceService = ecommerceService;
+    this.crmService = crmService;
   }
 
   private isGreeting(message: string): boolean {
@@ -518,6 +522,10 @@ ${content}
     let catalogCategories: string[] | undefined = undefined;
     let customCategoryAliases: Record<string, string[]> | undefined = undefined;
     let customAttributeAliases: Record<string, string[]> | undefined = undefined;
+    let completedWorkflowId: string | null = null;
+    let completedWorkflowConfig: any = null;
+    let completedTerminalStateId: string | null = null;
+    let completedWorkflowIntents: string[] | null = null;
 
     const content = routed.effectiveContent;
     const normalizedInput = (payload.text || content).trim().toLowerCase();
@@ -697,6 +705,15 @@ ${content}
         } else {
           const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
           const newStatus = result.isComplete ? 'COMPLETED' : 'ACTIVE';
+          if (result.isComplete) {
+            completedWorkflowId = activeSession.workflowId;
+            completedWorkflowConfig = workflowConfig;
+            completedTerminalStateId = result.nextStateId || activeSession.stateId;
+            completedWorkflowIntents = [
+              ...(workflowConfig?.activation?.intents || []),
+              ...(config.capabilities?.intents?.filter(i => i.workflowId === activeSession.workflowId).map(i => i.id) || [])
+            ];
+          }
           sessionUpdatePayload = {
             sessionId: activeSession.id,
             stateId: result.nextStateId || activeSession.stateId,
@@ -727,26 +744,84 @@ ${content}
           isHandoff: false,
           isWorkflow: false
         });
+        const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
+
         postCompletionWorkflowTrigger = this.resolveWorkflowTrigger(content, config, turnDecision);
+
+        if (!postCompletionWorkflowTrigger && !isDeterministicEcommercePurchase && config.capabilities?.intents && config.capabilities.intents.length > 0 && config.workflows && Object.keys(config.workflows).length > 0) {
+          const intentWfMap = new Map<string, string>();
+          for (const item of config.capabilities.intents) {
+            if (item.workflowId && config.workflows[item.workflowId]) {
+              intentWfMap.set(item.id, item.workflowId);
+            }
+          }
+          for (const [wfId, wf] of Object.entries(config.workflows)) {
+            if (wf.activation?.intents && Array.isArray(wf.activation.intents)) {
+              for (const intentId of wf.activation.intents) {
+                if (intentId) intentWfMap.set(intentId, wfId);
+              }
+            }
+          }
+
+          if (intentWfMap.size > 0) {
+            const allowedIntents = Array.from(intentWfMap.keys());
+            const intentPrompt = this.buildWorkflowIntentClassificationPrompt(config, allowedIntents, intentWfMap);
+
+            try {
+              const classifiedIntent = await llm.classifyIntent(intentPrompt, content, allowedIntents, llmOptions);
+              if (classifiedIntent && intentWfMap.has(classifiedIntent)) {
+                const targetWfId = intentWfMap.get(classifiedIntent)!;
+                postCompletionWorkflowTrigger = { workflowId: targetWfId, workflowConfig: config.workflows[targetWfId] };
+              }
+            } catch (e: any) {
+              logger.warn(`ConversationEngine: Post-completion workflow intent classification failed: ${e.message || e}`);
+            }
+          }
+        }
       }
 
       if (postCompletionWorkflowTrigger) {
-        responseSource = 'WORKFLOW';
         const { workflowId, workflowConfig } = postCompletionWorkflowTrigger;
-        logger.info(`ConversationEngine: Starting workflow [${workflowId}] for conversation [${conversation.id}] (post-completion re-trigger)`);
+        const limitCheck = await this.checkWorkflowExecutionLimit(
+          tenantId,
+          conversation.customerId,
+          workflowId,
+          workflowConfig,
+          effectiveAccountId,
+          effectiveLang
+        );
 
-        const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
-        const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+        if (!limitCheck.allowed) {
+          logger.info(`ConversationEngine: Workflow [${workflowId}] execution limit reached for customer [${conversation.customerId}] (post-completion re-trigger blocked).`);
+          response = this.applyResponseLimit(limitCheck.limitMessage || 'You have already completed this request.', config.limits?.maxResponseLength);
+          responseSource = 'WORKFLOW';
+        } else {
+          responseSource = 'WORKFLOW';
+          logger.info(`ConversationEngine: Starting workflow [${workflowId}] for conversation [${conversation.id}] (post-completion re-trigger)`);
 
-        sessionUpdatePayload = {
-          sessionId: session.id,
-          stateId: result.nextStateId || session.stateId,
-          contextData: result.updatedContext,
-          status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
-          stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : session.stateHistory,
-          collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {}
-        };
-        response = result.response;
+          const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
+          const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+
+          if (result.isComplete) {
+            completedWorkflowId = workflowId;
+            completedWorkflowConfig = workflowConfig;
+            completedTerminalStateId = result.nextStateId || workflowConfig.initialState;
+            completedWorkflowIntents = [
+              ...(workflowConfig?.activation?.intents || []),
+              ...(config.capabilities?.intents?.filter(i => i.workflowId === workflowId).map(i => i.id) || [])
+            ];
+          }
+
+          sessionUpdatePayload = {
+            sessionId: session.id,
+            stateId: result.nextStateId || session.stateId,
+            contextData: result.updatedContext,
+            status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
+            stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : session.stateHistory,
+            collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {}
+          };
+          response = result.response;
+        }
       } else if (previousCompletedSession) {
         // P0.1 / P0.2 §7: Post-completion mode — FAQ -> PDF/RAG -> static canned fallback. 0 LLM calls.
         logger.info(`ConversationEngine: Conversation [${conversation.id}] in post-completion mode (questions answered: ${conversation.postCompletionQuestionCount}/10)`);
@@ -1083,9 +1158,10 @@ ${content}
 
         // Step 1.8: Check explicit workflow trigger (intents[].workflowId or activation config)
         let triggeredWorkflow = !answered ? this.resolveWorkflowTrigger(content, config, turnDecision) : null;
+        const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
 
-        // If not deterministically triggered, check declared intents mapped to workflows via LLM classification
-        if (!answered && !triggeredWorkflow && config.capabilities?.intents && config.capabilities.intents.length > 0 && config.workflows && Object.keys(config.workflows).length > 0) {
+        // If not deterministically triggered and not an explicit BUY_INTENT purchase, check declared intents mapped to workflows via LLM classification
+        if (!answered && !triggeredWorkflow && !isDeterministicEcommercePurchase && config.capabilities?.intents && config.capabilities.intents.length > 0 && config.workflows && Object.keys(config.workflows).length > 0) {
           const intentWfMap = new Map<string, string>();
           for (const item of config.capabilities.intents) {
             if (item.workflowId && config.workflows[item.workflowId]) {
@@ -1102,8 +1178,8 @@ ${content}
 
           if (intentWfMap.size > 0) {
             const allowedIntents = Array.from(intentWfMap.keys());
-            const promptTemplate = config.prompts?.intentClassification || 'You are an intent classification engine. Classify the user message into exactly ONE of the following intents: [{{intents}}]. If it matches none, reply with "null". Reply ONLY with the exact intent string or "null".';
-            const intentPrompt = promptTemplate.replace('{{intents}}', allowedIntents.join(', '));
+            const intentPrompt = this.buildWorkflowIntentClassificationPrompt(config, allowedIntents, intentWfMap);
+
             try {
               const classifiedIntent = await llm.classifyIntent(intentPrompt, content, allowedIntents, llmOptions);
               if (classifiedIntent && intentWfMap.has(classifiedIntent)) {
@@ -1117,24 +1193,51 @@ ${content}
         }
 
         if (!answered && triggeredWorkflow) {
-          responseSource = 'WORKFLOW';
           const { workflowId, workflowConfig } = triggeredWorkflow;
-          logger.info(`ConversationEngine: Starting workflow [${workflowId}] for fresh conversation [${conversation.id}]`);
+          const limitCheck = await this.checkWorkflowExecutionLimit(
+            tenantId,
+            conversation.customerId,
+            workflowId,
+            workflowConfig,
+            effectiveAccountId,
+            effectiveLang
+          );
 
-          const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
-          const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+          if (!limitCheck.allowed) {
+            logger.info(`ConversationEngine: Workflow [${workflowId}] execution limit reached for customer [${conversation.customerId}].`);
+            response = this.applyResponseLimit(limitCheck.limitMessage || 'You have already completed this request.', config.limits?.maxResponseLength);
+            answerText = response;
+            responseSource = 'WORKFLOW';
+            answered = true;
+          } else {
+            responseSource = 'WORKFLOW';
+            logger.info(`ConversationEngine: Starting workflow [${workflowId}] for fresh conversation [${conversation.id}]`);
 
-          sessionUpdatePayload = {
-            sessionId: session.id,
-            stateId: result.nextStateId || session.stateId,
-            contextData: result.updatedContext,
-            status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
-            stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : session.stateHistory,
-            collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {}
-          };
-          response = result.response;
-          answerText = result.response;
-          answered = true;
+            const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
+            const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+
+            if (result.isComplete) {
+              completedWorkflowId = workflowId;
+              completedWorkflowConfig = workflowConfig;
+              completedTerminalStateId = result.nextStateId || workflowConfig.initialState;
+              completedWorkflowIntents = [
+                ...(workflowConfig?.activation?.intents || []),
+                ...(config.capabilities?.intents?.filter(i => i.workflowId === workflowId).map(i => i.id) || [])
+              ];
+            }
+
+            sessionUpdatePayload = {
+              sessionId: session.id,
+              stateId: result.nextStateId || session.stateId,
+              contextData: result.updatedContext,
+              status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
+              stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : session.stateHistory,
+              collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {}
+            };
+            response = result.response;
+            answerText = result.response;
+            answered = true;
+          }
         }
 
         // Step 2.5: Conversational Ecommerce Engine (Strong Domain Execution if ecommerceEnabled and accountId is present)
@@ -1170,6 +1273,7 @@ ${content}
               answerText = AnswerComposer.composeEcommerce({
                 turnDecision,
                 productFacts: results,
+                userMessage: content,
                 responseLanguage: effectiveLang,
                 responseScript: turnDecision.responseScript,
                 config
@@ -1286,6 +1390,7 @@ ${content}
               answerText = AnswerComposer.composeEcommerce({
                 turnDecision,
                 productFacts: compResult.targets,
+                userMessage: content,
                 responseLanguage: effectiveLang,
                 responseScript: turnDecision.responseScript,
                 config
@@ -1330,6 +1435,7 @@ ${content}
                 answerText = AnswerComposer.composeEcommerce({
                   turnDecision,
                   productFacts: [recResult.topFact],
+                  userMessage: content,
                   responseLanguage: effectiveLang,
                   responseScript: turnDecision.responseScript,
                   config
@@ -1338,18 +1444,22 @@ ${content}
                 answerText = AnswerComposer.composeEcommerce({
                   turnDecision,
                   productFacts: [],
+                  userMessage: content,
                   responseLanguage: effectiveLang,
                   responseScript: turnDecision.responseScript,
                   config
                 });
               }
-            } else if (['PRICE', 'AVAILABILITY', 'PRODUCT_DETAIL', 'VARIANT_SELECTION', 'ATTRIBUTE_QUERY'].includes(turnDecision.intent)) {
+            } else if (['BUY_INTENT', 'PRICE', 'AVAILABILITY', 'PRODUCT_DETAIL', 'VARIANT_SELECTION', 'ATTRIBUTE_QUERY'].includes(turnDecision.intent)) {
               let targetId: string | undefined;
+              const hasActiveProduct = Boolean(conversationContext.productContext?.selectedProductId);
+              const isMediaRequest = Boolean(turnDecision.requestedMediaType === 'image' || turnDecision.requestedMediaType === 'video');
+
               const isExplicitProduct = Boolean(
                 turnDecision.sku ||
                 turnDecision.productName ||
-                (turnDecision.category && !conversationContext.productContext?.selectedProductId) ||
-                (turnDecision.ordinalIndex !== undefined && turnDecision.ordinalIndex !== null && !conversationContext.productContext?.selectedProductId)
+                (turnDecision.category && !hasActiveProduct) ||
+                (turnDecision.ordinalIndex !== undefined && turnDecision.ordinalIndex !== null && !hasActiveProduct)
               );
 
               // Check comparisonTargets follow-up (e.g. "شكون أرخص؟" after comparison)
@@ -1364,14 +1474,16 @@ ${content}
                 targetId = sortedComp[0].id;
               } else if (turnDecision.ordinalIndex !== undefined && turnDecision.ordinalIndex !== null && conversationContext.productContext?.lastViewedProductIds?.length) {
                 targetId = conversationContext.productContext.lastViewedProductIds[turnDecision.ordinalIndex];
-              } else if (!turnDecision.sku && !turnDecision.productName && conversationContext.productContext?.selectedProductId) {
-                targetId = conversationContext.productContext.selectedProductId;
+              } else if (isMediaRequest && hasActiveProduct && (!turnDecision.sku && (!turnDecision.productName || turnDecision.productName.toLowerCase() === 'it' || turnDecision.productName.toLowerCase() === 'this' || turnDecision.productName.toLowerCase() === 'that'))) {
+                targetId = conversationContext.productContext!.selectedProductId;
+              } else if (!turnDecision.sku && !turnDecision.productName && hasActiveProduct) {
+                targetId = conversationContext.productContext!.selectedProductId;
               }
 
               let lookupColor: string | undefined;
               let lookupSize: string | undefined;
 
-              if (isExplicitProduct) {
+              if (isExplicitProduct && !targetId) {
                 lookupColor = (turnDecision.color && turnDecision.color !== 'ALL') ? turnDecision.color : undefined;
                 lookupSize = turnDecision.size || undefined;
               } else {
@@ -1387,7 +1499,7 @@ ${content}
                 {
                   id: targetId,
                   sku: turnDecision.sku || undefined,
-                  name: turnDecision.productName || undefined,
+                  name: targetId ? undefined : (turnDecision.productName || undefined),
                   color: lookupColor,
                   size: lookupSize
                 },
@@ -1395,14 +1507,14 @@ ${content}
               );
 
               let categoryFacts: any[] = [];
-              if (!fact && turnDecision.category && (turnDecision.intent === 'ATTRIBUTE_QUERY' || turnDecision.intent === 'PRODUCT_DETAIL')) {
+              if (!fact && (turnDecision.category || turnDecision.productName) && (turnDecision.intent === 'ATTRIBUTE_QUERY' || turnDecision.intent === 'PRODUCT_DETAIL')) {
                 categoryFacts = await this.ecommerceService.searchProducts(
                   tenantId,
                   targetAccountId,
-                  undefined,
+                  turnDecision.productName || undefined,
                   effectiveLang,
                   {
-                    category: turnDecision.category,
+                    category: turnDecision.category || undefined,
                     limit: 3
                   }
                 );
@@ -1451,6 +1563,7 @@ ${content}
               answerText = AnswerComposer.composeEcommerce({
                 turnDecision,
                 productFacts: categoryFacts.length > 1 ? categoryFacts : fact,
+                userMessage: content,
                 responseLanguage: effectiveLang,
                 responseScript: turnDecision.responseScript,
                 config
@@ -1721,6 +1834,11 @@ ${content}
                     const composedText = AnswerComposer.composeMultiPolicyDeterministic(selectedPolicyItems, effectiveLang, turnDecision.responseScript);
                     answerText = AnswerComposer.finalizeResponse(composedText, turnDecision, config);
                     responseSource = 'RAG';
+                    AnswerComposer.attachMediaToContext(AnswerComposer.extractMedia({
+                      chunks: mergedChunks,
+                      userMessage: content,
+                      intent: turnDecision.intent
+                    }));
                     logger.info(`ConversationEngine: Deterministic multi-policy RAG match for [${targetPolicies.join(', ')}] (0 LLM calls).`);
                   }
                 }
@@ -1766,6 +1884,11 @@ ${content}
                   answered = true;
                   answerText = AnswerComposer.finalizeResponse(topChunk.content.trim(), turnDecision, config);
                   responseSource = 'RAG';
+                  AnswerComposer.attachMediaToContext(AnswerComposer.extractMedia({
+                    chunks: ragResult.chunks,
+                    userMessage: content,
+                    intent: turnDecision.intent
+                  }));
                   logger.info(`ConversationEngine: Workflow-less RAG match (score: ${topChunk.similarity})`);
                 }
                 telemetry.emit({
@@ -1841,6 +1964,11 @@ ${content}
                   const composedText = AnswerComposer.composeMultiPolicyDeterministic(selectedPolicyItems, effectiveLang, turnDecision.responseScript);
                   answerText = AnswerComposer.finalizeResponse(composedText, turnDecision, config);
                   responseSource = 'RAG';
+                  AnswerComposer.attachMediaToContext(AnswerComposer.extractMedia({
+                    chunks: ragResult.chunks,
+                    userMessage: content,
+                    intent: turnDecision.intent
+                  }));
                   logger.info(`ConversationEngine: Session-reused deterministic multi-policy RAG match for [${targetPolicies.join(', ')}] (0 LLM calls).`);
                 }
               } else if (!turnDecision.isMultiPolicy) {
@@ -1855,6 +1983,11 @@ ${content}
                   answered = true;
                   answerText = AnswerComposer.finalizeResponse(topChunk.content.trim(), turnDecision, config);
                   responseSource = 'RAG';
+                  AnswerComposer.attachMediaToContext(AnswerComposer.extractMedia({
+                    chunks: ragResult.chunks,
+                    userMessage: content,
+                    intent: turnDecision.intent
+                  }));
                   logger.info(`ConversationEngine: Workflow-less session-reused RAG match (score: ${topChunk.similarity})`);
                 }
               }
@@ -2230,6 +2363,28 @@ ${content}
       incrementPostCompletionCount,
       setPostCompletionCapped
     });
+
+    // 7. Non-blocking CRM lead signal processing (Phase CRM-B & CRM-WORKFLOW-FIX-04)
+    if (this.crmService && effectiveAccountId) {
+      try {
+        const isWorkflowCompleted = Boolean(sessionUpdatePayload?.status === 'COMPLETED');
+        await this.crmService.processTurnSignal({
+          tenantId,
+          accountId: effectiveAccountId,
+          customerId: conversation.customerId,
+          conversationId: conversation.id,
+          turnDecision,
+          isWorkflowCompleted,
+          workflowId: isWorkflowCompleted ? completedWorkflowId : null,
+          workflowConfig: isWorkflowCompleted ? completedWorkflowConfig : null,
+          terminalStateId: isWorkflowCompleted ? completedTerminalStateId : null,
+          workflowIntents: isWorkflowCompleted ? completedWorkflowIntents : null,
+          userMessage: routed.userDisplayContent
+        });
+      } catch (crmErr) {
+        logger.warn('ConversationEngine: Non-blocking CRM turn processing error', { error: crmErr });
+      }
+    }
     
     return response;
   }
@@ -2285,6 +2440,44 @@ ${content}
     });
   }
 
+  private normalizeForPhraseMatching(text: string): string {
+    if (!text) return '';
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private matchesTriggerPhrase(userText: string, phrase: string): boolean {
+    if (!userText || !phrase) return false;
+    const normUser = this.normalizeForPhraseMatching(userText);
+    const normPhrase = this.normalizeForPhraseMatching(phrase);
+    if (!normUser || !normPhrase) return false;
+
+    if (normUser === normPhrase) return true;
+
+    const userTokens = normUser.split(' ');
+    const phraseTokens = normPhrase.split(' ');
+
+    if (phraseTokens.length > userTokens.length) return false;
+
+    for (let i = 0; i <= userTokens.length - phraseTokens.length; i++) {
+      let match = true;
+      for (let j = 0; j < phraseTokens.length; j++) {
+        if (userTokens[i + j] !== phraseTokens[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+
+    return false;
+  }
+
   private resolveWorkflowTrigger(
     content: string,
     config: BusinessConfig,
@@ -2297,26 +2490,39 @@ ${content}
     const trimmed = content.trim();
     const lower = trimmed.toLowerCase();
     const normalized = GreetingRouter.normalize(content);
+    const normUser = this.normalizeForPhraseMatching(content);
 
-    // 1. Auto-start workflows (if workflow.activation.mode === 'auto_start' or legacy autoStartWorkflow flag)
+    // 0. Auto-start workflows (if workflow.activation.mode === 'auto_start' or legacy autoStartWorkflow flag or explicit 'start' command)
     for (const [wfId, wf] of Object.entries(config.workflows)) {
       if (wf.activation?.mode === 'auto_start' || (config as any).autoStartWorkflow === true) {
         return { workflowId: wfId, workflowConfig: wf };
       }
-    }
-
-    // 2. Direct manual trigger by workflow ID name (when allowManualStart !== false)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      const allowManual = wf.activation?.allowManualStart !== false;
-      if (allowManual && (lower === wfId.toLowerCase() || normalized === wfId.toLowerCase().replace(/_/g, ' '))) {
+      if (wf.activation?.allowManualStart !== false && ['start', 'begin', 'commencer', 'demarrer', 'ابدأ'].includes(lower)) {
         return { workflowId: wfId, workflowConfig: wf };
       }
     }
 
-    // 3. Match via capabilities.intents[].workflowId and workflow.activation.intents
-    const declaredIntents = config.capabilities?.intents || [];
+    // 1. Exact workflow ID match (when allowManualStart !== false)
     for (const [wfId, wf] of Object.entries(config.workflows)) {
-      // Gather linked intent IDs
+      const allowManual = wf.activation?.allowManualStart !== false;
+      if (allowManual && lower === wfId.toLowerCase()) {
+        return { workflowId: wfId, workflowConfig: wf };
+      }
+    }
+
+    // 2. Normalized workflow ID match (when allowManualStart !== false)
+    for (const [wfId, wf] of Object.entries(config.workflows)) {
+      const allowManual = wf.activation?.allowManualStart !== false;
+      const wfIdNorm = this.normalizeForPhraseMatching(wfId.replace(/_/g, ' '));
+      if (allowManual && (normalized === wfId.toLowerCase().replace(/_/g, ' ') || normUser === wfIdNorm)) {
+        return { workflowId: wfId, workflowConfig: wf };
+      }
+    }
+
+    const declaredIntents = config.capabilities?.intents || [];
+
+    // 3. Explicit configured intent match (turnDecision or literal intent ID)
+    for (const [wfId, wf] of Object.entries(config.workflows)) {
       const linkedIntentIds = new Set<string>();
 
       if (wf.activation?.intents && Array.isArray(wf.activation.intents)) {
@@ -2333,41 +2539,150 @@ ${content}
 
       for (const intentId of linkedIntentIds) {
         const intentIdLower = intentId.toLowerCase();
-        const intentIdNorm = intentIdLower.replace(/_/g, ' ');
+        const intentIdNorm = this.normalizeForPhraseMatching(intentId.replace(/_/g, ' '));
 
-        // A. Exact TurnDecision intent match (ignore general/unmatched turn decisions)
+        // A. TurnDecision intent match
         if (turnDecision?.intent && !['GENERAL_CONVERSATION', 'None', 'null'].includes(turnDecision.intent)) {
           if (turnDecision.intent.toLowerCase() === intentIdLower) {
             return { workflowId: wfId, workflowConfig: wf };
           }
         }
 
-        // B. Literal match of exact intent ID in user message
-        if (lower === intentIdLower || normalized === intentIdNorm) {
+        // B. Literal match of exact intent ID
+        if (lower === intentIdLower || normUser === intentIdNorm) {
           return { workflowId: wfId, workflowConfig: wf };
         }
+      }
+    }
 
-        // C. Match explicitly configured intent keywords
-        const intentObj = declaredIntents.find(i => i.id === intentId);
-        if (intentObj?.keywords && Array.isArray(intentObj.keywords)) {
+    // 4. Configured intent keywords (capabilities.intents[].keywords)
+    for (const [wfId, wf] of Object.entries(config.workflows)) {
+      const linkedIntents = declaredIntents.filter(i => {
+        if (i.workflowId === wfId) return true;
+        if (wf.activation?.intents && Array.isArray(wf.activation.intents) && wf.activation.intents.includes(i.id)) return true;
+        return false;
+      });
+
+      for (const intentObj of linkedIntents) {
+        if (intentObj.keywords && Array.isArray(intentObj.keywords)) {
           for (const kw of intentObj.keywords) {
-            const kwLower = kw.toLowerCase().trim();
-            const kwNorm = GreetingRouter.normalize(kwLower);
-            if (kwLower) {
-              if (lower === kwLower || normalized === kwNorm || lower.includes(kwLower) || normalized.includes(kwNorm)) {
-                return { workflowId: wfId, workflowConfig: wf };
-              }
-              const kwWords = kwLower.split(/\s+/).filter(Boolean);
-              if (kwWords.length > 1 && kwWords.every(w => lower.includes(w) || normalized.includes(w))) {
-                return { workflowId: wfId, workflowConfig: wf };
-              }
+            if (kw && this.matchesTriggerPhrase(content, kw)) {
+              return { workflowId: wfId, workflowConfig: wf };
             }
           }
         }
       }
     }
 
+    // 5. Workflow activation keywords (workflow.activation.keywords)
+    for (const [wfId, wf] of Object.entries(config.workflows)) {
+      const activationKeywords = [
+        ...(wf.activation?.keywords && Array.isArray(wf.activation.keywords) ? wf.activation.keywords : []),
+        ...((wf as any).keywords && Array.isArray((wf as any).keywords) ? (wf as any).keywords : [])
+      ];
+
+      for (const kw of activationKeywords) {
+        if (kw && this.matchesTriggerPhrase(content, kw)) {
+          return { workflowId: wfId, workflowConfig: wf };
+        }
+      }
+    }
+
     return null;
+  }
+
+  private buildWorkflowIntentClassificationPrompt(
+    config: BusinessConfig,
+    allowedIntents: string[],
+    intentWfMap: Map<string, string>
+  ): string {
+    const intentDescriptions = allowedIntents.map(id => {
+      const intentObj = config.capabilities?.intents?.find(i => i.id === id);
+      const wfKey = intentWfMap.get(id);
+      const wf = wfKey ? config.workflows?.[wfKey] : undefined;
+
+      const descParts: string[] = [];
+      if (intentObj?.description) {
+        descParts.push(intentObj.description);
+      }
+      if (wf?.name) {
+        descParts.push(`Workflow: ${wf.name}`);
+      }
+      if (wf?.description && wf.description !== intentObj?.description) {
+        descParts.push(`Purpose: ${wf.description}`);
+      }
+      const fullDesc = descParts.length > 0 ? descParts.join('. ') : id;
+      return `- "${id}": ${fullDesc}`;
+    }).join('\n');
+
+    let intentPrompt: string;
+    if (config.prompts?.intentClassification && config.prompts.intentClassification.includes('{{intentDescriptions}}')) {
+      intentPrompt = config.prompts.intentClassification
+        .replace('{{intentDescriptions}}', intentDescriptions)
+        .replace('{{sampleIntent}}', allowedIntents[0] || 'intent_id')
+        .replace('{{intents}}', allowedIntents.join(', '));
+    } else {
+      const defaultTemplate =
+        'You are a multilingual intent classification engine supporting English, French, Standard Arabic, and Moroccan Darija (Arabic script and Latin Arabizi). Classify the user message into exactly ONE of the following intent IDs based on their descriptions:\n{{intentDescriptions}}\n\nRules:\n1. If the user message expresses an intention matching one of the intents above (in English, French, Arabic, Darija, or Arabizi), reply with ONLY that exact intent ID (e.g. "{{sampleIntent}}").\n2. If the user message is a general greeting, knowledge/pricing question, or unrelated inquiry, reply with "null".\n3. Reply ONLY with the exact intent ID or "null", with no markdown, punctuation, or explanation.';
+
+      if (config.prompts?.intentClassification && config.prompts.intentClassification.includes('{{intents}}')) {
+        intentPrompt = `${config.prompts.intentClassification.replace('{{intents}}', allowedIntents.join(', '))}\n\nCandidate intent descriptions (support English, French, Arabic, Darija, and Arabizi):\n${intentDescriptions}`;
+      } else {
+        intentPrompt = defaultTemplate
+          .replace('{{intentDescriptions}}', intentDescriptions)
+          .replace('{{sampleIntent}}', allowedIntents[0] || 'intent_id')
+          .replace('{{intents}}', allowedIntents.join(', '));
+      }
+    }
+
+    return intentPrompt;
+  }
+
+  private async checkWorkflowExecutionLimit(
+    tenantId: string,
+    customerId: string,
+    workflowId: string,
+    workflowConfig: WorkflowConfig,
+    accountId?: string | null,
+    effectiveLang: string = 'en'
+  ): Promise<{ allowed: boolean; limitMessage?: string }> {
+    const limitConfig = workflowConfig.executionLimit;
+    if (!limitConfig || limitConfig.mode === 'unlimited') {
+      return { allowed: true };
+    }
+
+    let maxExecutions = Infinity;
+    if (limitConfig.mode === 'once') {
+      maxExecutions = 1;
+    } else if (limitConfig.mode === 'custom') {
+      const parsed = Number(limitConfig.maxExecutions);
+      if (!Number.isNaN(parsed) && parsed >= 1) {
+        maxExecutions = Math.floor(parsed);
+      } else {
+        // Fall back safely to unlimited if invalid custom value
+        return { allowed: true };
+      }
+    } else {
+      return { allowed: true };
+    }
+
+    const completedCount = await this.conversationService.countCompletedWorkflowSessions(
+      tenantId,
+      customerId,
+      workflowId,
+      accountId
+    );
+
+    if (completedCount >= maxExecutions) {
+      const defaultMsg = DEFAULT_EXECUTION_LIMIT_MESSAGES[effectiveLang as keyof typeof DEFAULT_EXECUTION_LIMIT_MESSAGES] || DEFAULT_EXECUTION_LIMIT_MESSAGES.en;
+      const limitReachedMessage = limitConfig.limitReachedMessage
+        ? resolveLocalizedPrompt(limitConfig.limitReachedMessage, effectiveLang, defaultMsg)
+        : defaultMsg;
+
+      return { allowed: false, limitMessage: limitReachedMessage };
+    }
+
+    return { allowed: true };
   }
 }
 
