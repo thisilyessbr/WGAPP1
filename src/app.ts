@@ -9,6 +9,8 @@ import { config } from './config/env';
 import { logger } from './utils/logger';
 import { bootstrapChatbot } from './bootstrap';
 import { createApiRouter } from './dev/chatApi';
+import { createWhatsAppWebhookRouter } from './domain/channel/whatsapp/WhatsAppWebhookRouter';
+import { createWhatsAppOnboardingRouter } from './domain/channel/whatsapp/WhatsAppOnboardingRouter';
 
 export async function createApp(deps: ReturnType<typeof bootstrapChatbot>): Promise<express.Application> {
   const app = express();
@@ -17,25 +19,55 @@ export async function createApp(deps: ReturnType<typeof bootstrapChatbot>): Prom
   app.set('trust proxy', 1);
 
   app.use(cors());
-  app.use(express.json({ limit: '15mb' }));
+  app.use(express.json({
+    limit: '15mb',
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf;
+    }
+  }));
 
   // Root-level health check endpoint
   app.get('/health', async (req, res) => {
     try {
-      await deps.prisma.$queryRaw`SELECT 1`;
-      res.json({
+      await deps.prisma.$queryRawUnsafe('SELECT 1');
+      res.status(200).json({
         status: 'healthy',
-        service: 'chatbot-api',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        database: 'connected'
       });
     } catch (err: any) {
+      logger.error('Health check failed: database unreachable', err);
       res.status(503).json({
         status: 'unhealthy',
+        timestamp: new Date().toISOString(),
         error: 'DATABASE_UNAVAILABLE',
         message: err.message || String(err)
       });
     }
   });
+
+  // Mount WhatsApp Webhook Endpoint
+  if (deps.whatsAppNumberService) {
+    const whatsAppWebhookRouter = createWhatsAppWebhookRouter(
+      deps.whatsAppNumberService,
+      {},
+      deps.whatsAppIdempotencyStore,
+      deps.whatsAppMessageQueue
+    );
+    app.use('/api/v1/webhook/whatsapp', whatsAppWebhookRouter);
+    app.use('/api/webhook/whatsapp', whatsAppWebhookRouter);
+  }
+
+  // Mount WhatsApp Onboarding & Embedded Signup Router
+  if (deps.whatsAppOnboardingService && deps.whatsAppNumberService) {
+    const onboardingRouter = createWhatsAppOnboardingRouter(
+      deps.whatsAppOnboardingService,
+      deps.whatsAppNumberService
+    );
+    app.use('/api/v1/whatsapp/embedded-signup', onboardingRouter);
+    app.use('/api/whatsapp/embedded-signup', onboardingRouter);
+    app.use('/api/whatsapp', onboardingRouter);
+  }
 
   const apiRouter = createApiRouter(deps);
 
@@ -76,10 +108,9 @@ async function bootstrap() {
     logger.info('Database connected');
 
     const deps = bootstrapChatbot(prisma);
-    const app = await createApp(deps);
-
-    app.listen(config.port, () => {
-      logger.info(`Server started on port ${config.port}`);
+    const host = process.env.HOST || '0.0.0.0';
+    app.listen(Number(config.port), host, () => {
+      logger.info(`Server started on port ${config.port} (host: ${host})`);
     });
 
     // Graceful shutdown

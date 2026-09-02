@@ -18,6 +18,13 @@ import { AccountConfigService } from './domain/tenant/AccountConfigService';
 import { ProductRepository } from './domain/ecommerce/ProductRepository';
 import { EcommerceService } from './domain/ecommerce/EcommerceService';
 import { CRMService } from './domain/crm/CRMService';
+import { WhatsAppNumberService } from './domain/channel/whatsapp/WhatsAppNumberService';
+import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJob } from './domain/channel/whatsapp/MessageQueue';
+import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
+import { WhatsAppWorker } from './domain/channel/whatsapp/WhatsAppWorker';
+import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutboundAdapter';
+import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
+import { WhatsAppOnboardingService } from './domain/channel/whatsapp/WhatsAppOnboardingService';
 
 export interface ChatbotDependencies {
   prisma: PrismaClient;
@@ -31,6 +38,13 @@ export interface ChatbotDependencies {
   accountConfigService?: AccountConfigService;
   ecommerceService?: EcommerceService;
   crmService?: CRMService;
+  whatsAppNumberService?: WhatsAppNumberService;
+  whatsAppMessageQueue?: MessageQueue<InboundQueueJob>;
+  whatsAppIdempotencyStore?: IdempotencyStore;
+  whatsAppOutboundAdapter?: WhatsAppOutboundAdapter;
+  whatsAppPolicyAdapter?: WhatsAppPolicyAdapter;
+  whatsAppOnboardingService?: WhatsAppOnboardingService;
+  whatsAppWorker?: WhatsAppWorker;
 }
 
 export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
@@ -75,6 +89,13 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   const productRepository = new ProductRepository(prisma);
   const ecommerceService = new EcommerceService(productRepository);
   const crmService = new CRMService(prisma);
+  const whatsAppNumberService = new WhatsAppNumberService(prisma);
+  const whatsAppIdempotencyStore = isTestEnv
+    ? new MemoryIdempotencyStore()
+    : new PostgresIdempotencyStore(prisma);
+  const whatsAppMessageQueue = isTestEnv
+    ? new PartitionedFifoQueue<InboundQueueJob>()
+    : new PostgresMessageQueue(prisma, { autoStartWorker: true });
 
   // Core Engine
   const conversationEngine = new ConversationEngine(
@@ -91,6 +112,18 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     crmService
   );
 
+  // Initialize WhatsApp Onboarding Service, Policy Adapter, Outbound Adapter, and Worker
+  const whatsAppOnboardingService = new WhatsAppOnboardingService(prisma, whatsAppNumberService);
+  const whatsAppPolicyAdapter = new WhatsAppPolicyAdapter();
+  const whatsAppOutboundAdapter = new WhatsAppOutboundAdapter();
+  const whatsAppWorker = new WhatsAppWorker(
+    whatsAppMessageQueue,
+    conversationEngine,
+    whatsAppOutboundAdapter,
+    whatsAppNumberService,
+    whatsAppPolicyAdapter
+  );
+
   return {
     prisma,
     conversationEngine,
@@ -102,6 +135,13 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     imageGateway,
     accountConfigService,
     ecommerceService,
-    crmService
+    crmService,
+    whatsAppNumberService,
+    whatsAppMessageQueue,
+    whatsAppIdempotencyStore,
+    whatsAppOutboundAdapter,
+    whatsAppPolicyAdapter,
+    whatsAppOnboardingService,
+    whatsAppWorker
   };
 }

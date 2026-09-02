@@ -326,12 +326,40 @@ export class ConversationService {
     return result.count > 0;
   }
 
+  async findExistingTurnResponse(tenantId: string, externalMessageId: string, conversationId?: string): Promise<string | null> {
+    const trimmed = externalMessageId?.trim();
+    if (!tenantId || !trimmed) return null;
+
+    const userMsg = await this.prisma.message.findFirst({
+      where: {
+        tenantId,
+        externalId: trimmed,
+        ...(conversationId ? { conversationId } : {})
+      }
+    });
+
+    if (!userMsg) return null;
+
+    const assistantMsg = await this.prisma.message.findFirst({
+      where: {
+        tenantId,
+        conversationId: userMsg.conversationId,
+        role: 'ASSISTANT',
+        createdAt: { gte: userMsg.createdAt }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    return assistantMsg ? assistantMsg.content : null;
+  }
+
   async commitConversationTurn(params: {
     tenantId: string;
     conversationId: string;
     expectedVersion: number;
     userMessage: string;
     assistantMessage?: string | null;
+    externalMessageId?: string | null;
     contextData?: Record<string, any> | null;
     sessionUpdate?: {
       sessionId: string;
@@ -379,13 +407,14 @@ export class ConversationService {
             throw new Error('Concurrency Conflict: Conversation is currently being processed by another request.');
           }
 
-          // 2. Persist USER message
+          // 2. Persist USER message with optional externalId (channel-neutral)
           const userMsg = await tx.message.create({
             data: {
               tenantId: params.tenantId,
               conversationId: params.conversationId,
               role: 'USER',
-              content: params.userMessage
+              content: params.userMessage,
+              externalId: params.externalMessageId?.trim() || null
             }
           });
 

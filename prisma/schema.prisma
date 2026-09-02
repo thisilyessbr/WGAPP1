@@ -24,6 +24,8 @@ model Tenant {
   workflowSessions WorkflowSession[]
   products         Product[]
   leads            Lead[]
+  whatsappNumbers  WhatsAppBusinessNumber[]
+  whatsappJobs     WhatsAppMessageJob[]
 }
 
 model TenantConfig {
@@ -50,6 +52,8 @@ model Account {
   knowledgeChunks  KnowledgeChunk[]
   products         Product[]
   leads            Lead[]
+  whatsappNumbers  WhatsAppBusinessNumber[]
+  whatsappJobs     WhatsAppMessageJob[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -103,11 +107,13 @@ model Message {
   conversationId String
   role           String
   content        String
+  externalId     String?
   metadata       Json?
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, externalId])
   @@index([tenantId, conversationId])
 }
 
@@ -250,4 +256,67 @@ model Lead {
 
   @@unique([tenantId, accountId, customerId])
   @@index([tenantId, accountId, status])
+}
+
+model WhatsAppBusinessNumber {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  accountId           String
+  phoneNumberId       String   @unique
+  wabaId              String?
+  displayPhoneNumber  String?
+  status              String   @default("CONNECTED")
+  enabled             Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, accountId])
+  @@index([tenantId, wabaId])
+}
+
+model WhatsAppIdempotencyKey {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model WhatsAppMessageJob {
+  id            String    @id @default(uuid())
+  wamid         String    @unique
+  partitionKey  String
+  tenantId      String
+  accountId     String
+  phoneNumberId String
+  waId          String
+  message       String
+  timestamp     BigInt
+  contactName   String?
+  rawType       String    @default("text")
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(3)
+  lastError         String?
+  response          String?
+  outboundStatus    String?   @default("PENDING")
+  outboundMessageId String?
+  outboundError     String?
+  availableAt       DateTime  @default(now())
+  lockedAt      DateTime?
+  lockedBy      String?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt, createdAt])
+  @@index([status, partitionKey, createdAt])
+  @@index([tenantId, accountId])
 }

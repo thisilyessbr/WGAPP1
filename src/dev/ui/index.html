@@ -132,6 +132,7 @@
         <div class="tab" onclick="switchTab(this, 'tab-rag')">Knowledge Base (PDF)</div>
         <div class="tab" onclick="switchTab(this, 'tab-ecommerce')">Ecommerce (Products)</div>
         <div class="tab" onclick="switchTab(this, 'tab-crm')">CRM (Leads)</div>
+        <div class="tab" onclick="switchTab(this, 'tab-whatsapp')">WhatsApp (Channels)</div>
       </div>
       
       <div class="panel-content">
@@ -615,6 +616,30 @@
 
           <div id="crmLeadsContainer">
             <div style="color: #888; font-size: 0.9em;">Select an account to view and manage leads.</div>
+          </div>
+        </div>
+
+        <!-- WhatsApp Channels -->
+        <div id="tab-whatsapp" class="tab-content">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:#fdfdfd; padding:10px 14px; border:1px solid #eee; border-radius:6px;">
+            <div>
+              <label style="display:inline-block; margin-right:8px; font-weight:bold; font-size:0.9em;">Select Account:</label>
+              <select id="whatsappAccountSelect" style="width:220px; display:inline-block;" onchange="onWhatsAppAccountChange()">
+                <option value="">-- Select Account --</option>
+              </select>
+            </div>
+            <button id="btnConnectWhatsApp" type="button" onclick="startWhatsAppEmbeddedSignup()" style="padding:6px 14px; font-size:0.9em; background:#25D366; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">
+              📱 Connect WhatsApp
+            </button>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Connected WhatsApp Numbers</h3>
+            <button onclick="loadWhatsAppNumbers()" class="secondary" style="padding: 4px 8px; font-size: 0.8em;">Refresh</button>
+          </div>
+
+          <div id="whatsappNumbersContainer" style="margin-top:10px;">
+            <div style="color: #888; font-size: 0.9em;">Select an account to view and manage connected WhatsApp numbers.</div>
           </div>
         </div>
       </div>
@@ -2755,6 +2780,7 @@
       if (targetId === 'tab-visual') syncJsonToVisual();
       if (targetId === 'tab-ecommerce') loadAccounts();
       if (targetId === 'tab-crm') { loadAccounts(); loadLeads(); }
+      if (targetId === 'tab-whatsapp') { loadAccounts(); loadWhatsAppNumbers(); }
     }
 
     // --- Knowledge Base ---
@@ -3058,9 +3084,236 @@
               onCrmAccountChange();
             }
           }
+
+          // 5. WhatsApp Account Selector
+          const waSelect = document.getElementById('whatsappAccountSelect');
+          if (waSelect) {
+            if (accountsList.length === 0) {
+              waSelect.innerHTML = '<option value="">No account configured</option>';
+              currentWhatsAppAccountId = '';
+            } else {
+              waSelect.innerHTML = '<option value="">-- Select Account --</option>' +
+                accountsList.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.id)}</option>`).join('');
+              if (currentWhatsAppAccountId && accountsList.some(a => a.id === currentWhatsAppAccountId)) {
+                waSelect.value = currentWhatsAppAccountId;
+              } else {
+                waSelect.value = accountsList[0].id;
+                currentWhatsAppAccountId = accountsList[0].id;
+              }
+              loadWhatsAppNumbers();
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to load accounts:', e);
+      }
+    }
+
+    // --- WhatsApp Channel Management ---
+    let currentWhatsAppAccountId = '';
+
+    function onWhatsAppAccountChange() {
+      const select = document.getElementById('whatsappAccountSelect');
+      if (select && select.value) {
+        currentWhatsAppAccountId = select.value;
+      }
+      loadWhatsAppNumbers();
+    }
+
+    async function loadWhatsAppNumbers() {
+      const container = document.getElementById('whatsappNumbersContainer');
+      if (!container) return;
+
+      const currentTenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+      const accountId = currentWhatsAppAccountId;
+
+      if (!accountId) {
+        container.innerHTML = '<div style="color: #888; font-size: 0.9em;">Select an account to view and manage connected WhatsApp numbers.</div>';
+        return;
+      }
+
+      container.innerHTML = '<div style="color: #888; font-size: 0.9em;">Loading connected numbers...</div>';
+
+      try {
+        const res = await fetch(`/api/whatsapp/numbers?tenantId=${encodeURIComponent(currentTenantId)}&accountId=${encodeURIComponent(accountId)}`);
+        if (!res.ok) {
+          container.innerHTML = '<div style="color: #c00; font-size: 0.9em;">Failed to load WhatsApp numbers.</div>';
+          return;
+        }
+
+        const data = await res.json();
+        const numbers = data.numbers || [];
+
+        if (numbers.length === 0) {
+          container.innerHTML = `
+            <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 20px; text-align: center;">
+              <div style="font-size: 2em; margin-bottom: 8px;">📱</div>
+              <div style="font-weight: bold; color: #334155; margin-bottom: 4px;">No WhatsApp Numbers Connected</div>
+              <div style="color: #64748b; font-size: 0.85em; margin-bottom: 12px;">Connect a business phone number to this account via Meta Embedded Signup.</div>
+            </div>
+          `;
+          return;
+        }
+
+        container.innerHTML = `
+          <table style="width:100%; border-collapse:collapse; margin-top:8px; font-size:0.88em;">
+            <thead>
+              <tr style="background:#f1f5f9; text-align:left; border-bottom:1px solid #cbd5e1;">
+                <th style="padding:8px 10px;">Phone Number</th>
+                <th style="padding:8px 10px;">Phone Number ID</th>
+                <th style="padding:8px 10px;">WABA ID</th>
+                <th style="padding:8px 10px;">Status</th>
+                <th style="padding:8px 10px;">Enabled</th>
+                <th style="padding:8px 10px; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${numbers.map(n => `
+                <tr style="border-bottom:1px solid #e2e8f0;">
+                  <td style="padding:8px 10px; font-weight:bold;">${escapeHtml(n.displayPhoneNumber || 'WhatsApp Business')}</td>
+                  <td style="padding:8px 10px; font-family:monospace; color:#475569;">${escapeHtml(n.phoneNumberId)}</td>
+                  <td style="padding:8px 10px; font-family:monospace; color:#475569;">${escapeHtml(n.wabaId || 'N/A')}</td>
+                  <td style="padding:8px 10px;">
+                    <span style="padding:2px 8px; border-radius:4px; font-size:0.8em; font-weight:bold; background:${n.status === 'CONNECTED' ? '#dcfce7; color:#15803d;' : '#fee2e2; color:#b91c1c;'}">
+                      ${escapeHtml(n.status || 'CONNECTED')}
+                    </span>
+                  </td>
+                  <td style="padding:8px 10px;">
+                    <input type="checkbox" ${n.enabled ? 'checked' : ''} onchange="toggleWhatsAppNumber('${escapeHtml(n.phoneNumberId)}', this.checked)">
+                  </td>
+                  <td style="padding:8px 10px; text-align:right;">
+                    <button class="danger" style="padding:3px 8px; font-size:0.8em;" onclick="deleteWhatsAppNumber('${escapeHtml(n.phoneNumberId)}')">Delete</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        container.innerHTML = '<div style="color: #c00; font-size: 0.9em;">Error loading WhatsApp numbers.</div>';
+      }
+    }
+
+    async function startWhatsAppEmbeddedSignup() {
+      const currentTenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+      const accountId = currentWhatsAppAccountId;
+
+      if (!accountId) {
+        alert('Please select an Account first before connecting WhatsApp.');
+        return;
+      }
+
+      try {
+        // 1. Fetch non-secret Embedded Signup configuration from backend
+        const configRes = await fetch('/api/whatsapp/embedded-signup/config');
+        const configData = await configRes.json();
+
+        // 2. Generate signed CSRF state token
+        const stateRes = await fetch('/api/whatsapp/embedded-signup/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId: currentTenantId, accountId })
+        });
+        const stateData = await stateRes.json();
+
+        if (!configData.appId || !configData.configId) {
+          // In development/test mode without active Meta credentials, allow manual test registration
+          const testPhoneId = prompt('Enter WhatsApp Business Phone Number ID to register for this account:');
+          if (!testPhoneId) return;
+
+          const testWabaId = prompt('Enter WABA ID (optional):', 'waba_' + Date.now()) || null;
+          const testDisplay = prompt('Enter Display Phone Number (optional):', '+1 555 0100') || null;
+
+          const res = await fetch('/api/whatsapp/embedded-signup/callback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: currentTenantId,
+              accountId,
+              code: 'mock_code',
+              wabaId: testWabaId || 'waba_mock',
+              phoneNumberId: testPhoneId.trim(),
+              displayPhoneNumber: testDisplay,
+              stateToken: stateData.stateToken
+            })
+          });
+
+          const result = await res.json();
+          if (res.ok && result.success) {
+            alert(`WhatsApp number [${testPhoneId}] successfully connected to this account!`);
+            loadWhatsAppNumbers();
+          } else {
+            alert('Failed to connect number: ' + (result.error || 'Unknown error'));
+          }
+          return;
+        }
+
+        // Standard Meta JavaScript SDK Facebook Login for Business with Embedded Signup
+        if (typeof FB !== 'undefined') {
+          FB.login(function(response) {
+            if (response.authResponse && response.authResponse.code) {
+              // Send code to backend callback
+              fetch('/api/whatsapp/embedded-signup/callback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tenantId: currentTenantId,
+                  accountId,
+                  code: response.authResponse.code,
+                  stateToken: stateData.stateToken
+                })
+              }).then(r => r.json()).then(res => {
+                if (res.success) {
+                  alert('WhatsApp account successfully connected!');
+                  loadWhatsAppNumbers();
+                } else {
+                  alert('Onboarding failed: ' + (res.error || 'Unknown error'));
+                }
+              });
+            }
+          }, {
+            config_id: configData.configId,
+            response_type: 'code',
+            override_default_response_type: true,
+            extras: { feature: 'whatsapp_embedded_signup', sessionInfoVersion: '2' }
+          });
+        }
+      } catch (err) {
+        alert('Error initiating WhatsApp onboarding: ' + err.message);
+      }
+    }
+
+    async function toggleWhatsAppNumber(phoneNumberId, enabled) {
+      const currentTenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+      try {
+        const res = await fetch(`/api/whatsapp/numbers/${encodeURIComponent(phoneNumberId)}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId: currentTenantId, enabled })
+        });
+        if (!res.ok) alert('Failed to update number status.');
+      } catch (err) {
+        alert('Error updating number status: ' + err.message);
+      }
+    }
+
+    async function deleteWhatsAppNumber(phoneNumberId) {
+      if (!confirm(`Are you sure you want to remove WhatsApp number [${phoneNumberId}] from this account?`)) return;
+
+      const currentTenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
+      try {
+        const res = await fetch(`/api/whatsapp/numbers/${encodeURIComponent(phoneNumberId)}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId: currentTenantId })
+        });
+        if (res.ok) {
+          loadWhatsAppNumbers();
+        } else {
+          alert('Failed to delete number.');
+        }
+      } catch (err) {
+        alert('Error deleting number: ' + err.message);
       }
     }
 

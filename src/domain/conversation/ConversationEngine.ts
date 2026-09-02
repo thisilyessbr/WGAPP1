@@ -321,7 +321,10 @@ ${content}
     tenantId: string,
     customerExternalId: string,
     contentInput: string | IncomingMessagePayload,
-    accountId?: string | null
+    accountId?: string | null,
+    options?: {
+      externalMessageId?: string | null;
+    }
   ): Promise<string> {
     const turnStartTime = Date.now();
     const correlationId = TelemetryClient.createCorrelationId();
@@ -351,6 +354,20 @@ ${content}
 
     // 1. Load conversation session securely via tenant mapping (and accountId if provided)
     const conversation = await this.conversationService.getOrCreateConversation(tenantId, customerExternalId, resolvedParamAccountId);
+
+    // 1.1 Channel-neutral turn idempotency check: bypass all expensive processing if external turn was already committed
+    const externalMessageId = options?.externalMessageId?.trim() || null;
+    if (externalMessageId) {
+      const existingResponse = await this.conversationService.findExistingTurnResponse(
+        tenantId,
+        externalMessageId,
+        conversation.id
+      );
+      if (existingResponse !== null) {
+        logger.info(`ConversationEngine: Idempotent turn return for externalMessageId [${externalMessageId}] in conversation [${conversation.id}] (0 LLM, 0 RAG, 0 Workflow, 0 CRM).`);
+        return existingResponse;
+      }
+    }
 
     // 2. Load configuration (account-aware if accountId or conversation.accountId provided, otherwise base tenant config)
     const effectiveAccountId = resolvedParamAccountId || conversation.accountId;
@@ -434,6 +451,7 @@ ${content}
         expectedVersion: conversation.version,
         userMessage: payload.text || 'Image uploaded',
         assistantMessage: capMsg,
+        externalMessageId: options?.externalMessageId,
         setAutomationCapped: true,
         closeConversation: true
       });
@@ -482,7 +500,8 @@ ${content}
         conversationId: conversation.id,
         expectedVersion: conversation.version,
         userMessage: routed.userDisplayContent,
-        assistantMessage: fallback
+        assistantMessage: fallback,
+        externalMessageId: options?.externalMessageId
       });
       telemetry.emit({
         eventType: 'response_completed',
@@ -584,7 +603,8 @@ ${content}
         conversationId: conversation.id,
         expectedVersion: conversation.version,
         userMessage: routed.userDisplayContent,
-        assistantMessage: safetyRefusal
+        assistantMessage: safetyRefusal,
+        externalMessageId: options?.externalMessageId
       });
       telemetry.emit({
         eventType: 'response_completed',
@@ -642,6 +662,7 @@ ${content}
         expectedVersion: conversation.version,
         userMessage: routed.userDisplayContent,
         assistantMessage: handoffMsg,
+        externalMessageId: options?.externalMessageId,
         flagHumanRequested: true,
         sessionUpdate: sessionUpdatePayload || undefined
       });
@@ -2351,18 +2372,34 @@ ${content}
     });
 
     // 6. Atomically persist entire conversation turn (optimistic version check, USER message, session update, ASSISTANT message)
-    await this.conversationService.commitConversationTurn({
-      tenantId,
-      conversationId: conversation.id,
-      expectedVersion: conversation.version,
-      userMessage: routed.userDisplayContent,
-      assistantMessage: response || null,
-      contextData: contextDataUpdate || undefined,
-      sessionUpdate: sessionUpdatePayload,
-      flagHumanRequested,
-      incrementPostCompletionCount,
-      setPostCompletionCapped
-    });
+    try {
+      await this.conversationService.commitConversationTurn({
+        tenantId,
+        conversationId: conversation.id,
+        expectedVersion: conversation.version,
+        userMessage: routed.userDisplayContent,
+        assistantMessage: response || null,
+        externalMessageId: options?.externalMessageId,
+        contextData: contextDataUpdate || undefined,
+        sessionUpdate: sessionUpdatePayload,
+        flagHumanRequested,
+        incrementPostCompletionCount,
+        setPostCompletionCapped
+      });
+    } catch (commitErr: any) {
+      if (externalMessageId) {
+        const existingTurnResp = await this.conversationService.findExistingTurnResponse(
+          tenantId,
+          externalMessageId,
+          conversation.id
+        );
+        if (existingTurnResp !== null) {
+          logger.info(`ConversationEngine: Recovered from concurrent turn insert for externalMessageId [${externalMessageId}] in conversation [${conversation.id}].`);
+          return existingTurnResp;
+        }
+      }
+      throw commitErr;
+    }
 
     // 7. Non-blocking CRM lead signal processing (Phase CRM-B & CRM-WORKFLOW-FIX-04)
     if (this.crmService && effectiveAccountId) {
