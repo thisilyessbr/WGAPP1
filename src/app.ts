@@ -108,6 +108,7 @@ async function bootstrap() {
     logger.info('Database connected');
 
     const deps = bootstrapChatbot(prisma);
+    const app = await createApp(deps);
     const host = process.env.HOST || '0.0.0.0';
     app.listen(Number(config.port), host, () => {
       logger.info(`Server started on port ${config.port} (host: ${host})`);
