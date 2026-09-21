@@ -28,6 +28,7 @@ import { TurnDecision, TurnDecisionResolver } from './TurnDecision';
 import { AnswerComposer } from './AnswerComposer';
 import { ProductLookupResult } from '../ecommerce/EcommerceService';
 import { CRMService } from '../crm/CRMService';
+import { OutcomeTrackingService } from '../outcome/OutcomeTrackingService';
 import { logger } from '../../utils/logger';
 import { telemetry, TelemetryClient } from '../../core/telemetry/TelemetryClient';
 import { PortalBudget } from '../../portal/PortalBudget';
@@ -87,7 +88,8 @@ export class ConversationEngine {
     accountConfigService?: AccountConfigService,
     ecommerceService?: EcommerceService,
     crmService?: CRMService,
-    private portalBudget?: PortalBudget
+    private portalBudget?: PortalBudget,
+    private outcomeService?: OutcomeTrackingService
   ) {
     if (llmOrFactory && typeof llmOrFactory === 'object' && 'getProvider' in llmOrFactory) {
       this.llmFactory = llmOrFactory as LLMFactory;
@@ -99,6 +101,10 @@ export class ConversationEngine {
     this.accountConfigService = accountConfigService;
     this.ecommerceService = ecommerceService;
     this.crmService = crmService;
+  }
+
+  setOutcomeService(outcomeService: OutcomeTrackingService): void {
+    this.outcomeService = outcomeService;
   }
 
   private isGreeting(message: string): boolean {
@@ -828,6 +834,7 @@ ${content}
       logger.info(`ConversationEngine: Human handoff requested on conversation [${conversation.id}].`);
       flagHumanRequested = true;
       conversation.humanRequested = true;
+      const handoffRequestedAt = new Date();
 
       const turnDecHandoff = TurnDecisionResolver.resolve({
         text: content,
@@ -851,7 +858,7 @@ ${content}
           stateId: activeSession.stateId,
           contextData: activeSession.contextData as any,
           humanRequested: true,
-          humanRequestedAt: new Date()
+          humanRequestedAt: handoffRequestedAt
         };
       }
 
@@ -867,6 +874,24 @@ ${content}
         responseType: 'HANDOFF',
         sessionUpdate: sessionUpdatePayload || undefined
       });
+
+      if (this.outcomeService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:')) {
+        try {
+          await this.outcomeService.recordEvent({
+            tenantId,
+            accountId: effectiveAccountId,
+            conversationId: conversation.id,
+            customerId: conversation.customerId,
+            type: 'HANDOFF_REQUESTED',
+            source: 'HANDOFF',
+            occurredAt: handoffRequestedAt,
+            idempotencyKey: `handoff:requested:${conversation.id}:${options?.externalMessageId || conversation.version}`,
+            metadata: { reason: 'customer_request' }
+          });
+        } catch (outcomeErr) {
+          logger.warn('ConversationEngine: Non-blocking outcome tracking error (handoff request)', { error: outcomeErr });
+        }
+      }
 
       telemetry.emit({
         eventType: 'response_completed',
@@ -2612,6 +2637,103 @@ ${content}
         logger.warn('ConversationEngine: Non-blocking CRM turn processing error', { error: crmErr });
       }
     }
+
+    // 8. Non-blocking Outcome Tracking (Relayqo Outcome Tracking MVP)
+    if (this.outcomeService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:')) {
+      // 8a. Missed Question tracking at canonical fallback decision point
+      if (responseSource === 'FALLBACK') {
+        try {
+          const idempotencyKey = `question_missed:${conversation.id}:${options?.externalMessageId || conversation.version}`;
+          await this.outcomeService.recordEvent({
+            tenantId,
+            accountId: effectiveAccountId,
+            type: 'QUESTION_MISSED',
+            source: 'CHATBOT_SIGNAL',
+            conversationId: conversation.id,
+            customerId: conversation.customerId,
+            idempotencyKey,
+            metadata: {
+              messageId: options?.externalMessageId,
+              question: (routed.userDisplayContent || '').slice(0, 200),
+              language: effectiveLang,
+              script: effectiveScript,
+              reason: 'NO_SUPPORTED_ANSWER'
+            }
+          });
+        } catch (outcomeErr) {
+          logger.warn('ConversationEngine: Non-blocking outcome tracking error (missed question)', { error: outcomeErr });
+        }
+      }
+
+      // 8b. Workflow Outcome tracking (Confirmed Bookings & Orders)
+      if (sessionUpdatePayload?.status === 'COMPLETED' && completedWorkflowConfig) {
+        try {
+          const stateOutcome = completedTerminalStateId && completedWorkflowConfig.states?.[completedTerminalStateId]?.outcome;
+          const workflowOutcome = completedWorkflowConfig.outcome;
+          const outcomeConfig = stateOutcome || workflowOutcome;
+
+          if (outcomeConfig?.type === 'BOOKING_CONFIRMED') {
+            const idempotencyKey = `booking_confirmed:${conversation.id}:${sessionUpdatePayload.sessionId}`;
+            await this.outcomeService.recordEvent({
+              tenantId,
+              accountId: effectiveAccountId,
+              type: 'BOOKING_CONFIRMED',
+              source: 'WORKFLOW',
+              conversationId: conversation.id,
+              customerId: conversation.customerId,
+              idempotencyKey,
+              metadata: {
+                workflowId: completedWorkflowId,
+                terminalStateId: completedTerminalStateId
+              }
+            });
+          } else if (outcomeConfig?.type === 'ORDER_CONFIRMED') {
+            let orderValue: number | null = null;
+            if (outcomeConfig.valueField) {
+              const rawVal = sessionUpdatePayload.contextData?.[outcomeConfig.valueField];
+              if (rawVal !== undefined && rawVal !== null) {
+                const parsed = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+                if (!isNaN(parsed) && parsed > 0) {
+                  orderValue = parsed;
+                }
+              }
+            }
+
+            let orderCurrency: string | null = null;
+            if (outcomeConfig.currencyField) {
+              const rawCurr = sessionUpdatePayload.contextData?.[outcomeConfig.currencyField];
+              if (typeof rawCurr === 'string' && /^[A-Z]{3}$/i.test(rawCurr.trim())) {
+                orderCurrency = rawCurr.trim().toUpperCase();
+              }
+            }
+            if (!orderCurrency) {
+              orderCurrency = config.identity?.currency || 'USD';
+            }
+
+            const idempotencyKey = `order_confirmed:${conversation.id}:${sessionUpdatePayload.sessionId}`;
+            await this.outcomeService.recordEvent({
+              tenantId,
+              accountId: effectiveAccountId,
+              type: 'ORDER_CONFIRMED',
+              source: 'WORKFLOW',
+              conversationId: conversation.id,
+              customerId: conversation.customerId,
+              value: orderValue,
+              currency: orderCurrency,
+              idempotencyKey,
+              metadata: {
+                workflowId: completedWorkflowId,
+                terminalStateId: completedTerminalStateId,
+                valueField: outcomeConfig.valueField,
+                currencyField: outcomeConfig.currencyField
+              }
+            });
+          }
+        } catch (outcomeErr) {
+          logger.warn('ConversationEngine: Non-blocking outcome tracking error (workflow outcome)', { error: outcomeErr });
+        }
+      }
+    }
     
     return response;
   }
@@ -2912,4 +3034,3 @@ ${content}
     return { allowed: true };
   }
 }
-

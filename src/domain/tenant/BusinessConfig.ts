@@ -172,6 +172,7 @@ export interface WorkflowStateConfig {
     target: string;
     default?: boolean;
   }[];
+  outcome?: WorkflowOutcomeConfig;
 }
 
 export interface WorkflowActivationConfig {
@@ -187,6 +188,12 @@ export interface WorkflowExecutionLimitConfig {
   limitReachedMessage?: string | LocalizedPrompt;
 }
 
+export interface WorkflowOutcomeConfig {
+  type: 'BOOKING_CONFIRMED' | 'ORDER_CONFIRMED';
+  valueField?: string;
+  currencyField?: string;
+}
+
 export interface WorkflowConfig {
   id: string;
   name: string;
@@ -196,6 +203,7 @@ export interface WorkflowConfig {
   allowInterruption?: boolean;
   activation?: WorkflowActivationConfig;
   executionLimit?: WorkflowExecutionLimitConfig;
+  outcome?: WorkflowOutcomeConfig;
 }
 
 export interface KnowledgeConfig {

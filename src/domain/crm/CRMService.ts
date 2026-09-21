@@ -3,6 +3,8 @@ import { TurnDecision } from '../conversation/TurnDecision';
 import { logger } from '../../utils/logger';
 import { isActionNegated } from '../conversation/IntentLanguage';
 
+import { OutcomeTrackingService } from '../outcome/OutcomeTrackingService';
+
 export const VALID_LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'] as const;
 export type LeadStatus = typeof VALID_LEAD_STATUSES[number];
 
@@ -25,7 +27,10 @@ export interface TurnSignalParams {
 }
 
 export class CRMService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(
+    private prisma: PrismaClient,
+    private outcomeService?: OutcomeTrackingService
+  ) {}
 
   /**
    * Deterministically classifies whether a completed workflow is sales/booking/lead-generating.
@@ -115,7 +120,19 @@ export class CRMService {
       throw new Error(`CRMService: Invalid lead status "${status}". Allowed values: ${VALID_LEAD_STATUSES.join(', ')}`);
     }
 
-    return this.prisma.lead.upsert({
+    const existing = await this.prisma.lead.findUnique({
+      where: {
+        tenantId_accountId_customerId: {
+          tenantId,
+          accountId,
+          customerId
+        }
+      }
+    });
+
+    const isNew = !existing;
+
+    const lead = await this.prisma.lead.upsert({
       where: {
         tenantId_accountId_customerId: {
           tenantId,
@@ -133,6 +150,19 @@ export class CRMService {
         // If lead already exists, touch updatedAt without overwriting advanced pipeline status unless specified
       }
     });
+
+    if (isNew && this.outcomeService && !customerId.startsWith('portal-preview:')) {
+      await this.outcomeService.recordEvent({
+        tenantId,
+        accountId,
+        customerId,
+        type: 'LEAD_CREATED',
+        source: 'CRM_STATUS',
+        idempotencyKey: `lead:created:${lead.id}`
+      });
+    }
+
+    return lead;
   }
 
   /**
@@ -157,10 +187,23 @@ export class CRMService {
       throw new Error(`CRMService: Lead [${leadId}] not found for tenant [${tenantId}] and account [${accountId}]`);
     }
 
-    return this.prisma.lead.update({
+    const updated = await this.prisma.lead.update({
       where: { id: leadId },
       data: { status }
     });
+
+    if (existing.status !== 'QUALIFIED' && status === 'QUALIFIED' && this.outcomeService && !existing.customerId.startsWith('portal-preview:')) {
+      await this.outcomeService.recordEvent({
+        tenantId,
+        accountId,
+        customerId: existing.customerId,
+        type: 'LEAD_QUALIFIED',
+        source: 'CRM_STATUS',
+        idempotencyKey: `lead:qualified:${leadId}`
+      });
+    }
+
+    return updated;
   }
 
   /**

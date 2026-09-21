@@ -125,3 +125,20 @@
   .inbox-msg{max-width:92%}
 }
 
+/* Business Outcome Tracking Styles */
+.outcome-card{margin-bottom:20px}
+.outcome-metrics{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:0}
+.outcome-metrics .dashboard-metric{display:flex;flex-direction:column;justify-content:space-between}
+.teach-chatbot-card{margin-bottom:20px}
+.teach-questions-list{display:flex;flex-direction:column;gap:10px}
+.teach-question-row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 18px;background:var(--input);border:1px solid var(--line);border-radius:12px;transition:opacity .2s}
+.teach-question-content{min-width:0;display:flex;flex-direction:column;gap:5px}
+.teach-question-text{font-size:13px;font-weight:550;color:var(--text);overflow-wrap:anywhere}
+.teach-question-meta{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.resolve-question-btn{flex:none;font-size:12px;padding:6px 14px;min-height:34px}
+.admin-outcome-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.small-select{min-height:34px;padding:5px 10px;background:var(--input);border:1px solid var(--line);border-radius:8px;color:var(--text);font-size:12px}
+.high-missed-alert{border-left:4px solid var(--red);background:#ff998610;margin-bottom:20px}
+:root[dir=rtl] .high-missed-alert{border-left:1px solid var(--line);border-right:4px solid var(--red)}
+.attention-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+

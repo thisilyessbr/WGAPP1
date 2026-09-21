@@ -11,6 +11,8 @@ import { ChatbotDependencies } from '../bootstrap';
 import { ConversationAutomationService } from '../domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
+import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService';
+import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
 import { logger } from '../utils/logger';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
@@ -22,6 +24,7 @@ export interface PortalRouterDeps {
   conversationAutomationService?: ConversationAutomationService;
   whatsAppOutboundQueue?: OutboundMessageQueue;
   whatsAppNumberService?: WhatsAppNumberService;
+  outcomeTrackingService?: OutcomeTrackingService;
   [key: string]: any;
 }
 const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules });
@@ -29,6 +32,11 @@ const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p
   requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, autoPublish: p.autoPublish });
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
+function boundedQueryInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new PortalError(400, 'INVALID_QUERY_PARAMETER');
+  return Math.max(min, Math.min(max, parsed));
+}
 function validateAccountChanges(changes: Record<string, any>) {
   allowed(changes, ['status','planId','limitOverrides','adminConfig','autoPublish','lockedFields','reviewNote']);
     if (changes.status && !['DRAFT', 'SUBMITTED', 'NEEDS_CHANGES', 'APPROVED', 'ACTIVE', 'SUSPENDED'].includes(changes.status)) throw new PortalError(400, 'INVALID_STATUS');
@@ -46,6 +54,7 @@ function validateAccountChanges(changes: Record<string, any>) {
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
   const automationService = deps.conversationAutomationService || new ConversationAutomationService(services.store.db as any);
+  const outcomeService = deps.outcomeTrackingService || new OutcomeTrackingService(services.store.db as any);
   const router = Router(), authRouter = Router(), client = Router(), admin = Router();
   router.use(['/auth', '/client', '/admin', '/portal'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   router.get('/portal/plans', route(async (_req, res) => send(res, { plans: (await store.plans(true)).map(publicPlan) })));
@@ -656,6 +665,59 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     }, 201);
   }));
 
+  // --- Client Outcome Tracking Routes ---
+  client.get('/outcomes/summary', route(async (req, res) => {
+    const days = boundedQueryInteger(req.query.days, 30, 1, 90);
+    const summary = await outcomeService.getAccountSummary(req.portal.tenantId!, req.portal.accountId!, days);
+    send(res, summary);
+  }));
+
+  client.get('/outcomes', route(async (req, res) => {
+    const days = boundedQueryInteger(req.query.days, 30, 1, 90);
+    const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
+    const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
+    const rawType = req.query.type ? String(req.query.type) : undefined;
+    if (rawType && !OUTCOME_EVENT_TYPES.includes(rawType as OutcomeEventType)) throw new PortalError(400, 'INVALID_EVENT_TYPE');
+    const result = await outcomeService.listEvents({
+      tenantId: req.portal.tenantId!,
+      accountId: req.portal.accountId!,
+      type: rawType as OutcomeEventType | undefined,
+      days,
+      limit,
+      offset
+    });
+    send(res, { ...result, periodDays: days, limit, offset });
+  }));
+
+  client.get('/outcomes/missed-questions', route(async (req, res) => {
+    const days = boundedQueryInteger(req.query.days, 30, 1, 90);
+    const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
+    const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
+    const result = await outcomeService.getUnresolvedMissedQuestions(req.portal.tenantId!, req.portal.accountId!, days, limit, offset);
+    send(res, { ...result, periodDays: days, limit, offset });
+  }));
+
+  client.post('/outcomes/:id/resolve', route(async (req, res) => {
+    const missedEventId = String(req.params.id);
+    try {
+      const resolvedEvent = await outcomeService.resolveMissedQuestion({
+        tenantId: req.portal.tenantId!,
+        accountId: req.portal.accountId!,
+        outcomeId: missedEventId,
+        actorId: req.portal.user.id
+      });
+      send(res, { success: true, resolvedEvent });
+    } catch (err: any) {
+      if (err.message && err.message.includes('not found')) {
+        throw new PortalError(404, 'OUTCOME_NOT_FOUND');
+      }
+      if (err.message && err.message.includes('not a QUESTION_MISSED')) {
+        throw new PortalError(400, 'INVALID_EVENT_TYPE');
+      }
+      throw err;
+    }
+  }));
+
   admin.get('/overview', route(async (_req, res) => {
     const period = new Date().toISOString().slice(0, 7);
     const [counts, usageRows, trafficRows, daily, connectionRows, failureRows, recentAccounts, activity] = await Promise.all([
@@ -850,6 +912,33 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       await s.audit(req.portal.user.id, null, 'USER_ACCESS_UPDATED', { userId: target.id, disabled: req.body.disabled });
     }); send(res, { success: true });
   }));
+
+  // --- Admin Outcome Tracking Routes ---
+  admin.get('/outcomes/summary', route(async (req, res) => {
+    const days = boundedQueryInteger(req.query.days, 30, 1, 90);
+    const accountId = req.query.accountId ? String(req.query.accountId) : undefined;
+    const summary = await outcomeService.getAdminSummary(days, accountId);
+    send(res, summary);
+  }));
+
+  admin.get('/accounts/:id/outcomes', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const days = boundedQueryInteger(req.query.days, 30, 1, 90);
+    const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
+    const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
+    const rawType = req.query.type ? String(req.query.type) : undefined;
+    if (rawType && !OUTCOME_EVENT_TYPES.includes(rawType as OutcomeEventType)) throw new PortalError(400, 'INVALID_EVENT_TYPE');
+    const result = await outcomeService.listEvents({
+      tenantId: p.tenantId,
+      accountId: p.accountId,
+      type: rawType as OutcomeEventType | undefined,
+      days,
+      limit,
+      offset
+    });
+    send(res, { ...result, periodDays: days, limit, offset });
+  }));
+
   router.use('/auth', authRouter); router.use('/client', client); router.use('/admin', admin);
   router.use(['/auth', '/client', '/admin', '/portal'], (_req, res) => send(res, { error: 'NOT_FOUND' }, 404));
   router.use((error: any, _req: Request, res: Response, next: express.NextFunction) => {

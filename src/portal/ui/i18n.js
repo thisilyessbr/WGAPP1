@@ -54,6 +54,33 @@
     ['Search conversations…','Rechercher des conversations…','البحث في المحادثات…'],
     ['Type a reply…','Écrire une réponse…','اكتب ردًا…']
   ]) translations.set(en, { fr, ar });
+  for (const [en, fr, ar] of [
+    ['Business outcomes','Résultats de l’activité','نتائج النشاط'],
+    ['Here are the business results your chatbot generated.','Voici les résultats générés par votre chatbot.','إليك النتائج التي حققها روبوت المحادثة.'],
+    ['New leads','Nouveaux prospects','عملاء محتملون جدد'],
+    ['Qualified leads','Prospects qualifiés','عملاء محتملون مؤهلون'],
+    ['Confirmed bookings','Réservations confirmées','حجوزات مؤكدة'],
+    ['Confirmed orders','Commandes confirmées','طلبات مؤكدة'],
+    ['Missed questions','Questions sans réponse','أسئلة لم تتم الإجابة عليها'],
+    ['Resolved handoffs','Transferts résolus','تحويلات مكتملة'],
+    ['Total created','Total créés','الإجمالي المُنشأ'],
+    ['Via workflows','Via les parcours','عبر مسارات العمل'],
+    ['Questions to teach your chatbot','Questions pour entraîner votre chatbot','أسئلة لتعليم روبوت المحادثة'],
+    ['Customer questions your chatbot could not answer yet. Review and add them to your business data or FAQs.','Questions clients auxquelles votre chatbot n’a pas pu répondre. Ajoutez-les à vos données ou FAQ.','أسئلة من العملاء لم يتمكن الروبوت من الإجابة عليها. راجعها وأضفها إلى بيانات النشاط أو الأسئلة الشائعة.'],
+    ['Mark resolved','Marquer comme résolu','تحديد كمحلول'],
+    ['Marked resolved','Résolu','تم الحل'],
+    ['No missed questions. Your chatbot is answering smoothly!','Aucune question sans réponse. Votre chatbot répond parfaitement !','لا توجد أسئلة دون إجابة. الروبوت يجيب بسلاسة!'],
+    ['Platform outcomes','Résultats de la plateforme','نتائج المنصة'],
+    ['Aggregated business results across client accounts.','Résultats agrégés sur l’ensemble des comptes clients.','النتائج المجمعة عبر حسابات العملاء.'],
+    ['Platform total','Total plateforme','إجمالي المنصة'],
+    ['All clients','Tous les clients','جميع العملاء'],
+    ['High missed questions alert','Alerte questions sans réponse élevées','تنبيه: نسبة أسئلة مرتفعة دون إجابة'],
+    ['Clients with elevated missed question volume and low resolution rates:','Clients ayant un volume élevé de questions sans réponse et un faible taux de résolution :','عملاء لديهم حجم أسئلة مرتفع دون إجابة ونسبة حل منخفضة:'],
+    ['Open client ›','Ouvrir le client ›','فتح حساب العميل ›'],
+    ['7 days','7 jours','7 أيام'],
+    ['30 days','30 jours','30 يومًا'],
+    ['90 days','90 jours','90 يومًا']
+  ]) translations.set(en, { fr, ar });
 
   const supported = new Set(['en', 'fr', 'ar']);
   const stored = (() => { try { return localStorage.getItem('relayqo-language'); } catch { return null; } })();

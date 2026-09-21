@@ -146,10 +146,27 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
   }
   if (config.limits) for (const n of Object.values(config.limits)) integer(n, 1, 100000);
   if (config.workflows) {
-    for (const workflow of Object.values(config.workflows) as any[]) {
+    const validateOutcome = (raw: unknown) => {
+      const outcome = object(raw);
+      allowed(outcome, ['type', 'valueField', 'currencyField']);
+      if (!['BOOKING_CONFIRMED', 'ORDER_CONFIRMED'].includes(String(outcome.type))) throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (outcome.valueField !== undefined) text(outcome.valueField, 100);
+      if (outcome.currencyField !== undefined) text(outcome.currencyField, 100);
+      if (outcome.type === 'BOOKING_CONFIRMED' && (outcome.valueField !== undefined || outcome.currencyField !== undefined)) {
+        throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      }
+    };
+    for (const rawWorkflow of Object.values(config.workflows) as any[]) {
+      const workflow = object(rawWorkflow);
       if (!workflow.initialState || !workflow.states?.[workflow.initialState]) throw new PortalError(400, 'INVALID_WORKFLOW');
-      for (const state of Object.values(workflow.states) as any[]) {
+      if (workflow.outcome !== undefined) validateOutcome(workflow.outcome);
+      for (const rawState of Object.values(object(workflow.states)) as any[]) {
+        const state = object(rawState);
         if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
+        if (state.outcome !== undefined) {
+          if (state.type !== 'end') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+          validateOutcome(state.outcome);
+        }
         const targets = [...(state.transitions || []).map((t: any) => t.target), ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
         if (targets.some(target => !workflow.states[target])) throw new PortalError(400, 'INVALID_WORKFLOW_TARGET');
       }

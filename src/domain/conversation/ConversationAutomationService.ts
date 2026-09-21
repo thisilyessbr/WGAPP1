@@ -1,5 +1,7 @@
 import { PrismaClient, Conversation, ConversationAutomationState } from '@prisma/client';
 import { logger } from '../../utils/logger';
+import { OutcomeTrackingService } from '../outcome/OutcomeTrackingService';
+import { RecordOutcomeParams } from '../outcome/types';
 
 export type AutomationOwnershipState = 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED';
 
@@ -12,7 +14,20 @@ export interface TransitionParams {
 }
 
 export class ConversationAutomationService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(
+    private prisma: PrismaClient,
+    private outcomeService?: OutcomeTrackingService
+  ) {}
+
+  private async recordOutcomeAfterCommit(params?: RecordOutcomeParams): Promise<void> {
+    if (!params || !this.outcomeService) return;
+    try {
+      await this.outcomeService.recordEvent(params);
+    } catch (error) {
+      // Outcome telemetry must never undo a completed ownership transition.
+      logger.warn('ConversationAutomationService: Outcome tracking failed after ownership transition', { error });
+    }
+  }
 
   /**
    * Authoritatively computes the ownership state of a conversation.
@@ -106,12 +121,14 @@ export class ConversationAutomationService {
   async requestHandoff(params: TransitionParams): Promise<Conversation> {
     const { tenantId, conversationId, actorId, reason } = params;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<any[]>`
-        SELECT id, "accountId", status, "humanRequested", "humanRequestedAt", "contextData"
-        FROM "Conversation"
-        WHERE id = ${conversationId} AND "tenantId" = ${tenantId}
-        FOR UPDATE
+        SELECT c.id, c."accountId", c."customerId", c.status, c."humanRequested", c."humanRequestedAt", c."contextData",
+               customer."externalId" AS "customerExternalId"
+        FROM "Conversation" c
+        JOIN "Customer" customer ON customer.id = c."customerId"
+        WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId}
+        FOR UPDATE OF c
       `;
       const conv = rows[0];
       if (!conv) {
@@ -120,15 +137,17 @@ export class ConversationAutomationService {
 
       // If already in HUMAN_ACTIVE, do not downgrade back to HUMAN_REQUIRED
       if (conv.status === 'HUMAN_ACTIVE') {
-        return conv as Conversation;
+        return { conversation: conv as Conversation };
       }
+
+      const requestedAt = conv.humanRequestedAt ? new Date(conv.humanRequestedAt) : new Date();
 
       const updatedConv = await tx.conversation.update({
         where: { id: conversationId },
         data: {
           status: 'HANDOFF_REQUESTED',
           humanRequested: true,
-          humanRequestedAt: conv.humanRequestedAt || new Date(),
+          humanRequestedAt: requestedAt,
           updatedAt: new Date()
         }
       });
@@ -161,9 +180,24 @@ export class ConversationAutomationService {
         metadata: { reason: reason || 'keyword_trigger' }
       });
 
+      const outcome = conv.status !== 'HANDOFF_REQUESTED' && !conv.humanRequested && this.outcomeService && conv.accountId && !conv.customerExternalId?.startsWith('portal-preview:') ? {
+          tenantId,
+          accountId: conv.accountId,
+          conversationId,
+          customerId: conv.customerId,
+          type: 'HANDOFF_REQUESTED' as const,
+          source: 'HANDOFF' as const,
+          occurredAt: requestedAt,
+          idempotencyKey: `handoff:requested:${conversationId}:${requestedAt.getTime()}`,
+          metadata: { reason: reason || 'keyword_trigger' }
+        } : undefined;
+
       logger.info(`ConversationAutomationService: Handoff requested for conversation [${conversationId}]`);
-      return updatedConv;
+      return { conversation: updatedConv, outcome };
     });
+
+    await this.recordOutcomeAfterCommit(result.outcome);
+    return result.conversation;
   }
 
   /**
@@ -175,12 +209,14 @@ export class ConversationAutomationService {
     const { tenantId, conversationId, actorId } = params;
     const actor = actorId || 'merchant';
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<any[]>`
-        SELECT id, "accountId", status, "humanRequested", "humanRequestedAt", "contextData"
-        FROM "Conversation"
-        WHERE id = ${conversationId} AND "tenantId" = ${tenantId}
-        FOR UPDATE
+        SELECT c.id, c."accountId", c."customerId", c.status, c."humanRequested", c."humanRequestedAt", c."contextData",
+               customer."externalId" AS "customerExternalId"
+        FROM "Conversation" c
+        JOIN "Customer" customer ON customer.id = c."customerId"
+        WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId}
+        FOR UPDATE OF c
       `;
       const conv = rows[0];
       if (!conv) {
@@ -191,11 +227,12 @@ export class ConversationAutomationService {
         ? conv.contextData
         : {};
 
+      const claimedAt = existingContext._portalHandoff?.claimedAt || new Date().toISOString();
       const updatedContext = {
         ...existingContext,
         _portalHandoff: {
           ownerId: actor,
-          claimedAt: existingContext._portalHandoff?.claimedAt || new Date().toISOString()
+          claimedAt
         }
       };
 
@@ -236,9 +273,34 @@ export class ConversationAutomationService {
         metadata: { claimedBy: actor }
       });
 
+      let outcome: RecordOutcomeParams | undefined;
+      if (conv.status !== 'HUMAN_ACTIVE' && this.outcomeService && conv.accountId && !conv.customerExternalId?.startsWith('portal-preview:')) {
+        const claimTime = new Date(claimedAt).getTime();
+        const requestTime = conv.humanRequestedAt ? new Date(conv.humanRequestedAt).getTime() : claimTime;
+        const timeFromRequestToClaimMs = Math.max(0, claimTime - requestTime);
+
+        outcome = {
+          tenantId,
+          accountId: conv.accountId,
+          conversationId,
+          customerId: conv.customerId,
+          type: 'HANDOFF_CLAIMED',
+          source: 'MERCHANT',
+          occurredAt: new Date(claimedAt),
+          idempotencyKey: `handoff:claimed:${conversationId}:${claimedAt}`,
+          metadata: {
+            claimedBy: actor,
+            timeFromRequestToClaimMs
+          }
+        };
+      }
+
       logger.info(`ConversationAutomationService: Human takeover activated on conversation [${conversationId}] by [${actor}]`);
-      return updatedConv;
+      return { conversation: updatedConv, outcome };
     });
+
+    await this.recordOutcomeAfterCommit(result.outcome);
+    return result.conversation;
   }
 
   /**
@@ -250,12 +312,14 @@ export class ConversationAutomationService {
     const { tenantId, conversationId, actorId } = params;
     const actor = actorId || 'merchant';
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<any[]>`
-        SELECT id, "accountId", status, "humanRequested", "humanRequestedAt", "contextData"
-        FROM "Conversation"
-        WHERE id = ${conversationId} AND "tenantId" = ${tenantId}
-        FOR UPDATE
+        SELECT c.id, c."accountId", c."customerId", c.status, c."humanRequested", c."humanRequestedAt", c."contextData",
+               customer."externalId" AS "customerExternalId"
+        FROM "Conversation" c
+        JOIN "Customer" customer ON customer.id = c."customerId"
+        WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId}
+        FOR UPDATE OF c
       `;
       const conv = rows[0];
       if (!conv) {
@@ -308,9 +372,41 @@ export class ConversationAutomationService {
         metadata: { resolvedBy: actor }
       });
 
+      let outcome: RecordOutcomeParams | undefined;
+      if (conv.status !== 'RESOLVED' && this.outcomeService && conv.accountId && !conv.customerExternalId?.startsWith('portal-preview:')) {
+        const resolvedAt = new Date();
+        const resolveTime = resolvedAt.getTime();
+        const requestTime = conv.humanRequestedAt ? new Date(conv.humanRequestedAt).getTime() : undefined;
+        const claimTime = conv.contextData?._portalHandoff?.claimedAt ? new Date(conv.contextData._portalHandoff.claimedAt).getTime() : undefined;
+
+        const timeFromRequestToClaimMs = (requestTime && claimTime) ? Math.max(0, claimTime - requestTime) : undefined;
+        const timeFromClaimToResolutionMs = claimTime ? Math.max(0, resolveTime - claimTime) : undefined;
+        const totalResolutionTimeMs = requestTime ? Math.max(0, resolveTime - requestTime) : undefined;
+
+        outcome = {
+          tenantId,
+          accountId: conv.accountId,
+          conversationId,
+          customerId: conv.customerId,
+          type: 'HANDOFF_RESOLVED',
+          source: 'MERCHANT',
+          occurredAt: resolvedAt,
+          idempotencyKey: `handoff:resolved:${conversationId}:${requestTime || claimTime || resolveTime}`,
+          metadata: {
+            resolvedBy: actor,
+            timeFromRequestToClaimMs,
+            timeFromClaimToResolutionMs,
+            totalResolutionTimeMs
+          }
+        };
+      }
+
       logger.info(`ConversationAutomationService: Conversation [${conversationId}] marked RESOLVED by [${actor}]`);
-      return updatedConv;
+      return { conversation: updatedConv, outcome };
     });
+
+    await this.recordOutcomeAfterCommit(result.outcome);
+    return result.conversation;
   }
 
   /**

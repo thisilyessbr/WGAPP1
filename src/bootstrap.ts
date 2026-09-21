@@ -18,6 +18,7 @@ import { AccountConfigService } from './domain/tenant/AccountConfigService';
 import { ProductRepository } from './domain/ecommerce/ProductRepository';
 import { EcommerceService } from './domain/ecommerce/EcommerceService';
 import { CRMService } from './domain/crm/CRMService';
+import { OutcomeTrackingService } from './domain/outcome/OutcomeTrackingService';
 import { WhatsAppNumberService } from './domain/channel/whatsapp/WhatsAppNumberService';
 import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJob } from './domain/channel/whatsapp/MessageQueue';
 import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
@@ -43,6 +44,7 @@ export interface WebDependencies {
   tenantConfigService: TenantConfigService;
   accountConfigService: AccountConfigService;
   crmService: CRMService;
+  outcomeTrackingService: OutcomeTrackingService;
   ecommerceService: EcommerceService;
   whatsAppNumberService: WhatsAppNumberService;
   whatsAppMessageQueue: MessageQueue<InboundQueueJob>;
@@ -74,6 +76,7 @@ export interface WorkerDependencies {
   imageGateway: ImageCapabilityGateway;
   ecommerceService: EcommerceService;
   crmService: CRMService;
+  outcomeTrackingService: OutcomeTrackingService;
   whatsAppNumberService: WhatsAppNumberService;
   whatsAppMessageQueue: MessageQueue<InboundQueueJob>;
   whatsAppIdempotencyStore: IdempotencyStore;
@@ -103,6 +106,7 @@ export interface ChatbotDependencies {
   accountConfigService?: AccountConfigService;
   ecommerceService?: EcommerceService;
   crmService?: CRMService;
+  outcomeTrackingService?: OutcomeTrackingService;
   whatsAppNumberService?: WhatsAppNumberService;
   whatsAppMessageQueue?: MessageQueue<InboundQueueJob>;
   whatsAppIdempotencyStore?: IdempotencyStore;
@@ -142,7 +146,8 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
   const isMemory = Boolean(options.useMemoryQueue);
   const tenantConfigService = new TenantConfigService(prisma);
   const accountConfigService = new AccountConfigService(prisma, tenantConfigService);
-  const crmService = new CRMService(prisma);
+  const outcomeTrackingService = new OutcomeTrackingService(prisma);
+  const crmService = new CRMService(prisma, outcomeTrackingService);
   const productRepository = new ProductRepository(prisma);
   const ecommerceService = new EcommerceService(productRepository);
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
@@ -173,7 +178,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
     secretBox
   );
 
-  const conversationAutomationService = new ConversationAutomationService(prisma);
+  const conversationAutomationService = new ConversationAutomationService(prisma, outcomeTrackingService);
   const clientSafetyGuard = new ClientSafetyGuard(prisma, whatsAppNumberService, {}, conversationAutomationService);
   const whatsAppOutboundQueue: OutboundMessageQueue = isMemory
     ? new MemoryOutboundQueue(prisma)
@@ -192,6 +197,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
       conversationAutomationService,
       whatsAppOutboundQueue,
       clientSafetyGuard,
+      outcomeTrackingService,
       pdfIngestionService: undefined as any
     } as any);
     // Explicitly stop document worker if it was started
@@ -204,6 +210,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
     tenantConfigService,
     accountConfigService,
     crmService,
+    outcomeTrackingService,
     ecommerceService,
     whatsAppNumberService,
     whatsAppMessageQueue,
@@ -265,7 +272,8 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
   const imageGateway = portalService ? portalService.budget.wrapImages(new ImageCapabilityGateway()) : new ImageCapabilityGateway();
   const productRepository = new ProductRepository(prisma);
   const ecommerceService = new EcommerceService(productRepository);
-  const crmService = new CRMService(prisma);
+  const outcomeTrackingService = new OutcomeTrackingService(prisma);
+  const crmService = new CRMService(prisma, outcomeTrackingService);
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
 
   const encKey = process.env.ENCRYPTION_KEY || process.env.CREDENTIALS_ENCRYPTION_KEY || (isTestEnv ? 'test-encryption-key-32-bytes-long!' : '');
@@ -301,7 +309,8 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     accountConfigService,
     ecommerceService,
     crmService,
-    portalService?.budget
+    portalService?.budget,
+    outcomeTrackingService
   );
 
   const whatsAppOutboundAdapter = new WhatsAppOutboundAdapter({
@@ -321,7 +330,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     new QrWebTransport(qrSessionManager)
   ]);
 
-  const conversationAutomationService = new ConversationAutomationService(prisma);
+  const conversationAutomationService = new ConversationAutomationService(prisma, outcomeTrackingService);
   const clientSafetyGuard = new ClientSafetyGuard(prisma, whatsAppNumberService, {}, conversationAutomationService);
   const whatsAppPolicyAdapter = new WhatsAppPolicyAdapter();
 
@@ -369,6 +378,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
       conversationAutomationService,
       whatsAppOutboundQueue,
       whatsAppOutboundWorker,
+      outcomeTrackingService,
       telemetryClient: telemetry
     });
 
@@ -392,6 +402,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     imageGateway,
     ecommerceService,
     crmService,
+    outcomeTrackingService,
     whatsAppNumberService,
     whatsAppMessageQueue,
     whatsAppIdempotencyStore,
@@ -455,7 +466,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   const accountConfigService = new AccountConfigService(prisma, tenantConfigService);
   const productRepository = new ProductRepository(prisma);
   const ecommerceService = new EcommerceService(productRepository);
-  const crmService = new CRMService(prisma);
+  const outcomeTrackingService = new OutcomeTrackingService(prisma);
+  const crmService = new CRMService(prisma, outcomeTrackingService);
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
   const whatsAppIdempotencyStore = isTestEnv
     ? new MemoryIdempotencyStore()
@@ -477,7 +489,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     accountConfigService,
     ecommerceService,
     crmService,
-    portalService?.budget
+    portalService?.budget,
+    outcomeTrackingService
   );
 
   // Initialize Security and Routing
@@ -504,7 +517,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     new QrWebTransport(qrSessionManager)
   ]);
 
-  const conversationAutomationService = new ConversationAutomationService(prisma);
+  const conversationAutomationService = new ConversationAutomationService(prisma, outcomeTrackingService);
   const clientSafetyGuard = new ClientSafetyGuard(prisma, whatsAppNumberService, {}, conversationAutomationService);
 
   const whatsAppOutboundQueue: OutboundMessageQueue = isTestEnv
@@ -541,6 +554,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     accountConfigService,
     ecommerceService,
     crmService,
+    outcomeTrackingService,
     whatsAppNumberService,
     whatsAppMessageQueue,
     whatsAppIdempotencyStore,

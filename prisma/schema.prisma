@@ -33,6 +33,7 @@ model Tenant {
   channelAuditEvents ChannelAuditEvent[]
   whatsappOutboundJobs WhatsAppOutboundJob[]
   whatsappDeliveryReceipts WhatsAppDeliveryReceipt[]
+  outcomeEvents    OutcomeEvent[]
 }
 
 model TenantConfig {
@@ -73,6 +74,7 @@ model Account {
   channelAuditEvents ChannelAuditEvent[]
   whatsappOutboundJobs WhatsAppOutboundJob[]
   whatsappDeliveryReceipts WhatsAppDeliveryReceipt[]
+  outcomeEvents    OutcomeEvent[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -87,6 +89,7 @@ model Customer {
   updatedAt     DateTime       @updatedAt
   conversations Conversation[]
   leads         Lead[]
+  outcomeEvents OutcomeEvent[]
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, externalId])
@@ -118,6 +121,7 @@ model Conversation {
   lastMerchantViewedAt       DateTime?
   automationState            ConversationAutomationState?
   outboundJobs               WhatsAppOutboundJob[]
+  outcomeEvents              OutcomeEvent[]
 
   @@index([tenantId, customerId])
   @@index([tenantId, accountId, updatedAt(sort: Desc)])
@@ -654,4 +658,34 @@ model WhatsAppDeliveryReceipt {
   @@index([tenantId, accountId])
   @@index([providerMessageId, correlated])
   @@index([createdAt])
+}
+
+model OutcomeEvent {
+  id               String    @id @default(uuid())
+  tenantId         String
+  accountId        String
+  conversationId   String?
+  customerId       String?
+  type             String
+  source           String
+  value            Decimal?  @db.Decimal(12, 2)
+  currency         String?
+  relatedOutcomeId String?
+  idempotencyKey   String
+  metadata         Json      @default("{}")
+  occurredAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  customer     Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  relatedOutcome OutcomeEvent? @relation("OutcomeResolution", fields: [relatedOutcomeId], references: [id], onDelete: SetNull)
+  resolutions    OutcomeEvent[] @relation("OutcomeResolution")
+
+  @@unique([accountId, idempotencyKey])
+  @@index([tenantId, accountId, type, occurredAt])
+  @@index([conversationId, occurredAt])
+  @@index([customerId, occurredAt])
+  @@index([tenantId, accountId, type, relatedOutcomeId])
 }
