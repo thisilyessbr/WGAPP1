@@ -1,3 +1,4 @@
+import { generateResponseWithDeadline } from '../../core/llm/ResponseDeadline';
 import { ConversationMemory } from '../conversation/ConversationMemory';
 import { LLMProvider } from '../../core/llm/LLMProvider';
 import { logger } from '../../utils/logger';
@@ -90,7 +91,7 @@ Standalone Search Query:`;
     const timeoutMs = options?.timeoutMs ?? 2000;
 
     try {
-      const responsePromise = llm.generateResponse(
+      const rawResult = await generateResponseWithDeadline(llm,
         systemPrompt,
         [{ role: 'user', content: userPrompt }],
         {
@@ -100,11 +101,6 @@ Standalone Search Query:`;
         }
       );
 
-      const timeoutPromise = new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('REFORMULATION_TIMEOUT')), timeoutMs)
-      );
-
-      const rawResult = await Promise.race([responsePromise, timeoutPromise]);
       const latencyMs = Date.now() - startTime;
       const cleaned = (rawResult || '').trim().replace(/^["']|["']$/g, '');
 

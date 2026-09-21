@@ -13,6 +13,9 @@ import { createRouteProtectionMiddleware } from '../utils/rateLimiter';
 import { CostSummaryReporter } from '../core/telemetry/CostSummaryReporter';
 import { CostAnalyticsService } from '../core/telemetry/CostAnalyticsService';
 import { CRMService, VALID_LEAD_STATUSES, LeadStatus } from '../domain/crm/CRMService';
+import { logger } from '../utils/logger';
+
+const paramValue = (value: string | string[] | undefined): string => Array.isArray(value) ? value[0] : (value || '');
 
 export interface ChatMedia {
   type: 'image' | 'video';
@@ -41,12 +44,15 @@ export interface AuthenticatedPrincipal {
   tenantId: string;
   customerId?: string;
   role?: string;
+  id?: string;
+  platformAdmin?: boolean;
 }
 
 export interface TokenPayload {
   tenantId: string;
   customerId?: string;
   role?: string;
+  sub?: string;
   exp?: number;
 }
 
@@ -58,14 +64,22 @@ declare global {
   }
 }
 
-function getAuthSecret(): string {
-  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
-  if (process.env.DEV_API_KEY) return process.env.DEV_API_KEY;
-  if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
-    return 'test-hmac-auth-secret-key-32chars!';
+export function getAuthSecret(): string {
+  if (process.env.NODE_ENV === 'production') {
+    if (process.env.AUTH_SECRET && process.env.AUTH_SECRET.trim().length >= 32) {
+      return process.env.AUTH_SECRET.trim();
+    }
+    return '';
   }
-  if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
-    return 'dev-local-control-center-secret-key-32chars!';
+
+  if (process.env.AUTH_SECRET && process.env.AUTH_SECRET.trim()) {
+    return process.env.AUTH_SECRET.trim();
+  }
+  if (process.env.DEV_API_KEY && process.env.DEV_API_KEY.trim()) {
+    return process.env.DEV_API_KEY.trim();
+  }
+  if ((process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') && process.env.STRICT_AUTH !== 'true') {
+    return 'test-hmac-auth-secret-key-32chars!';
   }
   return '';
 }
@@ -153,19 +167,17 @@ export function resolvePrincipal(req: Request): AuthenticatedPrincipal | null {
     if (configuredAdminKey && timingSafeCompare(bearerToken, configuredAdminKey)) {
       const targetTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
       const targetCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string | undefined;
-      return { tenantId: targetTenant, customerId: targetCustomer, role: 'admin' };
+      return { tenantId: targetTenant, customerId: targetCustomer, role: 'admin', id: 'platform-api-key', platformAdmin: true };
     }
 
     // Check if bearer token is a valid signed token
     const signedPayload = verifySignedToken(bearerToken);
     if (signedPayload) {
-      const targetTenant = (signedPayload.role === 'admin' && (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId))
-        ? (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId) as string
-        : signedPayload.tenantId;
       return {
-        tenantId: targetTenant,
+        tenantId: signedPayload.tenantId,
         customerId: signedPayload.customerId,
-        role: signedPayload.role
+        role: signedPayload.role,
+        id: signedPayload.sub
       };
     }
 
@@ -178,8 +190,13 @@ export function resolvePrincipal(req: Request): AuthenticatedPrincipal | null {
     if (configuredAdminKey && timingSafeCompare(apiKey, configuredAdminKey)) {
       const targetTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
       const targetCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string | undefined;
-      return { tenantId: targetTenant, customerId: targetCustomer, role: 'admin' };
+      return { tenantId: targetTenant, customerId: targetCustomer, role: 'admin', id: 'platform-api-key', platformAdmin: true };
     }
+    return null;
+  }
+
+  // In production, strictly fail closed. Never allow unauthenticated header fallback.
+  if (process.env.NODE_ENV === 'production') {
     return null;
   }
 
@@ -322,10 +339,25 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
 
     // 2. Authorize Tenant Scope
     const clientTenantId = (req.headers['x-tenant-id'] as string) || req.body?.tenantId || (req.query?.tenantId as string);
-    if (clientTenantId && clientTenantId !== principal.tenantId && principal.role !== 'admin') {
+    if (clientTenantId && clientTenantId !== principal.tenantId && !principal.platformAdmin) {
       return res.status(403).json({
         error: 'FORBIDDEN',
         message: `Tenant authorization mismatch: Authenticated principal (${principal.tenantId}) cannot access target tenant (${clientTenantId}).`
+      });
+    }
+
+    if (principal.customerId && !(req.method === 'POST' && req.path === '/chat')) {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: 'Customer credentials are restricted to the chat endpoint.'
+      });
+    }
+
+    const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+    if (isMutation && req.path !== '/chat' && principal.role !== 'admin') {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: 'Administrator permission is required for this operation.'
       });
     }
 
@@ -341,8 +373,8 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
       }
       next();
     } catch (e: any) {
-      console.error("AUTH MIDDLEWARE ERROR:", e);
-      return res.status(500).json({ error: e.message || String(e) });
+      logger.error(`API authentication tenant lookup failed: ${e.message || String(e)}`);
+      return res.status(500).json({ error: 'AUTHORIZATION_CHECK_FAILED' });
     }
   });
 
@@ -359,13 +391,16 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
       res.status(503).json({
         status: 'unhealthy',
         error: 'DATABASE_UNAVAILABLE',
-        message: err.message || String(err)
+        message: 'The database is currently unavailable.'
       });
     }
   });
 
-  // GET /tenants - List existing tenants for tenant discovery in Dev Control Center
+  // GET /tenants - List existing tenants for tenant discovery (platform admin only)
   router.get('/tenants', async (req: Request, res: Response) => {
+    if (!req.principal?.platformAdmin) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Platform administrator permission is required.' });
+    }
     try {
       const tenants = await deps.prisma.tenant.findMany({
         select: {
@@ -377,13 +412,16 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
       });
       res.json({ tenants });
     } catch (e: any) {
-      console.error("GET TENANTS ERROR:", e);
+      logger.error(`Failed to list tenants: ${e.message || String(e)}`);
       res.status(500).json({ error: e.message || String(e) });
     }
   });
 
-  // POST /tenants - Explicit tenant creation endpoint
+  // POST /tenants - Explicit tenant creation endpoint (platform admin only)
   router.post('/tenants', async (req: Request, res: Response) => {
+    if (!req.principal?.platformAdmin) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Platform administrator permission is required.' });
+    }
     try {
       const { name, id } = req.body || {};
       if (!name || typeof name !== 'string' || !name.trim()) {
@@ -441,43 +479,45 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     }
   });
 
-  // Explicit bootstrap endpoint to create a dev tenant and seed default config
-  router.post('/bootstrap', async (req: Request, res: Response) => {
-    try {
-      const tenantId = req.principal!.tenantId;
-      const tenantName = req.body?.name || 'Development Tenant';
-      let tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId }, include: { accounts: true } });
-      if (!tenant) {
-        tenant = await deps.prisma.tenant.create({
-          data: {
-            id: tenantId,
-            name: tenantName,
-            accounts: {
-              create: {
-                name: 'Main',
-                config: {}
+  // Explicit bootstrap endpoint to create a dev tenant and seed default config (non-production only)
+  if (process.env.NODE_ENV !== 'production') {
+    router.post('/bootstrap', async (req: Request, res: Response) => {
+      try {
+        const tenantId = req.principal!.tenantId;
+        const tenantName = req.body?.name || 'Development Tenant';
+        let tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId }, include: { accounts: true } });
+        if (!tenant) {
+          tenant = await deps.prisma.tenant.create({
+            data: {
+              id: tenantId,
+              name: tenantName,
+              accounts: {
+                create: {
+                  name: 'Main',
+                  config: {}
+                }
               }
+            },
+            include: { accounts: true }
+          });
+        } else if (tenant.accounts.length === 0) {
+          await deps.prisma.account.create({
+            data: {
+              tenantId,
+              name: 'Main',
+              config: {}
             }
-          },
-          include: { accounts: true }
-        });
-      } else if (tenant.accounts.length === 0) {
-        await deps.prisma.account.create({
-          data: {
-            tenantId,
-            name: 'Main',
-            config: {}
-          }
-        });
+          });
+        }
+
+        await deps.tenantConfigService.updateConfig(tenantId, DEFAULT_BUSINESS_CONFIG);
+
+        res.json({ success: true, tenantId, message: 'Development environment bootstrapped.' });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
       }
-
-      await deps.tenantConfigService.updateConfig(tenantId, DEFAULT_BUSINESS_CONFIG);
-
-      res.json({ success: true, tenantId, message: 'Development environment bootstrapped.' });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+    });
+  }
 
   // GET BusinessConfig
   router.get('/config', async (req: Request, res: Response) => {
@@ -684,6 +724,13 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
       });
       const isReused = !!existingSource;
 
+      if (!deps.pdfIngestionService) {
+        return res.status(503).json({
+          error: 'WORKER_RUNTIME_REQUIRED',
+          message: 'PDF ingestion is handled by the worker process.'
+        });
+      }
+
       let sourceId;
       try {
         sourceId = await deps.pdfIngestionService.ingestPdf(
@@ -787,6 +834,14 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
 
       const tenantId = req.principal!.tenantId;
       const config = await deps.tenantConfigService.getConfig(tenantId);
+
+      if (!deps.llmFactory) {
+        return res.status(503).json({
+          error: 'WORKER_RUNTIME_REQUIRED',
+          message: 'Translation via LLM is handled by the worker process.'
+        });
+      }
+
       const { provider: llm, options: llmOptions } = deps.llmFactory.getProvider(config.llm);
 
       const prompt = `You are an expert multilingual translator for customer support FAQs.
@@ -965,6 +1020,13 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
 
     if (!customerId || (!message && !imageBase64 && !imageUrl)) {
       return res.status(400).json({ error: 'customerId and message (or image payload) are required' });
+    }
+
+    if (!deps.conversationEngine) {
+      return res.status(503).json({
+        error: 'WORKER_RUNTIME_REQUIRED',
+        message: 'Direct synchronous AI chat is handled by the worker process. Inbound WhatsApp messages are processed asynchronously via the queue.'
+      });
     }
 
     const diagnosticContext: RequestDiagnosticContext = {
@@ -1196,78 +1258,80 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     }
   });
 
-  // POST Reset Conversation
-  router.post('/reset', resetProtection.middleware, async (req: Request, res: Response) => {
-    const tenantId = req.principal!.tenantId;
-    const { customerId } = req.body;
-    const accountId = (req.body.accountId as string) || (req.headers['x-account-id'] as string) || undefined;
-    const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+  // POST Reset Conversation (non-production only)
+  if (process.env.NODE_ENV !== 'production') {
+    router.post('/reset', resetProtection.middleware, async (req: Request, res: Response) => {
+      const tenantId = req.principal!.tenantId;
+      const { customerId } = req.body;
+      const accountId = (req.body.accountId as string) || (req.headers['x-account-id'] as string) || undefined;
+      const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
 
-    if (req.principal!.customerId && req.principal!.customerId !== customerId) {
-      return res.status(403).json({
-        error: 'FORBIDDEN',
-        message: `Customer authorization mismatch: Principal is restricted to customer ${req.principal!.customerId}`
-      });
-    }
+      if (req.principal!.customerId && req.principal!.customerId !== customerId) {
+        return res.status(403).json({
+          error: 'FORBIDDEN',
+          message: `Customer authorization mismatch: Principal is restricted to customer ${req.principal!.customerId}`
+        });
+      }
 
-    try {
-      // 1. Resolve customer by tenantId + externalId (or id directly)
-      const customer = await deps.prisma.customer.findFirst({
-        where: {
-          tenantId,
-          OR: [
-            { externalId: customerId },
-            { id: customerId }
-          ]
+      try {
+        // 1. Resolve customer by tenantId + externalId (or id directly)
+        const customer = await deps.prisma.customer.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { externalId: customerId },
+              { id: customerId }
+            ]
+          }
+        });
+
+        if (!customer) {
+          return res.json({ success: true, message: 'No active conversation to reset.' });
         }
-      });
 
-      if (!customer) {
-        return res.json({ success: true, message: 'No active conversation to reset.' });
+        // 2. Find ALL ACTIVE conversations for that customer (scoped to accountId if provided)
+        const activeConversations = await deps.prisma.conversation.findMany({
+          where: {
+            tenantId,
+            customerId: customer.id,
+            status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
+            ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+          },
+          select: { id: true }
+        });
+
+        if (activeConversations.length > 0) {
+          const convIds = activeConversations.map(c => c.id);
+
+          // 3. In one Prisma transaction, complete active workflow sessions and archive active conversations
+          await deps.prisma.$transaction([
+            deps.prisma.workflowSession.updateMany({
+              where: {
+                tenantId,
+                conversationId: { in: convIds },
+                status: 'ACTIVE'
+              },
+              data: {
+                status: 'COMPLETED'
+              }
+            }),
+            deps.prisma.conversation.updateMany({
+              where: {
+                id: { in: convIds }
+              },
+              data: {
+                status: 'ARCHIVED'
+              }
+            })
+          ]);
+        }
+
+        res.json({ success: true, message: 'Conversation archived.' });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
       }
-
-      // 2. Find ALL ACTIVE conversations for that customer (scoped to accountId if provided)
-      const activeConversations = await deps.prisma.conversation.findMany({
-        where: {
-          tenantId,
-          customerId: customer.id,
-          status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
-          ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
-        },
-        select: { id: true }
-      });
-
-      if (activeConversations.length > 0) {
-        const convIds = activeConversations.map(c => c.id);
-
-        // 3. In one Prisma transaction, complete active workflow sessions and archive active conversations
-        await deps.prisma.$transaction([
-          deps.prisma.workflowSession.updateMany({
-            where: {
-              tenantId,
-              conversationId: { in: convIds },
-              status: 'ACTIVE'
-            },
-            data: {
-              status: 'COMPLETED'
-            }
-          }),
-          deps.prisma.conversation.updateMany({
-            where: {
-              id: { in: convIds }
-            },
-            data: {
-              status: 'ARCHIVED'
-            }
-          })
-        ]);
-      }
-
-      res.json({ success: true, message: 'Conversation archived.' });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+    });
+  }
 
   // =========================================================================
   // ECOMMERCE & PRODUCT MANAGEMENT ENDPOINTS (ACCOUNT-SCOPED)
@@ -1468,7 +1532,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
       }
 
-      const product = await productRepo.findById(tenantId, check.account.id, req.params.id, false);
+      const product = await productRepo.findById(tenantId, check.account.id, paramValue(req.params.id), false);
       if (!product) {
         return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
       }
@@ -1560,7 +1624,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   router.patch('/products/:id', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
-      const productId = req.params.id;
+      const productId = paramValue(req.params.id);
       const {
         accountId,
         name,
@@ -1651,7 +1715,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
       }
 
-      const deleted = await productRepo.deleteProduct(tenantId, check.account.id, req.params.id);
+      const deleted = await productRepo.deleteProduct(tenantId, check.account.id, paramValue(req.params.id));
       if (!deleted) {
         return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found.' });
       }
@@ -1666,7 +1730,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   router.post('/products/:id/variants', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
-      const productId = req.params.id;
+      const productId = paramValue(req.params.id);
       const {
         accountId,
         sku,
@@ -1738,7 +1802,8 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   router.patch('/products/:id/variants/:variantId', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
-      const { id: productId, variantId } = req.params;
+      const productId = paramValue(req.params.id);
+      const variantId = paramValue(req.params.variantId);
       const {
         accountId,
         sku,
@@ -1803,7 +1868,8 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   router.delete('/products/:id/variants/:variantId', async (req: Request, res: Response) => {
     try {
       const tenantId = req.principal!.tenantId;
-      const { id: productId, variantId } = req.params;
+      const productId = paramValue(req.params.id);
+      const variantId = paramValue(req.params.variantId);
       const accountId = (req.query.accountId as string) || (req.body?.accountId as string);
 
       const check = await resolveAccountScope(tenantId, accountId);
@@ -1830,144 +1896,149 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
   // PILOT AUTO REPAIR TEST HARNESS ENDPOINTS (STRICT TENANT LOCK)
   // =========================================================================
 
-  // GET /api/dev/pilot-harness/kb - Live pull of pilot-auto-repair KB & FAQs
-  router.get('/pilot-harness/kb', async (req: Request, res: Response) => {
-    try {
-      const tenantId = req.principal!.tenantId;
-      if (tenantId !== 'pilot-auto-repair' && req.principal!.role !== 'admin') {
-        return res.status(403).json({
-          error: 'TENANT_LOCK_VIOLATION',
-          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${tenantId}'`
-        });
-      }
-
-      const tenantConfig = await deps.tenantConfigService.getConfig('pilot-auto-repair');
-      const docs = await deps.prisma.knowledgeDocument.findMany({
-        where: { tenantId: 'pilot-auto-repair' },
-        include: { chunks: true }
-      });
-
-      res.json({
-        tenantId: 'pilot-auto-repair',
-        imageEnabled: tenantConfig.capabilities?.imageEnabled ?? false,
-        faqs: tenantConfig.capabilities?.faq || [],
-        documents: docs.map(d => ({
-          id: d.id,
-          title: d.title,
-          content: d.content,
-          chunkCount: d.chunks.length,
-          chunks: d.chunks.map(c => ({ id: c.id, content: c.content }))
-        }))
-      });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // GET /api/dev/pilot-harness/preset-image/:name
-  router.get('/pilot-harness/preset-image/:name', (req: Request, res: Response) => {
-    const name = req.params.name;
-    const file = name === 'maf' ? 'maf_sensor.jpg' : 'worn_brake_pad.jpg';
-    const filePath = path.join(process.cwd(), 'test/data/real-images', file);
-    if (fs.existsSync(filePath)) {
-      res.sendFile(filePath);
-    } else {
-      res.status(404).send('Preset image not found');
-    }
-  });
-
-  // POST /api/dev/pilot-harness/chat - Execute real pipeline against pilot-auto-repair
-  router.post('/pilot-harness/chat', pilotChatProtection.middleware, async (req: Request, res: Response) => {
-    try {
-      const tenantId = req.principal!.tenantId;
-      if (tenantId !== 'pilot-auto-repair' && req.principal!.role !== 'admin') {
-        return res.status(403).json({
-          error: 'TENANT_LOCK_VIOLATION',
-          message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${tenantId}'`
-        });
-      }
-
-      const { text, imageBase64, mimeType, customerId = `pilot_cust_${Date.now()}` } = req.body;
-
-      const hasImage = Boolean(imageBase64);
-      const hasText = Boolean(text && text.trim().length > 0);
-
-      // Execute Image Capability Gateway analysis if image present
-      let realAnalysis: any = null;
-      let gatewayLatencyMs: number | null = null;
-      let imageError: string | null = null;
-
-      if (hasImage) {
-        const gwStart = Date.now();
-        try {
-          realAnalysis = await deps.imageGateway.analyzeImage('pilot-auto-repair', {
-            imageBase64,
-            mimeType: mimeType || 'image/jpeg'
+  // =========================================================================
+  // PILOT AUTO REPAIR TEST HARNESS ENDPOINTS (STRICT TENANT LOCK - NON-PRODUCTION ONLY)
+  // =========================================================================
+  if (process.env.NODE_ENV !== 'production') {
+    // GET /api/dev/pilot-harness/kb - Live pull of pilot-auto-repair KB & FAQs
+    router.get('/pilot-harness/kb', async (req: Request, res: Response) => {
+      try {
+        const tenantId = req.principal!.tenantId;
+        if (tenantId !== 'pilot-auto-repair' && req.principal!.role !== 'admin') {
+          return res.status(403).json({
+            error: 'TENANT_LOCK_VIOLATION',
+            message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${tenantId}'`
           });
-          gatewayLatencyMs = Date.now() - gwStart;
-        } catch (err: any) {
-          imageError = err.message || String(err);
-          gatewayLatencyMs = Date.now() - gwStart;
-          realAnalysis = {
-            success: false,
-            error: imageError,
-            model: 'unknown'
-          };
         }
-      }
 
-      // Execute ConversationEngine real pipeline
-      const pipelineStart = Date.now();
-      let responseText: string;
-      if (hasImage) {
-        responseText = await deps.conversationEngine.handleImageMessage('pilot-auto-repair', customerId, {
-          imageBase64,
-          mimeType: mimeType || 'image/jpeg',
-          textPrompt: hasText ? text : undefined,
-          precomputedImageAnalysis: realAnalysis
+        const tenantConfig = await deps.tenantConfigService.getConfig('pilot-auto-repair');
+        const docs = await deps.prisma.knowledgeDocument.findMany({
+          where: { tenantId: 'pilot-auto-repair' },
+          include: { chunks: true }
         });
-      } else {
-        responseText = await deps.conversationEngine.handleMessage('pilot-auto-repair', customerId, text || '');
+
+        res.json({
+          tenantId: 'pilot-auto-repair',
+          imageEnabled: tenantConfig.capabilities?.imageEnabled ?? false,
+          faqs: tenantConfig.capabilities?.faq || [],
+          documents: docs.map(d => ({
+            id: d.id,
+            title: d.title,
+            content: d.content,
+            chunkCount: d.chunks.length,
+            chunks: d.chunks.map(c => ({ id: c.id, content: c.content }))
+          }))
+        });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
       }
-      const totalLatencyMs = Date.now() - pipelineStart;
+    });
 
-      // Classify message type strictly based on input payload
-      const classificationType = hasText && hasImage ? 'TEXT_AND_IMAGE' : hasImage ? 'IMAGE' : 'TEXT';
+    // GET /api/dev/pilot-harness/preset-image/:name
+    router.get('/pilot-harness/preset-image/:name', (req: Request, res: Response) => {
+      const name = paramValue(req.params.name);
+      const file = name === 'maf' ? 'maf_sensor.jpg' : 'worn_brake_pad.jpg';
+      const filePath = path.join(process.cwd(), 'test/data/real-images', file);
+      if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+      } else {
+        res.status(404).send('Preset image not found');
+      }
+    });
 
-      // Per-layer status evaluation
-      const layerStatus = {
-        imageReceived: hasImage ? 'PASS' : 'FAIL',
-        imageAnalysis: hasImage ? (realAnalysis && !imageError ? 'PASS' : 'FAIL') : 'N/A',
-        classification: (hasImage || hasText) ? 'PASS' : 'FAIL',
-        classificationType,
-        combinedQuery: 'NOT EXPOSED', // Internal engine variable not surfaced in public API
-        faqRagMatch: 'NOT EXPOSED',    // Matched FAQ/RAG record not surfaced in public engine return
-        finalAnswer: responseText ? 'PASS' : 'FAIL'
-      };
-
-      res.json({
-        tenantId: 'pilot-auto-repair',
-        customerId,
-        input: {
-          text: text || null,
-          hasImage,
-          mimeType: mimeType || null
-        },
-        response: responseText,
-        imageAnalysis: realAnalysis,
-        layerStatus,
-        observability: {
-          totalLatencyMs,
-          gatewayLatencyMs,
-          combinedQuery: 'Not available from current pipeline',
-          matchedFaqOrRag: 'Not available from current pipeline',
-          diagnosticReasoning: 'Not available from current pipeline'
+    // POST /api/dev/pilot-harness/chat - Execute real pipeline against pilot-auto-repair
+    router.post('/pilot-harness/chat', pilotChatProtection.middleware, async (req: Request, res: Response) => {
+      try {
+        const tenantId = req.principal!.tenantId;
+        if (tenantId !== 'pilot-auto-repair' && req.principal!.role !== 'admin') {
+          return res.status(403).json({
+            error: 'TENANT_LOCK_VIOLATION',
+            message: `Tenant lock error: only 'pilot-auto-repair' is permitted. Attempted: '${tenantId}'`
+          });
         }
-      });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+
+        const { text, imageBase64, mimeType, customerId = `pilot_cust_${Date.now()}` } = req.body;
+
+        const hasImage = Boolean(imageBase64);
+        const hasText = Boolean(text && text.trim().length > 0);
+
+        // Execute Image Capability Gateway analysis if image present
+        let realAnalysis: any = null;
+        let gatewayLatencyMs: number | null = null;
+        let imageError: string | null = null;
+
+        if (hasImage) {
+          const gwStart = Date.now();
+          try {
+            realAnalysis = await deps.imageGateway.analyzeImage('pilot-auto-repair', {
+              imageBase64,
+              mimeType: mimeType || 'image/jpeg'
+            });
+            gatewayLatencyMs = Date.now() - gwStart;
+          } catch (err: any) {
+            imageError = err.message || String(err);
+            gatewayLatencyMs = Date.now() - gwStart;
+            realAnalysis = {
+              success: false,
+              error: imageError,
+              model: 'unknown'
+            };
+          }
+        }
+
+        // Execute ConversationEngine real pipeline
+        const pipelineStart = Date.now();
+        let responseText: string;
+        if (hasImage) {
+          responseText = await deps.conversationEngine.handleImageMessage('pilot-auto-repair', customerId, {
+            imageBase64,
+            mimeType: mimeType || 'image/jpeg',
+            textPrompt: hasText ? text : undefined,
+            precomputedImageAnalysis: realAnalysis
+          });
+        } else {
+          responseText = await deps.conversationEngine.handleMessage('pilot-auto-repair', customerId, text || '');
+        }
+        const totalLatencyMs = Date.now() - pipelineStart;
+
+        // Classify message type strictly based on input payload
+        const classificationType = hasText && hasImage ? 'TEXT_AND_IMAGE' : hasImage ? 'IMAGE' : 'TEXT';
+
+        // Per-layer status evaluation
+        const layerStatus = {
+          imageReceived: hasImage ? 'PASS' : 'FAIL',
+          imageAnalysis: hasImage ? (realAnalysis && !imageError ? 'PASS' : 'FAIL') : 'N/A',
+          classification: (hasImage || hasText) ? 'PASS' : 'FAIL',
+          classificationType,
+          combinedQuery: 'NOT EXPOSED', // Internal engine variable not surfaced in public API
+          faqRagMatch: 'NOT EXPOSED',    // Matched FAQ/RAG record not surfaced in public engine return
+          finalAnswer: responseText ? 'PASS' : 'FAIL'
+        };
+
+        res.json({
+          tenantId: 'pilot-auto-repair',
+          customerId,
+          input: {
+            text: text || null,
+            hasImage,
+            mimeType: mimeType || null
+          },
+          response: responseText,
+          imageAnalysis: realAnalysis,
+          layerStatus,
+          observability: {
+            totalLatencyMs,
+            gatewayLatencyMs,
+            combinedQuery: 'Not available from current pipeline',
+            matchedFaqOrRag: 'Not available from current pipeline',
+            diagnosticReasoning: 'Not available from current pipeline'
+          }
+        });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+  }
 
   // ==========================================
   // CRM / LEADS ENDPOINTS (Phase CRM-B)
@@ -2005,9 +2076,10 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         return res.status(check.status || 400).json({ error: 'INVALID_ACCOUNT', message: check.error });
       }
 
-      const lead = await crmService.getLead(tenantId, check.account.id, req.params.id);
+      const leadId = paramValue(req.params.id);
+      const lead = await crmService.getLead(tenantId, check.account.id, leadId);
       if (!lead) {
-        return res.status(404).json({ error: 'NOT_FOUND', message: `Lead [${req.params.id}] not found` });
+        return res.status(404).json({ error: 'NOT_FOUND', message: `Lead [${leadId}] not found` });
       }
 
       res.json({ success: true, lead });
@@ -2035,7 +2107,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
         });
       }
 
-      const updatedLead = await crmService.updateLeadStatus(tenantId, check.account.id, req.params.id, status);
+      const updatedLead = await crmService.updateLeadStatus(tenantId, check.account.id, paramValue(req.params.id), status);
       res.json({ success: true, lead: updatedLead });
     } catch (e: any) {
       if (e.message && e.message.includes('not found')) {

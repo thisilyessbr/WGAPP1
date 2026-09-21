@@ -95,7 +95,7 @@ describe('PHASE WHATSAPP-DURABLE-QUEUE-AUDIT-FIX-40: PostgreSQL Durable Queue In
     expect(first).toBe(true);
 
     const second = await queue.enqueue(job, job.partitionKey);
-    expect(second).toBe(false);
+    expect(second).toBe(true); // Existing durable receipt is acknowledged without adding a job.
 
     const count = await prisma.whatsAppMessageJob.count({ where: { wamid } });
     expect(count).toBe(1);
@@ -270,4 +270,74 @@ describe('PHASE WHATSAPP-DURABLE-QUEUE-AUDIT-FIX-40: PostgreSQL Durable Queue In
 
     expect(processedMessages).toEqual(['Msg 1', 'Msg 2', 'Msg 3']);
   });
+  it('stale workers cannot overwrite a recovered lease or its result', async () => {
+    const { tenantId, accountA } = await createTestFixture('fencing');
+    const job = makeJob(tenantId, accountA.id, 'user-fence', `fence-${Date.now()}`, 'hello');
+    const oldWorker = new PostgresMessageQueue(prisma, { workerId: 'old-worker' });
+    const newWorker = new PostgresMessageQueue(prisma, { workerId: 'new-worker' });
+    await oldWorker.enqueue(job, job.partitionKey);
+    const first = await oldWorker.claimNextJob();
+    expect(first).not.toBeNull();
+    await prisma.whatsAppMessageJob.update({ where: { id: first!.id }, data: { lockedAt: new Date(0) } });
+    const second = await newWorker.claimNextJob();
+    expect(second?.id).toBe(first?.id);
+    await oldWorker.completeJob(first!.id, 'stale response');
+    let row = await prisma.whatsAppMessageJob.findUnique({ where: { id: first!.id } });
+    expect(row?.status).toBe('PROCESSING');
+    expect(row?.lockedBy).toBe('new-worker');
+    await newWorker.completeJob(second!.id, 'new response');
+    await oldWorker.failJob(first!.id, 'stale failure');
+    row = await prisma.whatsAppMessageJob.findUnique({ where: { id: first!.id } });
+    expect(row?.response).toBe('new response');
+    expect(row?.status).toBe('COMPLETED');
+  });
+
+  it('does not reclaim an expired job whose provider delivery may already have happened', async () => {
+    const { tenantId, accountA } = await createTestFixture('uncertain');
+    const job = makeJob(tenantId, accountA.id, 'user-uncertain', `uncertain-${Date.now()}`, 'hello');
+    await queue.enqueue(job, job.partitionKey);
+    const claim = await queue.claimNextJob();
+    await prisma.whatsAppMessageJob.update({ where: { id: claim!.id }, data: { lockedAt: new Date(0), outboundStatus: 'SENDING' } });
+    expect(await queue.claimNextJob()).toBeNull();
+    const row = await prisma.whatsAppMessageJob.findUnique({ where: { id: claim!.id } });
+    expect(row?.status).toBe('FAILED');
+    expect(row?.outboundStatus).toBe('UNKNOWN');
+  });
+
+  it('renews a slow job lease and drains it before shutdown', async () => {
+    const { tenantId, accountA } = await createTestFixture('heartbeat');
+    const live = new PostgresMessageQueue(prisma, { leaseSeconds: 1, workerConcurrency: 1 });
+    const rival = new PostgresMessageQueue(prisma, { leaseSeconds: 1 });
+    let release!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    live.registerHandler(async job => {
+      started();
+      await pending;
+      await job.beforeDelivery?.();
+      return { response: 'done', outboundResult: { success: true, providerMessageId: 'receipt' } };
+    });
+    const job = makeJob(tenantId, accountA.id, 'slow-user', `slow-${Date.now()}`, 'hello');
+    await live.enqueue(job, job.partitionKey);
+    await entered;
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1400));
+      expect(await rival.claimNextJob()).toBeNull();
+      let stopped = false;
+      const draining = live.shutdown().then(() => { stopped = true; });
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(stopped).toBe(false);
+      release();
+      await draining;
+      const row = await prisma.whatsAppMessageJob.findUnique({ where: { wamid: job.wamid } });
+      expect(row?.status).toBe('COMPLETED');
+      expect(row?.outboundMessageId).toBe('receipt');
+    } finally {
+      release();
+      await live.shutdown();
+      await rival.shutdown();
+    }
+  });
+
 });

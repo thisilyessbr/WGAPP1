@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { serviceAuthHeaders } from '../../../packages/shared/service-auth';
 import { TelemetryEvent, TelemetryStatus } from '../../../packages/shared/contracts/telemetry.contract';
 
 export interface TelemetryEventInput {
@@ -196,7 +197,7 @@ export class TelemetryClient {
       const endpoint = `${this.monitoringServiceUrl.replace(/\/+$/, '')}/api/telemetry/ingest`;
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...serviceAuthHeaders() },
         body: JSON.stringify(batch),
         signal: AbortSignal.timeout(this.timeoutMs)
       });

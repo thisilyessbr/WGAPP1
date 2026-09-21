@@ -6,7 +6,9 @@ import { GreetingRouter } from './GreetingRouter';
 import { HandoffService } from './HandoffService';
 
 import { PolicyEvidenceReuse } from '../rag/PolicyEvidenceReuse';
+import { SupportedScript } from '../rag/DirectRagGuard';
 import { ShippingScopeConfig } from '../tenant/BusinessConfig';
+import { matchesPolicyPhrase, normalizeIntentText } from './IntentLanguage';
 
 export type TurnDomain =
   | 'GENERAL'
@@ -16,6 +18,7 @@ export type TurnDomain =
   | 'WORKFLOW'
   | 'HANDOFF'
   | 'FAQ'
+  | 'FALLBACK'
   | 'GREETING';
 
 export type TurnDecisionSource =
@@ -45,20 +48,22 @@ export interface TurnDecision {
   requestedMediaType?: 'image' | 'video' | null;
   isMultiPolicy?: boolean;
   policyIntents?: string[] | null;
+  secondaryIntents?: string[];
   isComparative?: boolean;
   isPluralReference?: boolean;
   isScopeExpansion?: boolean;
   source: TurnDecisionSource;
-  responseLanguage: string;
-  responseScript: string;
+  responseLanguage: SupportedLanguage;
+  responseScript: SupportedScript;
   confidence?: number;
   metadata?: Record<string, any>;
+  inputQuery?: string;
 }
 
 export interface TurnDecisionInput {
   text: string;
   language?: SupportedLanguage | string;
-  script?: string;
+  script?: SupportedScript;
   productContext?: ProductContext | null;
   activePolicyEvidence?: Record<string, any[]> | null;
   activePolicyIntent?: string | null;
@@ -116,17 +121,17 @@ export class TurnDecisionResolver {
    * Deterministically classifies policy signals from user input text.
    */
   public static detectPolicySignals(text: string): PolicySignals {
-    const lower = text.toLowerCase().trim();
+    const lower = normalizeIntentText(text).toLowerCase().trim();
 
-    const isReturns = this.RETURNS_TERMS.test(lower) || this.RETURNS_WINDOW_PATTERNS.test(lower);
-    const isCare = this.CARE_TERMS.test(lower);
-    const isShipping = this.SHIPPING_TERMS.test(lower);
-    const isTracking = this.TRACKING_TERMS.test(lower);
-    const isWarranty = this.WARRANTY_TERMS.test(lower);
-    const isPayment = this.PAYMENT_TERMS.test(lower);
-    const isSizeGuide = this.SIZE_GUIDE_TERMS.test(lower);
-    const isSupport = this.SUPPORT_TERMS.test(lower);
-    const isStoreInfo = this.STORE_INFO_TERMS.test(lower);
+    const isReturns = matchesPolicyPhrase(lower, this.RETURNS_TERMS) || matchesPolicyPhrase(lower, this.RETURNS_WINDOW_PATTERNS);
+    const isCare = matchesPolicyPhrase(lower, this.CARE_TERMS);
+    const isShipping = matchesPolicyPhrase(lower, this.SHIPPING_TERMS);
+    const isTracking = matchesPolicyPhrase(lower, this.TRACKING_TERMS);
+    const isWarranty = matchesPolicyPhrase(lower, this.WARRANTY_TERMS);
+    const isPayment = matchesPolicyPhrase(lower, this.PAYMENT_TERMS);
+    const isSizeGuide = matchesPolicyPhrase(lower, this.SIZE_GUIDE_TERMS);
+    const isSupport = matchesPolicyPhrase(lower, this.SUPPORT_TERMS);
+    const isStoreInfo = matchesPolicyPhrase(lower, this.STORE_INFO_TERMS);
 
     const isPolicy = isReturns || isCare || isShipping || isTracking || isWarranty || isPayment || isSizeGuide || isSupport || isStoreInfo;
 
@@ -163,7 +168,7 @@ export class TurnDecisionResolver {
   /**
    * Deterministically detects the script from text and language.
    */
-  public static detectScript(text: string, lang: string): string {
+  public static detectScript(text: string, lang: string): SupportedScript {
     const arabicCharCount = (text.match(/[\u0600-\u06FF]/g) || []).length;
     if (arabicCharCount > 0 && arabicCharCount / Math.max(1, text.length) > 0.15) {
       return 'arabic';
@@ -174,13 +179,24 @@ export class TurnDecisionResolver {
     if (lang === 'fr' || lang === 'en') {
       return 'latin';
     }
-    return 'standard';
+    return 'latin';
   }
 
   /**
    * Resolves a canonical, authoritative TurnDecision for a conversational turn.
    */
   public static resolve(input: TurnDecisionInput): TurnDecision {
+    const decision = this.resolvePrimary(input);
+    if (input.isEcommerceEnabled !== false &&
+        (decision.domain === 'KNOWLEDGE' || decision.domain === 'FAQ' || decision.source === 'HYBRID')) {
+      const clauses = input.text.split(/(?:[.!?;،؟]|\b(?:and|also|but|et|aussi|mais|w|ou)\b|\s+و\s*)/iu);
+      const purchase = clauses.some(clause => EcommerceIntentParser.parse(clause.trim(), input.productContext, decision.responseLanguage).intent === 'BUY_INTENT');
+      if (purchase) decision.secondaryIntents = ['BUY_INTENT'];
+    }
+    return decision;
+  }
+
+  private static resolvePrimary(input: TurnDecisionInput): TurnDecision {
     const text = (input.text || '').trim();
     const language = (input.language || LanguageDetector.detect(text)) as SupportedLanguage;
     const responseScript = input.script || this.detectScript(text, language);

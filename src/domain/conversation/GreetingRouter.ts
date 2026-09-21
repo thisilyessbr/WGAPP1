@@ -1,5 +1,7 @@
+import { generateResponseWithDeadline } from '../../core/llm/ResponseDeadline';
 import { LLMProvider } from '../../core/llm/LLMProvider';
 import { logger } from '../../utils/logger';
+import { normalizeIntentText } from './IntentLanguage';
 
 export class GreetingRouter {
   // 1. Known Greetings & Polite Acknowledgments (Normalized)
@@ -53,7 +55,7 @@ export class GreetingRouter {
    */
   static normalize(text: string): string {
     if (!text) return '';
-    return text
+    return normalizeIntentText(text)
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // remove latin diacritics
@@ -137,12 +139,7 @@ Respond with ONLY one word:
 
     try {
       // Enforce strict timeout
-      const responsePromise = llm.generateResponse(prompt, [], { maxTokens: 10, temperature: 0.0 });
-      const timeoutPromise = new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('TIMEOUT')), timeoutMs)
-      );
-
-      const rawResult = await Promise.race([responsePromise, timeoutPromise]);
+      const rawResult = await generateResponseWithDeadline(llm, prompt, [], { maxTokens: 10, temperature: 0.0, timeoutMs });
       const latencyMs = Date.now() - startTime;
       const normalizedResult = (rawResult || '').trim().toUpperCase();
       const result: 'GREETING' | 'NOT_GREETING' = normalizedResult.includes('GREETING') && !normalizedResult.includes('NOT_GREETING')

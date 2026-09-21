@@ -4,6 +4,7 @@ import cors from 'cors';
 import { GeminiAdapter } from './adapters/GeminiAdapter';
 import { ImageUnderstandingService } from './service/ImageUnderstandingService';
 import { ImageUnderstandingRequest } from '../../../packages/shared/contracts/image.contract';
+import { requireServiceAuth } from '../../../packages/shared/service-auth';
 
 const app = express();
 app.use(cors());
@@ -47,7 +48,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // 2. Main Capability Gateway endpoint
-app.post('/analyze-image', async (req: Request, res: Response) => {
+app.post('/analyze-image', requireServiceAuth, async (req: Request, res: Response) => {
   const payload = req.body as ImageUnderstandingRequest;
   const tenantId = payload.tenantId || req.headers['x-tenant-id'] as string || 'default';
 
@@ -90,6 +91,7 @@ app.post('/analyze-image', async (req: Request, res: Response) => {
 
 // 3. Ephemeral test inspection endpoint (strictly for test harness verification)
 app.get('/test/last-raw-response', (req: Request, res: Response) => {
+  if (process.env.NODE_ENV !== 'test') return res.status(404).json({ error: 'NOT_FOUND' });
   res.json({
     rawResponse: GeminiAdapter.lastRawResponseForTesting,
     invocationCount: GeminiAdapter.invocationCountForTesting

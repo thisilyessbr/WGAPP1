@@ -7,16 +7,24 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { config } from './config/env';
 import { logger } from './utils/logger';
-import { bootstrapChatbot } from './bootstrap';
+import { bootstrapChatbot, ChatbotDependencies, WebDependencies } from './bootstrap';
 import { createApiRouter } from './dev/chatApi';
 import { createWhatsAppWebhookRouter } from './domain/channel/whatsapp/WhatsAppWebhookRouter';
 import { createWhatsAppOnboardingRouter } from './domain/channel/whatsapp/WhatsAppOnboardingRouter';
+import { createPortalRouter } from './portal/PortalRouter';
+import { createChannelManagementRouter } from './domain/channel/guard/ChannelManagementRouter';
 
-export async function createApp(deps: ReturnType<typeof bootstrapChatbot>): Promise<express.Application> {
+export async function createApp(deps: ChatbotDependencies | WebDependencies): Promise<express.Application> {
   const app = express();
 
   // Configure Express for 1-hop reverse proxy (Nginx, Caddy, Cloudflare, AWS ALB)
   app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+  });
 
   app.use(cors());
   app.use(express.json({
@@ -52,7 +60,8 @@ export async function createApp(deps: ReturnType<typeof bootstrapChatbot>): Prom
       deps.whatsAppNumberService,
       {},
       deps.whatsAppIdempotencyStore,
-      deps.whatsAppMessageQueue
+      deps.whatsAppMessageQueue,
+      deps.prisma
     );
     app.use('/api/v1/webhook/whatsapp', whatsAppWebhookRouter);
     app.use('/api/webhook/whatsapp', whatsAppWebhookRouter);
@@ -69,68 +78,70 @@ export async function createApp(deps: ReturnType<typeof bootstrapChatbot>): Prom
     app.use('/api/whatsapp', onboardingRouter);
   }
 
-  const apiRouter = createApiRouter(deps);
+  // Mount Channel Management & Safety Guard Router
+  if ((deps as any).clientSafetyGuard && deps.whatsAppNumberService) {
+    const channelManagementRouter = createChannelManagementRouter(
+      deps.prisma,
+      deps.whatsAppNumberService,
+      (deps as any).clientSafetyGuard,
+      deps.secretBox,
+      deps.qrSessionManager
+    );
+    app.use('/api/v1', channelManagementRouter);
+    app.use('/api', channelManagementRouter);
+  }
 
-  // Production API Routes (/api/v1 and /api)
-  app.use('/api/v1', apiRouter);
-  app.use('/api', apiRouter);
+  // Mount Client / Admin Portal Router and Assets if enabled
+  if ((deps as any).portalService) {
+    app.use('/api', createPortalRouter((deps as any).portalService, deps as any));
+    app.use('/portal-assets', express.static(path.join(__dirname, 'portal/ui')));
+    app.use(['/signup', '/login', '/app', '/admin'], (_req, res) => {
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.facebook.com https://graph.facebook.com; frame-src https://www.facebook.com; base-uri 'none'; form-action 'self'");
+      res.sendFile(path.join(__dirname, 'portal/ui/index.html'));
+    });
+  }
 
-  // Development Control Center UI and dev endpoint alias
-  if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
+  const apiRouter = createApiRouter(deps as any);
+
+  // In production, disable /api/dev legacy endpoint alias completely
+  if (process.env.NODE_ENV === 'production') {
+    app.use('/api/dev', (_req, res) => {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Not found' });
+    });
+  } else if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
     app.use('/api/dev', apiRouter);
     app.use('/', express.static(path.join(__dirname, 'dev/ui')));
     logger.info(`Developer Control Center available at http://localhost:${config.port}/`);
   } else {
-    // Keep /api/dev aliased for backward compatibility with integration test scripts
+    // Non-production test environments mount /api/dev
     app.use('/api/dev', apiRouter);
     logger.info('Development Control Center UI is disabled.');
   }
+
+  // Production API Routes (/api/v1 and /api)
+  app.use('/api/v1', apiRouter);
+  app.use('/api', apiRouter);
 
   return app;
 }
 
 async function bootstrap() {
   try {
-    let dbUrl = process.env.DATABASE_URL;
-    if (dbUrl && dbUrl.startsWith('prisma+postgres://')) {
-      const urlObj = new URL(dbUrl);
-      const apiKey = urlObj.searchParams.get('api_key');
-      if (apiKey) {
-        const decoded = JSON.parse(Buffer.from(apiKey, 'base64').toString('utf8'));
-        dbUrl = decoded.databaseUrl;
-      }
+    const runtime = process.env.RELAYQO_RUNTIME || 'web';
+    if (runtime === 'worker') {
+      const { startWorkerProcess } = await import('./runtime/worker.js');
+      await startWorkerProcess();
+    } else {
+      const { startWebServer } = await import('./runtime/web.js');
+      await startWebServer();
     }
-
-    const pool = new Pool({ connectionString: dbUrl });
-    const adapter = new PrismaPg(pool);
-    const prisma = new PrismaClient({ adapter });
-    await prisma.$connect();
-    logger.info('Database connected');
-
-    const deps = bootstrapChatbot(prisma);
-    const app = await createApp(deps);
-    const host = process.env.HOST || '0.0.0.0';
-    app.listen(Number(config.port), host, () => {
-      logger.info(`Server started on port ${config.port} (host: ${host})`);
-    });
-
-    // Graceful shutdown
-    const shutdown = async () => {
-      logger.info('Shutting down gracefully.');
-      await prisma.$disconnect();
-      process.exit(0);
-    };
-
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
-
   } catch (error) {
     logger.error('Error during bootstrap', error);
     process.exit(1);
   }
 }
 
-if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+if (require.main === module && process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
   bootstrap();
 }
 

@@ -1,8 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import { TenantConfigService } from './TenantConfigService';
 import { BusinessConfig, resolveLocalizedPrompt } from './BusinessConfig';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+interface ConfigOverrideContext {
+  tenantId: string;
+  accountId: string;
+  config: BusinessConfig;
+}
 
 export class AccountConfigService {
+  private readonly overrideContext = new AsyncLocalStorage<ConfigOverrideContext>();
+
   constructor(
     private prisma: PrismaClient,
     private tenantConfigService: TenantConfigService
@@ -21,6 +30,11 @@ export class AccountConfigService {
   async getEffectiveConfig(tenantId: string, accountId?: string | null): Promise<BusinessConfig> {
     if (!tenantId) {
       throw new Error('tenantId is required to resolve configuration');
+    }
+
+    const override = this.overrideContext.getStore();
+    if (accountId && override?.tenantId === tenantId && override.accountId === accountId) {
+      return structuredClone(override.config);
     }
 
     // 1. Fetch base tenant configuration
@@ -48,12 +62,23 @@ export class AccountConfigService {
 
     // 4. If account has no custom config, return base config
     const accountConfig = account.config as Record<string, any> | null;
+    if (accountConfig?.portalManaged === true && process.env.PORTAL_ENABLED !== 'true') {
+      throw new Error('Managed account automation requires the portal spending and activation controls.');
+    }
     if (!accountConfig || typeof accountConfig !== 'object' || Array.isArray(accountConfig) || Object.keys(accountConfig).length === 0) {
       return JSON.parse(JSON.stringify(baseConfig));
     }
 
     // 5. Deep merge account overrides onto a deep clone of base config
     return this.mergeAccountOverrides(baseConfig, accountConfig);
+  }
+
+  /**
+   * Runs one isolated preview with a supplied account configuration. AsyncLocalStorage
+   * keeps concurrent live WhatsApp turns on their normal published configuration.
+   */
+  async runWithConfigOverride<T>(tenantId: string, accountId: string, config: BusinessConfig, run: () => Promise<T>): Promise<T> {
+    return this.overrideContext.run({ tenantId, accountId, config: structuredClone(config) }, run);
   }
 
   /**
@@ -93,7 +118,7 @@ export class AccountConfigService {
     if (overrides.prompts && typeof overrides.prompts === 'object' && !Array.isArray(overrides.prompts)) {
       for (const [key, value] of Object.entries(overrides.prompts)) {
         if (value === null || value === undefined) continue;
-        if (key === 'greeting' || key === 'fallback') {
+        if (['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded'].includes(key)) {
           if (typeof value === 'object' && !Array.isArray(value)) {
             const current = typeof (merged.prompts as any)[key] === 'object' ? (merged.prompts as any)[key] : { en: (merged.prompts as any)[key] };
             (merged.prompts as any)[key] = { ...current, ...value };
@@ -131,6 +156,15 @@ export class AccountConfigService {
       };
     }
 
+    if (overrides.portalFacts && typeof overrides.portalFacts === 'object' && !Array.isArray(overrides.portalFacts)) {
+      (merged as any).portalFacts = structuredClone(overrides.portalFacts);
+    }
+    if (overrides.workflows && typeof overrides.workflows === 'object' && !Array.isArray(overrides.workflows)) {
+      merged.workflows = structuredClone(overrides.workflows);
+    }
+    if (overrides.ecommerce && typeof overrides.ecommerce === 'object' && !Array.isArray(overrides.ecommerce)) {
+      merged.ecommerce = { ...merged.ecommerce, ...structuredClone(overrides.ecommerce) };
+    }
     return merged;
   }
 }

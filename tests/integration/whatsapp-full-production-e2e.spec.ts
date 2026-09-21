@@ -36,6 +36,7 @@ describe('PHASE WHATSAPP-FULL-PRODUCTION-AUDIT-47: Full Production Forensic E2E 
       try {
         await prisma.whatsAppMessageJob.deleteMany({ where: { tenantId } });
         await prisma.whatsAppBusinessNumber.deleteMany({ where: { tenantId } });
+        await prisma.channelConnection.deleteMany({ where: { tenantId } });
         await prisma.lead.deleteMany({ where: { tenantId } });
         await prisma.message.deleteMany({ where: { tenantId } });
         await prisma.workflowSession.deleteMany({ where: { tenantId } });
@@ -67,30 +68,60 @@ describe('PHASE WHATSAPP-FULL-PRODUCTION-AUDIT-47: Full Production Forensic E2E 
 
     // Register Number 1 on Account A
     const phoneNum1 = `phone-prod-1-${Date.now()}`;
+    const connection1 = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountA.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum1,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountA.id,
       phoneNumberId: phoneNum1,
+      connectionId: connection1.id,
       displayPhoneNumber: '+1 555 1001',
       enabled: true
     });
 
     // Register Number 2 on Account A
     const phoneNum2 = `phone-prod-2-${Date.now()}`;
+    const connection2 = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountA.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum2,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountA.id,
       phoneNumberId: phoneNum2,
+      connectionId: connection2.id,
       displayPhoneNumber: '+1 555 1002',
       enabled: true
     });
 
     // Register Number 3 on Account B
     const phoneNum3 = `phone-prod-3-${Date.now()}`;
+    const connection3 = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountB.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum3,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountB.id,
       phoneNumberId: phoneNum3,
+      connectionId: connection3.id,
       displayPhoneNumber: '+1 555 2001',
       enabled: true
     });
@@ -98,7 +129,7 @@ describe('PHASE WHATSAPP-FULL-PRODUCTION-AUDIT-47: Full Production Forensic E2E 
     // Configure tenant workflows and FAQs
     await deps.tenantConfigService.updateConfig(tenantId, {
       ...DEFAULT_BUSINESS_CONFIG,
-      identity: { botName: 'ProductionBot', brand: 'Production Enterprise' },
+      identity: { botName: 'ProductionBot', brand: 'Production Enterprise', language: 'en' },
       capabilities: {
         ...DEFAULT_BUSINESS_CONFIG.capabilities,
         ecommerceEnabled: true,
@@ -106,13 +137,14 @@ describe('PHASE WHATSAPP-FULL-PRODUCTION-AUDIT-47: Full Production Forensic E2E 
           { id: 'f1', question: 'What is your return policy?', answer: '30-day money back guarantee.', category: 'POLICY' }
         ],
         intents: [
-          { id: 'lead_flow', description: 'Lead Flow', workflowId: 'lead_flow', triggerPhrases: ['start lead'] }
+          { id: 'lead_flow', description: 'Lead Flow', workflowId: 'lead_flow', keywords: ['start lead'] }
         ]
       },
       workflows: {
         lead_flow: {
           id: 'lead_flow',
           name: 'Lead Capture Flow',
+          description: 'Collect contact details for a qualified sales lead.',
           initialState: 'ask_name',
           states: {
             ask_name: {
@@ -137,8 +169,8 @@ describe('PHASE WHATSAPP-FULL-PRODUCTION-AUDIT-47: Full Production Forensic E2E 
               type: 'choice',
               prompt: 'Please confirm your information. Is this correct?',
               options: [
-                { label: 'Yes, Confirm', value: 'yes', next: 'complete' },
-                { label: 'No, Cancel', value: 'no', next: 'cancel' }
+                { label: 'Yes, Confirm', next: 'complete' },
+                { label: 'No, Cancel', next: 'cancel' }
               ]
             },
             complete: {
@@ -301,7 +333,7 @@ describe('PHASE WHATSAPP-FULL-PRODUCTION-AUDIT-47: Full Production Forensic E2E 
     const user = '212600000005';
 
     let llmCallCount = 0;
-    mockLlm.generate = async () => {
+    mockLlm.responseResolver = async () => {
       llmCallCount++;
       return 'Unexpected LLM response';
     };

@@ -1,10 +1,12 @@
-# Multi-Tenant AI Chatbot & RAG Engine
+# Relayqo WhatsApp Chatbot Backend
 
-A configurable multi-tenant conversational chatbot and RAG (Retrieval-Augmented Generation) engine built with Node.js, Express, TypeScript, Prisma ORM, and PostgreSQL (`pgvector`).
+A multi-tenant WhatsApp chatbot backend built with Node.js, Express, TypeScript, Prisma ORM, and PostgreSQL (`pgvector`). It routes each WhatsApp number to the correct client account, processes messages through a durable queue, and supports Meta Cloud API plus an optional QR transport.
+
+This repository contains the Relayqo chatbot backend, its admin/client portals, WhatsApp integrations, and supporting services.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Start Local Database
 ```bash
@@ -16,7 +18,7 @@ npm run db:dev
 npm run dev
 ```
 The server will start on `http://localhost:3000/`.
-The **Developer Control Center** UI is available at `http://localhost:3000/`.
+When `ENABLE_DEV_CONTROL_CENTER=true`, the Developer Control Center is available at `http://localhost:3000/`.
 
 ### 3. Run Tests
 ```bash
@@ -25,7 +27,20 @@ npm test
 
 ---
 
-## 🛠️ Utility & Maintenance Scripts
+## Project Layout
+
+| Path | Purpose |
+| :--- | :--- |
+| `src/` | Chatbot API, conversation engine, WhatsApp integration, and admin UI |
+| `prisma/` | Database schema and migrations |
+| `tests/` | Unit and integration tests |
+| `apps/image-service/` | Optional image understanding service |
+| `apps/monitoring-service/` | Monitoring service |
+| `packages/shared/` | Contracts shared by the services |
+| `docs/` | Relayqo architecture, operations, and audit documents |
+| `scripts/` | Reusable setup, verification, and maintenance tools |
+
+## Utility & Maintenance Scripts
 
 Reusable operational and maintenance scripts live in the `scripts/` directory:
 
@@ -38,7 +53,7 @@ Reusable operational and maintenance scripts live in the `scripts/` directory:
 
 ---
 
-## 📁 Development & Investigation Guidelines
+## Development & Investigation Guidelines
 
 > **Script Organization Policy:**
 > One-off debug/investigation scripts go in `scripts/debug/` and should be deleted once the investigation is resolved — never left in the project root.

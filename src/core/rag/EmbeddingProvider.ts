@@ -2,6 +2,12 @@ export interface EmbeddingProvider {
   embedText(text: string): Promise<number[]>;
 }
 
+export class UnavailableEmbeddingProvider implements EmbeddingProvider {
+  async embedText(_text: string): Promise<number[]> {
+    throw new Error('EMBEDDING_PROVIDER_UNAVAILABLE: configure GOOGLE_API_KEY before using knowledge retrieval or ingestion.');
+  }
+}
+
 export class MockEmbeddingProvider implements EmbeddingProvider {
   public generateFixedVector = false;
   public dimension: number = 3072;

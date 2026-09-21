@@ -2,7 +2,8 @@ import { WorkflowSession } from '@prisma/client';
 import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
 import { WorkflowStateEvaluator } from './WorkflowStateEvaluator';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
-import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES } from '../../domain/conversation/ResponseBuilder';
+import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
+import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { FieldValidator } from './FieldValidator';
 import { FaqMatcher, LanguageDetector } from '../../domain/faq/FaqMatcher';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
@@ -60,7 +61,7 @@ export class WorkflowCancellationDetector {
     'bghit nhbes',
     'baraka',
     'hbess',
-    'hbes'
+    'hbes', 'mabghitch', 'ma bghitch', 'ma bghit ch', 'ما بغيتش', 'مابغيتش'
   ]);
 
   /**
@@ -230,10 +231,12 @@ export class WorkflowEngine {
       // Detect / resolve session language (reusing canonical effectiveLang if supplied)
       const detectedLang = effectiveLang || LanguageDetector.detect(message);
       const isShortCommand = message.trim().length <= 5;
-      const lang = (currentContext['_lang'] && (isShortCommand || detectedLang === 'en'))
+      const lang = effectiveLang || ((currentContext['_lang'] && (isShortCommand || detectedLang === 'en'))
         ? currentContext['_lang']
-        : (detectedLang !== 'en' ? detectedLang : (currentContext['_lang'] || businessConfig.identity?.language || 'en'));
+        : (detectedLang !== 'en' ? detectedLang : (currentContext['_lang'] || businessConfig.identity?.language || 'en')));
       currentContext['_lang'] = lang;
+      const script = effectiveScript || (LanguageDetector.isAmbiguous(message) && currentContext['_script']) || DirectRagGuard.detectScript(message, lang);
+      currentContext['_script'] = script;
 
       const isInitialEntry = !currentContext['_started'];
       currentContext['_started'] = true;
@@ -315,7 +318,7 @@ export class WorkflowEngine {
           const promptToUse = (businessConfig.prompts as any)?.workflowStepLimitExceeded;
           const defaultVals = Object.values(DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES);
           const limitResponse = promptToUse && (!defaultVals.includes(promptToUse) || typeof promptToUse === 'object')
-            ? resolveLocalizedPrompt(promptToUse, lang, defaultMsg)
+            ? resolveLocalizedPrompt(promptToUse, lang, defaultMsg, script)
             : defaultMsg;
 
           return finishAndReturn({
@@ -335,7 +338,7 @@ export class WorkflowEngine {
 
       if (isInitialEntry) {
         if (stateConfig.type === 'choice') {
-          response = this.responseBuilder.buildChoiceResponse(stateConfig, lang);
+          response = this.responseBuilder.buildChoiceResponse(stateConfig, lang, script);
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
@@ -345,7 +348,7 @@ export class WorkflowEngine {
             updatedCollectedData: collectedData
           });
         } else if (stateConfig.type === 'collect') {
-          response = this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang);
+          response = this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang, script);
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
@@ -355,7 +358,7 @@ export class WorkflowEngine {
             updatedCollectedData: collectedData
           });
         } else if (stateConfig.type === 'confirm' || stateConfig.prompt === 'confirm') {
-          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang);
+          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script);
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
@@ -365,7 +368,7 @@ export class WorkflowEngine {
             updatedCollectedData: collectedData
           });
         } else if (stateConfig.type === 'end') {
-          response = this.responseBuilder.buildGenericResponse(stateConfig, businessConfig, lang);
+          response = this.responseBuilder.buildGenericResponse(stateConfig, businessConfig, lang, script);
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: null,
@@ -387,10 +390,10 @@ export class WorkflowEngine {
           if (previousStateConfig) {
             logger.info(`WorkflowEngine: 'back' command popped history to [${previousStateId}]`);
             const backPrompt = previousStateConfig.type === 'choice'
-              ? this.responseBuilder.buildChoiceResponse(previousStateConfig, lang)
+              ? this.responseBuilder.buildChoiceResponse(previousStateConfig, lang, script)
               : (previousStateConfig.type === 'collect'
-                  ? this.responseBuilder.buildMissingFieldResponse(previousStateConfig, businessConfig, lang)
-                  : this.responseBuilder.buildGenericResponse(previousStateConfig, businessConfig, lang));
+                  ? this.responseBuilder.buildMissingFieldResponse(previousStateConfig, businessConfig, lang, script)
+                  : this.responseBuilder.buildGenericResponse(previousStateConfig, businessConfig, lang, script));
             return finishAndReturn({
               updatedContext: currentContext,
               nextStateId: previousStateId,
@@ -404,10 +407,10 @@ export class WorkflowEngine {
         // No-op if empty history: re-send current prompt
         logger.info(`WorkflowEngine: 'back' command with empty history -> re-sending current prompt [${currentStateId}]`);
         const currentPrompt = stateConfig.type === 'choice'
-          ? this.responseBuilder.buildChoiceResponse(stateConfig, lang)
+          ? this.responseBuilder.buildChoiceResponse(stateConfig, lang, script)
           : (stateConfig.type === 'collect'
-              ? this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang)
-              : this.responseBuilder.buildGenericResponse(stateConfig, businessConfig, lang));
+              ? this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang, script)
+              : this.responseBuilder.buildGenericResponse(stateConfig, businessConfig, lang, script));
         return finishAndReturn({
           updatedContext: currentContext,
           nextStateId: currentStateId,
@@ -436,20 +439,20 @@ export class WorkflowEngine {
 
           if (nextStateConfig.type === 'end') {
             isComplete = true;
-            const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+            const defaultCompletion = getWorkflowMessage('completion', lang, script);
             const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
             const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
-              ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
+              ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
               : defaultCompletion;
             response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
           } else if (nextStateConfig.type === 'choice') {
-            response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
+            response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
           } else if (nextStateConfig.type === 'collect') {
-            response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang);
+            response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang, script);
           } else if (nextStateConfig.type === 'confirm' || nextStateConfig.prompt === 'confirm') {
-            response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang);
+            response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang, script);
           } else {
-            response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang);
+            response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang, script);
           }
 
           return finishAndReturn({
@@ -498,11 +501,11 @@ export class WorkflowEngine {
             logger.info(`WorkflowEngine: [Cost Guard] consecutiveUnmatched=${consecutive} >= 2 -> Skipping FAQ/RAG checks (0 API calls)`);
           }
 
-          const choicePrompt = this.responseBuilder.buildChoiceResponse(stateConfig, lang);
+          const choicePrompt = this.responseBuilder.buildChoiceResponse(stateConfig, lang, script);
 
           if (matchedAnswer) {
             // Layer 2/3 Hit: Prepend answer, separator, and return distinct concise reprompt without repeating initial welcome greeting
-            const reprompt = this.responseBuilder.buildChoiceReprompt(stateConfig, undefined, lang);
+            const reprompt = this.responseBuilder.buildChoiceReprompt(stateConfig, undefined, lang, script);
             response = `${matchedAnswer}\n\n---\n${reprompt}`;
             return finishAndReturn({
               updatedContext: currentContext,
@@ -516,13 +519,13 @@ export class WorkflowEngine {
 
           // Layer 4: Fallback redirect message
           currentContext['_consecutiveUnmatched'] = consecutive + 1;
-          const defaultRedirect = DEFAULT_WORKFLOW_MESSAGES.choiceRedirect[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.choiceRedirect] || DEFAULT_WORKFLOW_MESSAGES.choiceRedirect.en;
+          const defaultRedirect = getWorkflowMessage('choiceRedirect', lang, script);
           const defaultRedirectVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choiceRedirect);
           const rawRedirect = (businessConfig.prompts as any)?.choiceRedirect;
           const redirectLine = rawRedirect && (!defaultRedirectVals.includes(rawRedirect) || typeof rawRedirect === 'object')
-            ? resolveLocalizedPrompt(rawRedirect, lang, defaultRedirect)
+            ? resolveLocalizedPrompt(rawRedirect, lang, defaultRedirect, script)
             : defaultRedirect;
-          response = this.responseBuilder.buildChoiceReprompt(stateConfig, redirectLine, lang);
+          response = this.responseBuilder.buildChoiceReprompt(stateConfig, redirectLine, lang, script);
 
           return finishAndReturn({
             updatedContext: currentContext,
@@ -546,7 +549,7 @@ export class WorkflowEngine {
           : (stateConfig.field?.name || currentStateId);
 
         const trimmedMsg = message.trim();
-        const currentCollectPrompt = this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang);
+        const currentCollectPrompt = this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang, script);
 
         // 1. Empty / whitespace message validation: reject, reprompt same step, don't store, don't advance
         if (!trimmedMsg) {
@@ -566,10 +569,10 @@ export class WorkflowEngine {
         // 2. Cancellation check
         if (WorkflowCancellationDetector.isCancellation(trimmedMsg)) {
           isComplete = true;
-          const defaultCancel = DEFAULT_WORKFLOW_MESSAGES.workflowCancelled[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.workflowCancelled] || DEFAULT_WORKFLOW_MESSAGES.workflowCancelled.en;
+          const defaultCancel = getWorkflowMessage('workflowCancelled', lang, script);
           const promptToUse = businessConfig.prompts?.workflowCancelled;
           const rawCancelMsg = promptToUse && (typeof promptToUse === 'object' || !Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled).includes(promptToUse))
-            ? resolveLocalizedPrompt(promptToUse, lang, defaultCancel)
+            ? resolveLocalizedPrompt(promptToUse, lang, defaultCancel, script)
             : defaultCancel;
           return finishAndReturn({
             updatedContext: currentContext,
@@ -677,7 +680,7 @@ export class WorkflowEngine {
 
           if (!nextStateId) {
             isComplete = true;
-            const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+            const defaultCompletion = getWorkflowMessage('completion', lang, script);
             response = defaultCompletion;
           } else {
             const nextStateConfig = workflowConfig.states[nextStateId];
@@ -687,20 +690,20 @@ export class WorkflowEngine {
 
             if (nextStateConfig.type === 'end') {
               isComplete = true;
-              const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+              const defaultCompletion = getWorkflowMessage('completion', lang, script);
               const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
               const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
-                ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
+                ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
                 : defaultCompletion;
               response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
             } else if (nextStateConfig.type === 'choice') {
-              response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
+              response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
             } else if (nextStateConfig.type === 'collect') {
-              response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang);
+              response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang, script);
             } else if (nextStateConfig.type === 'confirm' || nextStateConfig.prompt === 'confirm') {
-              response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang);
+              response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang, script);
             } else {
-              response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang);
+              response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang, script);
             }
           }
 
@@ -747,11 +750,11 @@ export class WorkflowEngine {
         if (isQuestion) {
           // Off-script question with no high-confidence FAQ/RAG match -> return clean fallback redirect, keep state and collectedData unchanged
           currentContext['_consecutiveUnmatched'] = consecutive + 1;
-          const defaultCollectFallback = DEFAULT_WORKFLOW_MESSAGES.collectFallback[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.collectFallback] || DEFAULT_WORKFLOW_MESSAGES.collectFallback.en;
+          const defaultCollectFallback = getWorkflowMessage('collectFallback', lang, script);
           const defaultCollectVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.collectFallback);
           const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
           const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
-            ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback)
+            ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
             : defaultCollectFallback;
           response = `${fallbackMsg}\n\n${currentCollectPrompt}`;
           return finishAndReturn({
@@ -781,7 +784,7 @@ export class WorkflowEngine {
           nextStateId,
           response,
           isComplete,
-          updatedStateHistory: newHistory,
+          updatedStateHistory: history,
           updatedCollectedData: collectedData
         });
       }
@@ -792,9 +795,9 @@ export class WorkflowEngine {
           logger.warn(`[DEPRECATION] Workflow state "${currentStateId}" in workflow "${workflowConfig.id}" for tenant "${session.tenantId}" uses legacy prompt === 'confirm'. Please migrate to state type: 'confirm'.`);
         }
 
-        const lowerMsg = message.trim().toLowerCase();
-        const confirmKeywords = (stateConfig.confirmKeywords || ['yes', 'confirm', 'oui', 'نعم', 'واخا', 'iyih', 'wah', 'wakha', 'ok']).map(k => k.trim().toLowerCase());
-        const cancelKeywords = (stateConfig.cancelKeywords || ['no', 'cancel', 'non', 'لا', 'la', 'lla', 'annuler', 'stop']).map(k => k.trim().toLowerCase());
+        const lowerMsg = WorkflowCancellationDetector.normalize(message);
+        const confirmKeywords = (stateConfig.confirmKeywords || ['yes', 'confirm', 'oui', 'نعم', 'واخا', 'إيه', 'ايه', 'آه', 'اه', 'iyih', 'iyeh', 'ih', 'wah', 'wakha', 'ok']).map(k => WorkflowCancellationDetector.normalize(k));
+        const cancelKeywords = (stateConfig.cancelKeywords || ['no', 'cancel', 'non', 'لا', 'la', 'lla', 'annuler', 'stop']).map(k => WorkflowCancellationDetector.normalize(k));
         const isConfirmCancel = cancelKeywords.includes(lowerMsg) || WorkflowCancellationDetector.isCancellation(message);
 
         if (confirmKeywords.includes(lowerMsg)) {
@@ -802,24 +805,24 @@ export class WorkflowEngine {
           nextStateId = stateConfig.next || (stateConfig.transitions && stateConfig.transitions[0] ? stateConfig.transitions[0].target : null);
           if (!nextStateId) {
             isComplete = true;
-            const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+            const defaultCompletion = getWorkflowMessage('completion', lang, script);
             const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
             const endPrompt = stateConfig.prompt && (!defaultVals.includes(stateConfig.prompt as string) || typeof stateConfig.prompt === 'object')
-              ? resolveLocalizedPrompt(stateConfig.prompt, lang, defaultCompletion)
+              ? resolveLocalizedPrompt(stateConfig.prompt, lang, defaultCompletion, script)
               : defaultCompletion;
             response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
             return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true });
           }
         } else if (isConfirmCancel) {
-          const defaultCancelled = DEFAULT_WORKFLOW_MESSAGES.workflowCancelled[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.workflowCancelled] || DEFAULT_WORKFLOW_MESSAGES.workflowCancelled.en;
+          const defaultCancelled = getWorkflowMessage('workflowCancelled', lang, script);
           const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled);
           const promptToUse = stateConfig.cancellationPrompt || businessConfig.prompts?.workflowCancelled;
-          response = promptToUse && (!defaultVals.includes(promptToUse) || typeof promptToUse === 'object')
-            ? resolveLocalizedPrompt(promptToUse, lang, defaultCancelled)
+          response = promptToUse && (!defaultVals.includes(promptToUse as string) || typeof promptToUse === 'object')
+            ? resolveLocalizedPrompt(promptToUse, lang, defaultCancelled, script)
             : defaultCancelled;
           return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true });
         } else {
-          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang);
+          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script);
           return finishAndReturn({ updatedContext: currentContext, nextStateId, response, isComplete });
         }
       }
@@ -832,8 +835,8 @@ export class WorkflowEngine {
       // If no next state but we just completed a step, we might hit the end
       if (!nextStateId) {
         isComplete = true;
-        const defaultFallback = DEFAULT_WORKFLOW_MESSAGES.fallback[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.fallback] || DEFAULT_WORKFLOW_MESSAGES.fallback.en;
-        response = response || resolveLocalizedPrompt(businessConfig.prompts?.fallback, lang, defaultFallback);
+        const defaultFallback = getWorkflowMessage('fallback', lang, script);
+        response = response || resolveLocalizedPrompt(businessConfig.prompts?.fallback, lang, defaultFallback, script);
       } else {
         const nextStateConfig = workflowConfig.states[nextStateId];
         if (!nextStateConfig) {
@@ -842,24 +845,24 @@ export class WorkflowEngine {
         
         if (nextStateConfig.type === 'end') {
           isComplete = true;
-          const defaultCompletion = DEFAULT_WORKFLOW_MESSAGES.completion[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.completion] || DEFAULT_WORKFLOW_MESSAGES.completion.en;
+          const defaultCompletion = getWorkflowMessage('completion', lang, script);
           const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
           const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
-            ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion)
+            ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
             : defaultCompletion;
           response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
         } else if (nextStateConfig.type === 'choice') {
-          response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang);
+          response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
         } else if (nextStateConfig.type === 'collect' && nextStateConfig.field) {
           // Proactively ask for the next field
           const fieldKey = typeof nextStateConfig.field === 'string' ? nextStateConfig.field : nextStateConfig.field.name;
           if (!currentContext[fieldKey]) {
-            response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang);
+            response = this.responseBuilder.buildMissingFieldResponse(nextStateConfig, businessConfig, lang, script);
           }
         } else if (nextStateConfig.type === 'confirm' || nextStateConfig.prompt === 'confirm') {
-          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang);
+          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, nextStateConfig, lang, script);
         } else {
-          response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang);
+          response = this.responseBuilder.buildGenericResponse(nextStateConfig, businessConfig, lang, script);
         }
       }
 

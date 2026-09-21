@@ -1,5 +1,5 @@
 import { LLMProvider, LLMRequestOptions, LLMMockProvider, LLMProviderError } from './LLMProvider';
-import { DeepSeekProvider } from './DeepSeekProvider';
+import { DeepSeekProvider, DEFAULT_DEEPSEEK_MODEL, resolveDeepSeekModel } from './DeepSeekProvider';
 import { GeminiLLMProvider, DEFAULT_GEMINI_MODEL } from './GeminiLLMProvider';
 import { LlmConfig } from '../../domain/tenant/BusinessConfig';
 import { logger } from '../../utils/logger';
@@ -28,7 +28,8 @@ export class LLMFactory {
 
     const requestedProvider = (config?.provider || 'deepseek').toLowerCase();
     const providerName = (isTestEnv && !useRealAi && requestedProvider !== 'mock') ? 'mock' : requestedProvider;
-    const model = (providerName === 'mock') ? 'mock-model' : (config?.model || (providerName === 'gemini' ? DEFAULT_GEMINI_MODEL : 'deepseek-chat'));
+    const requestedModel = config?.model || (providerName === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_DEEPSEEK_MODEL);
+    const model = providerName === 'mock' ? 'mock-model' : providerName === 'deepseek' ? resolveDeepSeekModel(requestedModel) : requestedModel;
     const cacheKey = `${providerName}:${model}`;
 
     let provider = this.providerCache.get(cacheKey);
@@ -48,7 +49,14 @@ export class LLMFactory {
       } else if (providerName === 'deepseek') {
         const apiKey = this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
         if (!apiKey || apiKey === 'dummy-key') {
-          logger.warn(`DEEPSEEK_API_KEY is missing or dummy. Falling back to LLMMockProvider for "${cacheKey}".`);
+          if (!isTestEnv && process.env.NODE_ENV === 'production') {
+            throw new LLMProviderError({
+              message: 'DEEPSEEK_API_KEY is not configured for the production DeepSeek provider.',
+              type: 'auth',
+              provider: 'deepseek'
+            });
+          }
+          logger.warn(`DEEPSEEK_API_KEY is missing or dummy. Using LLMMockProvider outside production for "${cacheKey}".`);
           provider = new LLMMockProvider();
         } else {
           logger.info(`Instantiating new DeepSeekProvider for cache key: "${cacheKey}"`);
@@ -58,7 +66,7 @@ export class LLMFactory {
         provider = new LLMMockProvider();
       } else {
         throw new LLMProviderError({
-          message: `Unsupported LLM provider requested: "${config.provider}"`,
+          message: `Unsupported LLM provider requested: "${config?.provider || providerName}"`,
           type: 'invalid_response',
           provider: providerName
         });

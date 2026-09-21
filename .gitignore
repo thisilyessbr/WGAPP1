@@ -18,3 +18,8 @@ scripts/e2e/
 .vscode/
 .idea/
 scratch/
+
+# Generated local artifacts
+output/
+tmp/
+cv-review.png

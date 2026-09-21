@@ -33,10 +33,12 @@ export interface GeographicTarget {
   parentCountry?: string;
 }
 
+import { matchesPolicyPhrase, normalizeIntentText } from '../conversation/IntentLanguage';
+
 export class PolicyEvidenceReuse {
   private static readonly COUNTRY_MAP: Record<string, string[]> = {
     morocco: ['morocco', 'maroc', 'المغرب', 'مغرب', 'lmaghrib', 'maghreb', 'marruecos'],
-    france: ['france', 'franca', 'فرانسا', 'فرنسا', 'lfrance', 'l-france', 'francia'],
+    france: ['france', 'franca', 'fransa', 'lfransa', 'فرانسا', 'فرنسا', 'lfrance', 'l-france', 'francia'],
     spain: ['spain', 'espagne', 'إسبانيا', 'اسبانيا', 'espana', 'españa', 'isbanya', 'sbanya'],
     'united states': ['united states', 'usa', 'us', 'u.s.', 'u.s.a.', 'america', 'أمريكا', 'امريكا', 'الولايات المتحدة', 'états-unis', 'etats-unis', 'estados unidos', 'marikan', 'lmarikan'],
     canada: ['canada', 'كندا', 'kanada'],
@@ -267,7 +269,7 @@ export class PolicyEvidenceReuse {
       return { isSufficient: false, reason: 'NON_CANONICAL_POLICY' };
     }
 
-    const combinedContent = cachedEvidence.map(e => e.factualContent).join(' ').toLowerCase();
+    const combinedContent = normalizeIntentText(cachedEvidence.map(e => e.factualContent).join(' ')).toLowerCase();
 
     switch (intent) {
       case 'SHIPPING': {
@@ -302,7 +304,7 @@ export class PolicyEvidenceReuse {
         }
 
         // Standard domestic shipping facts check
-        const hasGeneralShippingFacts = /\b(?:delivery|shipping|livraison|livrer|شحن|توصيل|fee|fees|frais|cost|price|free|gratuit|مجاني|مجانا|days|hours|jours|heures|أيام|ايام|ساعات|délai|delai|standard|express|amana|colis|order|commande|طلب|mad|usd|eur|درهم|\$|€|\d+)\b/i.test(combinedContent);
+        const hasGeneralShippingFacts = matchesPolicyPhrase(combinedContent, /(?:delivery|shipping|livraison|livrer|شحن|توصيل|fee|fees|frais|cost|price|free|gratuit|مجاني|مجانا|days|hours|jours|heures|أيام|ايام|ساعات|délai|delai|standard|express|amana|colis|order|commande|طلب|mad|usd|eur|درهم|\$|€|\d+)/iu);
         if (!hasGeneralShippingFacts) {
           return { isSufficient: false, reason: 'MISSING_SHIPPING_FACTS' };
         }
@@ -311,7 +313,7 @@ export class PolicyEvidenceReuse {
 
       case 'RETURNS': {
         // Return window, conditions, tags, size exchange
-        const hasReturnFacts = /\b(?:14|30|return|returns|exchange|exchanges|tag|tags|unworn|days|jours|إرجاع|استبدال|ترجيع|تبديل|يوم|أيام|ايام|condition)\b/i.test(combinedContent);
+        const hasReturnFacts = matchesPolicyPhrase(combinedContent, /(?:14|30|return|returns|exchange|exchanges|tag|tags|unworn|days|jours|إرجاع|استبدال|ترجيع|تبديل|يوم|أيام|ايام|condition|ترجع|تبدل|nrje3|nbdel)/iu);
         if (!hasReturnFacts) {
           return { isSufficient: false, reason: 'MISSING_RETURNS_FACTS' };
         }
@@ -320,7 +322,7 @@ export class PolicyEvidenceReuse {
 
       case 'CARE': {
         // Washing temp, cycle, inside-out, ironing, bleaching
-        const hasCareFacts = /\b(?:30|wash|washing|care|lavage|bleach|iron|ironing|غسيل|مقلوب|درجة|حرارة|نغسل|تصبين)\b/i.test(combinedContent);
+        const hasCareFacts = matchesPolicyPhrase(combinedContent, /(?:30|wash|washing|care|lavage|bleach|iron|ironing|غسيل|مقلوب|درجة|حرارة|نغسل|تصبين|غسل|غسلها|nghsel|nghselha)/iu);
         if (!hasCareFacts) {
           return { isSufficient: false, reason: 'MISSING_CARE_FACTS' };
         }
@@ -329,7 +331,7 @@ export class PolicyEvidenceReuse {
 
       case 'TRACKING': {
         // Tracking link, SMS, dispatch
-        const hasTrackingFacts = /\b(?:sms|link|track|tracking|suivi|suivre|رابط|تتبع|numéro|number|order)\b/i.test(combinedContent);
+        const hasTrackingFacts = matchesPolicyPhrase(combinedContent, /(?:sms|link|track|tracking|suivi|suivre|رابط|تتبع|numéro|number|order|التتبع|tettbo3)/iu);
         if (!hasTrackingFacts) {
           return { isSufficient: false, reason: 'MISSING_TRACKING_FACTS' };
         }
@@ -338,7 +340,7 @@ export class PolicyEvidenceReuse {
 
       case 'PAYMENT': {
         // Payment methods, COD
-        const hasPaymentFacts = /\b(?:cod|cash|delivery|paiement|payer|livraison|خلاص|كاش|الاستلام|دفع|card|carte)\b/i.test(combinedContent);
+        const hasPaymentFacts = matchesPolicyPhrase(combinedContent, /(?:cod|cash|delivery|paiement|payer|livraison|خلاص|كاش|الاستلام|دفع|card|carte|تخلص|نخلص|الخلاص|n5les)/iu);
         if (!hasPaymentFacts) {
           return { isSufficient: false, reason: 'MISSING_PAYMENT_FACTS' };
         }
@@ -347,7 +349,7 @@ export class PolicyEvidenceReuse {
 
       case 'SUPPORT': {
         // Support email, phone
-        const hasSupportFacts = /\b(?:@|phone|tel|email|contact|support|service|خدمة|زبناء|عملاء|هاتف|تواصل)\b/i.test(combinedContent);
+        const hasSupportFacts = matchesPolicyPhrase(combinedContent, /(?:@|phone|tel|email|contact|support|service|خدمة|زبناء|عملاء|هاتف|تواصل)/iu);
         if (!hasSupportFacts) {
           return { isSufficient: false, reason: 'MISSING_SUPPORT_FACTS' };
         }
@@ -356,7 +358,7 @@ export class PolicyEvidenceReuse {
 
       case 'STORE_INFO': {
         // Hours, opening schedule
-        const hasStoreFacts = /\b(?:hours|horaires|opening|open|schedule|ساعات|عمل|أوقات|مواعيد|\d{1,2}[:h]\d{2})\b/i.test(combinedContent);
+        const hasStoreFacts = matchesPolicyPhrase(combinedContent, /(?:hours|horaires|opening|open|schedule|ساعات|عمل|أوقات|مواعيد|\d{1,2}[:h]\d{2}|كيتحل|كيتسد|kan7lo|kansddo)/iu);
         if (!hasStoreFacts) {
           return { isSufficient: false, reason: 'MISSING_STORE_INFO_FACTS' };
         }
@@ -365,7 +367,7 @@ export class PolicyEvidenceReuse {
 
       case 'SIZE_GUIDE': {
         // Chest measurement mapping or size table
-        const hasSizeGuideFacts = /\b(?:size|xs|s|m|l|xl|xxl|chest|cm|taille|poitrine|guide|tableau|مقاس|مقاسات|صدر|سم)\b/i.test(combinedContent);
+        const hasSizeGuideFacts = matchesPolicyPhrase(combinedContent, /(?:size|xs|s|m|l|xl|xxl|chest|cm|taille|poitrine|guide|tableau|مقاس|مقاسات|صدر|سم)/iu);
         if (!hasSizeGuideFacts) {
           return { isSufficient: false, reason: 'MISSING_SIZE_GUIDE_FACTS' };
         }

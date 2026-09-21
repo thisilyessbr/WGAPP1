@@ -124,7 +124,8 @@ describe('Generic Business Configuration Layer', () => {
     expect(snapshot.identity.botName).toBe('TutorBot');
     expect(snapshot.workflows['TUTOR_SESSION']).toBeDefined();
     expect(snapshot.workflows['TUTOR_SESSION'].initialState).toBe('collect_student');
-    expect(snapshot.workflows['TUTOR_SESSION'].states['collect_duration'].field?.name).toBe('duration');
+    const durationField = snapshot.workflows['TUTOR_SESSION'].states['collect_duration'].field;
+    expect(typeof durationField === 'string' ? durationField : durationField?.name).toBe('duration');
   });
   it('6. Configuration snapshot consistency (immutable properties)', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Snapshot Tenant' } });

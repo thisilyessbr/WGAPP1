@@ -335,6 +335,7 @@ describe('PHASE ARCH-FIX-47H — Config-Driven Multilingual Customer Prompts', (
       responseLanguage: 'darija',
       responseScript: 'arabizi'
     });
-    expect(handoffArabizi).toBe('ghadi n7ewlek l 3end wa7d mn l-fariq dyalna.');
+    expect(handoffArabizi).toMatch(/tsjjel/i);
+    expect(handoffArabizi).not.toMatch(/[\u0600-\u06FF]/);
   });
 });

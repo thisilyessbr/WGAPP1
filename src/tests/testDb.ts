@@ -39,11 +39,18 @@ if (dbUrl) {
   } catch (e) {}
 }
 
-export const pool = new Pool({ connectionString: dbUrl, max: 5 });
-pool.on('connect', (client) => {
-  client.query('SET search_path TO test, public, extensions;');
+const testSchema = process.env.TEST_DATABASE_SCHEMA || 'test';
+if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(testSchema)) {
+  throw new Error('FATAL: TEST_DATABASE_SCHEMA contains invalid characters.');
+}
+
+// Configure search_path during the PostgreSQL startup handshake. Running an
+// asynchronous query from Pool's `connect` event races the first Prisma query
+// and can corrupt the wire protocol under concurrent integration tests.
+export const pool = new Pool({
+  connectionString: dbUrl,
+  max: 5,
+  options: `-c search_path=${testSchema},public,extensions`
 });
-const adapter = new PrismaPg(pool, { schema: 'test' });
+const adapter = new PrismaPg(pool, { schema: testSchema });
 export const prisma = new PrismaClient({ adapter });
-
-

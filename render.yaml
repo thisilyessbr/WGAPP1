@@ -1,0 +1,70 @@
+services:
+  - type: web
+    name: relayqo-backend
+    runtime: docker
+    plan: starter
+    domains:
+      - app.relayqo.online
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 120
+    preDeployCommand: npx prisma migrate deploy
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGINS
+        value: https://app.relayqo.online,https://relayqo.online,https://www.relayqo.online
+      - key: ENABLE_QR_CHANNELS
+        value: "false"
+      - key: PORTAL_ENABLED
+        value: "true"
+      - key: PORTAL_PUBLIC_URL
+        value: https://app.relayqo.online
+      - key: PORTAL_DOCUMENT_WORKER
+        value: "true"
+      - key: PORTAL_DEV_AUTH_LINKS
+        value: "false"
+      - key: PORTAL_DEV_SKIP_EMAIL
+        value: "false"
+      - key: PORTAL_MAIL_FROM
+        value: Relayqo <auth@relayqo.online>
+      - key: DATABASE_POOL_MAX
+        value: "5"
+      - key: DATABASE_CONNECT_TIMEOUT_MS
+        value: "10000"
+      - key: DATABASE_IDLE_TIMEOUT_MS
+        value: "30000"
+      - key: WHATSAPP_QUEUE_WORKER_CONCURRENCY
+        value: "2"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: SIGNUP_STATE_SECRET
+        generateValue: true
+      - key: META_CONFIG_ID
+        sync: false
+      - key: WHATSAPP_GRAPH_API_VERSION
+        value: v26.0
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false

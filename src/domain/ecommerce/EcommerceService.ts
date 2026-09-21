@@ -1,18 +1,10 @@
-import { ProductRepository, ProductWithVariants } from './ProductRepository';
+import { ProductRepository, ProductWithVariants, ProductFact } from './ProductRepository';
 import { ProductVariant } from '@prisma/client';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductRecommendationService, RecommendationCriteria, RecommendationResult } from './ProductRecommendationService';
 
-export interface ProductLookupResult {
-  product: ProductWithVariants;
-  selectedVariant?: ProductVariant | null;
-  effectivePrice: number;
-  currency: string;
-  inStock: boolean;
-  availableStock: number;
-  displayName: string;
-  displayDescription: string;
-}
+export type ProductLookupResult = ProductFact;
+export type { ProductFact } from './ProductRepository';
 
 export class EcommerceService {
   constructor(private productRepo: ProductRepository) {}

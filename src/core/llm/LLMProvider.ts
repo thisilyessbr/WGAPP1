@@ -22,11 +22,25 @@ export class LLMProviderError extends Error {
   }
 }
 
+export interface LLMUsage {
+  provider: string;
+  model: string;
+  attempts: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheHitTokens?: number;
+  cacheMissTokens?: number;
+  reasoningTokens?: number;
+  tokenSource: 'provider' | 'unknown';
+}
+
 export interface LLMRequestOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onUsage?: (usage: LLMUsage) => void;
 }
 
 export interface LLMProvider {

@@ -1,7 +1,18 @@
-import { PrismaClient, Product, ProductVariant } from '@prisma/client';
+import { Prisma, PrismaClient, Product, ProductVariant } from '@prisma/client';
 
 export interface ProductWithVariants extends Product {
   variants: ProductVariant[];
+}
+
+export interface ProductFact {
+  product: ProductWithVariants;
+  selectedVariant?: ProductVariant | null;
+  effectivePrice: number;
+  currency: string;
+  inStock: boolean;
+  availableStock: number;
+  displayName: string;
+  displayDescription: string;
 }
 
 export interface ProductSearchParams {
@@ -414,7 +425,7 @@ export class ProductRepository {
       active?: boolean;
     }
   ): Promise<ProductWithVariants> {
-    return this.prisma.product.create({
+    const created = await this.prisma.product.create({
       data: {
         tenantId,
         accountId,
@@ -425,8 +436,8 @@ export class ProductRepository {
         currency: data.currency || 'USD',
         stock: data.stock !== undefined ? data.stock : 0,
         category: data.category ? data.category.trim() : null,
-        nameLocalized: data.nameLocalized || null,
-        descriptionLocalized: data.descriptionLocalized || null,
+        nameLocalized: data.nameLocalized || Prisma.JsonNull,
+        descriptionLocalized: data.descriptionLocalized || Prisma.JsonNull,
         metadata: data.metadata !== undefined ? (data.metadata as any) : null,
         active: data.active !== undefined ? data.active : true
       },
@@ -436,6 +447,7 @@ export class ProductRepository {
         }
       }
     });
+    return created as ProductWithVariants;
   }
 
   async updateProduct(

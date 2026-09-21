@@ -8,6 +8,7 @@ import { TraceQueryService } from './traces/TraceQueryService';
 import { requireAdminAuth } from './admin/auth';
 import { AdminQueryService } from './admin/AdminQueryService';
 import { getAdminUiHtml } from './admin/ui';
+import { requireServiceAuth } from '../../../packages/shared/service-auth';
 
 export function createMonitoringApp(
   storage: TelemetryStorage,
@@ -37,7 +38,7 @@ export function createMonitoringApp(
   });
 
   // 2. Telemetry Ingestion Endpoint
-  app.post('/api/telemetry/ingest', async (req: Request, res: Response) => {
+  app.post('/api/telemetry/ingest', requireServiceAuth, async (req: Request, res: Response) => {
     try {
       const result = await ingestionService.processPayload(req.body);
       if (!result.success && (result.errors?.length || 0) > 0 && result.accepted === 0) {
@@ -56,7 +57,7 @@ export function createMonitoringApp(
 
   // 3. Trace Query Endpoints (Internal / Private Interface)
   // GET /api/monitoring/traces/:correlationId
-  app.get('/api/monitoring/traces/:correlationId', async (req: Request, res: Response) => {
+  app.get('/api/monitoring/traces/:correlationId', requireAdminAuth, async (req: Request, res: Response) => {
     try {
       const correlationId = String(req.params.correlationId);
       const result = await traceService.getTraceByCorrelationId(correlationId);
@@ -72,7 +73,7 @@ export function createMonitoringApp(
   });
 
   // GET /api/monitoring/traces?tenantId=<tenantId>&limit=<limit>
-  app.get('/api/monitoring/traces', async (req: Request, res: Response) => {
+  app.get('/api/monitoring/traces', requireAdminAuth, async (req: Request, res: Response) => {
     try {
       const tenantId = req.query.tenantId as string;
       if (!tenantId) {

@@ -302,14 +302,20 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
   });
 
   it('3. Multilingual booking triggers (English, French, Arabic, Darija, Arabizi) map to workflow', async () => {
+    const localizedConfig = structuredClone(multiCapabilityConfig);
+    localizedConfig.workflows.fitness_consultation.states.collect_name.prompt = {
+      en: 'What is your full name?', fr: 'Quel est votre nom complet ?', ar: 'ما اسمك الكامل؟',
+      darija_arabic: 'عفاك شنو سميتك الكاملة؟', darija_arabizi: '3afak chno smitek kamla?'
+    };
+    vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(localizedConfig);
     const testCases = [
-      { text: 'I want to book a session', intent: 'fitness_consultation' },
-      { text: 'I want a private session', intent: 'fitness_consultation' },
-      { text: "I'd like a consultation", intent: 'fitness_consultation' },
-      { text: 'Je veux réserver une séance', intent: 'fitness_consultation' },
-      { text: 'أريد حجز جلسة', intent: 'fitness_consultation' },
-      { text: 'بغيت نحجز سيانس', intent: 'fitness_consultation' },
-      { text: 'bghit n7jez séance', intent: 'fitness_consultation' }
+      { text: 'I want to book a session', intent: 'fitness_consultation', expected: 'What is your full name?' },
+      { text: 'I want a private session', intent: 'fitness_consultation', expected: 'What is your full name?' },
+      { text: "I'd like a consultation", intent: 'fitness_consultation', expected: 'What is your full name?' },
+      { text: 'Je veux réserver une séance', intent: 'fitness_consultation', expected: 'Quel est votre nom complet ?' },
+      { text: 'أريد حجز جلسة', intent: 'fitness_consultation', expected: 'ما اسمك الكامل؟' },
+      { text: 'بغيت نحجز سيانس', intent: 'fitness_consultation', expected: 'عفاك شنو سميتك الكاملة؟' },
+      { text: 'bghit n7jez séance', intent: 'fitness_consultation', expected: '3afak chno smitek kamla?' }
     ];
 
     for (const tc of testCases) {
@@ -340,7 +346,7 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
       vi.spyOn(mockLlm, 'classifyIntent').mockResolvedValue(tc.intent);
 
       const response = await conversationEngine.handleMessage(tenantId, customerId, tc.text, accountId);
-      expect(response).toBe('What is your full name?');
+      expect(response).toBe(tc.expected);
       expect(createSpy).toHaveBeenCalledWith(tenantId, mockConv.id, 'fitness_consultation', 'collect_name');
     }
   });

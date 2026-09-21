@@ -13,30 +13,30 @@ describe('Phase CRM-C-FIX-02 — CRM Open Conversation UI Contract', () => {
 
     expect(body).toContain('loadConversationHistory');
     expect(body).not.toContain('resetChat(');
-    expect(body).not.toContain('/api/dev/reset');
+    expect(body).not.toContain('/api/reset');
   });
 
-  it('B. loadConversationHistory() function exists and fetches /api/dev/conversations/latest with tenantId, customerId, and accountId', () => {
+  it('B. loadConversationHistory() function exists and fetches /api/conversations/latest with tenantId, customerId, and accountId', () => {
     const loadFuncMatch = htmlContent.match(/async\s+function\s+loadConversationHistory\s*\([\s\S]*?\)\s*\{([\s\S]*?)\n\s*async\s+function/);
     expect(loadFuncMatch).not.toBeNull();
     const body = loadFuncMatch![1];
 
-    expect(body).toContain('/api/dev/conversations/latest');
+    expect(body).toContain('/api/conversations/latest');
     expect(body).toContain('tenantId=');
     expect(body).toContain('customerId=');
     expect(body).toContain('accountId=');
     expect(body).toContain('chatCustomerId');
     expect(body).toContain('chatAccountSelect');
     expect(body).toContain('appendMsg');
-    expect(body).not.toContain('/api/dev/reset');
+    expect(body).not.toContain('/api/reset');
   });
 
-  it('C. resetChat() remains intact for explicit Reset button and calls /api/dev/reset', () => {
+  it('C. resetChat() remains intact for explicit Reset button and calls /api/reset', () => {
     const resetFuncMatch = htmlContent.match(/async\s+function\s+resetChat\s*\(\)\s*\{([\s\S]*?)\}/);
     expect(resetFuncMatch).not.toBeNull();
     const body = resetFuncMatch![1];
 
-    expect(body).toContain('/api/dev/reset');
+    expect(body).toContain('/api/reset');
     expect(body).toContain('POST');
   });
 

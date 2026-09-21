@@ -8,7 +8,7 @@ describe('PHASE DEV-FIX-44L: Dev Control Center UI Config Fixes', () => {
 
   it('A. loadConfig synchronizes tenantId from the header input before fetching', () => {
     expect(uiContent).toMatch(/async function loadConfig\(\)\s*\{[\s\S]*?const currentInput = document\.getElementById\('tenantId'\)\?\.value\?\.trim\(\);[\s\S]*?if \(currentInput\) tenantId = currentInput;/);
-    expect(uiContent).toMatch(/fetch\(`\/api\/dev\/config\?tenantId=\$\{encodeURIComponent\(tenantId\)\}`\)/);
+    expect(uiContent).toMatch(/fetch\(`\/api\/config\?tenantId=\$\{encodeURIComponent\(tenantId\)\}`\)/);
   });
 
   it('B. Workflow field validation regex accepts valid snake_case field names', () => {

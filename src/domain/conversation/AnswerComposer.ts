@@ -1,5 +1,6 @@
 import { TurnDecision } from './TurnDecision';
 import { ProductFact } from '../ecommerce/ProductRepository';
+import { ProductLookupResult } from '../ecommerce/EcommerceService';
 import { EcommerceIntentParser } from '../ecommerce/EcommerceIntent';
 import { BusinessConfig, resolveLocalizedPrompt, DEFAULT_HANDOFF_MESSAGES } from '../tenant/BusinessConfig';
 import { LLMProvider, LLMRequestOptions } from '../../core/llm/LLMProvider';
@@ -87,7 +88,7 @@ export class AnswerComposer {
 
   public static extractMedia(params: {
     productFacts?: ProductFact | ProductFact[] | null;
-    chunks?: any[];
+    chunks?: any[] | null;
     userMessage?: string;
     intent?: string;
     requestedMediaType?: 'image' | 'video' | 'all';
@@ -222,14 +223,15 @@ export class AnswerComposer {
    * Composes localized Greeting response.
    */
   public static composeGreeting(context: AnswerContext): string {
-    const { responseLanguage, config } = context;
+    const { responseLanguage, responseScript, config } = context;
     return resolveLocalizedPrompt(
       config?.prompts?.greeting,
       responseLanguage,
       responseLanguage === 'fr' ? 'Bonjour ! Comment puis-je vous aider aujourd’hui ?'
         : (responseLanguage === 'ar' ? 'مرحباً! كيف يمكنني مساعدتك اليوم؟'
-        : (responseLanguage === 'darija' ? 'سلام! كيفاش نقدر نعاونك اليوم؟'
-        : 'Hello! How can I help you today?'))
+        : (responseLanguage === 'darija' ? (responseScript === 'arabizi' ? 'Salam! Kifach n9der n3awnk lyoum?' : 'سلام! كيفاش نقدر نعاونك اليوم؟')
+        : 'Hello! How can I help you today?')),
+      responseScript
     );
   }
 
@@ -239,20 +241,22 @@ export class AnswerComposer {
   public static composeHandoff(context: AnswerContext): string {
     const { responseLanguage, responseScript, config } = context;
 
-    const defaultHandoff = DEFAULT_HANDOFF_MESSAGES[responseLanguage as keyof typeof DEFAULT_HANDOFF_MESSAGES] || DEFAULT_HANDOFF_MESSAGES.en;
+    const defaultHandoff = responseLanguage === 'darija' && responseScript === 'arabic'
+      ? 'تسجل الطلب ديالك باش تهضر مع شي واحد من الفريق.'
+      : DEFAULT_HANDOFF_MESSAGES[responseLanguage as keyof typeof DEFAULT_HANDOFF_MESSAGES] || DEFAULT_HANDOFF_MESSAGES.en;
 
     if (config?.prompts?.handoff) {
-      const custom = resolveLocalizedPrompt(config.prompts.handoff, responseLanguage, '');
+      const custom = resolveLocalizedPrompt(config.prompts.handoff, responseLanguage, '', responseScript);
       if (custom && custom.trim()) {
         if (responseLanguage === 'darija' && responseScript === 'arabizi' && /[\u0600-\u06FF]/.test(custom)) {
-          return 'ghadi n7ewlek l 3end wa7d mn l-fariq dyalna.';
+          return 'Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq.';
         }
         return custom;
       }
     }
 
     if (responseLanguage === 'darija' && responseScript === 'arabizi') {
-      return 'ghadi n7ewlek l 3end wa7d mn l-fariq dyalna.';
+      return 'Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq.';
     }
 
     return defaultHandoff;
@@ -265,7 +269,7 @@ export class AnswerComposer {
     const { responseLanguage, responseScript, config } = context;
 
     if (config?.prompts?.fallback) {
-      const custom = resolveLocalizedPrompt(config.prompts.fallback, responseLanguage, '');
+      const custom = resolveLocalizedPrompt(config.prompts.fallback, responseLanguage, '', responseScript);
       if (custom && custom.trim()) {
         // If Arabizi requested but prompt is in Arabic script, provide Arabizi
         if (responseLanguage === 'darija' && responseScript === 'arabizi' && /[\u0600-\u06FF]/.test(custom)) {
@@ -1137,7 +1141,7 @@ ${turnDecision.inputQuery || ''}
 
     if (!rawResponse || typeof rawResponse !== 'string' || !rawResponse.trim()) {
       return this.composeFallback({
-        turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', confidence: 1, responseLanguage: lang, responseScript: script },
+        turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', source: 'DETERMINISTIC', confidence: 1, responseLanguage: lang, responseScript: script },
         responseLanguage: lang,
         responseScript: script,
         config
@@ -1150,7 +1154,7 @@ ${turnDecision.inputQuery || ''}
     if (/CONCURRENCY_CONFLICT|\bat (?:[a-zA-Z]:|\/app|\/src|\/node_modules)\b|Error:\s+/i.test(cleaned)) {
       logger.warn('AnswerComposer.finalizeResponse: Internal error or stack trace detected in response, sanitizing to fallback...');
       return this.composeFallback({
-        turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', confidence: 1, responseLanguage: lang, responseScript: script },
+        turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', source: 'DETERMINISTIC', confidence: 1, responseLanguage: lang, responseScript: script },
         responseLanguage: lang,
         responseScript: script,
         config
@@ -1162,7 +1166,7 @@ ${turnDecision.inputQuery || ''}
       cleaned = DirectRagGuard.sanitizeInternalArtifacts(cleaned);
       if (!cleaned || cleaned.length < 5) {
         return this.composeFallback({
-          turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', confidence: 1, responseLanguage: lang, responseScript: script },
+          turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', source: 'DETERMINISTIC', confidence: 1, responseLanguage: lang, responseScript: script },
           responseLanguage: lang,
           responseScript: script,
           config
@@ -1180,7 +1184,7 @@ ${turnDecision.inputQuery || ''}
       if (arabicMatches.length > 5 && arabicMatches.length > latinMatches.length * 0.3) {
         logger.warn('AnswerComposer.finalizeResponse: Predominant Arabic script in Arabizi response, enforcing safe Arabizi fallback...');
         return this.composeFallback({
-          turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', confidence: 1, responseLanguage: 'darija', responseScript: 'arabizi' },
+          turnDecision: turnDecision || { domain: 'FALLBACK', intent: 'FALLBACK', source: 'DETERMINISTIC', confidence: 1, responseLanguage: 'darija', responseScript: 'arabizi' },
           responseLanguage: 'darija',
           responseScript: 'arabizi',
           config

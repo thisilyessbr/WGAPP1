@@ -18,4 +18,16 @@ export interface WhatsAppWebhookOptions {
   appSecret?: string;
   verifyToken?: string;
   idempotencyTtlSeconds?: number;
+  prisma?: import('@prisma/client').PrismaClient;
+}
+
+export interface NormalizedWhatsAppStatus {
+  phoneNumberId: string;
+  wamid: string;
+  recipientWaId: string;
+  status: string; // 'sent' | 'delivered' | 'read' | 'failed'
+  timestamp: number;
+  errorCode?: number;
+  errorMessage?: string;
+  raw?: any;
 }

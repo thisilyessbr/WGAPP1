@@ -63,28 +63,47 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
   }
 };
 
+const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESSAGES, string> = {
+  missingField: 'عفاك عطينا: {{fieldName}}',
+  confirmation: "عفاك أكد هاد المعلومات:\n{{summary}}\n\n(جاوب بواخا باش تأكد، أو لا باش تلغي)",
+  choice: 'عفاك اختار واحد من هاد الاختيارات:',
+  choiceReprompt: 'عفاك اختار واحد من هاد الاختيارات باش نكملو:',
+  fallback: 'سمح ليا، ما فهمتش مزيان. عفاك عاود شرح ليا.',
+  completion: 'شكرا! تسجلات المعلومات ديالك.',
+  choiceRedirect: 'نكملو هاد الطلب اللول، عفاك اختار واحد من هاد الاختيارات:',
+  collectFallback: 'نقدر نعاونك فالأسئلة ديال الطلب ديالك. نكملو هاد الخطوة اللولة:',
+  workflowCancelled: 'تلغى الطلب ديالك.',
+  workflowUnavailable: 'هاد الخدمة ما بقاتش متوفرة.'
+};
+
+export function getWorkflowMessage(key: keyof typeof DEFAULT_WORKFLOW_MESSAGES, lang: string, script?: string): string {
+  if (lang === 'darija' && script === 'arabic') return DARIJA_ARABIC_WORKFLOW_MESSAGES[key];
+  return DEFAULT_WORKFLOW_MESSAGES[key][lang as 'en' | 'fr' | 'ar' | 'darija'] || DEFAULT_WORKFLOW_MESSAGES[key].en;
+}
+
 export class ResponseBuilder {
-  buildMissingFieldResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en'): string {
+  buildMissingFieldResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en', script?: string): string {
     const field = state.field;
+    const fieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
+    const fieldFallback = getWorkflowMessage('missingField', lang, script).replace('{{fieldName}}', fieldName);
     if (state.prompt) {
-      const defaultP = typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
-      return resolveLocalizedPrompt(state.prompt, lang, defaultP);
+      const defaultP = lang === 'darija' && script ? fieldFallback : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      return resolveLocalizedPrompt(state.prompt, lang, defaultP, script);
     }
     if (typeof field !== 'string' && field?.extractionPrompt) {
-      const defaultP = typeof field.extractionPrompt === 'string' ? field.extractionPrompt : (field.extractionPrompt.en || '');
-      return resolveLocalizedPrompt(field.extractionPrompt, lang, defaultP);
+      const defaultP = field.extractionPrompt;
+      return resolveLocalizedPrompt(field.extractionPrompt, lang, lang === 'darija' && script ? fieldFallback : defaultP, script);
     }
 
-    const fieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
-    const defaultTpl = DEFAULT_WORKFLOW_MESSAGES.missingField[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.missingField] || DEFAULT_WORKFLOW_MESSAGES.missingField.en;
+    const defaultTpl = getWorkflowMessage('missingField', lang, script);
     const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.missingField);
 
     let template = defaultTpl;
     const customPrompt = config.prompts?.missingFieldPrompt || config.prompts?.workflow;
     if (customPrompt && typeof customPrompt === 'string' && !defaultVals.includes(customPrompt)) {
-      template = resolveLocalizedPrompt(customPrompt, lang, defaultTpl);
+      template = resolveLocalizedPrompt(customPrompt, lang, defaultTpl, script);
     } else if (customPrompt && typeof customPrompt === 'object') {
-      template = resolveLocalizedPrompt(customPrompt, lang, defaultTpl);
+      template = resolveLocalizedPrompt(customPrompt, lang, defaultTpl, script);
     }
 
     return template.replace('{{fieldName}}', fieldName);
@@ -115,7 +134,8 @@ export class ResponseBuilder {
     contextData: Record<string, any>,
     config: BusinessConfig,
     state?: WorkflowStateConfig,
-    lang: string = 'en'
+    lang: string = 'en',
+    script?: string
   ): string {
     const summary = Object.entries(contextData)
       .filter(([key]) => !key.startsWith('_'))
@@ -128,28 +148,28 @@ export class ResponseBuilder {
     };
 
     if (state?.prompt && state.prompt !== 'confirm') {
-      const defaultP = typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
-      const localized = resolveLocalizedPrompt(state.prompt, lang, defaultP);
+      const defaultP = lang === 'darija' && script ? getWorkflowMessage('confirmation', lang, script) : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      const localized = resolveLocalizedPrompt(state.prompt, lang, defaultP, script);
       return ResponseBuilder.interpolateTemplate(localized, interpolationData);
     }
 
-    const defaultTpl = DEFAULT_WORKFLOW_MESSAGES.confirmation[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.confirmation] || DEFAULT_WORKFLOW_MESSAGES.confirmation.en;
+    const defaultTpl = getWorkflowMessage('confirmation', lang, script);
     const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.confirmation);
 
     let template = defaultTpl;
     if (config.prompts?.confirmationPrompt && typeof config.prompts.confirmationPrompt === 'string' && !defaultVals.includes(config.prompts.confirmationPrompt)) {
-      template = resolveLocalizedPrompt(config.prompts.confirmationPrompt, lang, defaultTpl);
+      template = resolveLocalizedPrompt(config.prompts.confirmationPrompt, lang, defaultTpl, script);
     } else if (config.prompts?.confirmationPrompt && typeof config.prompts.confirmationPrompt === 'object') {
-      template = resolveLocalizedPrompt(config.prompts.confirmationPrompt, lang, defaultTpl);
+      template = resolveLocalizedPrompt(config.prompts.confirmationPrompt, lang, defaultTpl, script);
     }
     return ResponseBuilder.interpolateTemplate(template, interpolationData);
   }
 
-  buildChoiceResponse(state: WorkflowStateConfig, lang: string = 'en'): string {
-    const defaultPrompt = DEFAULT_WORKFLOW_MESSAGES.choice[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.choice] || DEFAULT_WORKFLOW_MESSAGES.choice.en;
+  buildChoiceResponse(state: WorkflowStateConfig, lang: string = 'en', script?: string): string {
+    const defaultPrompt = getWorkflowMessage('choice', lang, script);
     const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choice);
     const prompt = state.prompt && (!defaultVals.includes(state.prompt as string) || typeof state.prompt === 'object')
-      ? resolveLocalizedPrompt(state.prompt, lang, defaultPrompt)
+      ? resolveLocalizedPrompt(state.prompt, lang, defaultPrompt, script)
       : defaultPrompt;
     if (!state.options || state.options.length === 0) {
       return prompt;
@@ -160,11 +180,11 @@ export class ResponseBuilder {
     return `${prompt}\n\n${optionsList}`;
   }
 
-  buildChoiceReprompt(state: WorkflowStateConfig, repromptPrompt?: string, lang: string = 'en'): string {
-    const defaultReprompt = DEFAULT_WORKFLOW_MESSAGES.choiceReprompt[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.choiceReprompt] || DEFAULT_WORKFLOW_MESSAGES.choiceReprompt.en;
+  buildChoiceReprompt(state: WorkflowStateConfig, repromptPrompt?: string, lang: string = 'en', script?: string): string {
+    const defaultReprompt = getWorkflowMessage('choiceReprompt', lang, script);
     const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choiceReprompt);
     const prompt = repromptPrompt && (!defaultVals.includes(repromptPrompt) || typeof repromptPrompt === 'object')
-      ? resolveLocalizedPrompt(repromptPrompt, lang, defaultReprompt)
+      ? resolveLocalizedPrompt(repromptPrompt, lang, defaultReprompt, script)
       : defaultReprompt;
 
     if (!state.options || state.options.length === 0) {
@@ -176,12 +196,12 @@ export class ResponseBuilder {
     return `${prompt}\n\n${optionsList}`;
   }
 
-  buildGenericResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en'): string {
+  buildGenericResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en', script?: string): string {
     if (state.prompt) {
-      const defaultP = typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
-      return resolveLocalizedPrompt(state.prompt, lang, defaultP);
+      const defaultP = lang === 'darija' && script ? getWorkflowMessage('fallback', lang, script) : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      return resolveLocalizedPrompt(state.prompt, lang, defaultP, script);
     }
-    const defaultFallback = DEFAULT_WORKFLOW_MESSAGES.fallback[lang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.fallback] || DEFAULT_WORKFLOW_MESSAGES.fallback.en;
-    return resolveLocalizedPrompt(config.prompts?.fallback, lang, defaultFallback);
+    const defaultFallback = getWorkflowMessage('fallback', lang, script);
+    return resolveLocalizedPrompt(config.prompts?.fallback, lang, defaultFallback, script);
   }
 }

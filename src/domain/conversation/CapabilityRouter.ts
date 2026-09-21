@@ -13,6 +13,7 @@ export type ImageRoutingStatus =
 
 export interface IncomingMessagePayload {
   text?: string | null;
+  unsupportedMediaType?: string;
   imageBase64?: string | null;
   imageUrl?: string | null;
   mimeType?: string | null;

@@ -9,6 +9,8 @@ datasource db {
 }
 
 model Tenant {
+  portalMemberships PortalMembership[]
+  portalProfiles PortalProfile[]
   id               String              @id @default(uuid())
   name             String
   createdAt        DateTime            @default(now())
@@ -26,6 +28,11 @@ model Tenant {
   leads            Lead[]
   whatsappNumbers  WhatsAppBusinessNumber[]
   whatsappJobs     WhatsAppMessageJob[]
+  channelConnections ChannelConnection[]
+  automationStates   ConversationAutomationState[]
+  channelAuditEvents ChannelAuditEvent[]
+  whatsappOutboundJobs WhatsAppOutboundJob[]
+  whatsappDeliveryReceipts WhatsAppDeliveryReceipt[]
 }
 
 model TenantConfig {
@@ -38,6 +45,13 @@ model TenantConfig {
 }
 
 model Account {
+  portalMemberships PortalMembership[]
+  portalProfile PortalProfile?
+  portalPublications PortalPublication[]
+  portalUsageBuckets PortalUsageBucket[]
+  portalUsageEntries PortalUsageEntry[]
+  portalConnectionAttempts PortalConnectionAttempt[]
+  portalDocuments PortalDocument[]
   id               String              @id @default(uuid())
   tenantId         String
   name             String
@@ -54,6 +68,11 @@ model Account {
   leads            Lead[]
   whatsappNumbers  WhatsAppBusinessNumber[]
   whatsappJobs     WhatsAppMessageJob[]
+  channelConnections ChannelConnection[]
+  automationStates   ConversationAutomationState[]
+  channelAuditEvents ChannelAuditEvent[]
+  whatsappOutboundJobs WhatsAppOutboundJob[]
+  whatsappDeliveryReceipts WhatsAppDeliveryReceipt[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -96,8 +115,13 @@ model Conversation {
   tenant                     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   messages                   Message[]
   sessions                   WorkflowSession[]
+  lastMerchantViewedAt       DateTime?
+  automationState            ConversationAutomationState?
+  outboundJobs               WhatsAppOutboundJob[]
 
   @@index([tenantId, customerId])
+  @@index([tenantId, accountId, updatedAt(sort: Desc)])
+  @@index([tenantId, accountId, status, updatedAt(sort: Desc)])
   @@index([tenantId, accountId, customerId])
 }
 
@@ -115,6 +139,7 @@ model Message {
 
   @@unique([tenantId, externalId])
   @@index([tenantId, conversationId])
+  @@index([tenantId, conversationId, createdAt(sort: Asc)])
 }
 
 model WorkflowSession {
@@ -267,14 +292,272 @@ model WhatsAppBusinessNumber {
   displayPhoneNumber  String?
   status              String   @default("CONNECTED")
   enabled             Boolean  @default(true)
+  transport           String   @default("META_CLOUD")
+  connectionId        String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  account  Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account    Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  connection ChannelConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, accountId])
   @@index([tenantId, wabaId])
+  @@index([connectionId])
+}
+
+model ChannelConnection {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  accountId            String
+  provider             String   @default("META_CLOUD")
+  connectionKey        String   @default("default")
+  status               String   @default("PENDING")
+  enabled              Boolean  @default(true)
+  encryptedCredentials String?
+  appId                String?
+  wabaId               String?
+  sessionKey           String?
+  lastConnectedAt      DateTime?
+  lastError            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  Account                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  numbers  WhatsAppBusinessNumber[]
+  sessionSecrets ChannelSessionSecret[]
+
+  @@unique([tenantId, accountId, provider, connectionKey])
+  @@index([tenantId, accountId])
+  @@index([tenantId, provider])
+}
+
+model PortalUser {
+  id String @id
+  email String @unique
+  name String
+  passwordHash String
+  role String @default("CLIENT")
+  verifiedAt DateTime? @db.Timestamptz(6)
+  disabled Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  memberships PortalMembership[]
+  sessions PortalSession[]
+  tokens PortalAuthToken[]
+  connectionAttempts PortalConnectionAttempt[]
+}
+
+model PortalMembership {
+  userId String
+  tenantId String
+  accountId String
+  user PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@id([userId, accountId])
+  @@index([accountId], map: "PortalMembership_account_idx")
+}
+
+model PortalSession {
+  id String @id
+  userId String
+  tokenHash String @unique
+  csrfToken String
+  expiresAt DateTime @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  user PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@index([userId], map: "PortalSession_user_idx")
+  @@index([expiresAt], map: "PortalSession_expiry_idx")
+}
+
+model PortalAuthToken {
+  tokenHash String @id
+  userId String
+  kind String
+  expiresAt DateTime @db.Timestamptz(6)
+  user PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model PortalPlan {
+  id String @id
+  name String
+  description String @default("")
+  price Decimal @default(0) @db.Decimal(12,2)
+  currency String @default("MAD")
+  published Boolean @default(false)
+  revision Int @default(1)
+  modules Json @default("[]")
+  limits Json
+  template Json @default("{}")
+  updatedAt DateTime @default(now()) @db.Timestamptz(6)
+  assignments PortalProfile[] @relation("PortalAssignedPlan")
+  requests PortalProfile[] @relation("PortalRequestedPlan")
+}
+
+model PortalProfile {
+  accountId String @id
+  tenantId String
+  status String @default("DRAFT")
+  draft Json
+  published Json?
+  revision Int @default(1)
+  publishedRevision Int @default(0)
+  planId String?
+  planSnapshot Json?
+  requestedPlanId String?
+  autoPublish Boolean @default(false)
+  reviewNote String @default("")
+  lockedFields Json @default("[]")
+  adminConfig Json @default("{}")
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @db.Timestamptz(6)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  plan PortalPlan? @relation("PortalAssignedPlan", fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requestedPlan PortalPlan? @relation("PortalRequestedPlan", fields: [requestedPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@index([tenantId], map: "PortalProfile_tenant_idx")
+}
+
+model PortalPublication {
+  id String @id
+  accountId String
+  revision Int
+  data Json
+  config Json
+  actorId String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@unique([accountId, revision])
+}
+
+model PortalAudit {
+  id String @id
+  actorId String
+  accountId String?
+  action String
+  metadata Json @default("{}")
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  @@index([accountId, createdAt(sort: Desc)], map: "PortalAudit_account_time_idx")
+}
+
+model PortalUsageBucket {
+  accountId String
+  period String
+  messages Int @default(0)
+  llmCalls Int @default(0)
+  images Int @default(0)
+  embeddings Int @default(0)
+  spentMicros BigInt @default(0)
+  reservedMicros BigInt @default(0)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@id([accountId, period])
+}
+
+model PortalUsageEntry {
+  id String @id
+  accountId String
+  period String
+  kind String
+  dedupeKey String
+  reservedMicros BigInt @default(0)
+  chargedMicros BigInt?
+  status String @default("RESERVED")
+  metadata Json @default("{}")
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@unique([accountId, dedupeKey])
+  @@index([accountId, createdAt(sort: Desc)], map: "PortalUsageEntry_account_time_idx")
+}
+
+model PortalConnectionAttempt {
+  id String @id
+  userId String
+  accountId String
+  stateToken String
+  reconnectId String?
+  status String @default("PENDING")
+  expiresAt DateTime @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  user PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model PortalDocument {
+  id String @id
+  accountId String
+  filename String
+  hash String
+  bytes Bytes
+  size Int
+  status String @default("PENDING")
+  sourceId String?
+  error String?
+  leaseUntil DateTime? @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@unique([accountId, hash])
+  @@index([status, createdAt], map: "PortalDocument_jobs_idx")
+}
+
+model PortalThrottle {
+  key String @id
+  count Int
+  resetsAt DateTime @db.Timestamptz(6)
+}
+
+model ChannelSessionSecret {
+  id             String   @id @default(uuid())
+  connectionId   String
+  category       String
+  secretKey      String
+  encryptedValue String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, category, secretKey])
+  @@index([connectionId])
+}
+
+model ConversationAutomationState {
+  id             String    @id @default(uuid())
+  tenantId       String
+  accountId      String?
+  conversationId String    @unique
+  botEnabled     Boolean   @default(true)
+  humanTakeover  Boolean   @default(false)
+  pausedUntil    DateTime?
+  pauseReason    String?
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      Account?     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, accountId])
+}
+
+model ChannelAuditEvent {
+  id             String   @id @default(uuid())
+  tenantId       String
+  accountId      String?
+  connectionId   String?
+  phoneNumberId  String?
+  conversationId String?
+  actorId        String?
+  action         String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, action])
 }
 
 model WhatsAppIdempotencyKey {
@@ -319,4 +602,56 @@ model WhatsAppMessageJob {
   @@index([status, availableAt, createdAt])
   @@index([status, partitionKey, createdAt])
   @@index([tenantId, accountId])
+}
+
+model WhatsAppOutboundJob {
+  id                String    @id @default(uuid())
+  dedupeKey         String    @unique
+  tenantId          String
+  accountId         String
+  conversationId    String
+  messageId         String    @unique
+  phoneNumberId     String
+  recipientWaId     String
+  text              String
+  status            String    @default("PENDING")
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(3)
+  lastError         String?
+  providerMessageId String?
+  lockedAt          DateTime?
+  lockedBy          String?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([tenantId, accountId])
+}
+
+model WhatsAppDeliveryReceipt {
+  id                String   @id @default(uuid())
+  dedupeKey         String   @unique
+  tenantId          String
+  accountId         String
+  phoneNumberId     String
+  providerMessageId String   // wamid
+  recipientWaId     String
+  status            String   // sent, delivered, read, failed
+  providerTimestamp DateTime
+  errorCode         Int?
+  errorMessage      String?
+  correlated        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, accountId])
+  @@index([providerMessageId, correlated])
+  @@index([createdAt])
 }

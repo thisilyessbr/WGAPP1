@@ -99,13 +99,13 @@ export class FaqKnowledgeAdapter {
 
       return {
         faqId: entry.id,
-        category: entry.category,
+        category: categoryUpper,
         title,
         content,
         metadata: {
           source: 'FAQ',
           faqId: entry.id,
-          category: entry.category,
+          category: categoryUpper,
           isFaq: true,
           keywords: allKeywords.length > 0 ? allKeywords : undefined
         }

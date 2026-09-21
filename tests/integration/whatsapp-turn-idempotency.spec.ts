@@ -67,7 +67,7 @@ describe('PHASE WHATSAPP-TURN-IDEMPOTENCY-IMPLEMENT-43: Turn Idempotency Integra
 
     await deps.tenantConfigService.updateConfig(tenantId, {
       ...DEFAULT_BUSINESS_CONFIG,
-      identity: { botName: 'IdempBot', brand: 'Idemp Brand' },
+      identity: { botName: 'IdempBot', brand: 'Idemp Brand', language: 'en' },
       capabilities: {
         ...DEFAULT_BUSINESS_CONFIG.capabilities,
         ecommerceEnabled: true,
@@ -75,13 +75,14 @@ describe('PHASE WHATSAPP-TURN-IDEMPOTENCY-IMPLEMENT-43: Turn Idempotency Integra
           { id: 'faq1', question: 'What is your refund policy?', answer: 'Full refund within 30 days!', category: 'RETURNS' }
         ],
         intents: [
-          { id: 'lead_flow', description: 'Lead Intake', workflowId: 'lead_flow', triggerPhrases: ['start lead'] }
+          { id: 'lead_flow', description: 'Lead Intake', workflowId: 'lead_flow', keywords: ['start lead'] }
         ]
       },
       workflows: {
         lead_flow: {
           id: 'lead_flow',
           name: 'Lead Flow',
+          description: 'Collect a contact name for lead follow-up.',
           initialState: 'ask_name',
           states: {
             ask_name: {
@@ -155,7 +156,7 @@ describe('PHASE WHATSAPP-TURN-IDEMPOTENCY-IMPLEMENT-43: Turn Idempotency Integra
 
     // Track LLM call count
     let llmCallsOnRetry = 0;
-    mockLlm.generate = async () => {
+    mockLlm.responseResolver = async () => {
       llmCallsOnRetry++;
       return 'Mocked unexpected response';
     };

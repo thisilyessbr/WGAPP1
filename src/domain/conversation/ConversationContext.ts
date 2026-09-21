@@ -1,5 +1,6 @@
 import { ConversationMemory, ConversationMemoryManager } from './ConversationMemory';
 import { PolicyEvidence } from '../rag/PolicyEvidence';
+import { DirectRagGuard, SupportedScript } from '../rag/DirectRagGuard';
 
 export type ConversationCapability =
   | 'GREETING'
@@ -40,6 +41,7 @@ export interface ConversationContext {
   language?: string;
   /** Resolved, stable conversation language policy (Phase 10) */
   effectiveLanguage: SupportedLanguage;
+  effectiveScript?: SupportedScript;
   currentIntent?: string | null;
   currentTopic?: string | null;
   activeCapability?: ConversationCapability | null;
@@ -135,9 +137,10 @@ export function buildConversationContext(params: BuildConversationContextParams)
   // 1. Check previous turn's language from memory or contextData
   const storedLang = (params.contextData as any)?._lang as SupportedLanguage | undefined;
   const rawRecent = params.recentMessages || [];
+  const lastSubstantiveUserTurn = rawRecent.find(m => m.role.toLowerCase() === 'user' && !LanguageDetector.isAmbiguous(m.content));
   let previousLang = storedLang;
   if (!previousLang && rawRecent.length > 0) {
-    const lastUserTurn = rawRecent.find(m => m.role.toLowerCase() === 'user');
+    const lastUserTurn = lastSubstantiveUserTurn;
     if (lastUserTurn) {
       previousLang = LanguageDetector.detect(lastUserTurn.content);
     }
@@ -153,9 +156,17 @@ export function buildConversationContext(params: BuildConversationContextParams)
   // If previous turn exists and current is ambiguous (e.g. "ok", "yes", punctuation), preserve previous
   if (previousLang && isAmbiguous) {
     effectiveLanguage = previousLang;
+  } else if (detectedLang === 'ar' && (previousLang || accountLang) === 'darija' && /^(?:سلام|السلام عليكم|مرحبا)[.!؟\s]*$/u.test(params.currentMessageText || '')) {
+    effectiveLanguage = 'darija';
   } else {
     effectiveLanguage = detectedLang || previousLang || accountLang || 'en';
   }
+
+  const savedScript = (params.contextData as any)?._script;
+  const previousScript: SupportedScript | undefined = ['arabic', 'arabizi', 'latin'].includes(savedScript)
+    ? savedScript : lastSubstantiveUserTurn ? DirectRagGuard.detectScript(lastSubstantiveUserTurn.content, previousLang) : undefined;
+  const effectiveScript = isAmbiguous && previousScript
+    ? previousScript : DirectRagGuard.detectScript(params.currentMessageText || '', effectiveLanguage);
 
   return {
     tenantId: params.tenantId,
@@ -164,6 +175,7 @@ export function buildConversationContext(params: BuildConversationContextParams)
     conversationId: params.conversationId,
     language: params.language,
     effectiveLanguage,
+    effectiveScript,
     currentIntent: params.currentIntent ?? null,
     currentTopic: params.currentTopic ?? null,
     activeCapability: params.activeCapability ?? null,

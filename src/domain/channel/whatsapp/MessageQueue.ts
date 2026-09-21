@@ -14,11 +14,14 @@ export interface InboundQueueJob {
   contactName?: string;
   rawType: string;
   enqueuedAt: number;
+  leaseAttempt?: number;
+  beforeDelivery?: () => Promise<void>;
 }
 
-export type JobHandler<T> = (job: T) => Promise<void>;
+export type JobHandler<T> = (job: T) => Promise<unknown>;
 
 export interface MessageQueue<T = InboundQueueJob> {
+  readonly durable?: boolean;
   enqueue(job: T, partitionKey: string): Promise<boolean>;
   registerHandler(handler: JobHandler<T>): void;
   getPendingCount(partitionKey?: string): Promise<number> | number;
@@ -135,6 +138,7 @@ export interface PostgresMessageQueueOptions {
   leaseSeconds?: number;
   workerId?: string;
   autoStartWorker?: boolean;
+  disableWorker?: boolean;
 }
 
 /**
@@ -147,6 +151,8 @@ export interface PostgresMessageQueueOptions {
  * - Recovers crashed/stuck worker jobs automatically after lease expiration
  */
 export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
+  readonly durable = true;
+  private readonly claims = new Map<string, number>();
   private handler: JobHandler<InboundQueueJob> | null = null;
   private isShuttingDown = false;
   private activeWorkers = 0;
@@ -155,22 +161,30 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
   private readonly concurrency: number;
   private readonly pollIntervalMs: number;
   private readonly leaseSeconds: number;
+  private readonly disableWorker: boolean;
+  private persistenceFailureBackoffUntil = 0;
+  private lastPersistenceFailureLogAt = 0;
 
   constructor(
     private prisma: PrismaClient,
     options: PostgresMessageQueueOptions = {}
   ) {
     this.workerId = options.workerId ?? `worker-${Math.random().toString(36).substring(2, 9)}`;
-    this.concurrency = options.workerConcurrency ?? 5;
+    this.disableWorker = Boolean(options.disableWorker);
+    const configuredConcurrency = Number(process.env.WHATSAPP_QUEUE_WORKER_CONCURRENCY || 2);
+    this.concurrency = options.workerConcurrency ?? (Number.isFinite(configuredConcurrency) && configuredConcurrency > 0 ? Math.floor(configuredConcurrency) : 2);
     this.pollIntervalMs = options.pollIntervalMs ?? 500;
     this.leaseSeconds = options.leaseSeconds ?? 60;
 
-    if (options.autoStartWorker) {
+    if (options.autoStartWorker && !this.disableWorker) {
       this.startWorker();
     }
   }
 
   registerHandler(handler: JobHandler<InboundQueueJob>): void {
+    if (this.disableWorker) {
+      throw new Error('PostgresMessageQueue: Cannot register handler on producer-only queue');
+    }
     this.handler = handler;
   }
 
@@ -206,8 +220,8 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
       return true;
     } catch (err: any) {
       if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
-        logger.info(`PostgresMessageQueue: Skipped duplicate enqueue for wamid [${job.wamid}]`);
-        return false;
+        logger.info(`PostgresMessageQueue: Acknowledged existing durable job for wamid [${job.wamid}]`);
+        return true;
       }
       logger.error(`PostgresMessageQueue: Enqueue failed for wamid [${job.wamid}]: ${err.message || err}`);
       throw err;
@@ -222,50 +236,65 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
    * 3. Two workers never claim the same job.
    */
   async claimNextJob(): Promise<InboundQueueJob | null> {
-    const claimed = await this.prisma.$queryRawUnsafe<any[]>(`
+    // A crashed sender may have reached the provider. Do not send again blindly.
+    await this.prisma.whatsAppMessageJob.updateMany({
+      where: { status: 'PROCESSING', outboundStatus: 'SENDING', lockedAt: { lte: new Date(Date.now() - this.leaseSeconds * 1000) } },
+      data: { status: 'FAILED', outboundStatus: 'UNKNOWN', lastError: 'Delivery outcome unknown after lease expiry; reconcile before retry.' }
+    });
+    const claimed = await this.prisma.$transaction(async tx => {
+      // Serialize the short claim phase so two snapshots cannot select different
+      // jobs from the same partition. Execution happens outside this transaction.
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(728519043)');
+      return tx.$queryRawUnsafe<any[]>(`
       WITH candidate AS (
         SELECT j.id
         FROM "WhatsAppMessageJob" j
         WHERE (
-          (j.status = 'PENDING' AND j."availableAt" <= NOW())
+          (j.status = 'PENDING' AND (j.attempts = 0 OR j."availableAt" <= NOW()))
           OR
-          (j.status = 'PROCESSING' AND j."lockedAt" <= NOW() - INTERVAL '${this.leaseSeconds} seconds')
+          (j.status = 'PROCESSING' AND COALESCE(j."outboundStatus", '') <> 'SENDING' AND j."lockedAt" <= NOW() - ($1 * INTERVAL '1 second'))
         )
           AND NOT EXISTS (
             SELECT 1 FROM "WhatsAppMessageJob" earlier
             WHERE earlier."partitionKey" = j."partitionKey"
               AND earlier.status = 'PENDING'
-              AND earlier."createdAt" < j."createdAt"
+              AND (earlier."createdAt", earlier.id) < (j."createdAt", j.id)
           )
           AND NOT EXISTS (
             SELECT 1 FROM "WhatsAppMessageJob" active
             WHERE active."partitionKey" = j."partitionKey"
               AND active.status = 'PROCESSING'
               AND active.id != j.id
-              AND active."lockedAt" > NOW() - INTERVAL '${this.leaseSeconds} seconds'
+              AND active."lockedAt" > NOW() - ($1 * INTERVAL '1 second')
           )
-        ORDER BY j."createdAt" ASC
+        ORDER BY j."createdAt" ASC, j.id ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
       UPDATE "WhatsAppMessageJob" j
       SET status = 'PROCESSING',
           "lockedAt" = NOW(),
-          "lockedBy" = '${this.workerId}',
+          "lockedBy" = $2,
           attempts = j.attempts + 1,
           "updatedAt" = NOW()
       FROM candidate
       WHERE j.id = candidate.id
       RETURNING j.*;
-    `);
+    `,
+    Number(this.leaseSeconds),
+    String(this.workerId)
+      );
+    });
 
     if (!claimed || claimed.length === 0) {
       return null;
     }
 
     const row = claimed[0];
+    this.claims.set(row.id, row.attempts);
     return {
       id: row.id,
+      leaseAttempt: row.attempts,
       partitionKey: row.partitionKey,
       tenantId: row.tenantId,
       accountId: row.accountId,
@@ -282,50 +311,65 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
 
   async completeJob(
     jobId: string,
-    options?: string | { response?: string; outboundStatus?: string; outboundMessageId?: string; outboundError?: string }
+    options?: string | { response?: string; outboundStatus?: string; outboundMessageId?: string; outboundError?: string; leaseAttempt?: number }
   ): Promise<void> {
     const opts = typeof options === 'string' ? { response: options } : (options || {});
-    await this.prisma.whatsAppMessageJob.update({
-      where: { id: jobId },
+    const attempts = opts.leaseAttempt ?? this.claims.get(jobId);
+    if (attempts === undefined) throw new Error('LEASE_NOT_OWNED');
+    await this.prisma.whatsAppMessageJob.updateMany({
+      where: { id: jobId, lockedBy: this.workerId, attempts, status: 'PROCESSING' },
       data: {
-        status: 'COMPLETED',
+        status: opts.outboundStatus === 'UNKNOWN' ? 'FAILED' : 'COMPLETED',
         response: opts.response ?? null,
         outboundStatus: opts.outboundStatus ?? 'SENT',
         outboundMessageId: opts.outboundMessageId ?? null,
         outboundError: opts.outboundError ?? null,
         completedAt: new Date()
       }
-    }).catch((err) => logger.error(`PostgresMessageQueue: Error completing job [${jobId}]: ${err}`));
+    });
   }
 
-  async failJob(jobId: string, error: Error | string, backoffSeconds = 5): Promise<void> {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  async failJob(jobId: string, error: Error | string, backoffSeconds = 5, leaseAttempt?: number): Promise<void> {
+    const attempts = leaseAttempt ?? this.claims.get(jobId);
+    if (attempts === undefined) throw new Error('LEASE_NOT_OWNED');
     const job = await this.prisma.whatsAppMessageJob.findUnique({ where: { id: jobId } });
     if (!job) return;
+    const uncertain = job.outboundStatus === 'SENDING';
+    await this.prisma.whatsAppMessageJob.updateMany({
+      where: { id: jobId, lockedBy: this.workerId, attempts, status: 'PROCESSING' },
+      data: {
+        status: uncertain || job.attempts >= job.maxAttempts ? 'FAILED' : 'PENDING',
+        ...(uncertain ? { outboundStatus: 'UNKNOWN' } : {}),
+        availableAt: new Date(Date.now() + backoffSeconds * 1000),
+        lockedAt: null,
+        lockedBy: null,
+        lastError: String(error instanceof Error ? error.message : error)
+      }
+    });
+  }
 
-    if (job.attempts >= job.maxAttempts) {
-      await this.prisma.whatsAppMessageJob.update({
-        where: { id: jobId },
-        data: {
-          status: 'FAILED',
-          lastError: errorMessage
-        }
-      }).catch(() => {});
-    } else {
-      await this.prisma.whatsAppMessageJob.update({
-        where: { id: jobId },
-        data: {
-          status: 'PENDING',
-          availableAt: new Date(Date.now() + backoffSeconds * 1000),
-          lockedAt: null,
-          lockedBy: null,
-          lastError: errorMessage
-        }
-      }).catch(() => {});
-    }
+  private async renewLease(job: InboundQueueJob, sending = false): Promise<void> {
+    const result = await this.prisma.whatsAppMessageJob.updateMany({
+      where: {
+        id: job.id,
+        lockedBy: this.workerId,
+        attempts: job.leaseAttempt,
+        status: 'PROCESSING',
+        lockedAt: { gt: new Date(Date.now() - this.leaseSeconds * 1000) }
+      },
+      data: {
+        lockedAt: new Date(),
+        ...(sending ? { outboundStatus: 'SENDING' } : {})
+      }
+    });
+    if (result.count !== 1) throw new Error('LEASE_LOST');
   }
 
   startWorker(): void {
+    if (this.disableWorker) {
+      logger.warn('PostgresMessageQueue: Worker is disabled in producer-only mode');
+      return;
+    }
     if (this.pollTimer) return;
     this.pollTimer = setInterval(() => {
       this.pulseWorkers();
@@ -334,13 +378,16 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
   }
 
   private pulseWorkers(): void {
-    if (this.isShuttingDown || !this.handler) return;
+    if (this.disableWorker || this.isShuttingDown || !this.handler) return;
+    if (Date.now() < this.persistenceFailureBackoffUntil) return;
 
     while (this.activeWorkers < this.concurrency && !this.isShuttingDown) {
       this.activeWorkers++;
       setImmediate(async () => {
         try {
           await this.workerLoop();
+        } catch (error) {
+          logger.error('PostgresMessageQueue: Worker stopped after persistence failure');
         } finally {
           this.activeWorkers--;
         }
@@ -353,8 +400,14 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
       let job: InboundQueueJob | null = null;
       try {
         job = await this.claimNextJob();
+        this.persistenceFailureBackoffUntil = 0;
       } catch (err: any) {
-        logger.error(`PostgresMessageQueue: Error claiming next job: ${err.message || err}`);
+        const now = Date.now();
+        this.persistenceFailureBackoffUntil = now + Math.max(5000, this.pollIntervalMs * 10);
+        if (now - this.lastPersistenceFailureLogAt >= 5000) {
+          this.lastPersistenceFailureLogAt = now;
+          logger.error(`PostgresMessageQueue: Persistence unavailable; pausing claims before retry: ${err.message || err}`);
+        }
         break;
       }
 
@@ -363,15 +416,41 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
         break;
       }
 
+      let leaseLost = false;
+      let renewal: Promise<void> | undefined;
+      const heartbeat = setInterval(() => {
+        if (renewal || leaseLost) return;
+        renewal = this.renewLease(job!).catch(() => { leaseLost = true; }).finally(() => { renewal = undefined; });
+      }, Math.max(100, (this.leaseSeconds * 1000) / 3));
+
+      job.beforeDelivery = async () => {
+        if (renewal) await renewal;
+        if (leaseLost) throw new Error('LEASE_LOST');
+        await this.renewLease(job!, true);
+      };
+
       try {
         // Execute handler (Note: NO DB transaction is held during execution)
         const result: any = await this.handler(job);
         const responseText = typeof result === 'string' ? result : (result && typeof result.response === 'string' ? result.response : undefined);
-        const outboundStatus = result?.outboundResult?.success ? 'SENT' : (result?.outboundResult ? 'FAILED' : 'SENT');
+        const outboundStatus = result?.outboundResult?.errorCode === 'DELIVERY_UNKNOWN' ? 'UNKNOWN' : result?.outboundResult?.success ? 'SENT' : (result?.outboundResult ? 'FAILED' : 'SENT');
         const outboundMessageId = result?.outboundResult?.providerMessageId || null;
         const outboundError = result?.outboundResult?.error || null;
 
+        if (result?.outboundResult && !result.outboundResult.success && result.outboundResult.isRetryable) {
+          await this.prisma.whatsAppMessageJob.updateMany({
+            where: { id: job.id, lockedBy: this.workerId, attempts: job.leaseAttempt, status: 'PROCESSING' },
+            data: { outboundStatus: 'FAILED' }
+          });
+          const requestedDelay = result.outboundResult.retryAfterSeconds;
+          const retryDelay = typeof requestedDelay === 'number' && Number.isFinite(requestedDelay)
+            ? Math.max(1, Math.min(3600, Math.ceil(requestedDelay))) : 5;
+          await this.failJob(job.id, outboundError || 'Retryable outbound delivery failure', retryDelay, job.leaseAttempt);
+          continue;
+        }
+
         await this.completeJob(job.id, {
+          leaseAttempt: job.leaseAttempt,
           response: responseText,
           outboundStatus,
           outboundMessageId,
@@ -379,7 +458,11 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
         });
       } catch (err: any) {
         logger.error(`PostgresMessageQueue: Error processing job [${job.wamid}]: ${err.message || err}`);
-        await this.failJob(job.id, err);
+        await this.failJob(job.id, err, 5, job.leaseAttempt);
+      } finally {
+        clearInterval(heartbeat);
+        if (renewal) await renewal;
+        if (this.claims.get(job.id) === job.leaseAttempt) this.claims.delete(job.id);
       }
     }
   }

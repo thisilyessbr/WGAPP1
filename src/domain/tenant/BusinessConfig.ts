@@ -1,3 +1,4 @@
+import { DEFAULT_DEEPSEEK_MODEL } from '../../core/llm/DeepSeekProvider';
 import { DEFAULT_GEMINI_MODEL } from '../../core/llm/GeminiLLMProvider';
 
 export interface IdentityConfig {
@@ -44,8 +45,15 @@ export type LocalizedPrompt = string | {
 export function resolveLocalizedPrompt(
   prompt: LocalizedPrompt | undefined,
   lang: string,
-  defaultEn: string
+  defaultEn: string,
+  script?: string
 ): string {
+  if (lang === 'darija' && (script === 'arabic' || script === 'arabizi')) {
+    const candidate = typeof prompt === 'string' ? prompt : prompt?.[`darija_${script}`] || prompt?.darija;
+    if (!candidate?.trim() || candidate.includes('[object Object]')) return defaultEn;
+    const hasArabic = /[\u0621-\u064A]/.test(candidate);
+    return hasArabic === (script === 'arabic') ? candidate : defaultEn;
+  }
   if (!prompt) return defaultEn;
   if (typeof prompt === 'string') {
     const trimmed = prompt.trim();
@@ -81,10 +89,10 @@ export const DEFAULT_POST_COMPLETION_MESSAGES = {
 };
 
 export const DEFAULT_HANDOFF_MESSAGES = {
-  en: "I am transferring you to a team member.",
-  fr: "Je vous transfère à un conseiller.",
-  ar: "أقوم بتحويلك إلى أحد أعضاء فريقنا.",
-  darija: "ghadi n7ewlek l 3end wa7d mn l-fariq dyalna."
+  en: "Your request for human support has been recorded.",
+  fr: "Votre demande d’assistance humaine a été enregistrée.",
+  ar: "تم تسجيل طلبك للتواصل مع أحد موظفي الدعم.",
+  darija: "Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq."
 };
 
 export const DEFAULT_IMAGE_FALLBACK_MESSAGES = {
@@ -129,7 +137,7 @@ export interface PromptsConfig {
 
 export interface WorkflowFieldConfig {
   name: string;
-  type: 'string' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
+  type: 'string' | 'email' | 'phone' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
   required: boolean;
   options?: string[]; // for enum
   extractionPrompt?: string;
@@ -195,6 +203,8 @@ export interface KnowledgeConfig {
   topK: number;
   minSimilarityScore: number;
   maxContextSize: number;
+  embeddingProvider?: string;
+  embeddingModel?: string;
   ingestion: {
     chunkSize: number;
     chunkOverlap: number;
@@ -217,6 +227,7 @@ export interface FaqEntry {
   category?: string;
   question?: string;
   answer?: string;
+  language?: string;
   questions?: { en?: string; fr?: string; ar?: string; darija?: string };
   answers?: { en?: string; fr?: string; ar?: string; darija?: string };
   keywords?: { en?: string[]; fr?: string[]; ar?: string[]; darija?: string[] } | string[];
@@ -250,6 +261,7 @@ export interface CapabilitiesConfig {
 }
 
 export interface BusinessConfig {
+  portalFacts?: Record<string, unknown>;
   identity: IdentityConfig;
   behavior: BehaviorConfig;
   limits: LimitsConfig;
@@ -341,15 +353,15 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     }
   },
   llm: {
-    // Default provider is explicitly hardcoded to DeepSeek ('deepseek-chat').
+    // Default provider is explicitly hardcoded to DeepSeek Flash.
     // Previously, this evaluated `process.env.GOOGLE_API_KEY ? 'gemini' : 'deepseek'`,
     // which caused fresh/reset tenants to silently revert to Gemini if GOOGLE_API_KEY
     // was present in .env for embeddings. Provider selection must be explicit, not an
     // environment variable presence side-effect.
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: DEFAULT_DEEPSEEK_MODEL,
     temperature: 0.2,
-    maxTokens: 1000,
+    maxTokens: 500,
     timeoutMs: 15000,
   }
 };

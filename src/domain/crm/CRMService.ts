@@ -1,6 +1,7 @@
 import { PrismaClient, Lead, Customer } from '@prisma/client';
 import { TurnDecision } from '../conversation/TurnDecision';
 import { logger } from '../../utils/logger';
+import { isActionNegated } from '../conversation/IntentLanguage';
 
 export const VALID_LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'] as const;
 export type LeadStatus = typeof VALID_LEAD_STATUSES[number];
@@ -237,7 +238,7 @@ export class CRMService {
     // 2. Turn decision contains explicit sales intent
     if (turnDecision) {
       const intentUpper = (turnDecision.intent || '').toUpperCase();
-      if (['BUY_INTENT', 'BOOKING_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper)) {
+      if (['BUY_INTENT', 'BOOKING_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')) {
         isStrongSignal = true;
       }
     }
@@ -256,7 +257,7 @@ export class CRMService {
       }
     }
 
-    if (isStrongSignal) {
+    if (isStrongSignal && !isActionNegated(userMessage || '', 'purchase')) {
       logger.info(`CRMService: Strong sales signal detected for customer [${customerId}] in account [${accountId}]. Upserting lead.`);
       return this.upsertLead(tenantId, accountId, customerId, 'NEW');
     }

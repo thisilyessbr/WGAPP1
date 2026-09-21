@@ -1,4 +1,5 @@
 import { SupportedLanguage } from '../faq/FaqMatcher';
+import { isActionNegated, normalizeIntentText } from './IntentLanguage';
 
 export type HandoffStatus = 'BOT_ACTIVE' | 'HANDOFF_REQUESTED' | 'HUMAN_ACTIVE' | 'HUMAN_RESOLVED';
 
@@ -23,6 +24,8 @@ export class HandoffService {
       /(?:موظف\s+حقيقي|شخص\s+حقيقي|الدعم\s+البشري|إنسان\s+حقيقي)/u
     ],
     darija: [
+      /(?:بغيت|باغي|باغية)\s+(?:نهضر|ندوي|نتكلم)\s+مع\s+(?:شي\s+)?(?:واحد|مول\s+(?:المحل|الحانوت)|مسؤول)/u,
+      /(?:دوزني|حولني)\s+ل(?:شي\s+)?(?:موظف|مسؤول|بنادم)/u,
       /(?:بغيت|بدي|خليني|نقدر|واش\s+نقدر)\s+(?:نهضر|ندوي|نتكلم|نتواصل)\s+مع\s+(?:شي\s+)?(?:موظف|بنادم|إنسان|انسان|واحد\s+حقيقي|شخص)/u,
       /(?:هضر|دوي|تكلم)\s+(?:معايا|مع|بـ)\s+(?:شي\s+)?(?:بنادم|موظف|إنسان|انسان|شخص\s+حقيقي)/u,
       /(?:دوز|دوزو|عطيني|حولني)\s+(?:ليا|لي|لـ)\s*(?:شي\s+)?(?:موظف|بنادم|إنسان|مسؤول)/u,
@@ -34,18 +37,18 @@ export class HandoffService {
   };
 
   private static readonly HANDOFF_RESPONSES: Record<SupportedLanguage, string> = {
-    en: 'A human agent has been notified and will assist you shortly.',
-    fr: 'Un conseiller humain a été prévenu et va prendre le relais sous peu.',
-    ar: 'تم إخطار أحد موظفي خدمة العملاء وسيقوم بمساعدتك قريباً.',
-    darija: 'علمنا فريق الدعم وغادي يجاوبك واحد من الموظفين قريبا.'
+    en: 'Your request for human support has been recorded.',
+    fr: 'Votre demande d’assistance humaine a été enregistrée.',
+    ar: 'تم تسجيل طلبك للتواصل مع أحد موظفي الدعم.',
+    darija: 'تسجل الطلب ديالك باش تهضر مع شي موظف من الدعم.'
   };
 
   /**
    * Evaluates whether incoming text contains an explicit request for human handoff.
    */
   static isHandoffRequested(text: string): boolean {
-    const trimmed = text.trim();
-    if (!trimmed) return false;
+    const trimmed = normalizeIntentText(text).trim();
+    if (!trimmed || isActionNegated(trimmed, 'handoff')) return false;
 
     for (const regexList of Object.values(this.HANDOFF_TRIGGERS)) {
       for (const regex of regexList) {

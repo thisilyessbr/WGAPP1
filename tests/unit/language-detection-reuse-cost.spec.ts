@@ -186,7 +186,9 @@ describe('Phase COST-FIX-46D: Single Authoritative Language Detection Per Turn',
 
     const sessionDarija = createSession('collect_name');
     const resDarija = await engine.process(sessionDarija, 'Reda Bennani', mockMultilingualWorkflow, testConfig, undefined, undefined, undefined, 'corr-dar', 'darija', 'arabizi');
-    expect(resDarija.response).toContain('تأكيد الاسم: Reda Bennani');
+    expect(resDarija.response).toContain('Reda Bennani');
+    expect(resDarija.response).toContain('3afak akkid');
+    expect(resDarija.response).not.toMatch(/[\u0600-\u06FF]/);
   });
 
   it('I. End state template interpolation works seamlessly with passed language', async () => {

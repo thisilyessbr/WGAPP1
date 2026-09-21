@@ -4,6 +4,7 @@ import request from 'supertest';
 import { bootstrapChatbot } from '../bootstrap';
 import { createDevChatRouter } from '../dev/chatApi';
 import { prisma } from './testDb';
+import { BusinessConfig } from '../domain/tenant/BusinessConfig';
 
 let app: express.Application;
 let deps: any;

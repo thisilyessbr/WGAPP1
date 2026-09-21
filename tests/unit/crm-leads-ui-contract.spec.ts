@@ -59,8 +59,8 @@ describe('CRM Leads UI Contract & Safety Tests', () => {
   });
 
   it('8. JavaScript calls the proper CRM API endpoints with tenantId and accountId', () => {
-    expect(htmlContent).toContain(`/api/dev/crm/leads?tenantId=`);
-    expect(htmlContent).toContain(`/api/dev/crm/leads/\${encodeURIComponent(leadId)}`);
+    expect(htmlContent).toContain(`/api/crm/leads?tenantId=`);
+    expect(htmlContent).toContain(`/api/crm/leads/\${encodeURIComponent(leadId)}`);
   });
 
   it('9. Status update sends ONLY permitted payload fields (tenantId, accountId, status)', () => {

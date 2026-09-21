@@ -62,15 +62,14 @@ describe('DeepSeek LLM Provider', () => {
   it('5. Timeout handling (Fetch failed)', async () => {
     // Mock fetch to simulate a timeout error
     (global.fetch as any).mockRejectedValue(new Error('fetch failed due to timeout'));
-    // Should exhaust retries and eventually throw
+    // Timeout billing is unknown; do not automatically buy another completion.
     await expect(provider.generateResponse('System', [])).rejects.toThrow(/DeepSeek API Timeout or Network Failure/);
-    // Default retries is 3
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    // A timeout may already be billed: one attempt only.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
   it('6. Rate limit handling (HTTP 429)', async () => {
-    // First two calls return 429, third call succeeds
+    // One transient failure, followed by the single allowed retry
     (global.fetch as any)
-      .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests' })
       .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests' })
       .mockResolvedValueOnce({
         ok: true,
@@ -78,7 +77,7 @@ describe('DeepSeek LLM Provider', () => {
       });
     const response = await provider.generateResponse('System', []);
     expect(response).toBe('Recovered');
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
   it('7. Provider error (HTTP 500)', async () => {
     (global.fetch as any).mockResolvedValue({
@@ -87,7 +86,7 @@ describe('DeepSeek LLM Provider', () => {
       statusText: 'Internal Server Error'
     });
     await expect(provider.generateResponse('System', [])).rejects.toThrow(/DeepSeek API error: 500/);
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
   it('8. Malformed provider API response structure', async () => {
     (global.fetch as any).mockResolvedValue({

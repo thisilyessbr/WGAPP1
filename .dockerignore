@@ -1,0 +1,16 @@
+.git
+.agents
+.claude
+.windsurf
+.vscode
+.idea
+node_modules
+dist
+coverage
+scratch
+tmp
+output
+.env
+.env.*
+!.env.example
+*.log

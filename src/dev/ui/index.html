@@ -157,7 +157,7 @@
               <input type="text" id="v_language" oninput="syncVisualToJson()">
               
               <label>Brand / Company Name</label>
-              <input type="text" id="v_brand" oninput="syncVisualToJson()" placeholder="e.g. Atlas Tech">
+              <input type="text" id="v_brand" oninput="syncVisualToJson()" placeholder="e.g. Relayqo">
 
               <label>Industry</label>
               <input type="text" id="v_industry" oninput="syncVisualToJson()" placeholder="e.g. Retail, Home Appliances">
@@ -739,7 +739,7 @@
 
     async function loadTenants(targetTenantId) {
       try {
-        const res = await fetch('/api/dev/tenants');
+        const res = await fetch('/api/tenants');
         if (res.ok) {
           const data = await res.json();
           availableTenants = data.tenants || [];
@@ -805,7 +805,7 @@
       }
 
       try {
-        const res = await fetch('/api/dev/tenants', {
+        const res = await fetch('/api/tenants', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, id: id || undefined })
@@ -1007,7 +1007,7 @@
         return;
       }
       try {
-        const res = await fetch(`/api/dev/config?tenantId=${encodeURIComponent(tenantId)}`);
+        const res = await fetch(`/api/config?tenantId=${encodeURIComponent(tenantId)}`);
         if (!res.ok) {
           document.getElementById('overlay').style.display = 'flex';
         } else {
@@ -1021,7 +1021,7 @@
     }
 
     async function bootstrapEnvironment() {
-      const res = await fetch('/api/dev/bootstrap', {
+      const res = await fetch('/api/bootstrap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId })
@@ -1045,7 +1045,7 @@
         const currentInput = document.getElementById('tenantId')?.value?.trim();
         if (currentInput) tenantId = currentInput;
 
-        const res = await fetch(`/api/dev/config?tenantId=${encodeURIComponent(tenantId)}`);
+        const res = await fetch(`/api/config?tenantId=${encodeURIComponent(tenantId)}`);
         if (res.ok) {
           currentConfig = await res.json();
           loadedConfigUpdatedAt = res.headers.get('X-Config-Updated-At') || new Date().toISOString();
@@ -1143,7 +1143,7 @@
           }
         }
 
-        const res = await fetch('/api/dev/config', {
+        const res = await fetch('/api/config', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1317,7 +1317,7 @@
       btn.textContent = 'Translating...';
 
       try {
-        const res = await fetch('/api/dev/faq/translate', {
+        const res = await fetch('/api/faq/translate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2832,7 +2832,7 @@
           queryParams.set('accountId', uploadAccountId);
         }
 
-        const res = await fetch(`/api/dev/upload?${queryParams.toString()}`, {
+        const res = await fetch(`/api/upload?${queryParams.toString()}`, {
           method: 'POST',
           headers: {
             'X-Tenant-Id': tenantId,
@@ -2878,7 +2878,7 @@
         queryParams.set('accountId', filterAccountId);
       }
 
-      const res = await fetch(`/api/dev/documents?${queryParams.toString()}`, {
+      const res = await fetch(`/api/documents?${queryParams.toString()}`, {
         headers: {
           'X-Tenant-Id': tenantId,
           ...(filterAccountId ? { 'X-Account-Id': filterAccountId } : {})
@@ -2926,7 +2926,7 @@
 
     async function loadAccounts() {
       try {
-        const res = await fetch(`/api/dev/accounts?tenantId=${encodeURIComponent(tenantId)}`);
+        const res = await fetch(`/api/accounts?tenantId=${encodeURIComponent(tenantId)}`);
         if (res.ok) {
           const data = await res.json();
           accountsList = data.accounts || [];
@@ -3342,7 +3342,7 @@
       }
 
       const filterStatus = (document.getElementById('crmStatusFilter') || {}).value || '';
-      let url = `/api/dev/crm/leads?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(accountId)}`;
+      let url = `/api/crm/leads?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(accountId)}`;
       if (filterStatus) {
         url += `&status=${encodeURIComponent(filterStatus)}`;
       }
@@ -3457,7 +3457,7 @@
       const errDiv = document.getElementById('lead_error');
 
       try {
-        const res = await fetch(`/api/dev/crm/leads/${encodeURIComponent(leadId)}`, {
+        const res = await fetch(`/api/crm/leads/${encodeURIComponent(leadId)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tenantId, accountId, status })
@@ -3518,7 +3518,7 @@
       container.innerHTML = '<div style="color:#666; font-size:0.9em;">Loading products...</div>';
 
       try {
-        const res = await fetch(`/api/dev/products?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}&activeOnly=false`);
+        const res = await fetch(`/api/products?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}&activeOnly=false`);
         const data = await res.json();
 
         if (res.status === 403 || data.error === 'ECOMMERCE_DISABLED') {
@@ -3626,7 +3626,7 @@
         return;
       }
       try {
-        const res = await fetch(`/api/dev/accounts?tenantId=${encodeURIComponent(tenantId)}`, {
+        const res = await fetch(`/api/accounts?tenantId=${encodeURIComponent(tenantId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name })
@@ -3878,7 +3878,7 @@
 
       try {
         const method = id ? 'PATCH' : 'POST';
-        const url = id ? `/api/dev/products/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}` : `/api/dev/products?tenantId=${encodeURIComponent(tenantId)}`;
+        const url = id ? `/api/products/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}` : `/api/products?tenantId=${encodeURIComponent(tenantId)}`;
         const res = await fetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
@@ -3899,7 +3899,7 @@
     async function deleteProduct(id) {
       if (!confirm('Are you sure you want to delete this product?')) return;
       try {
-        const res = await fetch(`/api/dev/products/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}`, {
+        const res = await fetch(`/api/products/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}`, {
           method: 'DELETE'
         });
         if (res.ok) {
@@ -4010,7 +4010,7 @@
       };
 
       try {
-        const res = await fetch(`/api/dev/products/${encodeURIComponent(productId)}/variants?tenantId=${encodeURIComponent(tenantId)}`, {
+        const res = await fetch(`/api/products/${encodeURIComponent(productId)}/variants?tenantId=${encodeURIComponent(tenantId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -4030,7 +4030,7 @@
     async function deleteVariant(productId, variantId) {
       if (!confirm('Are you sure you want to delete this variant?')) return;
       try {
-        const res = await fetch(`/api/dev/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}`, {
+        const res = await fetch(`/api/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}?tenantId=${encodeURIComponent(tenantId)}&accountId=${encodeURIComponent(currentAccountId)}`, {
           method: 'DELETE'
         });
         if (res.ok) {
@@ -4056,7 +4056,7 @@
           queryParams.set('accountId', docAccountId);
         }
 
-        const res = await fetch(`/api/dev/documents/${sourceId}?${queryParams.toString()}`, {
+        const res = await fetch(`/api/documents/${sourceId}?${queryParams.toString()}`, {
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
@@ -4355,7 +4355,7 @@
       
       let res;
       try {
-        res = await fetch('/api/dev/chat', {
+        res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -4423,7 +4423,7 @@
 
       try {
         const tenantId = (document.getElementById('tenantId') || {}).value || getInitialTenantId();
-        const url = `/api/dev/conversations/latest?tenantId=${encodeURIComponent(tenantId)}&customerId=${encodeURIComponent(customerIdToLoad)}${accountIdToLoad ? `&accountId=${encodeURIComponent(accountIdToLoad)}` : ''}`;
+        const url = `/api/conversations/latest?tenantId=${encodeURIComponent(tenantId)}&customerId=${encodeURIComponent(customerIdToLoad)}${accountIdToLoad ? `&accountId=${encodeURIComponent(accountIdToLoad)}` : ''}`;
         const res = await fetch(url);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -4474,7 +4474,7 @@
     async function resetChat() {
       const activeAccount = document.getElementById('chatAccountSelect')?.value || currentAccountId || undefined;
       const activeCustomer = document.getElementById('chatCustomerId')?.value?.trim() || customerId;
-      const res = await fetch('/api/dev/reset', {
+      const res = await fetch('/api/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, customerId: activeCustomer, accountId: activeAccount })

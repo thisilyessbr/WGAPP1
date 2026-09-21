@@ -5,6 +5,7 @@ import {
 } from '../../../packages/shared/contracts/image.contract';
 import { logger } from '../../utils/logger';
 import { telemetry } from '../telemetry/TelemetryClient';
+import { serviceAuthHeaders } from '../../../packages/shared/service-auth';
 
 export interface ImageCapabilityGatewayOptions {
   serviceUrl?: string;
@@ -101,7 +102,8 @@ export class ImageCapabilityGateway {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': tenantId
+          'x-tenant-id': tenantId,
+          ...serviceAuthHeaders()
         },
         body: JSON.stringify(payload),
         signal: controller.signal

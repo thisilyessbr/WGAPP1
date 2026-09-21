@@ -1,6 +1,7 @@
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductContext } from '../conversation/ConversationContext';
 import { HandoffService } from '../conversation/HandoffService';
+import { isActionNegated, matchesPolicyPhrase, normalizeIntentText } from '../conversation/IntentLanguage';
 
 export type AttributeFamily =
   | 'MATERIAL'
@@ -152,6 +153,10 @@ export class EcommerceIntentParser {
 
   private static readonly ORDINAL_MAP: Record<string, number> = {
     first: 0,
+    'number one': 0,
+    'number 1': 0,
+    'numéro un': 0,
+    'رقم واحد': 0,
     '1st': 0,
     premier: 0,
     premiere: 0,
@@ -165,6 +170,10 @@ export class EcommerceIntentParser {
     lowel: 0,
     louwel: 0,
     second: 1,
+    'number two': 1,
+    'number 2': 1,
+    'numéro deux': 1,
+    'رقم اثنين': 1,
     '2nd': 1,
     deuxieme: 1,
     deuxième: 1,
@@ -177,6 +186,10 @@ export class EcommerceIntentParser {
     tani: 1,
     thani: 1,
     third: 2,
+    'number three': 2,
+    'number 3': 2,
+    'numéro trois': 2,
+    'رقم ثلاثة': 2,
     '3rd': 2,
     troisieme: 2,
     troisième: 2,
@@ -602,7 +615,7 @@ export class EcommerceIntentParser {
       candidateMetadataKeys?: string[] | null;
     }
   ): ExtractedCommerceParams {
-    let normalizedText = text.replace(/\u0640/g, '');
+    let normalizedText = normalizeIntentText(text);
     // Bounded normalization for common glued purchase forms
     normalizedText = normalizedText
       .replace(/\bwantto\b/gi, 'want to')
@@ -694,9 +707,9 @@ export class EcommerceIntentParser {
       maxPrice = parseFloat(priceFilterMatch[1]);
     }
 
-    const KNOWLEDGE_POLICY_TERMS = /(?:shipping|delivery|deliver|deliveries|delivered|livraison|livrer|expédition|envoi|retour|retours|retourner|remboursement|rembourser|remboursé|rendre|reprise|échange|échanges|échanger|echange|echanger|exchange|exchanges|exchanging|exchanged|refund|refunds|refunding|refunded|send\s+back|money\s+back|warranty|guarantee|garantie|garantir|care|how\s+to\s+wash|wash\s+instructions|washing|machine\s+wash|easy\s+care|entretien|lavage|laver|comment\s+laver|nettoyage|guide|hours|opening\s+hours|business\s+hours|horaires|heures\s+d['’]ouverture|politique|suivi|tracking|suivre|suis\s+ma\s+commande|track|track\s+order|order\s+status|where\s+is\s+my\s+order|où\s+est\s+ma\s+commande|ou\s+est\s+ma\s+commande|nghsel|nghslo|nghselha|ghsil|lghsil|tghsel|tasbin|nsben|nsbno|nrje3|nrje3o|nrje3ha|rje3|rje3o|rje3ha|nbdel|nbdelo|nbdelha|bdel|bdelo|bdelha|tawsil|tawseel|twsil|ywsl|twsl|kiwsl|kitwsl|ywsal|twsal|fin\s+wsel|fin\s+wsl|payment|paiement|payer|cash\s+on\s+delivery|cod|daman|ldaman|khalas|l5las|n5les|daf3|dafa3|frou3|fara3|reccommand|support|customer\s+service|support\s+email|support\s+phone|phone\s+number|service\s+client|contact|contact\s+support|email\s+support|numéro|numero|téléphone|telephone|خدمة\s+العملاء|خدمة\s+الزبناء|تواصل|اتصال|رقم\s+الهاتف|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|size\s+guide|size\s+chart|size\s+recommendation|which\s+size|what\s+size|which\s+size\s+fits|what\s+fits|size\s+should|guide\s+des\s+tailles|guide\s+de\s+taille|tableau\s+des\s+tailles|quelle\s+taille|quelle\s+est\s+ma\s+taille|choisir\s+(?:sa\s+|une\s+)?taille|دليل\s+المقاسات|جدول\s+المقاسات|المقاس\s+المناسب|أي\s+مقاس|اي\s+مقاس|ما\s+هو\s+المقاس|شكون\s+لاطاي|شنو\s+هي\s+لاطاي|شمن\s+طاي|شمن\s+لاطاي|la\s+taille\s+li\s+tji|la\s+taille\s+li\s+mzyana|ashna\s+hiya\s+la\s+taille|tour\s+de\s+poitrine|chest\s+measurement|body\s+measurement|chest\s+size|محيط\s+الصدر|قياس\s+الصدر|مقاس\s+الصدر|f\s+sder|f\s+l-sder|توصيل|التوصيل|شحن|الشحن|مصاريف\s+الشحن|ثمن\s+التوصيل|سعر\s+التوصيل|وقت\s+التوصيل|مدة\s+التوصيل|توصل|توصلو|كيوصل|كتوصل|يوصل|يوصلو|توصلني|يوصلني|استرجاع|استبدال|إرجاع|ارجاع|الإرجاع|الارجاع|الاسترجاع|الاستبدال|ترجيع|الترجيع|تبديل|التبديل|نرجع|نرجعو|نرجعها|نرجعوا|نرجعوه|نرجعهم|نبدل|نبدلو|نبدلها|نبدلوه|نبدلوا|رجع|بدل|يرجع|يبدل|ترجع|تبدل|سياسة|ضمان|الضمان|غسيل|الغسيل|طريقة\s+الغسيل|كيفاش\s+نغسل|كيفية\s+الغسيل|نغسل|نغسلو|نغسلها|تصبين|التصبين|نصبن|نصبنو|نعتني|عناية|العناية|تنظيف|التنظيف|طريقة|ساعات|ساعات\s+العمل|أوقات\s+العمل|مواعيد|نتبع|تتبع|تتبع\s+الطلب|تتبع\s+طلبي|فين\s+وصل|فين\s+واصل|فين\s+كاين|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|أجل\s+الإرجاع|أجل\s+الاسترجاع|أجل\s+التبديل|مهلة\s+الإرجاع|مهلة\s+الاسترجاع|مهلة\s+التبديل|مدة\s+الإرجاع|مدة\s+الاسترجاع|مدة\s+التبديل|شحال\s+عندي\s+من\s+الوقت|شحال\s+ديال\s+الوقت|قداش\s+بقا\s+ليا|قداش\s+عندي|combien\s+de\s+temps|délai\s+de\s+retour|delai\s+de\s+retour|délai\s+d['’]échange|delai\s+d['’]echange|how\s+long\s+do\s+i\s+have|how\s+many\s+days|return\s+window|exchange\s+window|return\s+period|exchange\s+period|chhal\s+3ndi\s+dlwa9t|9adach\s+b9a|9eddach\s+b9a|9dach\s+b9a)/iu;
+    const KNOWLEDGE_POLICY_TERMS = /(?:return|returns|returning|returned|policy|policies|shipping|delivery|deliver|deliveries|delivered|livraison|livrer|expédition|envoi|retour|retours|retourner|remboursement|rembourser|remboursé|rendre|reprise|échange|échanges|échanger|echange|echanger|exchange|exchanges|exchanging|exchanged|refund|refunds|refunding|refunded|send\s+back|money\s+back|warranty|guarantee|garantie|garantir|care|how\s+to\s+wash|wash\s+instructions|washing|machine\s+wash|easy\s+care|entretien|lavage|laver|comment\s+laver|nettoyage|guide|hours|opening\s+hours|business\s+hours|horaires|heures\s+d['’]ouverture|politique|suivi|tracking|suivre|suis\s+ma\s+commande|track|track\s+order|order\s+status|where\s+is\s+my\s+order|où\s+est\s+ma\s+commande|ou\s+est\s+ma\s+commande|nghsel|nghslo|nghselha|ghsil|lghsil|tghsel|tasbin|nsben|nsbno|nrje3|nrje3o|nrje3ha|rje3|rje3o|rje3ha|nbdel|nbdelo|nbdelha|bdel|bdelo|bdelha|tawsil|tawseel|twsil|ywsl|twsl|kiwsl|kitwsl|ywsal|twsal|fin\s+wsel|fin\s+wsl|payment|paiement|payer|cash\s+on\s+delivery|cod|daman|ldaman|khalas|l5las|n5les|daf3|dafa3|frou3|fara3|reccommand|support|customer\s+service|support\s+email|support\s+phone|phone\s+number|service\s+client|contact|contact\s+support|email\s+support|numéro|numero|téléphone|telephone|خدمة\s+العملاء|خدمة\s+الزبناء|تواصل|اتصال|رقم\s+الهاتف|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|size\s+guide|size\s+chart|size\s+recommendation|which\s+size|what\s+size|which\s+size\s+fits|what\s+fits|size\s+should|guide\s+des\s+tailles|guide\s+de\s+taille|tableau\s+des\s+tailles|quelle\s+taille|quelle\s+est\s+ma\s+taille|choisir\s+(?:sa\s+|une\s+)?taille|دليل\s+المقاسات|جدول\s+المقاسات|المقاس\s+المناسب|أي\s+مقاس|اي\s+مقاس|ما\s+هو\s+المقاس|شكون\s+لاطاي|شنو\s+هي\s+لاطاي|شمن\s+طاي|شمن\s+لاطاي|la\s+taille\s+li\s+tji|la\s+taille\s+li\s+mzyana|ashna\s+hiya\s+la\s+taille|tour\s+de\s+poitrine|chest\s+measurement|body\s+measurement|chest\s+size|محيط\s+الصدر|قياس\s+الصدر|مقاس\s+الصدر|f\s+sder|f\s+l-sder|توصيل|التوصيل|شحن|الشحن|مصاريف\s+الشحن|ثمن\s+التوصيل|سعر\s+التوصيل|وقت\s+التوصيل|مدة\s+التوصيل|توصل|توصلو|كيوصل|كتوصل|يوصل|يوصلو|توصلني|يوصلني|استرجاع|استبدال|إرجاع|ارجاع|الإرجاع|الارجاع|الاسترجاع|الاستبدال|ترجيع|الترجيع|تبديل|التبديل|نرجع|نرجعو|نرجعها|نرجعوا|نرجعوه|نرجعهم|نبدل|نبدلو|نبدلها|نبدلوه|نبدلوا|رجع|بدل|يرجع|يبدل|ترجع|تبدل|سياسة|ضمان|الضمان|غسيل|الغسيل|طريقة\s+الغسيل|كيفاش\s+نغسل|كيفية\s+الغسيل|نغسل|نغسلو|نغسلها|تصبين|التصبين|نصبن|نصبنو|نعتني|عناية|العناية|تنظيف|التنظيف|طريقة|ساعات|ساعات\s+العمل|أوقات\s+العمل|مواعيد|نتبع|تتبع|تتبع\s+الطلب|تتبع\s+طلبي|فين\s+وصل|فين\s+واصل|فين\s+كاين|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|أجل\s+الإرجاع|أجل\s+الاسترجاع|أجل\s+التبديل|مهلة\s+الإرجاع|مهلة\s+الاسترجاع|مهلة\s+التبديل|مدة\s+الإرجاع|مدة\s+الاسترجاع|مدة\s+التبديل|شحال\s+عندي\s+من\s+الوقت|شحال\s+ديال\s+الوقت|قداش\s+بقا\s+ليا|قداش\s+عندي|combien\s+de\s+temps|délai\s+de\s+retour|delai\s+de\s+retour|délai\s+d['’]échange|delai\s+d['’]echange|how\s+long\s+do\s+i\s+have|how\s+many\s+days|return\s+window|exchange\s+window|return\s+period|exchange\s+period|chhal\s+3ndi\s+dlwa9t|9adach\s+b9a|9eddach\s+b9a|9dach\s+b9a)/iu;
 
-    if (KNOWLEDGE_POLICY_TERMS.test(lower)) {
+    if (matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS)) {
       let explicitProd: string | undefined;
       const priceAskProdPattern = /(?:how\s+much\s+is|what\s+is\s+the\s+price\s+of|quel\s+est\s+le\s+prix\s+d[ue]?|combien\s+coûte|combien\s+coute|شحال\s+كيسوى|شحال\s+كيدير|شحال\s+الثمن\s+ديال|كم\s+سعر|ch7al\s+kayswa|bch7al)\s+([a-zA-Z\u0600-\u06FF\s-]+?)(?:\s+(?:and|et|w|واش|how|how\s+do|كيفاش|فين|où|ou|how\s+can|\?|؟|,|$))/iu;
       const prodInPolicyPattern = /(?:بـ|ب|في|f|fl|pour|sur|3la|de|du|dial|dyal|ديال|بخصوص|حول|عن|باش\s+نرجع|باش\s+نبدل|باش\s+نغسل|to\s+return|to\s+exchange|to\s+wash|pour\s+retourner|pour\s+échanger|pour\s+laver)\s+([a-zA-Z\u0600-\u06FF\s-]+)/iu;
@@ -728,7 +741,7 @@ export class EcommerceIntentParser {
     // Rule B: Indefinite alternative request + comparative/budget semantics -> RECOMMENDATION
     const isComparativeAlternative = isComparativeBudget && (hasIndefiniteMarker || hasIntentVerb);
 
-    const isRecommendation = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isRecommendation = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       isComparativeAlternative ||
       /(?:^|\s|[.,!?;:()،؟])(?:best|recommend|recommendation|recommander|recommandez|recommande|meilleur|meilleure|conseil|conseiller|conseille|conseillez|conseille-(?:moi|nous)|conseillez-(?:moi|vous|nous)|conseille\s+moi|conseillez\s+moi|أحسن|افضل|أفضل|شنو\s+أحسن|شنو\s+افضل|احسن\s+حاجة|ahsan|lmeilleur|bghit\s+chi\s+7aja|bghit\s+chi\s+haja|بغيت\s+شي\s+حاجة|بغيت\s+شي\s+حاجه|ach\s+t-?n[e]?s+[a-z0-9]*|شنو\s+تنصحني|which\s+.*should\s+i\s+(?:choose|get|buy|pick|take)|which\s+should\s+i\s+(?:choose|get|buy|pick|take)|which\s+.*is\s+better|what\s+should\s+i\s+(?:choose|get|buy|pick|take)|شنو\s+(?:نشري|أشتري|اشتري)|ach\s+(?:nchri|nechri)|achno\s+(?:nchri|nechri)|chno\s+(?:nchri|nechri)|quel\s+produit\s+(?:choisir|acheter|me\s+conseillez|conseillez)|quelle\s+option\s+choisir)(?:$|\s|[.,!?;:()،؟-])/iu.test(lower) ||
       /(?:which\s+(?:one|product|item|model|option|article)\s+is\s+best|lequel\s+est\s+le\s+meilleur|quel\s+est\s+le\s+meilleur|أيهم\s+أفضل|اي\s+واحد\s+احسن|اشمن\s+واحد\s+احسن)/iu.test(lower)
@@ -755,7 +768,7 @@ export class EcommerceIntentParser {
     }
 
     // 6. Compare intent
-    const isCompare = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isCompare = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:compare|comparer|comparaison|مقارنة|قارن بين|قارن هاد|قارنها|قارنو|9aren bin|9arenha|قارن|9aren|versus|vs)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
       lower.includes('compare ')
     );
@@ -796,7 +809,7 @@ export class EcommerceIntentParser {
     }
 
     // 7. Price intent
-    const isPriceKeyword = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isPriceKeyword = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:how much|price|cost|costs|worth|combien|prix|coûte|coute|vaut|cheaper|moins cher|le moins cher|أرخص|ارخص|شكون أرخص|شكون ارخص|رخيص|rkhis|arkhas|ثمن|والثمن|شحال|وشحال|بشحال|وبشحال|سعر|وسعر|كم سعر|كيسوى|يسوى|تسوى|كيسوا|يسوا|تسوا|كيساوي|يساوي|تساوي|كيعمل|يعمل|تعمل|bch7al|bchhal|bchal|chhal|ch7al|taman|kayswa|kaysawi)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
       lower.includes('كم سعر') || lower.includes('شحال ثمن') || lower.includes('وشحال الثمن') || lower.includes('quel est le prix') || lower.includes('what is the price')
     );
@@ -836,7 +849,7 @@ export class EcommerceIntentParser {
     }
 
     // 8. Color inquiry / Available colors request
-    const isColorInquiry = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isColorInquiry = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:chi loun akhor|loun akhor|autre couleur|autres couleurs|other color|other colors|لون آخر|ألوان أخرى|الوان اخرى|ألوان ثانية|شي لون اخر)(?:$|\s|[.,!?;:()،؟])/iu.test(lower)
     );
     if (isColorInquiry && Boolean(productContext?.selectedProductId)) {
@@ -852,7 +865,7 @@ export class EcommerceIntentParser {
     }
 
     // 9. Availability / Stock intent
-    const isAvailabilityKeyword = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isAvailabilityKeyword = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:in stock|available|availability|disponible|dispo|متوفر|متوفرة|متوفرين|كاين|كاينة|كاينين|واش كاين|واش كاينة|واش كاينين|واش متوفر|واش متوفرة|هل متوفر|هل متوفرة|stock|kayn|kayna|dispo|ba9i|باقي|مازال)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
       ((color !== undefined || size !== undefined) && /(?:do you have|avez-vous|avez vous|you have|have you|واش عندكم|عندكم|كتبيعو)/iu.test(lower)) ||
       lower.includes('متوفر') || lower.includes('متوفرة') || lower.includes('واش كاين') || lower.includes('واش كاينة')
@@ -895,7 +908,7 @@ export class EcommerceIntentParser {
     }
 
     // 9.5 Attribute / Feature Inquiry (Precedence: ATTRIBUTE_QUERY > PRODUCT_SEARCH)
-    const attrMatch = !KNOWLEDGE_POLICY_TERMS.test(lower) ? this.detectAttributeFamily(lower, options?.customAttributeAliases, options?.candidateMetadataKeys) : undefined;
+    const attrMatch = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) ? this.detectAttributeFamily(lower, options?.customAttributeAliases, options?.candidateMetadataKeys) : undefined;
     const hasInquiryStructure = this.hasQuestionOrInquiryStructure(trimmed) || Boolean(productContext?.selectedProductId);
     const isExplicitSearchVerb = /(?:^|\s|[.,!?;:()،؟])(?:bghit|bghina|بغيت|أريد|اريد|je\s+veux|i\s+want|i\s+need|looking\s+for|je\s+cherche|كنقلب|نقلب|وريني|وروني|show\s+me|find|search\s+for)(?:$|\s|[.,!?;:()،؟])/iu.test(lower);
 
@@ -918,7 +931,7 @@ export class EcommerceIntentParser {
     // 10. Buy / Order / Purchase Intent (Precedence: BUY_INTENT > PRODUCT_DETAIL / PRODUCT_SEARCH)
     const BUY_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:i\s+want\s+to\s+(?:buy|order|purchase|take|get|checkout)|want\s+to\s+(?:buy|order|purchase|take|get)|i\s+wanna\s+(?:buy|order|purchase)|i['’]?d\s+like\s+to\s+(?:buy|order|purchase)|can\s+i\s+(?:buy|order|purchase|take|get)|how\s+to\s+(?:buy|order)|place\s+an?\s+order|buy\s+(?:this|it|that|the|a|one)|order\s+(?:this|it|that|the|a|one)|purchase\s+(?:this|it|that|the|a|one)|je\s+veux\s+(?:acheter|commander|prendre|nchri|nechri|ncommandi)|j['’]aimerais\s+(?:acheter|commander)|comment\s+(?:acheter|commander)|passer\s+commande|(?:bghit|bghina|baghi|baghya|ana\s+bghit)\s+(?:nchri|nechri|nshri|chri|ncommandi|ncommander|commandi|nkomandi|nkomander|komandi|nkhod|nakhod|khod|acheter|commander|buy|order|take|get)(?:h|ha)?|(?:wach\s+)?(?:n9der|nqder|ne9der)\s+(?:nchri|nechri|nshri|ncommandi|nkomandi|nkhod)(?:h|ha)?|(?:kifash|kifesh)\s+(?:nchri|nechri|ncommandi|ncommander|nkomandi)|(?:nchri|nechri|nshri|ncommandi|nkomandi)\s+(?:hadchi|hada|hadi|had|had\s+lproduit|had\s+l-produit|this|it|that)|(?:أريد|اريد|أود|اود|بغي[ـت]?|باغي|باغية)\s+(?:شراء(?:ه|ها)?|الشراء|[أا]ن\s+[أا]شتري(?:ه|ها)?|[أا]ن\s+[أا]طلب(?:و|ها)?|[أا]شتري(?:ه|ها)?|نشتري(?:ه|ها)?|[أا]طلب(?:و|ها)?|الطلب|طلب(?:و|ها)?|نشري(?:ه|ها)?|نطلب(?:و|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|ناخد(?:و|ها)?|ناخذ(?:و|ها)?|buy|order|take|get|acheter|commander)|(?:س[أا]شتري|ساشتري|س[أا]طلب|ساطلب|سوف\s+[أا]شتري|سوف\s+اشتري|سوف\s+[أا]طلب|سوف\s+اطلب)(?:ه|ها)?|(?:واش\s+)?نقدر\s+(?:نشري(?:ه|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|نطلب(?:و|ها)?|ناخد(?:و|ها)?)|كيفية\s+(?:الشراء|الطلب)|كيفاش\s+(?:نشري(?:ه|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|نطلب(?:و|ها)?)|كيف\s+[أا]شتري|كيف\s+[أا]طلب)(?:$|\s|[.,!?;:()،؟])/iu;
 
-    const isBuyIntent = !KNOWLEDGE_POLICY_TERMS.test(lower) && BUY_PATTERNS.test(lower);
+    const isBuyIntent = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && !isActionNegated(trimmed, 'purchase') && BUY_PATTERNS.test(lower);
 
     if (isBuyIntent) {
       const cleanedProductName = this.cleanProductName(trimmed, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);
@@ -936,17 +949,27 @@ export class EcommerceIntentParser {
     }
 
     // 11. Product Detail & Contextual Product Inquiries (including Media Requests)
+    // A request for the store's catalog is not a request for a product named
+    // "your products". Keep it query-free so the existing search path lists
+    // active catalog entries and stores their IDs for later numbered selection.
+    const isGenericCatalogRequest = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && !sku && !category &&
+      /^(?:please\s+)?(?:tell\s+me\s+about|show\s+me|what(?:\s+do)?\s+you\s+have|what\s+products\s+do\s+you\s+have|show\s+me\s+what\s+(?:you|u)\s+have)\s+(?:(?:your|ur)\s+)?(?:products?|items?|catalog(?:ue)?)\s*[?؟!]*$/iu.test(trimmed);
+
+    if (isGenericCatalogRequest) {
+      return { intent: 'PRODUCT_SEARCH', color, size };
+    }
+
     const DETAIL_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:tell me about|details for|details|what is|parle-moi de|détails sur|détails|plus d'infos|شنو هو|معلومات على|معلومات أكثر|معلومات كثر|معلومات|تفاصيل|عطيني تفاصيل|وريني تفاصيل|تفاصيل ديال|شنو المادة|المادة ديالو|المميزات ديالو|المميزات|خصائص|مواصفات|نعرف عليه كثر|نعرف كثر|3tini details|details dyal|bghit n3rf 3lih kter|n3rf 3lih kter|choufkter)(?:$|\s|[.,!?;:()،؟])/iu;
 
-    const isImageRequest = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isImageRequest = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:images?|pictures?|photos?|pics?|voir\s+en\s+photo|صور|صورة|تصوير|شوف\s+الصور|وريني\s+صور|tsawer|tswira|tsawir|chof\s+tsawer|wrini\s+tsawer|تصاور|تصويرة)(?:$|\s|[.,!?;:()،؟])/iu.test(lower)
     );
 
-    const isVideoRequest = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isVideoRequest = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:videos?|clips?|watch\s+video|demo\s+video|vidéo|vidéos|voir\s+la\s+vidéo|فيديو|فيديوهات|فديو|مقطع|شوف\s+الفيديو|lvideo|chof\s+lvideo|wrini\s+video)(?:$|\s|[.,!?;:()،؟])/iu.test(lower)
     );
 
-    const isDetailIntent = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isDetailIntent = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       DETAIL_PATTERNS.test(lower) ||
       isImageRequest ||
       isVideoRequest ||
@@ -975,7 +998,7 @@ export class EcommerceIntentParser {
     }
 
     // 11. Variant Selection / Follow-up
-    const isVariantSelection = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isVariantSelection = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       (color !== undefined || size !== undefined || (ordinalIndex !== undefined && !isDetailIntent)) &&
       Boolean(productContext?.selectedProductId || productContext?.lastViewedProductIds?.length)
     );
@@ -1000,7 +1023,7 @@ export class EcommerceIntentParser {
       /(?:^|\s|[.,!?;:()،؟])(products|produits|منتجات|منتوجات|سلعة|حوايج|hoodie|hoodies|t-shirt|tshirt|t-shirts|tshirts|jacket|jackets|shoes|sweat|sweats|veste|vestes|tricot|tricots|capuchon|pull|هودي|هوديات|تيشورت|تيشورتات|تيشيرت|تيشيرتات|جاكيت|جاكيط|جاكيتات|أحذية|احذية|قميص|قمصان|collection|كوليكسيون)(?:$|\s|[.,!?;:()،؟])/iu
     ];
 
-    const isSearchIntent = !KNOWLEDGE_POLICY_TERMS.test(lower) && (
+    const isSearchIntent = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       category !== undefined ||
       DISCOVERY_PATTERNS.some(pat => pat.test(lower)) ||
       maxPrice !== undefined

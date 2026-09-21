@@ -13,6 +13,7 @@ export interface TurnCostMetrics {
   inputTokens: number;
   outputTokens: number;
   retryAttempts: number;
+  unknownTokenCalls?: number;
   totalLatencyMs: number;
 }
 
@@ -83,15 +84,21 @@ export class CostSummaryReporter {
     let retryAttempts = 0;
     let totalLatencyMs = 0;
 
+    const hasMeteredUsage = events.some(e => e.eventType === 'llm_usage');
+    let unknownTokenCalls = 0;
     for (const e of events) {
       // Extract accountId if available
       if ((e as any).accountId) {
         accountId = (e as any).accountId;
       }
 
+      if (typeof e.metadata?.accountId === 'string') accountId = e.metadata.accountId;
+
       // Extract provider and model if present
-      if (e.provider) provider = e.provider;
-      if (e.model) model = e.model;
+      if (!hasMeteredUsage || e.eventType === 'llm_usage') {
+        if (e.provider) provider = e.provider;
+        if (e.model) model = e.model;
+      }
 
       // Extract turn decision domain & intent from response_completed
       if (e.eventType === 'response_completed') {
@@ -104,8 +111,10 @@ export class CostSummaryReporter {
       }
 
       // Track LLM calls and token metrics
-      if (e.eventType === 'llm_completed' || e.eventType === 'llm_failed') {
-        llmCalls++;
+      if (e.eventType === 'llm_usage' || (!hasMeteredUsage && (e.eventType === 'llm_completed' || e.eventType === 'llm_failed'))) {
+        const attempted = e.eventType !== 'llm_usage' || e.metadata?.attempts !== 0;
+        if (attempted) llmCalls++;
+        if (attempted && e.eventType === 'llm_usage' && e.metadata?.tokenSource !== 'provider') unknownTokenCalls++;
         if (e.provider) provider = e.provider;
         if (e.model) model = e.model;
         const meta = e.metadata as Record<string, any> | undefined;
@@ -146,6 +155,7 @@ export class CostSummaryReporter {
       inputTokens,
       outputTokens,
       retryAttempts,
+      unknownTokenCalls,
       totalLatencyMs
     };
   }

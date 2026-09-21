@@ -5,7 +5,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
   private model: string;
   private baseUrl: string;
 
-  constructor(apiKey?: string, model: string = 'gemini-embedding-001') {
+  constructor(apiKey?: string, model: string = 'gemini-embedding-001', private timeoutMs: number = 8000) {
     this.apiKey = apiKey || process.env.GOOGLE_API_KEY || '';
     if (!this.apiKey) {
       throw new Error('GOOGLE_API_KEY is not configured in environment or constructor.');
@@ -30,7 +30,8 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
         content: {
           parts: [{ text }]
         }
-      })
+      }),
+      signal: AbortSignal.timeout(this.timeoutMs)
     });
 
     if (!response.ok) {
@@ -39,7 +40,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     }
 
     const data: any = await response.json();
-    if (!data.embedding || !Array.isArray(data.embedding.values)) {
+    if (!data.embedding || !Array.isArray(data.embedding.values) || data.embedding.values.length === 0 || !data.embedding.values.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))) {
       throw new Error(`Unexpected Gemini embedding API response format: ${JSON.stringify(data)}`);
     }
 

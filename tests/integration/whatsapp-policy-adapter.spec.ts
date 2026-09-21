@@ -32,6 +32,7 @@ describe('PHASE WHATSAPP-POLICY-ADAPTER-AUDIT-IMPLEMENT-45: WhatsApp Policy Adap
       try {
         await prisma.whatsAppMessageJob.deleteMany({ where: { tenantId } });
         await prisma.whatsAppBusinessNumber.deleteMany({ where: { tenantId } });
+        await prisma.channelConnection.deleteMany({ where: { tenantId } });
         await prisma.lead.deleteMany({ where: { tenantId } });
         await prisma.message.deleteMany({ where: { tenantId } });
         await prisma.workflowSession.deleteMany({ where: { tenantId } });
@@ -58,17 +59,27 @@ describe('PHASE WHATSAPP-POLICY-ADAPTER-AUDIT-IMPLEMENT-45: WhatsApp Policy Adap
     });
 
     const phoneNum1 = `phone-pol-1-${Date.now()}`;
+    const connection = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountA.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum1,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountA.id,
       phoneNumberId: phoneNum1,
+      connectionId: connection.id,
       displayPhoneNumber: '+15551111',
       enabled: true
     });
 
     await deps.tenantConfigService.updateConfig(tenantId, {
       ...DEFAULT_BUSINESS_CONFIG,
-      identity: { botName: 'PolicyBot', brand: 'Policy Brand' },
+      identity: { botName: 'PolicyBot', brand: 'Policy Brand', language: 'en' },
       capabilities: {
         ...DEFAULT_BUSINESS_CONFIG.capabilities,
         faq: [

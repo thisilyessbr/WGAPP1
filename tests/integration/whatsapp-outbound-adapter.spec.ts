@@ -31,6 +31,7 @@ describe('PHASE WHATSAPP-OUTBOUND-ADAPTER-AUDIT-IMPLEMENT-44: WhatsApp Outbound 
       try {
         await prisma.whatsAppMessageJob.deleteMany({ where: { tenantId } });
         await prisma.whatsAppBusinessNumber.deleteMany({ where: { tenantId } });
+        await prisma.channelConnection.deleteMany({ where: { tenantId } });
         await prisma.lead.deleteMany({ where: { tenantId } });
         await prisma.message.deleteMany({ where: { tenantId } });
         await prisma.workflowSession.deleteMany({ where: { tenantId } });
@@ -58,37 +59,67 @@ describe('PHASE WHATSAPP-OUTBOUND-ADAPTER-AUDIT-IMPLEMENT-44: WhatsApp Outbound 
 
     // Register Number 1 (Enabled)
     const phoneNum1 = `phone-id-1-${Date.now()}`;
+    const connection1 = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountA.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum1,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountA.id,
       phoneNumberId: phoneNum1,
+      connectionId: connection1.id,
       displayPhoneNumber: '+15550001',
       enabled: true
     });
 
     // Register Number 2 (Enabled)
     const phoneNum2 = `phone-id-2-${Date.now()}`;
+    const connection2 = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountA.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum2,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountA.id,
       phoneNumberId: phoneNum2,
+      connectionId: connection2.id,
       displayPhoneNumber: '+15550002',
       enabled: true
     });
 
     // Register Number 3 (Disabled)
     const phoneNum3 = `phone-id-3-disabled-${Date.now()}`;
+    const connection3 = await deps.whatsAppNumberService!.createOrUpdateConnection({
+      tenantId,
+      accountId: accountA.id,
+      provider: 'META_CLOUD',
+      connectionKey: phoneNum3,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials: 'test-only-encrypted-credentials'
+    });
     await deps.whatsAppNumberService!.registerNumber({
       tenantId,
       accountId: accountA.id,
       phoneNumberId: phoneNum3,
+      connectionId: connection3.id,
       displayPhoneNumber: '+15550003',
       enabled: false
     });
 
     await deps.tenantConfigService.updateConfig(tenantId, {
       ...DEFAULT_BUSINESS_CONFIG,
-      identity: { botName: 'OutboundBot', brand: 'Outbound Brand' },
+      identity: { botName: 'OutboundBot', brand: 'Outbound Brand', language: 'en' },
       capabilities: {
         ...DEFAULT_BUSINESS_CONFIG.capabilities,
         ecommerceEnabled: true,
@@ -155,8 +186,8 @@ describe('PHASE WHATSAPP-OUTBOUND-ADAPTER-AUDIT-IMPLEMENT-44: WhatsApp Outbound 
     expect(result.outboundResult?.success).toBe(true);
     expect(result.outboundResult?.providerMessageId).toBe('wamid.meta.reply.999001');
 
-    // Verify Meta Cloud API URL structure: https://graph.facebook.com/v22.0/{phoneNumberId}/messages
-    expect(capturedUrl).toBe(`https://graph.facebook.com/v22.0/${phoneNum1}/messages`);
+    // Verify current Meta Cloud API URL structure.
+    expect(capturedUrl).toBe(`https://graph.facebook.com/v26.0/${phoneNum1}/messages`);
     expect(capturedHeaders['Authorization']).toBe('Bearer EAAG_test_system_token_12345');
     expect(capturedHeaders['Content-Type']).toBe('application/json');
 

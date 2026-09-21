@@ -64,7 +64,7 @@ describe('PHASE WHATSAPP-WORKER-CHATBOT-INTEGRATION-AUDIT-FIX-41: Worker Chatbot
     // Configure tenant with consultation workflow, executionLimit = 'once', and FAQs
     await deps.tenantConfigService.updateConfig(tenantId, {
       ...DEFAULT_BUSINESS_CONFIG,
-      identity: { botName: 'AtlasBot', brand: 'Atlas Gym' },
+      identity: { botName: 'RelayqoBot', brand: 'Relayqo Demo', language: 'en' },
       capabilities: {
         ...DEFAULT_BUSINESS_CONFIG.capabilities,
         ecommerceEnabled: true,
@@ -72,13 +72,14 @@ describe('PHASE WHATSAPP-WORKER-CHATBOT-INTEGRATION-AUDIT-FIX-41: Worker Chatbot
           { id: 'hours', question: 'What are your hours?', answer: 'We are open 24/7!', category: 'STORE_INFO' }
         ],
         intents: [
-          { id: 'consultation_booking', description: 'Book a consultation', workflowId: 'consultation_booking', triggerPhrases: ['book consultation', 'free session'] }
+          { id: 'consultation_booking', description: 'Book a consultation', workflowId: 'consultation_booking', keywords: ['book consultation', 'free session'] }
         ]
       },
       workflows: {
         consultation_booking: {
           id: 'consultation_booking',
           name: 'Consultation Booking',
+          description: 'Collect contact details for a consultation booking.',
           initialState: 'ask_name',
           executionLimit: {
             mode: 'once',

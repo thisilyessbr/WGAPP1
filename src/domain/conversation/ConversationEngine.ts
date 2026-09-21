@@ -1,10 +1,12 @@
+import { generateResponseWithDeadline } from '../../core/llm/ResponseDeadline';
+import { MeteredLLMProvider } from '../../core/llm/MeteredLLMProvider';
 import { ConversationService } from './ConversationService';
 import { TenantConfigService } from '../tenant/TenantConfigService';
 import { WorkflowEngine, WorkflowCancellationDetector } from '../../core/engine/WorkflowEngine';
 import { LLMProvider, LLMProviderError, LLMRequestOptions } from '../../core/llm/LLMProvider';
 import { LLMFactory } from '../../core/llm/LLMFactory';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES } from './ResponseBuilder';
-import { RAGService } from '../rag/RAGService';
+import { RAGChunk, RAGService } from '../rag/RAGService';
 import { DirectRagGuard, SupportedScript } from '../rag/DirectRagGuard';
 import { QuestionReformulator } from '../rag/QuestionReformulator';
 import { PolicyEvidence } from '../rag/PolicyEvidence';
@@ -28,6 +30,8 @@ import { ProductLookupResult } from '../ecommerce/EcommerceService';
 import { CRMService } from '../crm/CRMService';
 import { logger } from '../../utils/logger';
 import { telemetry, TelemetryClient } from '../../core/telemetry/TelemetryClient';
+import { PortalBudget } from '../../portal/PortalBudget';
+import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 
 export class ConversationEngine {
   private llmFactory?: LLMFactory;
@@ -37,6 +41,39 @@ export class ConversationEngine {
   private accountConfigService?: AccountConfigService;
   private ecommerceService?: EcommerceService;
   private crmService?: CRMService;
+  private readonly inFlightExternalTurns = new Map<string, Promise<string>>();
+  private readonly conversationTurns = new Map<string, Promise<string>>();
+
+  /** Save human-mode input without invoking routing or generation. */
+  async recordInboundMessage(tenantId: string, customerId: string, content: string, accountId: string, externalMessageId: string): Promise<void> {
+    const conversation = await this.conversationService.getOrCreateConversation(tenantId, customerId, accountId);
+    await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', content, externalMessageId);
+  }
+
+  getConversationService(): ConversationService {
+    return this.conversationService;
+  }
+
+  /** Persist provider message ID (wamid) onto the committed AI assistant message */
+  async recordOutboundAssistantMessage(tenantId: string, inboundExternalId: string, providerMessageId: string): Promise<void> {
+    if (this.conversationService?.updateOutboundAssistantMessage) {
+      await this.conversationService.updateOutboundAssistantMessage({
+        tenantId,
+        inboundExternalId,
+        providerMessageId,
+        deliveryStatus: 'SENT'
+      });
+    }
+  }
+
+  private serializeTurn(key: string, run: () => Promise<string>): Promise<string> {
+    const previous = this.conversationTurns.get(key);
+    const pending = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(run);
+    this.conversationTurns.set(key, pending);
+    const cleanup = () => { if (this.conversationTurns.get(key) === pending) this.conversationTurns.delete(key); };
+    void pending.then(cleanup, cleanup);
+    return pending;
+  }
 
   constructor(
     private conversationService: ConversationService,
@@ -49,7 +86,8 @@ export class ConversationEngine {
     capabilityRouter?: CapabilityRouter,
     accountConfigService?: AccountConfigService,
     ecommerceService?: EcommerceService,
-    crmService?: CRMService
+    crmService?: CRMService,
+    private portalBudget?: PortalBudget
   ) {
     if (llmOrFactory && typeof llmOrFactory === 'object' && 'getProvider' in llmOrFactory) {
       this.llmFactory = llmOrFactory as LLMFactory;
@@ -57,7 +95,7 @@ export class ConversationEngine {
       this.defaultLlm = llmOrFactory as LLMProvider;
     }
     this.imageGateway = imageGateway || new ImageCapabilityGateway();
-    this.capabilityRouter = capabilityRouter || new CapabilityRouter();
+    this.capabilityRouter = capabilityRouter || new CapabilityRouter(this.imageGateway);
     this.accountConfigService = accountConfigService;
     this.ecommerceService = ecommerceService;
     this.crmService = crmService;
@@ -104,16 +142,19 @@ export class ConversationEngine {
     const normIntent = intent.toUpperCase();
     const normCat = faqCategory.toUpperCase();
 
+    // Generic non-conflicting categories that can apply to any policy or general FAQ
+    if (normCat === 'POLICY' || normCat === 'GENERAL' || normCat === 'FAQ' || normCat === 'ALL') return true;
+
     // Direct match (e.g. SHIPPING ↔ SHIPPING, RETURNS ↔ RETURNS)
     if (normIntent === normCat) return true;
 
     // Compatibility map: intent → set of compatible FAQ categories
     const compatMap: Record<string, Set<string>> = {
       'STORE_INFO':   new Set(['HOURS', 'STORE_INFO', 'LOCATION', 'BUSINESS_HOURS']),
-      'SHIPPING':     new Set(['SHIPPING', 'DELIVERY', 'LOGISTICS']),
-      'RETURNS':      new Set(['RETURNS', 'EXCHANGE', 'REFUND', 'RETURN']),
+      'SHIPPING':     new Set(['SHIPPING', 'DELIVERY', 'LOGISTICS', 'SHIPPING_POLICY']),
+      'RETURNS':      new Set(['RETURNS', 'EXCHANGE', 'REFUND', 'RETURN', 'POLICY', 'RETURN_POLICY']),
       'TRACKING':     new Set(['TRACKING', 'ORDER_STATUS', 'SHIPPING']),
-      'PAYMENT':      new Set(['PAYMENT', 'COD', 'BILLING']),
+      'PAYMENT':      new Set(['PAYMENT', 'COD', 'BILLING', 'PAYMENT_POLICY']),
       'SUPPORT':      new Set(['SUPPORT', 'CONTACT', 'CUSTOMER_SERVICE']),
       'CARE':         new Set(['CARE', 'MAINTENANCE', 'WASHING']),
       'WARRANTY':     new Set(['WARRANTY', 'GUARANTEE']),
@@ -130,13 +171,29 @@ export class ConversationEngine {
     return false;
   }
 
+  private matchSafeFaq(content: string, config: BusinessConfig, language: any, decision: TurnDecision) {
+    const match = FaqMatcher.match(content, config.capabilities?.faq, language);
+    if (!match?.answer || (match.confidence !== undefined && match.confidence < 0.75)) return null;
+    const policies = TurnDecisionResolver.detectPolicySignals(content);
+    if (policies.isMultiPolicy || decision.isMultiPolicy || decision.source === 'HYBRID') return null;
+    if (decision.domain === 'ECOMMERCE') return null;
+    if (policies.isPolicy && match.entry.category && !this.isFaqCategoryCompatible(policies.intent, match.entry.category)) return null;
+    if (decision.responseScript === 'arabizi' && /[\u0600-\u06FF]/.test(match.answer)) return null;
+    if (decision.responseLanguage === 'darija' && decision.responseScript === 'arabic' && !/[\u0621-\u064A]/.test(match.answer) && /[a-z]{3}/i.test(match.answer)) return null;
+    if (policies.intent === 'SHIPPING' && !PolicyEvidenceReuse.isSufficient('SHIPPING', content, [{ factualContent: match.answer } as any], config).isSufficient) return null;
+    return match;
+  }
+
   private buildGroundedSystemPrompt(config: BusinessConfig, detectedLang: string, responseScript?: SupportedScript): string {
     const botName = config.identity?.botName || 'our service';
-    const brand = config.identity?.brand ? ` (${config.identity.brand})` : '';
+    const brand = !config.portalFacts && config.identity?.brand ? ` (${config.identity.brand})` : '';
     const parts: string[] = [];
 
     // 1. ROLE — compact persona
     parts.push(`Role: Customer support for ${botName}${brand}. Answer concisely and accurately.`);
+    if (Number.isFinite(config.limits?.maxResponseLength) && config.limits.maxResponseLength > 0) {
+      parts.push(`Length: Keep the complete answer within ${Math.floor(config.limits.maxResponseLength)} characters. State required facts compactly; avoid repetition and introductions.`);
+    }
 
     // 2. Business Instructions (tenant-specific, dynamic — preserved verbatim)
     if (config.prompts?.system && config.prompts.system.trim()) {
@@ -317,7 +374,79 @@ ${content}
     return candidate;
   }
 
+  /**
+   * Executes an administrator preview with an explicit, request-scoped config.
+   * Preview turns keep their own conversation context and bypass the client's
+   * commercial allowance. The portal excludes preview identities from statistics.
+   */
+  async previewMessage(
+    tenantId: string,
+    accountId: string,
+    previewSessionId: string,
+    content: string,
+    config: BusinessConfig
+  ): Promise<string> {
+    if (!this.accountConfigService) {
+      throw new Error('Account configuration service is required for chatbot previews.');
+    }
+    const customerId = `portal-preview:${previewSessionId}`;
+    const run = () => this.accountConfigService!.runWithConfigOverride(tenantId, accountId, config, () =>
+      this.serializeTurn(JSON.stringify([tenantId, accountId, customerId]), () =>
+        this.handleMessageInternal(tenantId, customerId, content, accountId)
+      )
+    );
+    if (!this.portalBudget) return run();
+    const profile = (await this.portalBudget.getPreviewProfile(tenantId, accountId));
+    return this.portalBudget.runPreview(profile, run);
+  }
+
   async handleMessage(
+    tenantId: string,
+    customerExternalId: string,
+    contentInput: string | IncomingMessagePayload,
+    accountId?: string | null,
+    options?: {
+      externalMessageId?: string | null;
+    }
+  ): Promise<string> {
+    const externalMessageId = options?.externalMessageId?.trim();
+    if (!externalMessageId) {
+      return this.serializeTurn(JSON.stringify([tenantId, accountId, customerExternalId]), () => this.handleManagedMessage(tenantId, customerExternalId, contentInput, accountId, options));
+    }
+
+    const turnKey = `${tenantId}:${externalMessageId}`;
+    const existingTurn = this.inFlightExternalTurns.get(turnKey);
+    if (existingTurn) {
+      return existingTurn;
+    }
+
+    const pendingTurn = this.serializeTurn(JSON.stringify([tenantId, accountId, customerExternalId]), () => this.handleManagedMessage(
+      tenantId,
+      customerExternalId,
+      contentInput,
+      accountId,
+      { ...options, externalMessageId }
+    ));
+    this.inFlightExternalTurns.set(turnKey, pendingTurn);
+
+    try {
+      return await pendingTurn;
+    } finally {
+      if (this.inFlightExternalTurns.get(turnKey) === pendingTurn) {
+        this.inFlightExternalTurns.delete(turnKey);
+      }
+    }
+  }
+
+  private async handleManagedMessage(
+    tenantId: string, customerExternalId: string, contentInput: string | IncomingMessagePayload,
+    accountId?: string | null, options?: { externalMessageId?: string | null }
+  ): Promise<string> {
+    if (!this.portalBudget) return this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options);
+    return this.portalBudget.runTurn(tenantId, accountId, options?.externalMessageId, () => this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options), '');
+  }
+
+  private async handleMessageInternal(
     tenantId: string,
     customerExternalId: string,
     contentInput: string | IncomingMessagePayload,
@@ -395,10 +524,37 @@ ${content}
       throw new Error('No LLM Provider or LLMFactory configured in ConversationEngine.');
     }
 
+    if (this.portalBudget) llm = this.portalBudget.wrapLLM(llm, { provider: config.llm?.provider || 'deepseek', model: llmOptions.model || config.llm?.model || 'deepseek-flash' });
+    llm = new MeteredLLMProvider(llm, {
+      provider: config.llm?.provider || 'unknown', model: llmOptions.model || config.llm?.model || 'unknown'
+    }, usage => telemetry.emit({
+      eventType: 'llm_usage', tenantId, accountId: effectiveAccountId,
+      conversationId: conversation.id, correlationId, stage: 'llm',
+      status: usage.success ? 'SUCCESS' : 'FAILURE', latencyMs: usage.latencyMs,
+      provider: usage.provider, model: usage.model, metadata: { ...usage }
+    }));
+
     // If conversation is in HUMAN_ACTIVE mode, human agent is handling it -> pause bot automation
-    if (conversation.status === 'HUMAN_ACTIVE') {
-      logger.info(`ConversationEngine: Conversation [${conversation.id}] is in HUMAN_ACTIVE mode. Pausing bot automation.`);
-      await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', payload.text || 'Image uploaded');
+    let isHumanHandling = conversation.status === 'HUMAN_ACTIVE' || Boolean(conversation.humanRequested);
+    if (!isHumanHandling) {
+      // Keep the engine compatible with lightweight service implementations used by
+      // integrations that do not expose the optional automation-state capability.
+      const getAutomationState = (this.conversationService as Partial<ConversationService>).getAutomationState;
+      const autoState = typeof getAutomationState === 'function'
+        ? await getAutomationState.call(this.conversationService, tenantId, conversation.id)
+        : null;
+      if (autoState) {
+        if (autoState.humanTakeover || !autoState.botEnabled) {
+          isHumanHandling = true;
+        } else if (autoState.pausedUntil && autoState.pausedUntil > new Date()) {
+          isHumanHandling = true;
+        }
+      }
+    }
+
+    if (isHumanHandling) {
+      logger.info(`ConversationEngine: Conversation [${conversation.id}] is in human takeover or bot automation paused. Pausing bot automation.`);
+      await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', payload.text || 'Image uploaded', externalMessageId);
       telemetry.emit({
         eventType: 'response_completed',
         tenantId,
@@ -442,8 +598,10 @@ ${content}
     if ((maxHistoryLimit !== undefined && maxHistoryLimit < 20 && totalStoredMessages >= maxHistoryLimit) || conversation.messageCount >= maxTurnsLimit) {
       const incomingText = (payload.text || '').trim();
       const detectedLang = incomingText ? LanguageDetector.detect(incomingText) : (config.identity?.language || 'en');
-      const defaultLimitMsg = DEFAULT_LIMIT_EXCEEDED_MESSAGES[detectedLang as keyof typeof DEFAULT_LIMIT_EXCEEDED_MESSAGES] || DEFAULT_LIMIT_EXCEEDED_MESSAGES.en;
-      const rawCapMsg = resolveLocalizedPrompt(config.prompts?.limitExceeded, detectedLang, defaultLimitMsg);
+      const capScript = DirectRagGuard.detectScript(incomingText, detectedLang as any);
+      const defaultLimitMsg = detectedLang === 'darija' && capScript === 'arabic' ? 'هاد المحادثة وصلات للحد ديالها. عفاك بدا محادثة جديدة.'
+        : DEFAULT_LIMIT_EXCEEDED_MESSAGES[detectedLang as keyof typeof DEFAULT_LIMIT_EXCEEDED_MESSAGES] || DEFAULT_LIMIT_EXCEEDED_MESSAGES.en;
+      const rawCapMsg = resolveLocalizedPrompt(config.prompts?.limitExceeded, detectedLang, defaultLimitMsg, capScript);
       const capMsg = this.applyResponseLimit(rawCapMsg, config.limits?.maxResponseLength);
       await this.conversationService.commitConversationTurn({
         tenantId,
@@ -472,6 +630,24 @@ ${content}
       return capMsg;
     }
 
+    if (payload.unsupportedMediaType) {
+      const lang = payload.text ? LanguageDetector.detect(payload.text) : config.identity?.language || 'en';
+      const mediaScript = DirectRagGuard.detectScript(payload.text || '', lang as any);
+      const fallback = this.applyResponseLimit(lang === 'darija' && mediaScript === 'arabic'
+        ? 'ما نقدرش نقرا هاد الملف دابا. عفاك كتب ليا الطلب ديالك.' : {
+        en: "I can't process this attachment right now. Please send your request as text.",
+        fr: "Je ne peux pas traiter cette pièce jointe pour le moment. Envoyez votre demande par écrit.",
+        ar: 'لا يمكنني معالجة هذا المرفق حالياً. يرجى إرسال طلبك كنص.',
+        darija: 'Ma n9derch n9ra had l-fichier daba. 3afak kteb lia talab dyalek.'
+      }[lang] || "I can't process this attachment right now. Please send your request as text.", config.limits?.maxResponseLength);
+      await this.conversationService.commitConversationTurn({
+        tenantId, conversationId: conversation.id, expectedVersion: conversation.version,
+        userMessage: `[Attachment: ${payload.unsupportedMediaType}] ${payload.text || ''}`.trim(),
+        assistantMessage: fallback, externalMessageId, responseType: 'UNSUPPORTED_MEDIA'
+      });
+      return fallback;
+    }
+
     const routed = await this.capabilityRouter.route(tenantId, payload, config, correlationId);
 
     telemetry.emit({
@@ -490,9 +666,11 @@ ${content}
     if (!routed.allowed) {
       const incomingText = (payload.text || '').trim();
       const detectedLang = incomingText ? LanguageDetector.detect(incomingText) : (config.identity?.language || 'en');
-      const defaultFallback = DEFAULT_IMAGE_FALLBACK_MESSAGES[detectedLang as keyof typeof DEFAULT_IMAGE_FALLBACK_MESSAGES] || DEFAULT_IMAGE_FALLBACK_MESSAGES.en;
+      const imageScript = incomingText ? DirectRagGuard.detectScript(incomingText, detectedLang as any) : (conversation.contextData as any)?._script;
+      const defaultFallback = detectedLang === 'darija' && imageScript === 'arabizi' ? 'Ma n9derch n9ra tswira daba. 3afak wsef lia chno bghiti.'
+        : DEFAULT_IMAGE_FALLBACK_MESSAGES[detectedLang as keyof typeof DEFAULT_IMAGE_FALLBACK_MESSAGES] || DEFAULT_IMAGE_FALLBACK_MESSAGES.en;
       const promptToUse = config.prompts?.imageFallback;
-      const rawFallback = resolveLocalizedPrompt(promptToUse, detectedLang, defaultFallback);
+      const rawFallback = resolveLocalizedPrompt(promptToUse, detectedLang, defaultFallback, imageScript);
       const fallback = this.applyResponseLimit(rawFallback, config.limits?.maxResponseLength);
 
       await this.conversationService.commitConversationTurn({
@@ -537,7 +715,7 @@ ${content}
     let incrementPostCompletionCount = false;
     let setPostCompletionCapped = false;
     let ragResult: any = null;
-    let turnDecision: TurnDecision | null = null;
+    let turnDecision: TurnDecision;
     let catalogCategories: string[] | undefined = undefined;
     let customCategoryAliases: Record<string, string[]> | undefined = undefined;
     let customAttributeAliases: Record<string, string[]> | undefined = undefined;
@@ -563,7 +741,15 @@ ${content}
       language: detectedLang,
       accountLanguage: config.identity?.language,
       currentMessageText: content,
-      activeSession,
+      activeSession: activeSession
+        ? {
+            workflowId: activeSession.workflowId,
+            stateId: activeSession.stateId,
+            collectedData: activeSession.collectedData && typeof activeSession.collectedData === 'object' && !Array.isArray(activeSession.collectedData)
+              ? activeSession.collectedData as Record<string, any>
+              : {}
+          }
+        : null,
       recentMessages,
       totalMessageCount: conversation.messageCount,
       contextData: conversation.contextData as any,
@@ -571,7 +757,18 @@ ${content}
     });
 
     const effectiveLang = conversationContext.effectiveLanguage;
-    const effectiveScript = DirectRagGuard.detectScript(content, effectiveLang);
+    const effectiveScript = conversationContext.effectiveScript || DirectRagGuard.detectScript(content, effectiveLang);
+    turnDecision = TurnDecisionResolver.resolve({
+      text: content,
+      language: effectiveLang,
+      script: effectiveScript,
+      productContext: conversationContext.productContext,
+      activePolicyEvidence: conversationContext.activePolicyEvidence,
+      isEcommerceEnabled: Boolean(config.capabilities?.ecommerceEnabled),
+      isGreeting: false,
+      isHandoff: false,
+      isWorkflow: Boolean(activeSession)
+    });
 
     if (!safetyResult.allowed) {
       conversationContext.activeCapability = 'FALLBACK';
@@ -594,6 +791,7 @@ ${content}
       const safetyRefusal = AnswerComposer.finalizeResponse(rawSafetyRefusal, {
         domain: 'FALLBACK',
         intent: 'FALLBACK',
+        source: 'DETERMINISTIC',
         confidence: 1,
         responseLanguage: safetyLang,
         responseScript: safetyScript
@@ -634,6 +832,7 @@ ${content}
       const turnDecHandoff = TurnDecisionResolver.resolve({
         text: content,
         language: effectiveLang,
+        script: effectiveScript,
         productContext: conversationContext.productContext,
         isEcommerceEnabled: Boolean(config.capabilities?.ecommerceEnabled),
         isHandoff: true
@@ -664,16 +863,10 @@ ${content}
         assistantMessage: handoffMsg,
         externalMessageId: options?.externalMessageId,
         flagHumanRequested: true,
+        newStatus: 'HANDOFF_REQUESTED',
+        responseType: 'HANDOFF',
         sessionUpdate: sessionUpdatePayload || undefined
       });
-
-      const prismaClient = (this.conversationService as any)['prisma'];
-      if (prismaClient) {
-        await prismaClient.conversation.update({
-          where: { id: conversation.id },
-          data: { status: 'HANDOFF_REQUESTED' }
-        });
-      }
 
       telemetry.emit({
         eventType: 'response_completed',
@@ -703,11 +896,12 @@ ${content}
           contextData: activeSession.contextData as any,
           status: 'CANCELLED'
         };
-        const defaultCancel = DEFAULT_WORKFLOW_MESSAGES.workflowCancelled[detectedLang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.workflowCancelled] || DEFAULT_WORKFLOW_MESSAGES.workflowCancelled.en;
+        const defaultCancel = effectiveLang === 'darija' && effectiveScript === 'arabic'
+          ? 'تلغى الطلب ديالك.' : DEFAULT_WORKFLOW_MESSAGES.workflowCancelled[effectiveLang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.workflowCancelled] || DEFAULT_WORKFLOW_MESSAGES.workflowCancelled.en;
         const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled);
         const promptToUse = config.prompts?.workflowCancelled;
         const rawCancelMsg = promptToUse && (!defaultVals.includes(promptToUse) || typeof promptToUse === 'object')
-          ? resolveLocalizedPrompt(promptToUse, detectedLang, defaultCancel)
+          ? resolveLocalizedPrompt(promptToUse, effectiveLang, defaultCancel, effectiveScript)
           : defaultCancel;
         response = this.applyResponseLimit(rawCancelMsg, config.limits?.maxResponseLength);
         responseSource = 'WORKFLOW';
@@ -758,6 +952,7 @@ ${content}
         turnDecision = TurnDecisionResolver.resolve({
           text: content,
           language: effectiveLang,
+          script: effectiveScript,
           productContext: conversationContext.productContext,
           activePolicyEvidence: conversationContext.activePolicyEvidence,
           isEcommerceEnabled: Boolean(config.capabilities?.ecommerceEnabled),
@@ -852,7 +1047,7 @@ ${content}
 
         // Try FAQ
         if (config.capabilities?.faq && config.capabilities.faq.length > 0) {
-          const faqMatch = FaqMatcher.match(content, config.capabilities.faq);
+          const faqMatch = this.matchSafeFaq(content, config, effectiveLang, turnDecision);
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             answered = true;
             answerText = faqMatch.answer;
@@ -974,23 +1169,18 @@ ${content}
             const maxChunks = turnDecision?.isMultiPolicy ? 6 : (isSingleDominantChunk ? 1 : 3);
             const topChunks = (ragResult?.chunks || []).slice(0, maxChunks);
             const effectiveContextBudget = this.resolveEffectiveContextBudget(config, turnDecision, false);
-            const contextText = this.buildGroundedContextText(topChunks, effectiveContextBudget);
+            const contextText = this.buildGroundedContextText(topChunks, effectiveContextBudget) + portalBusinessEvidence(config, content);
 
             const systemPrompt = this.buildGroundedSystemPrompt(config, effectiveLang, turnDecision?.responseScript);
             const userPromptContent = this.buildGroundedUserMessage(contextText, content);
 
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
-              const responsePromise = llm.generateResponse(systemPrompt, [{ role: 'user', content: userPromptContent }], {
+              const rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
                 temperature: config.llm?.temperature ?? 0.2,
                 maxTokens: config.llm?.maxTokens ?? 500,
                 timeoutMs
               });
-              const timeoutPromise = new Promise<string>((_, reject) =>
-                setTimeout(() => reject(new Error('TIMEOUT')), timeoutMs)
-              );
-
-              const rawResponse = await Promise.race([responsePromise, timeoutPromise]);
               const latencyMs = Date.now() - startTime;
               const trimmed = (rawResponse || '').trim();
 
@@ -1091,8 +1281,9 @@ ${content}
           if (currentCount >= 10) {
             // 10th answered question: send answer + closing line, then cap
             setPostCompletionCapped = true;
-            const defaultClosing = DEFAULT_POST_COMPLETION_MESSAGES.closing[effectiveLang as keyof typeof DEFAULT_POST_COMPLETION_MESSAGES.closing] || DEFAULT_POST_COMPLETION_MESSAGES.closing.en;
-            const closingLine = resolveLocalizedPrompt(config.prompts?.postCompletionClosing, effectiveLang, defaultClosing);
+            const defaultClosing = effectiveLang === 'darija' && effectiveScript === 'arabic' ? 'نكملو المتابعة ديال الطلب ديالك مع الفريق.'
+              : DEFAULT_POST_COMPLETION_MESSAGES.closing[effectiveLang as keyof typeof DEFAULT_POST_COMPLETION_MESSAGES.closing] || DEFAULT_POST_COMPLETION_MESSAGES.closing.en;
+            const closingLine = resolveLocalizedPrompt(config.prompts?.postCompletionClosing, effectiveLang, defaultClosing, effectiveScript);
             response = `${answerText}\n\n${closingLine}`;
             logger.info(`ConversationEngine: Reached 10th post-completion question -> postCompletionCapped set to true.`);
           } else {
@@ -1102,8 +1293,9 @@ ${content}
           // Post-completion unmatched message -> static canned response
           responseSource = 'FALLBACK';
           logger.info(`ConversationEngine: Post-completion unmatched message "${content}" -> returning static canned response.`);
-          const defaultFallback = DEFAULT_POST_COMPLETION_MESSAGES.fallback[effectiveLang as keyof typeof DEFAULT_POST_COMPLETION_MESSAGES.fallback] || DEFAULT_POST_COMPLETION_MESSAGES.fallback.en;
-          response = resolveLocalizedPrompt(config.prompts?.postCompletionFallback, effectiveLang, defaultFallback);
+          const defaultFallback = effectiveLang === 'darija' && effectiveScript === 'arabic' ? 'نقدر نعاونك فالأسئلة اللي عندها علاقة بالطلب ديالك.'
+            : DEFAULT_POST_COMPLETION_MESSAGES.fallback[effectiveLang as keyof typeof DEFAULT_POST_COMPLETION_MESSAGES.fallback] || DEFAULT_POST_COMPLETION_MESSAGES.fallback.en;
+          response = resolveLocalizedPrompt(config.prompts?.postCompletionFallback, effectiveLang, defaultFallback, effectiveScript);
         }
       } else {
         // Standard conversational routing (Greeting -> FAQ -> Workflow Trigger -> TurnDecision -> Ecommerce -> Policy -> RAG -> Grounded LLM -> Fallback)
@@ -1118,25 +1310,8 @@ ${content}
         if (!hasQuestion && GreetingRouter.isKnownGreeting(normalizedContent)) {
           logger.info(`ConversationEngine: Deterministic greeting match for "${content}" (lang: ${effectiveLang}, 0 LLM calls)`);
           answered = true;
-          answerText = resolveLocalizedPrompt(config.prompts?.greeting, effectiveLang, 'Hello! How can I help you today?');
+          answerText = AnswerComposer.composeGreeting({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
           responseSource = 'GREETING';
-        }
-
-        // Step 1.5: Deterministic FAQ match check before workflow trigger
-        if (!answered && config.capabilities?.faq && config.capabilities.faq.length > 0) {
-          const faqMatch = FaqMatcher.match(content, config.capabilities.faq, effectiveLang);
-          if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
-            answered = true;
-            answerText = AnswerComposer.finalizeResponse(faqMatch.answer.trim(), {
-              domain: 'FAQ',
-              intent: 'FAQ_ANSWER',
-              source: 'DETERMINISTIC',
-              responseLanguage: effectiveLang,
-              responseScript: effectiveScript
-            }, config);
-            responseSource = 'FAQ';
-            logger.info(`ConversationEngine: Pre-workflow FAQ match [${faqMatch.entry.id}] (confidence: ${faqMatch.confidence}, 0 LLM calls).`);
-          }
         }
 
         // Step 1.7: Resolve TurnDecision for authoritative routing (0 extra LLM calls)
@@ -1163,6 +1338,7 @@ ${content}
           turnDecision = TurnDecisionResolver.resolve({
             text: content,
             language: effectiveLang,
+            script: effectiveScript,
             productContext: conversationContext.productContext,
             activePolicyEvidence: conversationContext.activePolicyEvidence,
             catalogCategories,
@@ -1175,6 +1351,23 @@ ${content}
             isHandoff: false,
             isWorkflow: false
           });
+        }
+
+        // Step 1.5: Deterministic FAQ match check before workflow trigger
+        if (!answered && config.capabilities?.faq && config.capabilities.faq.length > 0) {
+          const faqMatch = this.matchSafeFaq(content, config, effectiveLang, turnDecision);
+          if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
+            answered = true;
+            answerText = AnswerComposer.finalizeResponse(faqMatch.answer.trim(), {
+              domain: 'FAQ',
+              intent: 'FAQ_ANSWER',
+              source: 'DETERMINISTIC',
+              responseLanguage: effectiveLang,
+              responseScript: effectiveScript
+            }, config);
+            responseSource = 'FAQ';
+            logger.info(`ConversationEngine: Pre-workflow FAQ match [${faqMatch.entry.id}] (confidence: ${faqMatch.confidence}, 0 LLM calls).`);
+          }
         }
 
         // Step 1.8: Check explicit workflow trigger (intents[].workflowId or activation config)
@@ -1336,13 +1529,6 @@ ${content}
               conversationContext.productContext = currentContextData.productContext;
               contextDataUpdate = currentContextData;
 
-              if (activeSession) {
-                sessionUpdatePayload = {
-                  sessionId: activeSession.id,
-                  stateId: activeSession.stateId,
-                  contextData: currentContextData
-                };
-              }
             } else if (turnDecision.intent === 'COMPARE') {
               const targets: Array<{ id?: string; sku?: string; name?: string; category?: string; ordinalIndex?: number; color?: string; size?: string }> = [];
 
@@ -1496,9 +1682,9 @@ ${content}
               } else if (turnDecision.ordinalIndex !== undefined && turnDecision.ordinalIndex !== null && conversationContext.productContext?.lastViewedProductIds?.length) {
                 targetId = conversationContext.productContext.lastViewedProductIds[turnDecision.ordinalIndex];
               } else if (isMediaRequest && hasActiveProduct && (!turnDecision.sku && (!turnDecision.productName || turnDecision.productName.toLowerCase() === 'it' || turnDecision.productName.toLowerCase() === 'this' || turnDecision.productName.toLowerCase() === 'that'))) {
-                targetId = conversationContext.productContext!.selectedProductId;
+                targetId = conversationContext.productContext!.selectedProductId || undefined;
               } else if (!turnDecision.sku && !turnDecision.productName && hasActiveProduct) {
-                targetId = conversationContext.productContext!.selectedProductId;
+                targetId = conversationContext.productContext!.selectedProductId || undefined;
               }
 
               let lookupColor: string | undefined;
@@ -1572,13 +1758,6 @@ ${content}
                 conversationContext.productContext = currentContextData.productContext;
                 contextDataUpdate = currentContextData;
 
-                if (activeSession) {
-                  sessionUpdatePayload = {
-                    sessionId: activeSession.id,
-                    stateId: activeSession.stateId,
-                    contextData: currentContextData
-                  };
-                }
               }
 
               answerText = AnswerComposer.composeEcommerce({
@@ -1603,7 +1782,7 @@ ${content}
           config.capabilities?.faq &&
           config.capabilities.faq.length > 0
         ) {
-          const faqMatch = FaqMatcher.match(content, config.capabilities.faq, effectiveLang);
+          const faqMatch = this.matchSafeFaq(content, config, effectiveLang, turnDecision);
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             // Phase 38C: Intent-category parity guard — when TurnDecision has a specific
             // policy intent, verify the FAQ category is compatible before accepting.
@@ -1951,12 +2130,12 @@ ${content}
                 let allIntentsSafe = targetPolicies.length > 1;
 
                 for (const pol of targetPolicies) {
-                  const candidateChunks = ragResult.chunks.filter(c => 
+                  const candidateChunks = ragResult.chunks.filter((c: RAGChunk) =>
                     (c as any).intent === pol || 
                     (c.documentTitle && c.documentTitle.toLowerCase().includes(pol.toLowerCase())) ||
                     c.content.toLowerCase().includes(pol.toLowerCase())
                   );
-                  const bestChunk = candidateChunks[0] || ragResult.chunks.find(c => !selectedPolicyItems.some(item => item.content === c.content.trim()));
+                  const bestChunk = candidateChunks[0] || ragResult.chunks.find((c: RAGChunk) => !selectedPolicyItems.some(item => item.content === c.content.trim()));
 
                   if (!bestChunk || !bestChunk.content) {
                     allIntentsSafe = false;
@@ -2042,7 +2221,7 @@ ${content}
 
               for (const pol of targetIntents) {
                 if (PolicyEvidenceReuse.isCanonicalPolicy(pol)) {
-                  const newEvidenceItems: PolicyEvidence[] = ragResult.chunks.map(ch => ({
+                  const newEvidenceItems: PolicyEvidence[] = ragResult.chunks.map((ch: RAGChunk) => ({
                     intent: pol,
                     sourceDocumentId: ch.documentId,
                     sourceChunkId: ch.id,
@@ -2097,7 +2276,7 @@ ${content}
             const classifierLatencyMs = Date.now() - classifierStart;
             if (classification === 'GREETING') {
               answered = true;
-              answerText = resolveLocalizedPrompt(config.prompts?.greeting, effectiveLang, 'Hello! How can I help you today?');
+              answerText = AnswerComposer.composeGreeting({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
               responseSource = 'GREETING';
             }
             telemetry.emit({
@@ -2170,21 +2349,16 @@ ${content}
               : (this.buildGroundedContextText(topChunks, effectiveContextBudget) + productContextInfo);
 
             const systemPrompt = this.buildGroundedSystemPrompt(config, effectiveLang, turnDecision?.responseScript);
-            const userPromptContent = this.buildGroundedUserMessage(contextText, content, turnDecision?.isMultiPolicy, turnDecision?.policyIntents, turnDecision?.responseScript);
+            const userPromptContent = this.buildGroundedUserMessage(contextText + portalBusinessEvidence(config, content), content, turnDecision?.isMultiPolicy, turnDecision?.policyIntents, turnDecision?.responseScript);
 
             const startTime = Date.now();
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
-              const responsePromise = llm.generateResponse(systemPrompt, [{ role: 'user', content: userPromptContent }], {
+              const rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
                 temperature: config.llm?.temperature ?? 0.2,
                 maxTokens: turnDecision?.isMultiPolicy ? 800 : (config.llm?.maxTokens ?? 500),
                 timeoutMs
               });
-              const timeoutPromise = new Promise<string>((_, reject) =>
-                setTimeout(() => reject(new Error('TIMEOUT')), timeoutMs)
-              );
-
-              const rawResponse = await Promise.race([responsePromise, timeoutPromise]);
               const latencyMs = Date.now() - startTime;
               const trimmed = (rawResponse || '').trim();
 
@@ -2328,6 +2502,7 @@ ${content}
     turnDecision = TurnDecisionResolver.resolve({
       text: content,
       language: effectiveLang,
+      script: effectiveScript,
       productContext: conversationContext.productContext,
       catalogCategories,
       customCategoryAliases,
@@ -2338,10 +2513,24 @@ ${content}
       responseSource,
       isSafetyViolation: !safetyResult.allowed,
       isHandoff: isHandoff,
-      isWorkflow: Boolean(activeSession || hasWorkflowsConfigured),
+      isWorkflow: responseSource === 'WORKFLOW',
       ragChunks: ragResult?.chunks,
       matchedFaqId: responseSource === 'FAQ' ? 'faq_match' : null
     });
+
+    if (turnDecision.secondaryIntents?.includes('BUY_INTENT')) {
+      const purchaseFollowup = turnDecision.responseScript === 'arabizi'
+        ? 'Bghiti tkemmel chra? 2ekked lia smit l-produit.'
+        : ({ en: 'To continue with your purchase, please confirm the product.',
+             fr: 'Pour continuer votre achat, confirmez le produit, s’il vous plaît.',
+             ar: 'لمتابعة الشراء، يرجى تأكيد المنتج الذي تريده.',
+             darija: 'باش تكمل الشراء، أكد ليا اسم المنتوج اللي بغيتي.' }[effectiveLang] || 'To continue with your purchase, please confirm the product.');
+      response = AnswerComposer.finalizeResponse(`${response}\n\n${purchaseFollowup}`, turnDecision, config);
+      contextDataUpdate = {
+        ...(contextDataUpdate || conversation.contextData as Record<string, any> || {}),
+        pendingPurchaseRequest: { text: content.slice(0, 4096), requestedAt: new Date().toISOString() }
+      };
+    }
 
     logger.debug(`ConversationEngine: Turn Decision resolved [${turnDecision.domain}:${turnDecision.intent}] (source: ${turnDecision.source}, lang: ${turnDecision.responseLanguage}, script: ${turnDecision.responseScript})`);
 
@@ -2360,6 +2549,7 @@ ${content}
         turnDecision: {
           domain: turnDecision.domain,
           intent: turnDecision.intent,
+          secondaryIntents: turnDecision.secondaryIntents || [],
           source: turnDecision.source,
           productId: turnDecision.productId || null,
           variantId: turnDecision.variantId || null,
@@ -2380,7 +2570,7 @@ ${content}
         userMessage: routed.userDisplayContent,
         assistantMessage: response || null,
         externalMessageId: options?.externalMessageId,
-        contextData: contextDataUpdate || undefined,
+        contextData: { ...(contextDataUpdate || sessionUpdatePayload?.contextData || conversation.contextData as Record<string, any> || {}), _lang: effectiveLang, _script: effectiveScript },
         sessionUpdate: sessionUpdatePayload,
         flagHumanRequested,
         incrementPostCompletionCount,
@@ -2402,7 +2592,7 @@ ${content}
     }
 
     // 7. Non-blocking CRM lead signal processing (Phase CRM-B & CRM-WORKFLOW-FIX-04)
-    if (this.crmService && effectiveAccountId) {
+    if (this.crmService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:')) {
       try {
         const isWorkflowCompleted = Boolean(sessionUpdatePayload?.status === 'COMPLETED');
         await this.crmService.processTurnSignal({

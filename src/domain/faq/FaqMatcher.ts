@@ -1,4 +1,5 @@
 import { FaqEntry } from '../tenant/BusinessConfig';
+import { normalizeIntentText } from '../conversation/IntentLanguage';
 
 export type SupportedLanguage = 'en' | 'fr' | 'ar' | 'darija';
 
@@ -12,7 +13,8 @@ export class LanguageDetector {
     'afak', 'ila', 'walakin', 'chof', 'sbah', 'nour', 'enour', 'ennour', 'labas', 'lkhir',
     'kidayr', 'kidayra', 'rje3', 'arja3', 'wakha', 'iyih', 'wah', 'flous', 'flousi', 'zwin',
     'zwina', 'bzzaf', 'bzaf', 'n3ref', 'n3raf', 't9dro', 't3awnoni', 'katkhedmo', 'taman',
-    'khedma', 'ndir', 'bach', 'mouchkil'
+    'khedma', 'ndir', 'bach', 'mouchkil', 'baghi', 'baghya', 'nchri', 'nshri', 'ncommandi',
+    'mabghitch', 'mabghitsh', 'makaynch', 'machi', 'bghitch', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al'
   ]);
 
   private static FRENCH_WORDS = new Set([
@@ -49,7 +51,8 @@ export class LanguageDetector {
     'ديال', 'ديالكم', 'ديالي', 'بغيت', 'واش', 'شنو', 'كاين', 'عفاك', 'دابا', 'شحال',
     'مزيان', 'خدام', 'راه', 'ماشي', 'باش', 'غادي', 'واخا', 'بزاف', 'بزااف', 'هاد',
     'زوين', 'زوينة', 'فلوس', 'فلوسي', 'فلوسنا', 'فلوسكم', 'كتبيعو', 'دبا', 'ديل',
-    'هادي', 'هادو', 'فين', 'عاود', 'بلاتي', 'شكون', 'وقتاش', 'فوقاش', 'كيفاش'
+    'هادي', 'هادو', 'فين', 'عاود', 'بلاتي', 'شكون', 'وقتاش', 'فوقاش', 'كيفاش',
+    'باغي', 'باغية', 'مابغيتش', 'بغيتش', 'باغيش', 'باغياش', 'نشري', 'نشريه'
   ];
 
   /**
@@ -57,7 +60,10 @@ export class LanguageDetector {
    */
   static detect(text: string): SupportedLanguage {
     if (!text || !text.trim()) return 'en';
-    const trimmed = text.trim();
+    const trimmed = normalizeIntentText(text).trim();
+
+    // A Moroccan word still identifies Darija inside a mostly French message.
+    if (/(?:^|[^\p{L}])(?:واش|بغيت|باغي|باغية|شحال|عفاك|كيفاش)(?=$|[^\p{L}])/u.test(trimmed)) return 'darija';
 
     // 1. Check for Arabic Script (Unicode Range U+0600 - U+06FF)
     const arabicCharCount = (trimmed.match(/[\u0600-\u06FF]/g) || []).length;
@@ -154,6 +160,7 @@ export class LanguageDetector {
   static isAmbiguous(text: string): boolean {
     if (!text || !text.trim()) return true;
     const trimmed = text.trim();
+    if (/^(?:نعم|لا|حسنا|أوكي|اوكي|[0-9٠-٩۰-۹]+|xs|s|m|l|xl|xxl|ok|okay|yes|no)[.!?؟\s]*$/iu.test(trimmed)) return true;
 
     // Arabic script is unambiguous
     const arabicCharCount = (trimmed.match(/[\u0600-\u06FF]/g) || []).length;
