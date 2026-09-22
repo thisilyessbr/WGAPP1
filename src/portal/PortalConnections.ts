@@ -15,6 +15,13 @@ export class PortalConnections {
       await s.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='EXPIRED' WHERE "accountId"=${accountId} AND status='PENDING' AND "expiresAt"<NOW()`;
       const connections = await s.connections(accountId, profile.tenantId);
       if (reconnectId && !connections.some(c => c.id === reconnectId && c.provider === 'META_CLOUD')) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
+      const resumable = await s.db.$queryRaw<any[]>`SELECT * FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND "userId"=${userId}
+        AND "reconnectId" IS NOT DISTINCT FROM ${reconnectId || null} AND status='PENDING' AND "expiresAt">NOW() ORDER BY "createdAt" DESC LIMIT 1`;
+      if (resumable.length) return {
+        attemptId: resumable[0].id, stateToken: resumable[0].stateToken,
+        appId: process.env.META_APP_ID, configId: process.env.META_CONFIG_ID,
+        graphApiVersion: process.env.WHATSAPP_GRAPH_API_VERSION || 'v26.0'
+      };
       const pending = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND status IN ('PENDING','PROCESSING')`;
       if (connections.filter(c => c.numberRecordId && c.id !== reconnectId).length + pending[0].n >= profile.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED', 'The number allowance is already in use. Ask your administrator to review it.');
       const id = randomUUID(), stateToken = this.deps.whatsAppOnboardingService!.generateSignupState(profile.tenantId, accountId);

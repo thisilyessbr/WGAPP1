@@ -230,7 +230,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     vi.stubEnv('META_APP_ID','test-app');vi.stubEnv('META_CONFIG_ID','test-config');
     const a=await client(),b=await client();await approved(a);await approved(b);
     const principal={user:a.user,accountId:a.accountId,tenantId:a.tenantId,sessionId:'s',csrf:'c'} as any;
-    const start=await connections.begin(principal);await expect(connections.begin(principal)).rejects.toMatchObject({code:'NUMBER_ALLOWANCE_REACHED'});
+    const start=await connections.begin(principal);expect(await connections.begin(principal)).toEqual(start);
     const input={...start,code:'not-a-real-code',wabaId:'waba',phoneNumberId:'phone'};
     await expect(connections.complete({...principal,user:b.user,accountId:b.accountId,tenantId:b.tenantId},input)).rejects.toMatchObject({code:'CONNECTION_ATTEMPT_EXPIRED'});
     expect((await connections.complete(principal,input)).success).toBe(true);
