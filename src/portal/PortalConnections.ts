@@ -24,6 +24,7 @@ export class PortalConnections {
       };
       const pending = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND status IN ('PENDING','PROCESSING')`;
       if (connections.filter(c => c.numberRecordId && c.id !== reconnectId).length + pending[0].n >= profile.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED', 'The number allowance is already in use. Ask your administrator to review it.');
+      await s.throttle('wa-start:' + accountId, 5, 900);
       const id = randomUUID(), stateToken = this.deps.whatsAppOnboardingService!.generateSignupState(profile.tenantId, accountId);
       await s.db.$executeRaw`INSERT INTO "PortalConnectionAttempt"(id,"userId","accountId","stateToken","reconnectId","expiresAt") VALUES (${id},${userId},${accountId},${stateToken},${reconnectId || null},${new Date(Date.now() + 600000)})`;
       await s.audit(userId, accountId, 'WHATSAPP_LINK_STARTED');
