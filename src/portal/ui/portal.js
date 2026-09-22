@@ -91,8 +91,8 @@
 
   let whatsappCleanup=()=>{};
   function loadFacebook(appId,version){return new Promise((resolve,reject)=>{
-    if(window.FB){window.FB.init({appId,version,xfbml:false,cookie:true});return resolve();}
-    window.fbAsyncInit=()=>{window.FB.init({appId,version,xfbml:false,cookie:true});resolve();};
+    if(window.FB){window.FB.init({appId,version,xfbml:true,cookie:true});return resolve();}
+    window.fbAsyncInit=()=>{window.FB.init({appId,version,xfbml:true,cookie:true});resolve();};
     let script=document.querySelector('#facebook-sdk');if(script)script.remove();
     script=document.createElement('script');script.id='facebook-sdk';script.src='https://connect.facebook.net/en_US/sdk.js';script.async=true;script.onerror=()=>reject(Error('WhatsApp sign-in could not load. Check your connection and retry.'));document.head.append(script);
   });}
@@ -115,7 +115,7 @@
       };
       window.addEventListener('message',listener);whatsappCleanup=()=>{clearTimeout(callbackTimer);window.removeEventListener('message',listener);};
       const button=document.querySelector('#launch-meta');button.hidden=false;progress('Ready. Continue to sign in with your Meta business account.');
-      button.onclick=()=>{progress('Meta window opened. Complete every WhatsApp setup screen…');diagnose();window.FB.login(r=>{if(r.authResponse?.code){code=r.authResponse.code;progress(details?'Connecting your number…':'Meta login approved. Waiting for WhatsApp account details…');void finish();}else progress('Meta login was cancelled or did not grant access. You can retry safely.');},{config_id:start.configId,response_type:'code',override_default_response_type:true,extras:{}});};
+      button.onclick=()=>{progress('Meta window opened. Complete every WhatsApp setup screen…');diagnose();window.FB.login(r=>{if(r.authResponse?.code){code=r.authResponse.code;progress(details?'Connecting your number…':'Meta login approved. Waiting for WhatsApp account details…');void finish();}else progress('Meta login was cancelled or did not grant access. You can retry safely.');},{config_id:start.configId,response_type:'code',override_default_response_type:true,extras:{setup:{},featureType:'',sessionInfoVersion:'3'}});};
     }
     async function qr(result){
       const id=result.connectionId;let stopped=false,timer;
