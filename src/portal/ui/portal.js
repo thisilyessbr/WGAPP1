@@ -102,16 +102,20 @@
     const progress=m=>{const el=document.querySelector('#wa-progress');if(el)el.textContent=m;};
     async function meta(start){
       progress('Loading secure WhatsApp sign-in…');await loadFacebook(start.appId,start.graphApiVersion);
-      let code,details,submitted=false;
-      const finish=async()=>{if(submitted||!code||!details)return;submitted=true;progress('Connecting your number…');try{await api('/client/whatsapp/complete',{method:'POST',body:JSON.stringify({...start,appId:undefined,configId:undefined,graphApiVersion:undefined,code,wabaId:details.waba_id,phoneNumberId:details.phone_number_id,pin:document.querySelector('#wa-pin').value||undefined})});toast('WhatsApp connected. Your administrator can activate the chatbot.');whatsappCleanup();whatsapp();}catch(e){progress(e.message);toast(e.message,true);}};
+      let code,details,submitted=false,callbackTimer;
+      const diagnose=()=>{clearTimeout(callbackTimer);callbackTimer=setTimeout(()=>{if(submitted)return;if(code&&!details)progress('Meta login was approved, but WhatsApp account details were not returned. Finish every WhatsApp setup screen and check the Login for Business configuration.');else if(!code&&details)progress('WhatsApp details were returned, but the secure Meta login code is missing. Retry the connection in Chrome or Edge.');else progress('Meta returned no login result. Allow pop-ups and tracking for this site, then retry in Chrome or Edge.');},12000);};
+      const finish=async()=>{if(submitted||!code||!details?.waba_id||!details?.phone_number_id)return;submitted=true;clearTimeout(callbackTimer);progress('Connecting your number…');try{await api('/client/whatsapp/complete',{method:'POST',body:JSON.stringify({...start,appId:undefined,configId:undefined,graphApiVersion:undefined,code,wabaId:details.waba_id,phoneNumberId:details.phone_number_id,pin:document.querySelector('#wa-pin').value||undefined})});toast('WhatsApp connected. Your administrator can activate the chatbot.');whatsappCleanup();whatsapp();}catch(e){progress(e.message);toast(e.message,true);}};
       const listener=e=>{if(!['https://www.facebook.com','https://web.facebook.com'].includes(e.origin))return;let payload;try{payload=typeof e.data==='string'?JSON.parse(e.data):e.data;}catch{return;}if(payload?.type!=='WA_EMBEDDED_SIGNUP')return;
-        if(payload.event==='FINISH'&&payload.data?.waba_id&&payload.data?.phone_number_id){details=payload.data;void finish();}
-        else if(payload.event==='CANCEL'||payload.event==='ERROR')progress('Sign-in was cancelled or failed. Restart the connection step.');
-        else if(String(payload.event).startsWith('FINISH'))progress('This Meta flow did not return a number. Select the standard business-number signup configuration.');
+        const eventName=String(payload.event||'').toUpperCase(),data=payload.data||{};
+        if(['FINISH','FINISH_ONLY_WABA','FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING'].includes(eventName)){
+          if(data.waba_id&&data.phone_number_id){details=data;progress(code?'Connecting your number…':'WhatsApp details received. Waiting for Meta login approval…');void finish();}
+          else progress('Meta completed the flow but did not return a phone number. Select and verify a business number inside the Meta window.');
+        } else if(eventName==='CANCEL')progress('Meta signup was cancelled at '+String(data.current_step||'an unknown step')+'. Restart the connection step.');
+        else if(eventName==='ERROR')progress('Meta signup failed: '+String(data.error_message||'unknown Meta error')+'.');
       };
-      window.addEventListener('message',listener);whatsappCleanup=()=>window.removeEventListener('message',listener);
+      window.addEventListener('message',listener);whatsappCleanup=()=>{clearTimeout(callbackTimer);window.removeEventListener('message',listener);};
       const button=document.querySelector('#launch-meta');button.hidden=false;progress('Ready. Continue to sign in with your Meta business account.');
-      button.onclick=()=>window.FB.login(r=>{if(r.authResponse?.code){code=r.authResponse.code;void finish();}else progress('Sign-in cancelled. You can try again.');},{config_id:start.configId,response_type:'code',override_default_response_type:true});
+      button.onclick=()=>{progress('Meta window opened. Complete every WhatsApp setup screen…');diagnose();window.FB.login(r=>{if(r.authResponse?.code){code=r.authResponse.code;progress(details?'Connecting your number…':'Meta login approved. Waiting for WhatsApp account details…');void finish();}else progress('Meta login was cancelled or did not grant access. You can retry safely.');},{config_id:start.configId,response_type:'code',override_default_response_type:true,extras:{}});};
     }
     async function qr(result){
       const id=result.connectionId;let stopped=false,timer;
