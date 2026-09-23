@@ -210,7 +210,12 @@ export class WhatsAppWorker {
     }
 
     // 3. Evaluate Outbound Policy (Customer Service Window, text vs template)
-    const inboundTimestamp = typeof job.timestamp === 'bigint' ? Number(job.timestamp) : (Number(job.timestamp) || job.enqueuedAt);
+    const rawInboundTimestamp = typeof job.timestamp === 'bigint' ? Number(job.timestamp) : Number(job.timestamp);
+    // Meta webhook timestamps are Unix seconds, while the policy adapter uses
+    // JavaScript milliseconds. Queue jobs created internally may already use ms.
+    const inboundTimestamp = Number.isFinite(rawInboundTimestamp) && rawInboundTimestamp > 0
+      ? (rawInboundTimestamp < 100_000_000_000 ? rawInboundTimestamp * 1000 : rawInboundTimestamp)
+      : job.enqueuedAt;
     const policyDecision = this.policyAdapter.evaluateOutbound({
       tenantId: job.tenantId,
       accountId: job.accountId,

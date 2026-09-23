@@ -110,6 +110,22 @@ describe('audit: state and delivery',()=>{
     expect(engine.handleMessage).toHaveBeenCalledTimes(1);
     expect(engine.recordInboundMessage).toHaveBeenCalledWith('t','customer','My order is 123','a','second');
   });
+  it('converts Meta webhook timestamps from seconds to milliseconds before policy evaluation',async()=>{
+    const evaluateOutbound=vi.fn(()=>({action:'SEND_TEXT',text:'Reply',isWithinCustomerServiceWindow:true}));
+    const routeOutbound=vi.fn(async()=>({success:true,providerMessageId:'sent'}));
+    const worker=new WhatsAppWorker(
+      {registerHandler:()=>{}} as any,
+      {handleMessage:vi.fn(async()=>'Reply')} as any,
+      {} as any,
+      {resolveAccountByPhoneNumberId:async()=>({tenantId:'t',accountId:'a',enabled:true,status:'CONNECTED',transport:'META_CLOUD'})} as any,
+      {evaluateOutbound} as any,
+      {routeOutbound} as any
+    );
+    const timestampSeconds=Math.floor(Date.now()/1000);
+    await worker.processJob({id:'j',wamid:'w',tenantId:'t',accountId:'a',waId:'customer',phoneNumberId:'phone',message:'Hello',timestamp:timestampSeconds,enqueuedAt:Date.now()} as any);
+    expect(evaluateOutbound).toHaveBeenCalledWith(expect.objectContaining({lastInboundTimestamp:timestampSeconds*1000}));
+    expect(routeOutbound).toHaveBeenCalledTimes(1);
+  });
   it('does not bypass an actual human takeover with an acknowledgment ID',async()=>{
     const {guard,conv}=workerFixture();conv.status='HUMAN_ACTIVE';conv.humanRequested=true;
     expect((await guard.evaluateOutbound({tenantId:'t',accountId:'a',phoneNumberId:'phone',recipientWaId:'customer',handoffAcknowledgmentFor:'first'})).allowed).toBe(false);
