@@ -127,7 +127,20 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, await documents.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
   }));
   client.delete('/documents/:id', route(async (req, res) => { await documents.remove(req.portal.user.id, req.portal.accountId!, String(req.params.id), false); send(res, { success: true }); }));
-  client.get('/whatsapp', route(async (req, res) => send(res, { connections: await store.connections(req.portal.accountId!, req.portal.tenantId!), qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()), metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID) })));
+  client.get('/whatsapp', route(async (req, res) => {
+    const [profile, accountConnections] = await Promise.all([
+      store.profile(req.portal.accountId!, req.portal.tenantId!),
+      store.connections(req.portal.accountId!, req.portal.tenantId!)
+    ]);
+    const numberLimit = profile.planSnapshot?.limits.numbers ?? 0;
+    const connectedNumberCount = accountConnections.filter(connection => connection.numberRecordId).length;
+    send(res, {
+      connections: accountConnections,
+      canAddNumber: numberLimit === -1 || connectedNumberCount < numberLimit,
+      qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()),
+      metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID)
+    });
+  }));
   client.post('/whatsapp/start', route(async (req, res) => { send(res, await connections.begin(req.portal)); }));
   client.post('/whatsapp/qr', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.startQr(req.portal)); }));
   client.get('/whatsapp/:id/qr', route(async (req, res) => send(res, await connections.qr(req.portal, String(req.params.id)))));
