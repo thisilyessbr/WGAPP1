@@ -116,7 +116,7 @@
       };
       window.addEventListener('message',listener);whatsappCleanup=()=>{clearTimeout(callbackTimer);window.removeEventListener('message',listener);};
       const button=document.querySelector('#launch-meta');button.hidden=false;progress('Ready. Continue to sign in with your Meta business account.');
-      button.onclick=()=>{progress('Meta window opened. Complete every WhatsApp setup screen…');diagnose();window.FB.login(r=>{if(r.authResponse?.code){code=r.authResponse.code;progress(details?'Connecting your number…':'Meta login approved. Waiting for WhatsApp account details…');void finish();}else progress('Meta login was cancelled or did not grant access. You can retry safely.');},{config_id:start.configId,auth_type:'rerequest',response_type:'code',override_default_response_type:true,extras:{version:'v4',setup:{},sessionInfoVersion:'3',featureType:'whatsapp_business_app_onboarding'}});};
+      button.onclick=()=>{progress('Meta window opened. Complete every WhatsApp setup screen…');diagnose();window.FB.login(r=>{if(r.authResponse?.code){code=r.authResponse.code;progress(details?'Connecting your number…':'Meta login approved. Waiting for WhatsApp account details…');void finish();}else progress('Meta login was cancelled or did not grant access. You can retry safely.');},{config_id:start.configId,auth_type:'rerequest',response_type:'code',override_default_response_type:true,extras:{version:'v4',sessionInfoVersion:'3'}});};
     }
     async function qr(result){
       const id=result.connectionId;let stopped=false,timer;
