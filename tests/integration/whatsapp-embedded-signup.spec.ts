@@ -78,6 +78,8 @@ describe('PHASE WHATSAPP-EMBEDDED-SIGNUP-ONBOARDING-AUDIT-IMPLEMENT-46: Embedded
           })
         } as Response;
       }
+      if (url.includes('/phone_numbers')) return { ok: true, status: 200,
+        json: async () => ({ data: [{ id: phoneId, display_phone_number: '+1 555 1234' }] }) } as Response;
       if (url.includes('/subscribed_apps')) {
         subscribedUrls.push(url);
         return { ok: true, status: 200, json: async () => ({ success: true }) } as Response;
@@ -228,6 +230,7 @@ describe('PHASE WHATSAPP-EMBEDDED-SIGNUP-ONBOARDING-AUDIT-IMPLEMENT-46: Embedded
     expect(ids).toContain(phone1);
     expect(ids).toContain(phone2);
     expect(ids).toContain(phone3);
+    expect(new Set(numbers.map(n => n.connectionId)).size).toBe(3);
   }, 25000);
 
   it('13. Re-running Embedded Signup with the same phoneNumberId is fully idempotent', async () => {

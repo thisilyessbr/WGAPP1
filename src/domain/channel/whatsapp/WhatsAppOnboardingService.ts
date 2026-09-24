@@ -7,7 +7,8 @@ import { logger } from '../../../utils/logger';
 export interface ProcessEmbeddedSignupParams {
   tenantId: string;
   accountId: string;
-  code: string;
+  code?: string;
+  encryptedMetaToken?: string;
   wabaId: string;
   phoneNumberId: string;
   displayPhoneNumber?: string | null;
@@ -37,6 +38,12 @@ export interface WhatsAppOnboardingConfig {
   signingSecret?: string;
   secretBox?: SecretBox;
   fetchFn?: typeof fetch;
+}
+
+export interface SignupPhoneCandidate {
+  wabaId: string;
+  phoneNumberId: string;
+  displayPhoneNumber: string;
 }
 
 export class WhatsAppOnboardingService {
@@ -88,6 +95,42 @@ export class WhatsAppOnboardingService {
     const payloadB64 = Buffer.from(payload, 'utf8').toString('base64url');
     const signature = crypto.createHmac('sha256', this.signingSecret).update(payloadB64).digest('base64url');
     return `${payloadB64}.${signature}`;
+  }
+
+  // Meta sometimes returns the OAuth code without a WA_EMBEDDED_SIGNUP browser
+  // event. Discover the assets granted to that code on the server instead of
+  // trusting a phone ID typed or inferred in the browser.
+  async prepareSignup(code: string): Promise<{ encryptedToken: string; candidates: SignupPhoneCandidate[] }> {
+    if (!this.appId || !this.appSecret || !code?.trim()) throw new Error('Meta signup is not configured.');
+    const exchange = new URL(`${this.baseUrl}/${this.version}/oauth/access_token`);
+    exchange.search = new URLSearchParams({ client_id: this.appId, client_secret: this.appSecret, code }).toString();
+    const tokenResponse = await this.fetchFn(exchange.toString());
+    const tokenBody: any = await tokenResponse.json().catch(() => ({}));
+    const token = tokenBody.access_token;
+    if (!tokenResponse.ok || typeof token !== 'string' || !token) throw new Error('Meta did not grant WhatsApp access. Restart the connection.');
+
+    const debug = new URL(`${this.baseUrl}/${this.version}/debug_token`);
+    debug.searchParams.set('input_token', token);
+    const debugResponse = await this.fetchFn(debug.toString(), { headers: { Authorization: `Bearer ${this.appId}|${this.appSecret}` } });
+    const debugBody: any = await debugResponse.json().catch(() => ({}));
+    if (!debugResponse.ok || debugBody.data?.is_valid !== true || String(debugBody.data?.app_id) !== this.appId) {
+      throw new Error('Meta could not verify the granted WhatsApp account. Restart the connection.');
+    }
+    const wabaIds = [...new Set<string>((debugBody.data.granular_scopes || [])
+      .filter((scope: any) => scope.scope === 'whatsapp_business_management')
+      .flatMap((scope: any) => Array.isArray(scope.target_ids) ? scope.target_ids.map(String) : []))].slice(0, 20);
+    const candidates: SignupPhoneCandidate[] = [];
+    for (const wabaId of wabaIds) {
+      const phonesResponse = await this.fetchFn(`${this.baseUrl}/${this.version}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number&limit=100`,
+        { headers: { Authorization: `Bearer ${token}` } });
+      const phones: any = await phonesResponse.json().catch(() => ({}));
+      if (!phonesResponse.ok || !Array.isArray(phones.data)) continue;
+      for (const phone of phones.data) if (phone.id) candidates.push({
+        wabaId, phoneNumberId: String(phone.id), displayPhoneNumber: String(phone.display_phone_number || '')
+      });
+    }
+    if (!candidates.length) throw new Error('Meta approved login but shared no WhatsApp phone number. Finish number setup in Meta, then restart.');
+    return { encryptedToken: this.secretBox.encrypt(token), candidates };
   }
 
   /**
@@ -154,12 +197,12 @@ export class WhatsAppOnboardingService {
    * 8. Returns sanitized non-secret result to client.
    */
   async processEmbeddedSignupCallback(params: ProcessEmbeddedSignupParams): Promise<EmbeddedSignupResult> {
-    const { tenantId, accountId, code, wabaId, phoneNumberId, displayPhoneNumber, stateToken, pin } = params;
+    const { tenantId, accountId, code, encryptedMetaToken, wabaId, phoneNumberId, displayPhoneNumber, stateToken, pin } = params;
 
     // 1. Input & Boundary Validation
     if (!tenantId || !tenantId.trim()) throw new Error('tenantId is required');
     if (!accountId || !accountId.trim()) throw new Error('accountId is required');
-    if (!code || !code.trim()) throw new Error('OAuth code is required');
+    if (!encryptedMetaToken && (!code || !code.trim())) throw new Error('OAuth code is required');
     if (!wabaId || !wabaId.trim()) throw new Error('wabaId is required');
     if (!phoneNumberId || !phoneNumberId.trim()) throw new Error('phoneNumberId is required');
 
@@ -174,6 +217,11 @@ export class WhatsAppOnboardingService {
       throw new Error(`Account [${trimmedAccountId}] not found for tenant [${trimmedTenantId}]`);
     }
 
+    const existingNumber = await this.prisma.whatsAppBusinessNumber.findUnique({ where: { phoneNumberId: trimmedPhoneNumberId } });
+    if (existingNumber && (existingNumber.tenantId !== trimmedTenantId || existingNumber.accountId !== trimmedAccountId)) {
+      throw new Error(`phoneNumberId [${trimmedPhoneNumberId}] is already registered to another account or tenant`);
+    }
+
     const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
     if (stateToken) {
       if (!this.validateSignupState(stateToken, trimmedTenantId, trimmedAccountId)) {
@@ -185,12 +233,14 @@ export class WhatsAppOnboardingService {
 
     logger.info(`WhatsAppOnboardingService: Processing Embedded Signup for account [${trimmedAccountId}], phoneNumberId [${trimmedPhoneNumberId}], WABA [${trimmedWabaId}]`);
 
-    const isMockCode = isTestEnv && code === 'mock_code';
+    const isMockCode = !encryptedMetaToken && isTestEnv && code === 'mock_code';
 
     // 2. Exchange authorization code for Access Token
     let userAccessToken: string | undefined = undefined;
 
-    if (isMockCode) {
+    if (encryptedMetaToken) {
+      userAccessToken = this.secretBox.decrypt(encryptedMetaToken);
+    } else if (isMockCode) {
       userAccessToken = 'mock_test_token_isolated';
     } else if (this.appId && this.appSecret) {
       try {
@@ -253,24 +303,36 @@ export class WhatsAppOnboardingService {
 
     const tokenToUse = userAccessToken;
 
-    // 3. Encrypt access token and persist ChannelConnection
-    // Keep the registration PIN with the client credential bundle so it is not
-    // lost after a successful registration. The whole bundle is encrypted.
+    // Confirm the browser-selected number belongs to the WABA granted by Meta.
+    let verifiedDisplayPhoneNumber = displayPhoneNumber?.trim() || null;
+    if (!isMockCode) {
+      try {
+        const phonesUrl = `${this.baseUrl}/${this.version}/${encodeURIComponent(trimmedWabaId)}/phone_numbers?fields=id,display_phone_number&limit=100`;
+        const phonesResp = await this.fetchFn(phonesUrl, { headers: { Authorization: `Bearer ${tokenToUse}` } });
+        const phones: any = await phonesResp.json().catch(() => ({}));
+        if (!phonesResp.ok || !Array.isArray(phones.data)) {
+          return { success: false, tenantId: trimmedTenantId, accountId: trimmedAccountId, phoneNumberId: trimmedPhoneNumberId,
+            wabaId: trimmedWabaId, status: 'FAILED', webhookSubscribed: false, registered: false,
+            error: 'Meta could not verify the WhatsApp number in the selected business account.' };
+        }
+        const selected = phones.data.find((number: any) => String(number.id) === trimmedPhoneNumberId);
+        if (!selected) {
+          return { success: false, tenantId: trimmedTenantId, accountId: trimmedAccountId, phoneNumberId: trimmedPhoneNumberId,
+            wabaId: trimmedWabaId, status: 'FAILED', webhookSubscribed: false, registered: false,
+            error: 'The selected WhatsApp number does not belong to the business account returned by Meta.' };
+        }
+        verifiedDisplayPhoneNumber = selected.display_phone_number || null;
+      } catch {
+        return { success: false, tenantId: trimmedTenantId, accountId: trimmedAccountId, phoneNumberId: trimmedPhoneNumberId,
+          wabaId: trimmedWabaId, status: 'FAILED', webhookSubscribed: false, registered: false,
+          error: 'Meta could not verify the WhatsApp number. Please retry the connection.' };
+      }
+    }
+
+    // Keep the PIN with this number's encrypted credentials after Meta succeeds.
     const pinToUse = pin && /^\d{6}$/.test(pin.trim())
       ? pin.trim()
       : crypto.randomInt(100000, 1000000).toString();
-    const encryptedCredentials = this.secretBox.encryptJson({ accessToken: tokenToUse, registrationPin: pinToUse });
-    const connection = await this.numberService.createOrUpdateConnection({
-      tenantId: trimmedTenantId,
-      accountId: trimmedAccountId,
-      provider: 'META_CLOUD',
-      status: 'PENDING',
-      enabled: true,
-      encryptedCredentials,
-      appId: this.appId || null,
-      wabaId: trimmedWabaId,
-      lastConnectedAt: new Date()
-    });
 
     // 4. Subscribe Meta App to WABA Webhooks: POST /{waba_id}/subscribed_apps
     let webhookSubscribed = false;
@@ -294,7 +356,6 @@ export class WhatsAppOnboardingService {
           const errData: any = await subResp.json().catch(() => ({}));
           const errMsg = errData?.error?.message || `HTTP ${subResp.status}`;
           logger.error(`WhatsAppOnboardingService: Webhook subscription failed for WABA [${trimmedWabaId}]: ${errMsg}`);
-          await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
           return {
             success: false,
             tenantId: trimmedTenantId,
@@ -305,14 +366,12 @@ export class WhatsAppOnboardingService {
             status: 'FAILED',
             webhookSubscribed: false,
             registered: false,
-            connectionId: connection.id,
             error: `Webhook subscription failed: ${errMsg}`
           };
         }
       } catch (err: any) {
         const errMsg = err.message || String(err);
         logger.error(`WhatsAppOnboardingService: Webhook subscription network error for WABA [${trimmedWabaId}]: ${errMsg}`);
-        await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
         return {
           success: false,
           tenantId: trimmedTenantId,
@@ -323,7 +382,6 @@ export class WhatsAppOnboardingService {
           status: 'FAILED',
           webhookSubscribed: false,
           registered: false,
-          connectionId: connection.id,
           error: `Webhook subscription network error: ${errMsg}`
         };
       }
@@ -359,7 +417,6 @@ export class WhatsAppOnboardingService {
             logger.info(`WhatsAppOnboardingService: Phone number [${trimmedPhoneNumberId}] is already registered with Cloud API`);
           } else {
             logger.error(`WhatsAppOnboardingService: Phone registration failed for [${trimmedPhoneNumberId}]: ${errMsg}`);
-            await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
             return {
               success: false,
               tenantId: trimmedTenantId,
@@ -370,7 +427,6 @@ export class WhatsAppOnboardingService {
               status: 'FAILED',
               webhookSubscribed: true,
               registered: false,
-              connectionId: connection.id,
               error: `Phone registration failed: ${errMsg}`
             };
           }
@@ -378,7 +434,6 @@ export class WhatsAppOnboardingService {
       } catch (err: any) {
         const errMsg = err.message || String(err);
         logger.error(`WhatsAppOnboardingService: Phone registration network error for [${trimmedPhoneNumberId}]: ${errMsg}`);
-        await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
         return {
           success: false,
           tenantId: trimmedTenantId,
@@ -389,20 +444,33 @@ export class WhatsAppOnboardingService {
           status: 'FAILED',
           webhookSubscribed: true,
           registered: false,
-          connectionId: connection.id,
           error: `Phone registration network error: ${errMsg}`
         };
       }
     }
 
-    // 6. Persist mapping in database atomically with connectionId
-    await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'CONNECTED');
+    // Separate credentials per number, even when several numbers share a WABA.
+    // A failed reconnect cannot replace an already working connection.
+    const encryptedCredentials = this.secretBox.encryptJson({ accessToken: tokenToUse, registrationPin: pinToUse });
+    const connection = await this.numberService.createOrUpdateConnection({
+      tenantId: trimmedTenantId,
+      accountId: trimmedAccountId,
+      provider: 'META_CLOUD',
+      connectionKey: trimmedPhoneNumberId,
+      status: 'CONNECTED',
+      enabled: true,
+      encryptedCredentials,
+      appId: this.appId || null,
+      wabaId: trimmedWabaId,
+      lastConnectedAt: new Date(),
+      lastError: null
+    });
     await this.numberService.registerNumber({
       tenantId: trimmedTenantId,
       accountId: trimmedAccountId,
       phoneNumberId: trimmedPhoneNumberId,
       wabaId: trimmedWabaId,
-      displayPhoneNumber: displayPhoneNumber?.trim() || null,
+      displayPhoneNumber: verifiedDisplayPhoneNumber,
       status: 'CONNECTED',
       enabled: true,
       connectionId: connection.id,
@@ -417,7 +485,7 @@ export class WhatsAppOnboardingService {
       accountId: trimmedAccountId,
       phoneNumberId: trimmedPhoneNumberId,
       wabaId: trimmedWabaId,
-      displayPhoneNumber: displayPhoneNumber?.trim() || null,
+      displayPhoneNumber: verifiedDisplayPhoneNumber,
       status: 'CONNECTED',
       webhookSubscribed: true,
       registered: true,

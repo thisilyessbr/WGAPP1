@@ -16,7 +16,9 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
   let database: Awaited<ReturnType<typeof portalDatabase>>, store: PortalStore, budget: PortalBudget, auth: PortalAuth, docs: PortalDocuments, connections: PortalConnections, app: express.Express;
   let passwordHash: string, admin: any, plan: any;
   const password = 'Portal-test-password-2026!', delivered: { email: string; kind: string; url: string }[] = [];
-  const onboarding = { generateSignupState: () => randomUUID(), processEmbeddedSignupCallback: vi.fn(async () => ({ success: true })) };
+  const onboarding = { generateSignupState: () => randomUUID(), prepareSignup: vi.fn(async () => ({
+    encryptedToken: 'encrypted-test-token', candidates: [{ wabaId: 'waba-a', phoneNumberId: 'phone-a', displayPhoneNumber: '+212 600000001' }]
+  })), processEmbeddedSignupCallback: vi.fn(async () => ({ success: true })) };
   beforeAll(async () => {
     database = await portalDatabase(); store = new PortalStore(database.db); budget = new PortalBudget(store);
     auth = new PortalAuth(store, { publicUrl: 'http://localhost', sendLink: async (email, kind, url) => { delivered.push({ email, kind, url }); } });
@@ -236,6 +238,26 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect((await connections.complete(principal,input)).success).toBe(true);
     await expect(connections.complete(principal,input)).rejects.toMatchObject({code:'CONNECTION_ATTEMPT_EXPIRED'});expect(onboarding.processEmbeddedSignupCallback).toHaveBeenCalledTimes(1);
     vi.unstubAllEnvs();
+  });
+  it('recovers code-only Meta signup without exposing the token or crossing accounts', async () => {
+    vi.stubEnv('META_APP_ID','test-app');vi.stubEnv('META_CONFIG_ID','test-config');
+    try {
+      const a=await client(),b=await client();await approved(a);await approved(b);
+      const principal={user:a.user,accountId:a.accountId,tenantId:a.tenantId,sessionId:'s',csrf:'c'} as any;
+      const other={user:b.user,accountId:b.accountId,tenantId:b.tenantId,sessionId:'s',csrf:'c'} as any;
+      const start=await connections.begin(principal);
+      await expect(connections.discover(other,{...start,code:'oauth-code'})).rejects.toMatchObject({code:'CONNECTION_ATTEMPT_EXPIRED'});
+      const discovered=await connections.discover(principal,{...start,code:'oauth-code'});
+      expect(discovered).toEqual({candidates:[{wabaId:'waba-a',phoneNumberId:'phone-a',displayPhoneNumber:'+212 600000001'}]});
+      expect(JSON.stringify(discovered)).not.toContain('encrypted-test-token');
+      await expect(connections.complete(principal,{...start,wabaId:'waba-a',phoneNumberId:'another-phone'})).rejects.toMatchObject({code:'META_NUMBER_NOT_GRANTED'});
+      expect((await connections.complete(principal,{...start,wabaId:'waba-a',phoneNumberId:'phone-a'})).success).toBe(true);
+      expect(onboarding.processEmbeddedSignupCallback).toHaveBeenLastCalledWith(expect.objectContaining({
+        accountId:a.accountId,phoneNumberId:'phone-a',encryptedMetaToken:'encrypted-test-token'
+      }));
+      const rows=await store.db.$queryRaw<any[]>`SELECT "encryptedMetaToken","metaCandidates" FROM "PortalConnectionAttempt" WHERE id=${start.attemptId}`;
+      expect(rows[0].encryptedMetaToken).toBeNull();expect(rows[0].metaCandidates).toBeNull();
+    } finally { vi.unstubAllEnvs(); }
   });
   it('returns real SQL statistics and admin usage without credentials', async () => {
     const c=await client();await active(c);const headers=await cookie(admin);

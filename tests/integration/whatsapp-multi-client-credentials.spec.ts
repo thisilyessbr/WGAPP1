@@ -72,6 +72,8 @@ describe('Phase 1: Meta Multi-Client Credentials & Security Integration Tests', 
           json: async () => ({ access_token: clientSecretToken })
         } as Response;
       }
+      if (url.includes('/phone_numbers')) return { ok: true, status: 200,
+        json: async () => ({ data: [{ id: phoneId, display_phone_number: '+15559090' }] }) } as Response;
       if (url.includes('/subscribed_apps')) {
         return { ok: true, status: 200, json: async () => ({ success: true }) } as Response;
       }
@@ -221,6 +223,8 @@ describe('Phase 1: Meta Multi-Client Credentials & Security Integration Tests', 
     const wabaId = `waba-fail-sub-${Date.now()}`;
 
     const mockFetch = vi.fn(async (url: string) => {
+      if (url.includes('/phone_numbers')) return { ok: true, status: 200,
+        json: async () => ({ data: [{ id: phoneId }] }) } as Response;
       if (url.includes('/subscribed_apps')) {
         return {
           ok: false,

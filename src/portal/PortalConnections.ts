@@ -12,7 +12,8 @@ export class PortalConnections {
     return this.store.transaction(async s => {
       const profile = await s.lockProfile(accountId);
       if (profile.tenantId !== principal.tenantId || !profile.planSnapshot || profile.status === 'SUSPENDED') throw new PortalError(403, 'PLAN_APPROVAL_REQUIRED');
-      await s.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='EXPIRED' WHERE "accountId"=${accountId} AND status='PENDING' AND "expiresAt"<NOW()`;
+      await s.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='EXPIRED',"encryptedMetaToken"=NULL,"metaCandidates"=NULL
+        WHERE status='PENDING' AND "expiresAt"<NOW()`;
       const connections = await s.connections(accountId, profile.tenantId);
       if (reconnectId && !connections.some(c => c.id === reconnectId && c.provider === 'META_CLOUD')) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
       const resumable = await s.db.$queryRaw<any[]>`SELECT * FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND "userId"=${userId}
@@ -22,8 +23,9 @@ export class PortalConnections {
         appId: process.env.META_APP_ID, configId: process.env.META_CONFIG_ID,
         graphApiVersion: process.env.WHATSAPP_GRAPH_API_VERSION || 'v26.0'
       };
-      const pending = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND status IN ('PENDING','PROCESSING')`;
-      if (connections.filter(c => c.numberRecordId && c.id !== reconnectId).length + pending[0].n >= profile.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED', 'The number allowance is already in use. Ask your administrator to review it.');
+      const processing = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId}
+        AND "reconnectId" IS NULL AND status='PROCESSING'`;
+      if (connections.filter(c => c.numberRecordId && c.id !== reconnectId).length + processing[0].n >= profile.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED', 'The number allowance is already in use. Ask your administrator to review it.');
       await s.throttle('wa-start:' + accountId, 5, 900);
       const id = randomUUID(), stateToken = this.deps.whatsAppOnboardingService!.generateSignupState(profile.tenantId, accountId);
       await s.db.$executeRaw`INSERT INTO "PortalConnectionAttempt"(id,"userId","accountId","stateToken","reconnectId","expiresAt") VALUES (${id},${userId},${accountId},${stateToken},${reconnectId || null},${new Date(Date.now() + 600000)})`;
@@ -31,32 +33,55 @@ export class PortalConnections {
       return { attemptId: id, stateToken, appId: process.env.META_APP_ID, configId: process.env.META_CONFIG_ID, graphApiVersion: process.env.WHATSAPP_GRAPH_API_VERSION || 'v26.0' };
     });
   }
+  async discover(principal: PortalPrincipal, input: { attemptId: string; stateToken: string; code: string }) {
+    await this.store.throttle('wa-discover:' + principal.accountId!, 5, 900);
+    const attempts = await this.store.db.$queryRaw<any[]>`SELECT id FROM "PortalConnectionAttempt" WHERE id=${input.attemptId}
+      AND "userId"=${principal.user.id} AND "accountId"=${principal.accountId!} AND "stateToken"=${input.stateToken}
+      AND status='PENDING' AND "expiresAt">NOW()`;
+    if (!attempts.length) throw new PortalError(400, 'CONNECTION_ATTEMPT_EXPIRED', 'Restart the WhatsApp connection step.');
+    let prepared;
+    try { prepared = await this.deps.whatsAppOnboardingService!.prepareSignup(input.code); }
+    catch (error) { throw new PortalError(400, 'META_DISCOVERY_FAILED', error instanceof Error ? error.message : 'Meta could not return the WhatsApp numbers. Restart the connection.'); }
+    const updated = await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET "encryptedMetaToken"=${prepared.encryptedToken},
+      "metaCandidates"=${JSON.stringify(prepared.candidates)}::jsonb WHERE id=${input.attemptId} AND "userId"=${principal.user.id}
+      AND "accountId"=${principal.accountId!} AND status='PENDING' AND "expiresAt">NOW()`;
+    if (!updated) throw new PortalError(400, 'CONNECTION_ATTEMPT_EXPIRED', 'Restart the WhatsApp connection step.');
+    return { candidates: prepared.candidates };
+  }
   async complete(principal: PortalPrincipal, input: any) {
     const attempt = await this.store.transaction(async s => {
       const profile = await s.lockProfile(principal.accountId!);
       if (!profile.planSnapshot || profile.status === 'SUSPENDED') throw new PortalError(403, 'PLAN_APPROVAL_REQUIRED');
-      const rows = await s.db.$queryRaw<any[]>`UPDATE "PortalConnectionAttempt" SET status='PROCESSING' WHERE id=${input.attemptId} AND "userId"=${principal.user.id}
-        AND "accountId"=${principal.accountId!} AND "stateToken"=${input.stateToken} AND status='PENDING' AND "expiresAt">NOW() RETURNING *`;
+      const rows = await s.db.$queryRaw<any[]>`SELECT * FROM "PortalConnectionAttempt" WHERE id=${input.attemptId} AND "userId"=${principal.user.id}
+        AND "accountId"=${principal.accountId!} AND "stateToken"=${input.stateToken} AND status='PENDING' AND "expiresAt">NOW() FOR UPDATE`;
       if (!rows.length) throw new PortalError(400, 'CONNECTION_ATTEMPT_EXPIRED', 'Restart the WhatsApp connection step.');
+      if (!input.code && (!rows[0].encryptedMetaToken || !Array.isArray(rows[0].metaCandidates) ||
+        !rows[0].metaCandidates.some((candidate: any) => candidate.wabaId === input.wabaId && candidate.phoneNumberId === input.phoneNumberId))) {
+        throw new PortalError(400, 'META_NUMBER_NOT_GRANTED', 'Choose a number returned by Meta or restart the connection.');
+      }
       const connections = await s.connections(principal.accountId!, principal.tenantId!);
       const reconnectId = rows[0].reconnectId;
       if (reconnectId && !connections.some(c => c.id === reconnectId && c.phoneNumberId === input.phoneNumberId)) throw new PortalError(400, 'RECONNECT_SAME_NUMBER', 'Select the same WhatsApp number when reconnecting.');
-      if (connections.filter(c => c.numberRecordId && c.id !== reconnectId).length >= profile.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED');
+      const processing = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${principal.accountId!}
+        AND id<>${input.attemptId} AND "reconnectId" IS NULL AND status='PROCESSING'`;
+      if (connections.filter(c => c.numberRecordId && c.id !== reconnectId).length + processing[0].n >= profile.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED');
+      await s.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='PROCESSING' WHERE id=${input.attemptId}`;
       return rows[0];
     });
     try {
       const result = await this.deps.whatsAppOnboardingService!.processEmbeddedSignupCallback({
         tenantId: principal.tenantId!, accountId: principal.accountId!, code: input.code,
+        encryptedMetaToken: input.code ? undefined : attempt.encryptedMetaToken,
         wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, stateToken: attempt.stateToken,
         displayPhoneNumber: input.displayPhoneNumber, pin: input.pin
       });
-      if (!result.success) throw new PortalError(400, 'WHATSAPP_CONNECTION_FAILED', 'WhatsApp could not be connected. Check the business account permissions and try again.');
-      await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='COMPLETED' WHERE id=${attempt.id}`;
+      if (!result.success) throw new PortalError(400, 'WHATSAPP_CONNECTION_FAILED', result.error || 'WhatsApp could not be connected. Check the business account permissions and try again.');
+      await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='COMPLETED',"encryptedMetaToken"=NULL,"metaCandidates"=NULL WHERE id=${attempt.id}`;
       await this.store.audit(principal.user.id, principal.accountId!, 'WHATSAPP_CONNECTED');
       return { success: true, connections: await this.store.connections(principal.accountId!, principal.tenantId!) };
     } catch (error) {
       // Failed attempts need explicit restart; never replay an OAuth code automatically.
-      await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='FAILED' WHERE id=${attempt.id}`;
+      await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='FAILED',"encryptedMetaToken"=NULL,"metaCandidates"=NULL WHERE id=${attempt.id}`;
       throw error;
     }
   }
@@ -77,8 +102,9 @@ export class PortalConnections {
       const p = await s.lockProfile(principal.accountId!);
       if (p.tenantId !== principal.tenantId || p.status === 'SUSPENDED' || !p.planSnapshot?.modules.includes('qr')) throw new PortalError(403, 'QR_NOT_INCLUDED');
       const existing = await s.connections(p.accountId, p.tenantId);
-      const pending = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${p.accountId} AND (status='PROCESSING' OR (status='PENDING' AND "expiresAt">NOW()))`;
-      if (existing.filter(c => c.numberRecordId).length + pending[0].n >= p.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED');
+      const processing = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${p.accountId}
+        AND "reconnectId" IS NULL AND status='PROCESSING'`;
+      if (existing.filter(c => c.numberRecordId).length + processing[0].n >= p.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED');
       const id = randomUUID();
       await s.db.$executeRaw`INSERT INTO "PortalConnectionAttempt"(id,"userId","accountId","stateToken",status,"expiresAt") VALUES (${id},${principal.user.id},${p.accountId},'QR','PROCESSING',NOW()+INTERVAL '10 minutes')`;
       return id;
