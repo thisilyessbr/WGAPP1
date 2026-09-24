@@ -475,6 +475,8 @@ model PortalConnectionAttempt {
   userId String
   accountId String
   stateToken String
+  encryptedMetaToken String?
+  metaCandidates Json?
   reconnectId String?
   status String @default("PENDING")
   expiresAt DateTime @db.Timestamptz(6)

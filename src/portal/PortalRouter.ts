@@ -142,11 +142,19 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     });
   }));
   client.post('/whatsapp/start', route(async (req, res) => { send(res, await connections.begin(req.portal)); }));
+  client.post('/whatsapp/discover', route(async (req, res) => {
+    const input = object(req.body); allowed(input, ['attemptId', 'stateToken', 'code']);
+    for (const key of ['attemptId', 'stateToken', 'code']) input[key] = text(input[key], key === 'code' ? 4096 : 2048);
+    if (!input.attemptId || !input.stateToken || !input.code) throw new PortalError(400, 'MISSING_META_CODE');
+    send(res, await connections.discover(req.portal, input as { attemptId: string; stateToken: string; code: string }));
+  }));
   client.post('/whatsapp/qr', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.startQr(req.portal)); }));
   client.get('/whatsapp/:id/qr', route(async (req, res) => send(res, await connections.qr(req.portal, String(req.params.id)))));
   client.post('/whatsapp/complete', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['attemptId', 'stateToken', 'code', 'wabaId', 'phoneNumberId', 'displayPhoneNumber', 'pin']);
-    for (const key of ['attemptId', 'stateToken', 'code', 'wabaId', 'phoneNumberId']) input[key] = text(input[key], key === 'code' ? 4096 : 2048);
+    for (const key of ['attemptId', 'stateToken', 'wabaId', 'phoneNumberId']) input[key] = text(input[key]);
+    if (input.code !== undefined) input.code = text(input.code, 4096);
+    if (!input.attemptId || !input.stateToken || !input.wabaId || !input.phoneNumberId) throw new PortalError(400, 'MISSING_META_NUMBER');
     if (input.pin !== undefined) { input.pin = text(input.pin, 6); if (!/^\d{6}$/.test(input.pin)) throw new PortalError(400, 'INVALID_PIN'); }
     if (input.displayPhoneNumber !== undefined) input.displayPhoneNumber = text(input.displayPhoneNumber, 100);
     send(res, await connections.complete(req.portal, input));
