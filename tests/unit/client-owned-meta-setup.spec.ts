@@ -7,7 +7,7 @@ const input = {
   phoneNumberId: '555555555', accessToken: 'client-token'
 };
 
-function fixture(options: { tokenAppId?: string; wabaPhoneId?: string; existingOwner?: string } = {}) {
+function fixture(options: { tokenAppId?: string; wabaPhoneId?: string; existingOwner?: string; existingAppConnection?: any } = {}) {
   const saved: any = { connection: null, number: options.existingOwner ? { accountId: options.existingOwner } : null };
   const db: any = {
     account: { findUnique: async () => ({ id: 'client-1', tenantId: 'tenant-1' }) },
@@ -18,7 +18,7 @@ function fixture(options: { tokenAppId?: string; wabaPhoneId?: string; existingO
     },
     channelConnection: {
       findFirst: async () => saved.connection,
-      findMany: async () => saved.connection ? [saved.connection] : [],
+      findMany: async () => [...(options.existingAppConnection ? [options.existingAppConnection] : []), ...(saved.connection ? [saved.connection] : [])],
       findUnique: async () => saved.connection,
       upsert: async ({ create, update }: any) => {
         saved.connection = saved.connection ? { ...saved.connection, ...update } : { ...create, id: '11111111-1111-4111-8111-111111111111' };
@@ -67,6 +67,22 @@ describe('client-owned Meta setup', () => {
   it('does not move a phone number owned by another Relayqo client', async () => {
     const { service, calls } = fixture({ existingOwner: 'client-2' });
     await expect(service.prepare('client-1', input)).rejects.toThrow('NUMBER_ALREADY_ASSIGNED');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('does not reuse a Meta app already attached through legacy onboarding', async () => {
+    const { service, calls } = fixture({ existingAppConnection: {
+      accountId: 'client-1', wabaId: input.wabaId, connectionKey: 'LEGACY_SIGNUP'
+    } });
+    await expect(service.prepare('client-1', input)).rejects.toThrow('META_APP_ALREADY_ASSIGNED');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('does not let another client overwrite an existing app callback', async () => {
+    const { service, calls } = fixture({ existingAppConnection: {
+      accountId: 'client-2', wabaId: input.wabaId, connectionKey: `CLIENT_OWNED:${input.appId}:${input.wabaId}`
+    } });
+    await expect(service.prepare('client-1', input)).rejects.toThrow('META_APP_ALREADY_ASSIGNED');
     expect(calls).toHaveLength(0);
   });
 });
