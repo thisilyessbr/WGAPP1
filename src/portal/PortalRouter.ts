@@ -767,11 +767,23 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   }));
   admin.get('/accounts/:id/whatsapp/client-owned/:connectionId/setup', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    send(res, await new ClientOwnedMetaService(deps.prisma).setup(String(req.params.connectionId), p.accountId));
+    try {
+      send(res, await new ClientOwnedMetaService(deps.prisma).setup(String(req.params.connectionId), p.accountId));
+    } catch (error: any) {
+      if (error?.message === 'CONNECTION_NOT_FOUND') throw new PortalError(404, 'CONNECTION_NOT_FOUND');
+      throw error;
+    }
   }));
   admin.post('/accounts/:id/whatsapp/client-owned/:connectionId/activate', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    const result = await new ClientOwnedMetaService(deps.prisma).activate(String(req.params.connectionId), p.accountId);
+    let result;
+    try { result = await new ClientOwnedMetaService(deps.prisma).activate(String(req.params.connectionId), p.accountId); }
+    catch (error: any) {
+      const code = String(error?.message || 'META_SUBSCRIPTION_FAILED');
+      if (code === 'WEBHOOK_NOT_VERIFIED') throw new PortalError(409, code);
+      if (code === 'META_SUBSCRIPTION_FAILED') throw new PortalError(502, code);
+      throw error;
+    }
     await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_ACTIVATED', { connectionId: result.connectionId });
     send(res, result);
   }));

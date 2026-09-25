@@ -131,9 +131,14 @@ export class ClientOwnedMetaService {
       throw new Error('WEBHOOK_NOT_VERIFIED');
     }
     const { accessToken } = this.secretBox.decryptJson<ClientOwnedMetaCredentials>(connection.encryptedCredentials);
-    const response = await this.fetchFn(`https://graph.facebook.com/${process.env.WHATSAPP_GRAPH_API_VERSION || 'v26.0'}/${connection.wabaId}/subscribed_apps`, {
-      method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10000)
-    });
+    let response: Response;
+    try {
+      response = await this.fetchFn(`https://graph.facebook.com/${process.env.WHATSAPP_GRAPH_API_VERSION || 'v26.0'}/${connection.wabaId}/subscribed_apps`, {
+        method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10000)
+      });
+    } catch {
+      throw new Error('META_SUBSCRIPTION_FAILED');
+    }
     if (!response.ok || (await response.json() as any)?.success !== true) throw new Error('META_SUBSCRIPTION_FAILED');
     await this.db.$transaction(async tx => {
       await tx.channelConnection.update({ where: { id: connectionId }, data: { status: 'CONNECTED', enabled: true, lastConnectedAt: new Date() } });
