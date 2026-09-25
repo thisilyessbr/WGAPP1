@@ -62,6 +62,30 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect((await request(app).post('/api/auth/verify-email').send({token})).status).toBe(400);
     const ok=await request(app).post('/api/auth/login').send({email:user!.email,password});expect(ok.status).toBe(200);expect(ok.headers['set-cookie'][0]).toContain('HttpOnly');expect(JSON.stringify(ok.body)).not.toContain('passwordHash');
   });
+  it('creates accounts without a signup plan and lets admins find the owner by name or email', async () => {
+    const address = randomUUID() + '@portal.test';
+    const signup = await request(app).post('/api/auth/signup').send({ email: address, name: 'Layla Owner', password, planId: plan.id });
+    expect(signup.status).toBe(400);
+    expect((await request(app).post('/api/auth/signup').send({ email: address, name: 'Layla Owner', password })).status).toBe(201);
+    const user = await store.userByEmail(address);
+    const memberships = await store.memberships(user!.id);
+    const found = (await store.accounts('Layla Owner')).find(a => a.accountId === memberships[0].accountId);
+    expect(found).toMatchObject({ clientName: 'Layla Owner', clientEmail: address, planId: null });
+    expect((await store.accounts(address)).some(a => a.accountId === found.accountId)).toBe(true);
+  });
+  it('shows only account-scoped admin conversation transcripts', async () => {
+    const c = await client(), other = await client(), headers = await cookie(admin);
+    const customerId = randomUUID(), conversationId = randomUUID(), messageId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt") VALUES (${customerId},${c.tenantId},'+212600000001',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","messageCount","updatedAt") VALUES (${conversationId},${c.tenantId},${c.accountId},${customerId},1,NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content) VALUES (${messageId},${c.tenantId},${conversationId},'USER','Hello, do you deliver?')`;
+    const list = await request(app).get('/api/admin/accounts/' + c.accountId + '/conversations').set(headers);
+    expect(list.status).toBe(200);
+    expect(list.body.conversations.find((row: any) => row.id === conversationId)).toMatchObject({ customerId: '+212600000001', lastMessage: 'Hello, do you deliver?' });
+    const detail = await request(app).get('/api/admin/accounts/' + c.accountId + '/conversations/' + conversationId).set(headers);
+    expect(detail.body).toMatchObject({ hasMore: false, messages: [{ content: 'Hello, do you deliver?' }] });
+    expect((await request(app).get('/api/admin/accounts/' + other.accountId + '/conversations/' + conversationId).set(headers)).status).toBe(404);
+  });
   it('requires email confirmation for every administrator login', async () => {
     const r=await request(app).post('/api/auth/login').send({email:admin.email,password});expect(r.body.requiresEmailConfirmation).toBe(true);expect(r.headers['set-cookie']).toBeUndefined();
     const link=delivered.findLast(d=>d.kind==='ADMIN_LOGIN')!;const token=new URLSearchParams(new URL(link.url).hash.slice(1)).get('token');

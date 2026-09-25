@@ -92,6 +92,42 @@
 .dashboard-shell .admin-account-row{padding:15px 0}
 .dashboard-shell .workspace-fact{font-size:12px}
 
+/* Administrator conversation review */
+.admin-conversations-card{padding:24px}
+.admin-convo-toolbar{display:flex;align-items:center;gap:10px;margin:20px 0 14px;flex-wrap:wrap}
+.admin-convo-toolbar input,.admin-convo-toolbar select{min-height:42px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);font:inherit}
+.admin-convo-toolbar input{flex:1 1 250px}
+.admin-convo-toolbar select{flex:0 1 190px}
+.admin-convo-toolbar .small{margin-inline-start:auto}
+.admin-convo-layout{display:grid;grid-template-columns:minmax(270px,350px) minmax(0,1fr);height:min(680px,75vh);min-height:480px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+.admin-convo-list{overflow-y:auto;border-inline-end:1px solid var(--line)}
+.admin-convo-item{width:100%;display:flex;align-items:flex-start;gap:11px;padding:16px;text-align:start;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--line);cursor:pointer;font:inherit}
+.admin-convo-item:hover,.admin-convo-item.active{background:var(--raised)}
+.admin-convo-item.active{box-shadow:inset 3px 0 0 var(--green)}
+.admin-convo-avatar{display:grid;place-items:center;flex:none;width:35px;height:35px;border-radius:10px;background:var(--soft);color:var(--green);font-weight:800}
+.admin-convo-item-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:5px}
+.admin-convo-item-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.admin-convo-item-top strong,.admin-convo-subtitle,.admin-convo-snippet{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-convo-item-top strong{font-size:13px}
+.admin-convo-item-top time{flex:none;font-size:10px;color:var(--muted)}
+.admin-convo-subtitle,.admin-convo-snippet{font-size:11px;color:var(--muted)}
+.admin-convo-item-state{margin-top:3px}
+.admin-convo-item-state .badge{font-size:10px;padding:3px 8px}
+.admin-convo-reader{display:flex;flex-direction:column;min-width:0;min-height:0}
+.admin-convo-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.admin-convo-reader-head h3{font-size:17px;margin:0}
+.admin-convo-reader-head p{font-size:11px;color:var(--muted);margin:4px 0 0}
+.admin-convo-owner{font-size:11px;color:var(--muted);padding:9px 20px;background:var(--raised);border-bottom:1px solid var(--line)}
+.admin-convo-transcript{display:flex;flex:1;flex-direction:column;gap:13px;overflow-y:auto;padding:22px;min-height:0}
+.admin-convo-message{max-width:min(78%,620px);padding:12px 15px;border:1px solid var(--line);border-radius:15px;background:var(--raised);overflow-wrap:anywhere;align-self:flex-start}
+.admin-convo-message.bot{align-self:flex-end;background:var(--soft)}
+.admin-convo-message.team{align-self:flex-end;border-color:var(--green)}
+.admin-convo-message-meta{display:flex;align-items:baseline;gap:12px;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:5px}
+.admin-convo-message-meta strong{color:var(--text)}
+.admin-convo-message p{font-size:13px;line-height:1.55;white-space:pre-wrap;margin:0}
+.admin-convo-empty{margin:auto;padding:28px;text-align:center;color:var(--muted);font-size:13px}
+.admin-convo-older{text-align:center;margin-bottom:6px}
+
 @media(max-width:1120px){
   .dashboard-shell .dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -113,6 +149,11 @@
   .dashboard-shell .dashboard-metric p{padding-inline-end:30px}
   .dashboard-shell .dashboard-metric>strong{font-size:29px;margin-top:21px}
   .dashboard-shell .dashboard-grid,.dashboard-shell .admin-insights{gap:16px}
+  .admin-conversations-card{padding:16px}
+  .admin-convo-layout{grid-template-columns:1fr;height:auto;min-height:0}
+  .admin-convo-list{max-height:300px;border-inline-end:0;border-bottom:1px solid var(--line)}
+  .admin-convo-reader{min-height:420px}
+  .admin-convo-message{max-width:92%}
 }
 @media(max-width:430px){
   .dashboard-shell .dashboard-metric{min-height:145px}

@@ -231,10 +231,14 @@ export class PortalStore {
   }
   async accounts(search = '', offset = 0) {
     offset = Math.max(0, Math.min(1000000, Math.floor(Number.isFinite(offset) ? offset : 0)));
-    return this.db.$queryRaw<any[]>`SELECT p."accountId",p."tenantId",a.name,p.status,p.revision,p."planId",p."requestedPlanId",p."createdAt",p."updatedAt",p."planSnapshot"->>'name' AS "planName",
+    return this.db.$queryRaw<any[]>`SELECT p."accountId",p."tenantId",a.name,owner.name AS "clientName",owner.email AS "clientEmail",p.status,p.revision,p."planId",p."requestedPlanId",p."createdAt",p."updatedAt",p."planSnapshot"->>'name' AS "planName",
       (SELECT COUNT(*)::int FROM "Conversation" c WHERE c."accountId"=p."accountId" AND c."tenantId"=p."tenantId") AS conversations
       FROM "PortalProfile" p JOIN "Account" a ON a.id=p."accountId" AND a."tenantId"=p."tenantId"
-      WHERE a.name ILIKE ${'%' + search + '%'} ORDER BY p."updatedAt" DESC LIMIT 50 OFFSET ${offset}`;
+      LEFT JOIN LATERAL (SELECT u.name,u.email FROM "PortalMembership" m JOIN "PortalUser" u ON u.id=m."userId"
+        WHERE m."accountId"=p."accountId" AND m."tenantId"=p."tenantId" AND u.role='CLIENT'
+        ORDER BY u."createdAt",u.id LIMIT 1) owner ON true
+      WHERE a.name ILIKE ${'%' + search + '%'} OR owner.name ILIKE ${'%' + search + '%'} OR owner.email ILIKE ${'%' + search + '%'}
+      ORDER BY p."updatedAt" DESC LIMIT 50 OFFSET ${offset}`;
   }
   async auditHistory(accountId: string | null, offset = 0) { return this.db.$queryRaw<any[]>`SELECT * FROM "PortalAudit" WHERE (${accountId}::text IS NULL OR "accountId"=${accountId}) ORDER BY "createdAt" DESC LIMIT 100 OFFSET ${offset}`; }
   async versions(accountId: string) { return this.db.$queryRaw<any[]>`SELECT id,revision,"actorId","createdAt" FROM "PortalPublication" WHERE "accountId"=${accountId} ORDER BY revision DESC LIMIT 30`; }
