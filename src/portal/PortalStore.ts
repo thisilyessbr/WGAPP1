@@ -18,17 +18,17 @@ export class PortalStore {
   }
   async userByEmail(email: string) { return (await this.db.$queryRaw<PortalUser[]>`SELECT * FROM "PortalUser" WHERE email=${email}`)[0] || null; }
   async userById(id: string) { return (await this.db.$queryRaw<PortalUser[]>`SELECT * FROM "PortalUser" WHERE id=${id}`)[0] || null; }
-  async register(email: string, name: string, passwordHash: string, requestedPlanId: string | null) {
+  async register(email: string, name: string, passwordHash: string, requestedPlanId: string | null, verifyWithoutEmail = false) {
     return this.transaction(async s => {
       if (requestedPlanId && !(await s.plan(requestedPlanId))?.published) throw new PortalError(400, 'PLAN_UNAVAILABLE');
       const userId = randomUUID(), tenantId = randomUUID(), accountId = randomUUID();
-      await s.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash") VALUES (${userId},${email},${name},${passwordHash})`;
+      await s.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash","verifiedAt") VALUES (${userId},${email},${name},${passwordHash},${verifyWithoutEmail ? new Date() : null})`;
       await s.db.$executeRaw`INSERT INTO "Tenant"(id,name,"updatedAt") VALUES (${tenantId},${name},NOW())`;
       await s.db.$executeRaw`INSERT INTO "Account"(id,"tenantId",name,enabled,config,"updatedAt") VALUES (${accountId},${tenantId},${name},true,'{"portalManaged":true}',NOW())`;
       await s.db.$executeRaw`INSERT INTO "PortalMembership"("userId","tenantId","accountId") VALUES (${userId},${tenantId},${accountId})`;
       const draft = { ...structuredClone(EMPTY_BUSINESS), name, email };
       await s.db.$executeRaw`INSERT INTO "PortalProfile"("accountId","tenantId",draft,"requestedPlanId") VALUES (${accountId},${tenantId},${json(draft)}::jsonb,${requestedPlanId})`;
-      await s.audit(userId, accountId, 'CLIENT_REGISTERED');
+      await s.audit(userId, accountId, 'CLIENT_REGISTERED', { emailVerificationBypassed: verifyWithoutEmail });
       return { userId, tenantId, accountId };
     });
   }
