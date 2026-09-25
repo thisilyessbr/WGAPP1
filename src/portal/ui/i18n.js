@@ -57,7 +57,16 @@
 
   const supported = new Set(['en', 'fr', 'ar']);
   const stored = (() => { try { return localStorage.getItem('relayqo-language'); } catch { return null; } })();
-  let locale = supported.has(stored) ? stored : 'en';
+  const requested = new URLSearchParams(location.search).get('lang');
+  let locale = supported.has(requested) ? requested : supported.has(stored) ? stored : 'en';
+  if (supported.has(requested)) {
+    try { localStorage.setItem('relayqo-language', requested); } catch {}
+    try {
+      const url = new URL(location.href);
+      url.searchParams.delete('lang');
+      history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    } catch {}
+  }
   const originals = new WeakMap();
   const attributeOriginals = new WeakMap();
   const title = 'Relayqo · Your business, connected';
