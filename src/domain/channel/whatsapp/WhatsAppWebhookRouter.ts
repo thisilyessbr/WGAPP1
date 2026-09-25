@@ -78,6 +78,18 @@ export function createWhatsAppWebhookRouter(
       const extractedMessages = WhatsAppWebhookExtractor.extractMessages(req.body);
       const extractedStatuses = WhatsAppWebhookExtractor.extractStatuses(req.body);
 
+      // A signature from one Meta app cannot deliver a different client's number.
+      if (options.expectedConnectionId || options.rejectClientOwned) {
+        const phoneIds = new Set([...extractedMessages, ...extractedStatuses].map(event => event.phoneNumberId));
+        for (const phoneId of phoneIds) {
+          const mapping = await numberService.resolveAccountByPhoneNumberId(phoneId, { requireEnabled: false });
+          if (!mapping || (options.expectedConnectionId && mapping.connectionId !== options.expectedConnectionId)
+            || (options.rejectClientOwned && mapping.connection?.connectionKey.startsWith('CLIENT_OWNED:'))) {
+            return res.status(403).json({ error: 'WEBHOOK_NUMBER_NOT_AUTHORIZED' });
+          }
+        }
+      }
+
       let processedStatuses = 0;
       if (extractedStatuses.length > 0) {
         for (const st of extractedStatuses) {

@@ -10,6 +10,7 @@ import { logger } from './utils/logger';
 import { bootstrapChatbot, ChatbotDependencies, WebDependencies } from './bootstrap';
 import { createApiRouter } from './dev/chatApi';
 import { createWhatsAppWebhookRouter } from './domain/channel/whatsapp/WhatsAppWebhookRouter';
+import { createClientOwnedMetaWebhookRouter } from './domain/channel/whatsapp/ClientOwnedMetaWebhookRouter';
 import { createWhatsAppOnboardingRouter } from './domain/channel/whatsapp/WhatsAppOnboardingRouter';
 import { createPortalRouter } from './portal/PortalRouter';
 import { createChannelManagementRouter } from './domain/channel/guard/ChannelManagementRouter';
@@ -58,13 +59,16 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
   if (deps.whatsAppNumberService) {
     const whatsAppWebhookRouter = createWhatsAppWebhookRouter(
       deps.whatsAppNumberService,
-      {},
+      { rejectClientOwned: true },
       deps.whatsAppIdempotencyStore,
       deps.whatsAppMessageQueue,
       deps.prisma
     );
     app.use('/api/v1/webhook/whatsapp', whatsAppWebhookRouter);
     app.use('/api/webhook/whatsapp', whatsAppWebhookRouter);
+    app.use('/api/webhook/whatsapp/client', createClientOwnedMetaWebhookRouter(
+      deps.prisma, deps.whatsAppNumberService, deps.whatsAppIdempotencyStore, deps.whatsAppMessageQueue
+    ));
   }
 
   // Mount WhatsApp Onboarding & Embedded Signup Router
