@@ -7,7 +7,7 @@ import { PortalConnections } from './PortalConnections';
 import { PortalDocuments } from './PortalDocuments';
 import { EMPTY_BUSINESS, PortalError, PortalPrincipal, PortalProfile, PortalPlan } from './types';
 import { allowed, compileBusiness, email, integer, list, object, text, validateAdminConfig, validatePlan } from './validation';
-import { ChatbotDependencies } from '../bootstrap';
+import { ConversationEngine } from '../domain/conversation/ConversationEngine';
 import { ConversationAutomationService } from '../domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
@@ -17,7 +17,7 @@ type PortalRequest = Request & { portal: PortalPrincipal };
 export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; }
 export interface PortalRouterDeps {
   prisma: any;
-  conversationEngine?: any;
+  conversationEngine?: Pick<ConversationEngine, 'previewMessage'>;
   qrSessionManager?: any;
   conversationAutomationService?: ConversationAutomationService;
   whatsAppOutboundQueue?: OutboundMessageQueue;
@@ -862,10 +862,9 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       if (!p.published || !account.config) throw new PortalError(400, 'PUBLISH_FIRST', 'Publish this account before testing the published version.');
       config = account.config;
     }
-    const engine: any = deps.conversationEngine;
-    const response = typeof engine.previewMessage === 'function'
-      ? await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config)
-      : await engine.handleMessage(p.tenantId, `portal-preview:${req.portal.user.id}:${sessionId}`, message, p.accountId);
+    const engine = deps.conversationEngine;
+    if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE', 'Chatbot preview is temporarily unavailable.');
+    const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config);
     await store.audit(req.portal.user.id, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
     send(res, { response, mode, sessionId });
   }));
