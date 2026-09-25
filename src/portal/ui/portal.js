@@ -229,8 +229,8 @@
       const term=card.querySelector('#admin-convo-search').value.trim().toLocaleLowerCase();
       const filter=card.querySelector('#admin-convo-filter').value;
       const shown=conversations.filter(c=>(filter!=='handoff'||c.humanRequested||['HANDOFF_REQUESTED','HUMAN_ACTIVE'].includes(c.status))&&(!term||[c.customerName,c.customerId,c.lastMessage,c.status].some(v=>String(v||'').toLocaleLowerCase().includes(term))));
-      card.querySelector('#admin-convo-count').textContent=`${shown.length} shown · latest ${conversations.length} loaded`;
-      list.innerHTML=shown.map(c=>`<button type="button" class="admin-convo-item ${selectedId===c.id?'active':''}" data-conversation="${escape(c.id)}" aria-current="${selectedId===c.id?'true':'false'}"><span class="admin-convo-avatar">${escape(label(c).slice(0,1).toUpperCase())}</span><span class="admin-convo-item-copy"><span class="admin-convo-item-top"><strong>${escape(label(c))}</strong><time>${escape(when(c.updatedAt))}</time></span><span class="admin-convo-subtitle">${escape(c.customerId||'')} · ${Number(c.messageCount||0)} messages</span><span class="admin-convo-snippet">${escape(c.lastMessage||'No messages yet')}</span><span class="admin-convo-item-state">${c.humanRequested?'<span class="badge orange">Needs attention</span>':`<span class="badge">${escape(c.status||'Active')}</span>`}</span></span></button>`).join('')||'<div class="admin-convo-empty">No conversations match your search.</div>';
+      card.querySelector('#admin-convo-count').textContent=`${shown.length} / ${conversations.length}`;
+      list.innerHTML=shown.map(c=>`<button type="button" class="admin-convo-item ${selectedId===c.id?'active':''}" data-conversation="${escape(c.id)}" aria-current="${selectedId===c.id?'true':'false'}"><span class="admin-convo-avatar">${escape(label(c).slice(0,1).toUpperCase())}</span><span class="admin-convo-item-copy"><span class="admin-convo-item-top"><strong>${escape(label(c))}</strong><time>${escape(when(c.updatedAt))}</time></span><span class="admin-convo-subtitle"><span>${escape(c.customerId||'')} · </span><span>${Number(c.messageCount||0)} messages</span></span><span class="admin-convo-snippet">${escape(c.lastMessage||'No messages yet')}</span><span class="admin-convo-item-state">${c.humanRequested?'<span class="badge orange">Needs attention</span>':`<span class="badge">${escape(c.status||'Active')}</span>`}</span></span></button>`).join('')||'<div class="admin-convo-empty">No conversations match your search.</div>';
       list.querySelectorAll('[data-conversation]').forEach(button=>button.onclick=()=>open(button.dataset.conversation));
     };
     const bubbles=messages=>messages.map(m=>{const role=String(m.role||'').toUpperCase(),kind=role==='USER'?'customer':role==='ASSISTANT'||role==='AI'?'bot':'team',sender=kind==='customer'?'Customer':kind==='bot'?'Chatbot':'Team';return `<div class="admin-convo-message ${kind}"><div class="admin-convo-message-meta"><strong>${sender}</strong><time>${escape(when(m.createdAt))}</time></div><p>${escape(m.content||'')}</p></div>`}).join('');
@@ -240,7 +240,7 @@
       selectedId=id;renderList();reader.innerHTML='<div class="admin-convo-empty">Loading transcript…</div>';
       const version=++requestVersion,c=conversations.find(item=>item.id===id);
       try{const result=await api('/admin/accounts/'+accountId+'/conversations/'+id);if(version!==requestVersion)return;olderOffset=result.messages.length;hasMore=result.hasMore;
-        reader.innerHTML=`<div class="admin-convo-reader-head"><div><h3>${escape(label(c))}</h3><p>${escape(c.customerId||'')} · ${Number(c.messageCount||0)} messages</p></div><span class="badge ${c.humanRequested?'orange':''}">${escape(c.humanRequested?'Needs attention':c.status||'Active')}</span></div>${c.ownerName?`<div class="admin-convo-owner">Assigned to ${escape(c.ownerName)}</div>`:''}<div class="admin-convo-transcript">${olderButton()}${bubbles(result.messages)||'<div class="admin-convo-empty">No messages in this conversation yet.</div>'}</div>`;
+        reader.innerHTML=`<div class="admin-convo-reader-head"><div><h3>${escape(label(c))}</h3><p><span>${escape(c.customerId||'')} · </span><span>${Number(c.messageCount||0)} messages</span></p></div><span class="badge ${c.humanRequested?'orange':''}">${escape(c.humanRequested?'Needs attention':c.status||'Active')}</span></div>${c.ownerName?`<div class="admin-convo-owner"><span>Assigned to</span> ${escape(c.ownerName)}</div>`:''}<div class="admin-convo-transcript">${olderButton()}${bubbles(result.messages)||'<div class="admin-convo-empty">No messages in this conversation yet.</div>'}</div>`;
         const transcript=reader.querySelector('.admin-convo-transcript');transcript.scrollTop=transcript.scrollHeight;wireOlder();
       }catch(error){if(version===requestVersion){reader.innerHTML='<div class="admin-convo-empty">Could not load this conversation.</div>';toast(error.message,true)}}
     };
@@ -253,7 +253,7 @@
 
   async function adminExtras(id,p,members=[]){
     const owner=members[0],heading=document.querySelector('.page-heading p');
-    if(owner&&heading)heading.textContent=`Client: ${owner.name} · ${owner.email} · ${p.status}. Changes are recorded in the activity history.`;
+    if(owner&&heading)heading.textContent=`${owner.name} · ${owner.email} · ${p.status}`;
     adminControls(p);
     await showDocuments(id);
     await renderAdminConversations(id);

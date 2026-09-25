@@ -55,6 +55,30 @@
     ['Type a reply…','Écrire une réponse…','اكتب ردًا…']
   ]) translations.set(en, { fr, ar });
 
+  for (const [en, fr, ar] of [
+    ['Create your account first. Your administrator will assign your plan afterward.','Créez d’abord votre compte. Votre administrateur vous attribuera ensuite une offre.','أنشئ حسابك أولاً، ثم سيعيّن لك المشرف الباقة.'],
+    ['Find a client by their name, email or business, then manage their plan and chatbot.','Recherchez un client par son nom, son e-mail ou son entreprise, puis gérez son offre et son chatbot.','ابحث عن العميل باسمه أو بريده أو نشاطه، ثم أدر باقته وروبوت المحادثة.'],
+    ['All client accounts','Tous les comptes clients','جميع حسابات العملاء'],
+    ['Search name, email or business','Rechercher un nom, un e-mail ou une entreprise','ابحث بالاسم أو البريد أو النشاط'],
+    ['Search client name, email or business','Rechercher un client par nom, e-mail ou entreprise','ابحث عن العميل بالاسم أو البريد أو النشاط'],
+    ['Business','Entreprise','النشاط'],['Client','Client','العميل'],['Assigned plan','Offre attribuée','الباقة المعيّنة'],
+    ['Updated','Mise à jour','آخر تحديث'],['Manage ›','Gérer ›','إدارة ›'],['Name unavailable','Nom indisponible','الاسم غير متاح'],
+    ['No email','Aucun e-mail','لا يوجد بريد'],['Awaiting assignment','En attente d’attribution','بانتظار التعيين'],
+    ['No client accounts found.','Aucun compte client trouvé.','لم يتم العثور على حسابات عملاء.'],
+    ['Customer conversations','Conversations clients','محادثات العملاء'],
+    ['Review what customers asked and how the chatbot answered. This view is read-only.','Consultez les questions des clients et les réponses du chatbot. Cette vue est en lecture seule.','راجع أسئلة العملاء وإجابات الروبوت. هذه الصفحة للقراءة فقط.'],
+    ['Refresh','Actualiser','تحديث'],['Search customer or message','Rechercher un client ou un message','ابحث عن عميل أو رسالة'],
+    ['Search conversations','Rechercher des conversations','البحث في المحادثات'],
+    ['All conversations','Toutes les conversations','جميع المحادثات'],
+    ['No conversations match your search.','Aucune conversation ne correspond à votre recherche.','لا توجد محادثات تطابق بحثك.'],
+    ['No messages yet','Aucun message pour le moment','لا توجد رسائل بعد'],
+    ['Loading transcript…','Chargement de la conversation…','جارٍ تحميل المحادثة…'],
+    ['Could not load this conversation.','Impossible de charger cette conversation.','تعذر تحميل هذه المحادثة.'],
+    ['Could not load conversations.','Impossible de charger les conversations.','تعذر تحميل المحادثات.'],
+    ['No messages in this conversation yet.','Aucun message dans cette conversation.','لا توجد رسائل في هذه المحادثة بعد.'],
+    ['Assigned to','Attribuée à','مُسندة إلى'],['Chatbot','Chatbot','روبوت المحادثة'],['Team','Équipe','الفريق']
+  ]) translations.set(en, { fr, ar });
+
   const supported = new Set(['en', 'fr', 'ar']);
   const stored = (() => { try { return localStorage.getItem('relayqo-language'); } catch { return null; } })();
   const requested = new URLSearchParams(location.search).get('lang');
@@ -82,6 +106,8 @@
     if (greeting) return left + (locale === 'fr' ? `${greeting[1] === 'Welcome back' ? 'Bon retour' : 'Préparons votre lancement'}, ${greeting[2]}` : `${greeting[1] === 'Welcome back' ? 'مرحبًا بعودتك' : 'لنبدأ إعدادك'}، ${greeting[2]}`) + right;
     const count = key.match(/^([\d\s,.\u00a0]+) (messages|products|documents|WhatsApp numbers?|used|total|remaining)$/);
     if (count) return left + count[1] + ' ' + (translations.get(count[2])?.[locale] || count[2]) + right;
+    const accountCount = key.match(/^(\d+) (matching )?accounts$/);
+    if (accountCount) return left + (locale === 'fr' ? `${accountCount[1]} ${accountCount[2] ? 'comptes correspondants' : 'comptes'}` : `${accountCount[1]} ${accountCount[2] ? 'حسابات مطابقة' : 'حسابات'}`) + right;
     const ready = key.match(/^(\d+\/\d+) ready$/);
     if (ready) return left + ready[1] + ' ' + translations.get('ready')[locale] + right;
     const version = key.match(/^Version (\d+)$/);
