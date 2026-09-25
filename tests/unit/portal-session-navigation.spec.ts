@@ -52,6 +52,8 @@ function portal(entries=['/login'], role: 'CLIENT'|'ADMIN'|null=null) {
 describe('portal session navigation',()=>{
   it('requires a separate login after signup and replaces authentication history',async()=>{
     const p=portal(['/signup']);await p.start();
+    expect(p.root.innerHTML).not.toContain('id="plan"');
+    expect(p.root.innerHTML).toContain('administrator will assign your plan afterward');
     p.element('#name').value='Test';p.element('#email').value='owner@test.example';p.element('#password').value='Test-password-2026!';
     await p.submit();expect(p.location.pathname).toBe('/login');expect(p.entries).toEqual(['/login']);
     expect(p.root.innerHTML).toContain('Welcome back');expect(p.element('#auth-notice').textContent).toContain('Log in to continue');

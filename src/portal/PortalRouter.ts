@@ -52,7 +52,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   router.get('/portal/settings', (_req, res) => send(res, { emailVerificationSkipped: auth.skipsEmail() }));
   authRouter.use((req, _res, next) => { try { if (!['GET', 'HEAD'].includes(req.method)) auth.checkOrigin(req); next(); } catch (error) { next(error); } });
   authRouter.post('/signup', route(async (req, res) => {
-    const input = object(req.body); allowed(input, ['email', 'name', 'password', 'planId']);
+    const input = object(req.body); allowed(input, ['email', 'name', 'password']);
     send(res, await auth.signup(input, req.ip || 'unknown'), 201);
   }));
   authRouter.post('/login', route(async (req, res) => { const input = object(req.body); allowed(input, ['email', 'password']); send(res, await auth.login(input, req.ip || 'unknown', res)); }));
@@ -733,7 +733,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.get('/accounts/:id', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
     send(res, { profile: p, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
-      members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id WHERE m."accountId"=${p.accountId}` });
+      members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id
+        WHERE m."accountId"=${p.accountId} AND m."tenantId"=${p.tenantId} AND u.role='CLIENT' ORDER BY u."createdAt",u.id` });
   }));
   admin.patch('/accounts/:id', route(async (req, res) => {
     const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);
@@ -772,10 +773,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   }));
   admin.get('/accounts/:id/conversations', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    const rows = await store.db.$queryRaw<any[]>`SELECT c.id,c.status,COALESCE(cu."externalId",c."customerId") AS "customerId",c."messageCount",c."humanRequested",c."updatedAt",
+    const rows = await store.db.$queryRaw<any[]>`SELECT c.id,c.status,COALESCE(cu."externalId",c."customerId") AS "customerId",
+      cu.metadata->>'name' AS "customerName",c."messageCount",c."humanRequested",c."updatedAt",
+      last_message.content AS "lastMessage",last_message.role AS "lastMessageRole",
       c."contextData"->'_portalHandoff'->>'ownerId' AS "ownerId",u.name AS "ownerName" FROM "Conversation" c
       LEFT JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
       LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
+      LEFT JOIN LATERAL (SELECT m.content,m.role FROM "Message" m WHERE m."conversationId"=c.id AND m."tenantId"=c."tenantId"
+        ORDER BY m."createdAt" DESC,m.id DESC LIMIT 1) last_message ON true
       WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} AND c."customerId" NOT LIKE 'portal-preview:%' ORDER BY c."updatedAt" DESC LIMIT 50`;
     send(res, { conversations: rows });
   }));
@@ -827,10 +832,17 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   }));
   admin.get('/accounts/:id/conversations/:conversationId', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m."createdAt" FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId"
-      WHERE c.id=${String(req.params.conversationId)} AND c."tenantId"=${p.tenantId} AND m."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} ORDER BY m."createdAt" DESC LIMIT 100`;
+    const conversationId = String(req.params.conversationId);
+    const conversation = (await store.db.$queryRaw<any[]>`SELECT c.id,c."messageCount" FROM "Conversation" c
+      WHERE c.id=${conversationId} AND c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId}
+      AND c."customerId" NOT LIKE 'portal-preview:%'`)[0];
+    if (!conversation) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
+    const offset = Math.max(0, Math.min(100000, Math.floor(Number(req.query.offset) || 0)));
+    const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m."createdAt" FROM "Message" m
+      WHERE m."conversationId"=${conversationId} AND m."tenantId"=${p.tenantId}
+      ORDER BY m."createdAt" DESC,m.id DESC LIMIT 101 OFFSET ${offset}`;
     await store.audit(req.portal.user.id, p.accountId, 'CONVERSATION_VIEWED', { conversationId: String(req.params.conversationId) });
-    send(res, { messages: rows.reverse() });
+    send(res, { messages: rows.slice(0,100).reverse(), hasMore: rows.length > 100, offset });
   }));
   admin.post('/accounts/:id/preview', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));

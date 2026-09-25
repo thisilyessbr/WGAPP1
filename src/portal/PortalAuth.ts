@@ -106,7 +106,7 @@ export class PortalAuth {
     if (!this.skipsEmail()) this.assertMailConfigured();
     const passwordHash = await hashPassword(input.password);
     const existing = await this.store.userByEmail(address);
-    const result = existing ? { userId: existing.id } : await this.store.register(address, name, passwordHash, text(input.planId, 100) || null);
+    const result = existing ? { userId: existing.id } : await this.store.register(address, name, passwordHash, null);
     if (this.skipsEmail()) {
       if (existing) return { message: 'An account already exists for this email. Log in with its password.', redirect: '/login' };
       return { message: 'Your account is ready. Log in to continue.', redirect: '/login' };
