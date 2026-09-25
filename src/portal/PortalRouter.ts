@@ -11,6 +11,7 @@ import { ConversationEngine } from '../domain/conversation/ConversationEngine';
 import { ConversationAutomationService } from '../domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
+import { ClientOwnedMetaService } from '../domain/channel/whatsapp/ClientOwnedMetaService';
 import { logger } from '../utils/logger';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
@@ -139,6 +140,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       canAddNumber: numberLimit === -1 || connectedNumberCount < numberLimit,
       qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()),
       metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID)
+        && (process.env.NODE_ENV !== 'production' || process.env.META_EMBEDDED_SIGNUP_ENABLED === 'true')
     });
   }));
   client.post('/whatsapp/start', route(async (req, res) => { send(res, await connections.begin(req.portal)); }));
@@ -736,6 +738,43 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id
         WHERE m."accountId"=${p.accountId} AND m."tenantId"=${p.tenantId} AND u.role='CLIENT' ORDER BY u."createdAt",u.id` });
   }));
+  admin.post('/accounts/:id/whatsapp/client-owned', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    if (!p.planSnapshot || !['APPROVED', 'ACTIVE'].includes(p.status)) throw new PortalError(409, 'PLAN_NOT_APPROVED');
+    const input = object(req.body);
+    allowed(input, ['appId', 'appSecret', 'wabaId', 'phoneNumberId', 'accessToken']);
+    const numbers = await store.connections(p.accountId, p.tenantId);
+    const alreadyLinked = numbers.some(c => c.phoneNumberId === input.phoneNumberId);
+    const limit = p.planSnapshot.limits.numbers;
+    if (!alreadyLinked && limit !== -1 && numbers.filter(c => c.numberRecordId).length >= limit) throw new PortalError(409, 'NUMBER_LIMIT_REACHED');
+    const service = new ClientOwnedMetaService(deps.prisma);
+    try {
+      const setup = await service.prepare(p.accountId, {
+        appId: text(input.appId, 30), appSecret: text(input.appSecret, 256),
+        wabaId: text(input.wabaId, 30), phoneNumberId: text(input.phoneNumberId, 30),
+        accessToken: text(input.accessToken, 4096)
+      });
+      await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_PREPARED', {
+        connectionId: setup.connectionId, appId: setup.appId, wabaId: setup.wabaId
+      });
+      send(res, setup, 201);
+    } catch (error: any) {
+      const code = String(error?.message || 'CONNECTION_SETUP_FAILED');
+      if (code === 'META_UNAVAILABLE' || code === 'META_CREDENTIALS_OR_ACCESS_INVALID' || code === 'META_INVALID_RESPONSE') throw new PortalError(502, code);
+      if (code === 'NUMBER_ALREADY_ASSIGNED' || code === 'META_APP_ALREADY_ASSIGNED') throw new PortalError(409, code);
+      throw new PortalError(400, code);
+    }
+  }));
+  admin.get('/accounts/:id/whatsapp/client-owned/:connectionId/setup', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    send(res, await new ClientOwnedMetaService(deps.prisma).setup(String(req.params.connectionId), p.accountId));
+  }));
+  admin.post('/accounts/:id/whatsapp/client-owned/:connectionId/activate', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const result = await new ClientOwnedMetaService(deps.prisma).activate(String(req.params.connectionId), p.accountId);
+    await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_ACTIVATED', { connectionId: result.connectionId });
+    send(res, result);
+  }));
   admin.patch('/accounts/:id', route(async (req, res) => {
     const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);
     const { revision, ...changes } = data;
@@ -764,6 +803,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.patch('/accounts/:id/connections/:connectionId', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
     if (typeof req.body?.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    if (req.body.enabled) {
+      const connection = await deps.prisma.channelConnection.findUnique({ where: { id: String(req.params.connectionId) } });
+      if (connection?.connectionKey?.startsWith('CLIENT_OWNED:') && connection.status !== 'CONNECTED') {
+        throw new PortalError(409, 'WEBHOOK_NOT_VERIFIED');
+      }
+    }
     await store.transaction(async s => {
       const n = await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
       if (!n) throw new PortalError(404, 'CONNECTION_NOT_FOUND');

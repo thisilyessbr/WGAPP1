@@ -20,6 +20,8 @@ services:
         value: https://app.relayqo.online,https://relayqo.online,https://www.relayqo.online
       - key: ENABLE_QR_CHANNELS
         value: "false"
+      - key: META_EMBEDDED_SIGNUP_ENABLED
+        value: "false"
       - key: PORTAL_ENABLED
         value: "true"
       - key: PORTAL_PUBLIC_URL
