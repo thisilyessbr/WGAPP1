@@ -8,7 +8,7 @@ import { localEmailBypass } from './localTesting';
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const randomToken = () => randomBytes(32).toString('base64url');
 // Temporary launch access while outbound email is unavailable. Remove after email delivery is configured.
-const ADMIN_EMAIL_BYPASS_EXPIRES_AT = Date.parse('2026-10-02T00:00:00Z');
+const EMAIL_TESTING_EXPIRES_AT = Date.parse('2026-10-02T00:00:00Z');
 const ADMIN_EMAIL_BYPASS_ACCOUNT = 'admin@admin123.com';
 export async function hashPassword(password: string): Promise<string> {
   if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw new PortalError(400, 'WEAK_PASSWORD', 'Use a password with 12–256 characters.');
@@ -43,15 +43,15 @@ export class PortalAuth {
   }
   private developmentLinks() { return process.env.NODE_ENV !== 'production' && this.options.developmentLinks === true; }
   private resendConfigured() { return Boolean(process.env.RESEND_API_KEY && process.env.PORTAL_MAIL_FROM); }
+  private mailAvailable() { return Boolean(this.options.sendLink || this.developmentLinks() || this.resendConfigured() || (process.env.PORTAL_MAIL_WEBHOOK_URL && process.env.PORTAL_MAIL_WEBHOOK_SECRET)); }
   skipsEmail() { return localEmailBypass(this.origin); }
+  private temporaryClientSignupBypass() { return !this.skipsEmail() && Date.now() < EMAIL_TESTING_EXPIRES_AT && !this.mailAvailable(); }
   private temporaryAdminEmailBypass(user: PortalUser) {
     return user.role === 'ADMIN' && user.email === ADMIN_EMAIL_BYPASS_ACCOUNT && Boolean(user.verifiedAt)
-      && Date.now() < ADMIN_EMAIL_BYPASS_EXPIRES_AT
-      && !this.options.sendLink && !this.developmentLinks() && !this.resendConfigured()
-      && !(process.env.PORTAL_MAIL_WEBHOOK_URL && process.env.PORTAL_MAIL_WEBHOOK_SECRET);
+      && Date.now() < EMAIL_TESTING_EXPIRES_AT && !this.mailAvailable();
   }
   assertMailConfigured() {
-    if (!this.options.sendLink && !this.developmentLinks() && !this.resendConfigured() && !(process.env.PORTAL_MAIL_WEBHOOK_URL && process.env.PORTAL_MAIL_WEBHOOK_SECRET)) {
+    if (!this.mailAvailable()) {
       throw new PortalError(503, 'EMAIL_SETUP_REQUIRED', 'Email delivery is not configured. Contact the service administrator.');
     }
   }
@@ -103,11 +103,12 @@ export class PortalAuth {
     const address = email(input.email), name = text(input.name, 160);
     if (!name) throw new PortalError(400, 'NAME_REQUIRED');
     await this.store.throttle('signup:' + hashToken(ip), 5, 3600);
-    if (!this.skipsEmail()) this.assertMailConfigured();
+    const noEmailTesting = this.temporaryClientSignupBypass();
+    if (!this.skipsEmail() && !noEmailTesting) this.assertMailConfigured();
     const passwordHash = await hashPassword(input.password);
     const existing = await this.store.userByEmail(address);
-    const result = existing ? { userId: existing.id } : await this.store.register(address, name, passwordHash, null);
-    if (this.skipsEmail()) {
+    const result = existing ? { userId: existing.id } : await this.store.register(address, name, passwordHash, null, noEmailTesting);
+    if (this.skipsEmail() || noEmailTesting) {
       if (existing) return { message: 'An account already exists for this email. Log in with its password.', redirect: '/login' };
       return { message: 'Your account is ready. Log in to continue.', redirect: '/login' };
     }

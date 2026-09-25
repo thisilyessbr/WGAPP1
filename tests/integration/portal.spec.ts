@@ -73,6 +73,31 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(found).toMatchObject({ clientName: 'Layla Owner', clientEmail: address, planId: null });
     expect((await store.accounts(address)).some(a => a.accountId === found.accountId)).toBe(true);
   });
+  it('temporarily permits new client signup without email but keeps existing unverified users blocked', async () => {
+    vi.stubEnv('RESEND_API_KEY', '');
+    vi.stubEnv('PORTAL_MAIL_WEBHOOK_URL', '');
+    vi.stubEnv('PORTAL_MAIL_WEBHOOK_SECRET', '');
+    vi.stubEnv('PORTAL_DEV_SKIP_EMAIL', 'false');
+    const noMailAuth = new PortalAuth(store, { publicUrl: 'http://localhost' });
+    try {
+      const address = randomUUID() + '@portal.test';
+      const created = await noMailAuth.signup({ email: address, name: 'No mail test', password }, 'signup-test-ip');
+      expect(created).toMatchObject({ redirect: '/login' });
+      const user = await store.userByEmail(address);
+      expect(user?.verifiedAt).toBeTruthy();
+      const response = { cookie: vi.fn() } as any;
+      expect(await noMailAuth.login({ email: address, password }, 'login-test-ip', response)).toMatchObject({ redirect: '/app' });
+      expect(response.cookie).toHaveBeenCalledOnce();
+      const unverifiedAddress = randomUUID() + '@portal.test';
+      await store.register(unverifiedAddress, 'Earlier signup', passwordHash, null);
+      await noMailAuth.signup({ email: unverifiedAddress, name: 'Earlier signup', password }, 'signup-test-ip');
+      expect((await store.userByEmail(unverifiedAddress))?.verifiedAt).toBeNull();
+      await expect(noMailAuth.login({ email: unverifiedAddress, password }, 'login-test-ip', response)).rejects.toMatchObject({ code: 'EMAIL_NOT_VERIFIED' });
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-02T00:00:00Z'));
+      await expect(noMailAuth.signup({ email: randomUUID() + '@portal.test', name: 'Expired', password }, 'signup-test-ip'))
+        .rejects.toMatchObject({ code: 'EMAIL_SETUP_REQUIRED' });
+    } finally { vi.restoreAllMocks(); vi.unstubAllEnvs(); }
+  });
   it('shows only account-scoped admin conversation transcripts', async () => {
     const c = await client(), other = await client(), headers = await cookie(admin);
     const customerId = randomUUID(), conversationId = randomUUID(), messageId = randomUUID();
