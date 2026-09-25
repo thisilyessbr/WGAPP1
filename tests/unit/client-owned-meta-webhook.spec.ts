@@ -97,4 +97,39 @@ describe('client-owned Meta webhook isolation', () => {
     expect(jobs).toHaveLength(0);
     expect(lookups).toHaveLength(0);
   });
+
+  it('routes a newly added second client without changing or remounting the app', async () => {
+    process.env.ENCRYPTION_KEY = 'test-client-owned-meta-key-32-bytes';
+    const box = new SecretBox();
+    const connections = new Map<string, any>();
+    const addClient = (id: string, secret: string, token: string) => connections.set(id, {
+      id, connectionKey: `CLIENT_OWNED:${id}:987654321`, status: 'CONNECTED',
+      encryptedCredentials: box.encryptJson({ appSecret: secret, verifyToken: token, accessToken: 'hidden' })
+    });
+    addClient(connectionId, 'secret-one', 'verify-one');
+    const db: any = { channelConnection: { findUnique: async ({ where }: any) => connections.get(where.id) || null } };
+    const numberService: any = { resolveAccountByPhoneNumberId: async (phoneId: string) => {
+      const id = phoneId === '10001' ? connectionId : otherConnectionId;
+      return { tenantId: id, accountId: id, connectionId: id, connection: connections.get(id) };
+    } };
+    const jobs: any[] = [];
+    const queue: any = { durable: true, enqueue: async (job: any) => { jobs.push(job); return true; } };
+    const app = express();
+    app.use(express.json({ verify: (req, _res, bytes) => { (req as any).rawBody = bytes; } }));
+    app.use('/hook', createClientOwnedMetaWebhookRouter(db, numberService, undefined, queue));
+
+    const first = payload('10001');
+    expect((await request(app).post(`/hook/${connectionId}`)
+      .set('x-hub-signature-256', `sha256=${signed(first, 'secret-one')}`).send(first)).status).toBe(200);
+
+    // This connection is added after the Express app has already started.
+    addClient(otherConnectionId, 'secret-two', 'verify-two');
+    expect((await request(app).get(`/hook/${otherConnectionId}?hub.mode=subscribe&hub.challenge=ready&hub.verify_token=verify-two`)).text).toBe('ready');
+    const second = payload('20002');
+    expect((await request(app).post(`/hook/${otherConnectionId}`)
+      .set('x-hub-signature-256', `sha256=${signed(second, 'secret-two')}`).send(second)).status).toBe(200);
+    expect((await request(app).post(`/hook/${connectionId}`)
+      .set('x-hub-signature-256', `sha256=${signed(second, 'secret-two')}`).send(second)).status).toBe(401);
+    expect(jobs.map(job => job.accountId)).toEqual([connectionId, otherConnectionId]);
+  });
 });
