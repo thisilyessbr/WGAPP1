@@ -95,7 +95,11 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
   if ((deps as any).portalService) {
     app.use('/api', createPortalRouter((deps as any).portalService, deps as any));
     app.use('/portal-assets', express.static(path.join(__dirname, 'portal/ui')));
-    app.use(['/signup', '/login', '/app', '/admin'], (_req, res) => {
+    app.use(['/signup', '/login', '/app', '/admin'], (req, res) => {
+      if (process.env.NODE_ENV === 'production' && req.hostname === 'relayqo-backend.onrender.com') {
+        res.redirect(302, new URL(req.originalUrl, process.env.PORTAL_PUBLIC_URL).toString());
+        return;
+      }
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.facebook.com https://graph.facebook.com; frame-src https://www.facebook.com; base-uri 'none'; form-action 'self'");
       res.sendFile(path.join(__dirname, 'portal/ui/index.html'));
     });
