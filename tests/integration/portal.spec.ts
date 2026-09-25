@@ -24,7 +24,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     auth = new PortalAuth(store, { publicUrl: 'http://localhost', sendLink: async (email, kind, url) => { delivered.push({ email, kind, url }); } });
     docs = new PortalDocuments(store, budget, { ingestPdf: vi.fn(async () => 'source-test') } as any, { getEffectiveConfig: vi.fn(async () => ({})) } as any);
     connections = new PortalConnections(store, { whatsAppOnboardingService: onboarding, qrSessionManager: { isEnabled: () => false } } as any);
-    app = express(); app.use(express.json()); app.use('/api', createPortalRouter({ store, auth, documents: docs, connections }, { conversationEngine: { handleMessage: vi.fn(async () => 'Preview reply') } } as any));
+    app = express(); app.use(express.json()); app.use('/api', createPortalRouter({ store, auth, documents: docs, connections }, { conversationEngine: { previewMessage: vi.fn(async () => 'Preview reply') } } as any));
     passwordHash = await hashPassword(password);
     const id = randomUUID(); await store.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash",role,"verifiedAt") VALUES (${id},'admin@portal.test','Admin',${passwordHash},'ADMIN',NOW())`;
     admin = await store.userById(id);

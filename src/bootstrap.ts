@@ -54,7 +54,7 @@ export interface WebDependencies {
   conversationAutomationService: ConversationAutomationService;
   whatsAppOutboundQueue: OutboundMessageQueue;
   clientSafetyGuard?: ClientSafetyGuard;
-  conversationEngine?: undefined;
+  conversationEngine?: ConversationEngine;
   ragService?: undefined;
   pdfIngestionService?: undefined;
   llmFactory?: undefined;
@@ -134,8 +134,8 @@ export interface WorkerBootstrapOptions {
 
 /**
  * Bootstraps dependencies strictly needed for the Web process.
- * Does NOT instantiate WhatsAppWorker, ConversationEngine, RAG, LLMFactory,
- * or background document processing loops.
+ * Does not start WhatsApp workers or document processing loops. When the
+ * portal is enabled, it also builds the AI pipeline for isolated admin previews.
  */
 export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBootstrapOptions = {}): WebDependencies {
   const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
@@ -180,6 +180,24 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
     : new PostgresOutboundQueue(prisma, { autoStartWorker: false, disableWorker: true });
 
   const portalService = process.env.PORTAL_ENABLED === 'true' ? new PortalService(prisma as unknown as PortalDb) : undefined;
+  let conversationEngine: ConversationEngine | undefined;
+  if (portalService) {
+    const conversationService = new ConversationService(prisma);
+    const responseBuilder = new ResponseBuilder();
+    const workflowEngine = new WorkflowEngine(new WorkflowStateEvaluator(), undefined, responseBuilder, new FieldValidator());
+    const llmFactory = new LLMFactory(process.env.DEEPSEEK_API_KEY, process.env.GOOGLE_API_KEY);
+    const embeddingProvider: EmbeddingProvider = isTestEnv && process.env.USE_REAL_AI !== 'true'
+      ? new MockEmbeddingProvider()
+      : process.env.GOOGLE_API_KEY
+        ? new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY)
+        : new UnavailableEmbeddingProvider();
+    const ragService = new RAGService(portalService.budget.wrapEmbeddings(embeddingProvider), new KnowledgeRepository(prisma));
+    conversationEngine = new ConversationEngine(
+      conversationService, tenantConfigService, workflowEngine, llmFactory, responseBuilder,
+      ragService, portalService.budget.wrapImages(new ImageCapabilityGateway()), undefined,
+      accountConfigService, ecommerceService, crmService, portalService.budget
+    );
+  }
   if (portalService) {
     portalService.attach({
       prisma,
@@ -201,6 +219,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
   return {
     prisma,
     portalService,
+    conversationEngine,
     tenantConfigService,
     accountConfigService,
     crmService,
