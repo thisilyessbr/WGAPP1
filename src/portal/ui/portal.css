@@ -125,3 +125,24 @@
   .inbox-msg{max-width:92%}
 }
 
+/* Keep the light sign-in experience in the public site's paper, ink and green palette. */
+:root[data-theme=light] .auth-story{color:#071513;background:radial-gradient(ellipse at 10% 80%,#e3f3dc 0,transparent 65%),#f5f8ef;border-color:#dce6d6}
+:root[data-theme=light] .auth-story:after{border-color:#28746624;box-shadow:0 0 0 55px #28746608,0 0 0 110px #28746605}
+:root[data-theme=light] .auth-story .eyebrow{color:#356458}
+:root[data-theme=light] .auth-story h1 em{color:#287466}
+:root[data-theme=light] .auth-story-text>p{color:#3d504b}
+:root[data-theme=light] .auth-step>span{border-color:#28746645;color:#287466}
+:root[data-theme=light] .auth-step strong{color:#17302c}
+:root[data-theme=light] .auth-story-footer{color:#62706c}
+:root[data-theme=light] .auth-pane{background:#fff}
+:root[data-theme=light] .auth-form .eyebrow{color:#356458}
+:root[data-theme=light] .auth-form .btn{background:#071513;color:#fff;border-radius:10px}
+:root[data-theme=light] .auth-form .btn:hover{background:#183a34;filter:none}
+:root[data-theme=light] .auth-links a{color:#287466}
+:root[data-theme=light] .language-control-auth .language-select,
+:root[data-theme=light] .auth-theme{background:#fff;color:#071513;border-color:#dce6d6}
+
+@media(max-width:760px){
+  :root[data-theme=light] .auth-story{background:#f5f8ef;border-color:#dce6d6}
+}
+
