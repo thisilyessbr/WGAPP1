@@ -16,6 +16,7 @@ export class PortalDocuments {
     const hash = createHash('sha256').update(buffer).digest('hex');
     return this.store.transaction(async s => {
       const profile = await s.lockProfile(accountId);
+      if (profile.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       const plan = profile.planSnapshot || (profile.requestedPlanId ? await s.plan(profile.requestedPlanId) : null);
       if (!plan?.modules.includes('knowledge') || profile.status === 'SUSPENDED') throw new PortalError(403, 'KNOWLEDGE_NOT_INCLUDED');
       const existing = (await s.db.$queryRaw<any[]>`SELECT id FROM "PortalDocument" WHERE "accountId"=${accountId} AND hash=${hash}`)[0];
@@ -42,6 +43,7 @@ export class PortalDocuments {
       const p = await s.lockProfile(accountId);
       const d = (await s.db.$queryRaw<any[]>`SELECT * FROM "PortalDocument" WHERE id=${documentId} AND "accountId"=${accountId} FOR UPDATE`)[0];
       if (!d) throw new PortalError(404, 'DOCUMENT_NOT_FOUND');
+      if (!admin && p.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       if (['PROCESSING', 'QUEUED'].includes(d.status) || (!admin && d.sourceId)) throw new PortalError(409, 'DOCUMENT_REQUIRES_ADMIN', 'Ask your administrator to remove a published document.');
       if (d.sourceId) await s.db.$executeRaw`DELETE FROM "KnowledgeSource" WHERE id=${d.sourceId} AND "tenantId"=${p.tenantId} AND "accountId"=${accountId}`;
       await s.db.$executeRaw`DELETE FROM "PortalDocument" WHERE id=${documentId} AND "accountId"=${accountId}`;

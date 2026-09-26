@@ -52,6 +52,30 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId",status,"updatedAt") VALUES (${randomUUID()},${c.tenantId},${c.accountId},${randomUUID()},'CONNECTED',NOW())`;
     return store.updateAccount(admin.id,c.accountId,p.revision,{status:'ACTIVE'});
   }
+  it('freezes and unfreezes one client without blocking admin edits or plan requests', async () => {
+    const c = await client(), other = await client();
+    const adminHeaders = await cookie(admin), clientHeaders = await cookie(c.user);
+    const original = await store.profile(c.accountId);
+    const frozen = await request(app).patch('/api/admin/accounts/' + c.accountId + '/editing-freeze')
+      .set(adminHeaders).send({ frozen: true });
+    expect(frozen.status).toBe(200);
+    expect((await store.profile(c.accountId)).editingFrozen).toBe(true);
+    expect((await store.profile(other.accountId)).editingFrozen).toBe(false);
+    expect((await request(app).put('/api/client/business').set(clientHeaders)
+      .send({ data: original.draft, revision: frozen.body.profile.revision })).status).toBe(403);
+    expect((await request(app).post('/api/client/documents').set(clientHeaders).send()).status).toBe(403);
+    expect((await request(app).post('/api/client/plan-request').set(clientHeaders).send({ planId: plan.id })).status).toBe(200);
+    const current = await store.profile(c.accountId);
+    expect((await request(app).put('/api/admin/accounts/' + c.accountId + '/business').set(adminHeaders)
+      .send({ data: { ...current.draft, description: 'Admin update while frozen' }, revision: current.revision })).status).toBe(200);
+    expect((await request(app).patch('/api/admin/accounts/' + c.accountId + '/editing-freeze').set(clientHeaders)
+      .send({ frozen: false })).status).toBe(403);
+    expect((await request(app).patch('/api/admin/accounts/' + c.accountId + '/editing-freeze').set(adminHeaders)
+      .send({ frozen: false })).status).toBe(200);
+    const editable = await store.profile(c.accountId);
+    expect((await request(app).put('/api/client/business').set(clientHeaders)
+      .send({ data: editable.draft, revision: editable.revision })).status).toBe(200);
+  });
   it('signup creates an isolated draft account, without granting privileges', async () => {
     const r=await request(app).post('/api/auth/signup').set('Origin','http://localhost').send({email:'signup@portal.test',name:'New client',password,role:'ADMIN'});expect(r.status).toBe(400);
     const signup=await request(app).post('/api/auth/signup').send({email:'signup@portal.test',name:'New client',password});expect(signup.status).toBe(201);

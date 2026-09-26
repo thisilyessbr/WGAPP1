@@ -27,7 +27,7 @@ export interface PortalRouterDeps {
 }
 const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules });
 const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
-  requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, autoPublish: p.autoPublish });
+  requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish });
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
 function validateAccountChanges(changes: Record<string, any>) {
@@ -78,6 +78,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       if (!['GET', 'HEAD'].includes(req.method)) auth.checkCsrf(req, p);
       (req as PortalRequest).portal = p; next();
     }).catch(next);
+  });
+  // Freeze only chatbot data edits; inbox, leads, plans and WhatsApp remain usable.
+  client.use((req, _res, next) => {
+    if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)/.test(req.path))) return next();
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => profile.editingFrozen
+        ? next(new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.'))
+        : next()).catch(next);
   });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
   client.get('/dashboard', route(async (req, res) => {
@@ -786,6 +794,11 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     }
     await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_ACTIVATED', { connectionId: result.connectionId });
     send(res, result);
+  }));
+  admin.patch('/accounts/:id/editing-freeze', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['frozen']);
+    if (typeof body.frozen !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    send(res, { profile: await store.setEditingFrozen(req.portal.user.id, String(req.params.id), body.frozen) });
   }));
   admin.patch('/accounts/:id', route(async (req, res) => {
     const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);
