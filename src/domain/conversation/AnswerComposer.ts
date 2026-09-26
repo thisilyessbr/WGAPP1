@@ -1150,6 +1150,18 @@ ${turnDecision.inputQuery || ''}
 
     let cleaned = rawResponse.trim();
 
+    // Reserved example/test domains are never usable customer contact channels.
+    // A draft or demo profile may contain them, but the chatbot must not direct a
+    // real customer to an inbox that cannot receive mail.
+    if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.(?:test|example|invalid)\b|\b[A-Z0-9._%+-]+@example\.(?:com|org|net)\b/i.test(cleaned)) {
+      logger.warn('AnswerComposer.finalizeResponse: Placeholder contact address suppressed');
+      if (lang === 'fr') return 'Je ne peux pas confirmer ces coordonnées. Continuez ici et notre équipe pourra vous aider.';
+      if (lang === 'ar') return 'لا أستطيع تأكيد بيانات التواصل. يمكنك متابعة المحادثة هنا وسيساعدك فريقنا.';
+      if (lang === 'darija' && script === 'arabizi') return 'Ma n9drch n2ekked had l-contact. Kmml m3ana hna w l-equipe t3awnek.';
+      if (lang === 'darija') return 'ما نقدرش نأكد هاد معلومات التواصل. كمل معانا هنا والفريق يعاونك.';
+      return 'I cannot confirm those contact details. Please continue here and our team can help.';
+    }
+
     // 1. Content Trust / Internal Leak & Error Trace Sanitization
     if (/CONCURRENCY_CONFLICT|\bat (?:[a-zA-Z]:|\/app|\/src|\/node_modules)\b|Error:\s+/i.test(cleaned)) {
       logger.warn('AnswerComposer.finalizeResponse: Internal error or stack trace detected in response, sanitizing to fallback...');

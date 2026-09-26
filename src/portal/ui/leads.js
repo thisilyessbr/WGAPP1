@@ -1,57 +1,80 @@
-window.RelayqoLeads = (() => {
-  const statuses = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'];
-  const labels = {NEW:'New', CONTACTED:'Contacted', QUALIFIED:'Qualified', WON:'Won', LOST:'Lost'};
-  async function render({root,shell,header,escape,toast,api,bind,go}) {
-    const data = await api('/client/leads');
-    const leads = data.leads || [];
-    const counts = Object.fromEntries(statuses.map(status => [status, leads.filter(lead => lead.status === status).length]));
-    root.innerHTML = shell(header('Leads', 'Follow up on people who showed buying or booking intent.', '<button class="btn secondary" id="export-leads" type="button">Export CSV</button>') +
-      `<div class="lead-summary">${statuses.map(status => `<div class="card"><span>${labels[status]}</span><strong data-count="${status}">${counts[status]}</strong></div>`).join('')}</div>` +
-      `<article class="card"><div class="section-heading"><div><h2>Lead pipeline</h2><p class="muted small">Lead detection does not confirm an order. Check the conversation before marking a sale.</p>${data.hasMore?'<p class="notice">Showing the latest 1,000 leads. CSV export includes the full history.</p>':''}</div><label class="lead-filter">Status <select id="lead-filter"><option value="">All (${leads.length})</option>${statuses.map(status => `<option value="${status}">${labels[status]} (${counts[status]})</option>`).join('')}</select></label></div><div id="lead-list"></div></article>`, false, 'Leads');
-    const list = root.querySelector('#lead-list');
-    const details = (d,lead) => {
-      if (!d || typeof d !== 'object' || Array.isArray(d)) return '';
+(() => {
+  const stages = ['ALL', 'NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'];
+  const labels = { ALL: 'All', NEW: 'New', CONTACTED: 'Contacted', QUALIFIED: 'Qualified', WON: 'Won', LOST: 'Lost' };
+  const signalLabels = { COMPLETED_SALES_WORKFLOW: 'Completed sales request', EXPLICIT_SALES_INTENT: 'Sales request', EXPLICIT_PURCHASE_MESSAGE: 'Purchase request', EXPLICIT_BOOKING_OR_QUOTE: 'Booking or quote request' };
+  const date = value => value ? new Date(value).toLocaleString() : '—';
+  const toLocalDateTimeValue = value => {
+    if (!value) return '';
+    const dateValue = new Date(value);
+    if (!Number.isFinite(dateValue.getTime())) return '';
+    return new Date(dateValue.getTime() - dateValue.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const nameOf = lead => lead.customerMetadata?.name || lead.customerMetadata?.pushName || lead.customerPhone || 'Customer';
+
+  async function renderLeads(ctx) {
+    const { root, shell, header, escape: esc, toast, api, bind, go, path } = ctx;
+    const id = path.startsWith('/app/leads/') ? path.slice('/app/leads/'.length) : null;
+    if (id) {
+      const { lead } = await api('/client/leads/' + encodeURIComponent(id));
+      const followUpValue = toLocalDateTimeValue(lead.followUpAt);
+      const workflow = lead.workflowDetails && typeof lead.workflowDetails === 'object' && !Array.isArray(lead.workflowDetails) ? lead.workflowDetails : {};
+      const saved = lead.details && typeof lead.details === 'object' && !Array.isArray(lead.details) ? lead.details : {};
       const fields = [
-        ['Customer',d.customer_name || d.name || d.nom],
-        ['Phone',d.phone || d.telephone],
-        ['Product',d.product || d.produit || d.product_name],
-        ['Quantity',d.quantity || d.quantite],
-        ['City',d.city || d.ville || d.delivery_city],
-        ['Address',d.address || d.adresse || d.delivery_address],
-        ['Payment',d.payment || d.payment_method || (String(lead.workflowId || '').startsWith('checkout_') ? 'Cash on delivery' : '')],
-        ['Notes',d.notes || d.note]
-      ].filter(([,value]) => value !== undefined && value !== null && value !== '');
-      return fields.length ? `<details class="lead-ticket"><summary>View captured details</summary><div>${fields.map(([label,value]) => `<span><b>${label}</b>${escape(value)}</span>`).join('')}</div><small>Review the chat before confirming this order.</small></details>` : '';
-    };
-    const show = () => {
-      statuses.forEach(status => {
-        const count = leads.filter(lead => lead.status === status).length;
-        root.querySelector(`[data-count="${status}"]`).textContent = count;
-        root.querySelector(`#lead-filter option[value="${status}"]`).textContent = `${labels[status]} (${count})`;
-      });
-      const filter = root.querySelector('#lead-filter').value;
-      const rows = filter ? leads.filter(lead => lead.status === filter) : leads;
-      list.innerHTML = rows.length ? `<div class="lead-table-wrap"><table class="lead-table"><thead><tr><th>Contact</th><th>Order / booking details</th><th>Updated</th><th>Status</th><th>Conversation</th></tr></thead><tbody>${rows.map(lead => `<tr><td><strong>${escape(lead.contact || 'Customer')}</strong></td><td>${details(lead.orderDetails,lead) || '<span class="muted">Not collected</span>'}</td><td>${escape(new Date(lead.updatedAt).toLocaleDateString())}</td><td><select class="lead-status" data-lead="${escape(lead.id)}" aria-label="Status for ${escape(lead.contact || 'customer')}">${statuses.map(status => `<option value="${status}" ${lead.status === status ? 'selected' : ''}>${labels[status]}</option>`).join('')}</select></td><td>${lead.conversationId ? `<a class="row-link" href="/app/inbox/${encodeURIComponent(lead.conversationId)}" data-route>Open chat ›</a>` : '—'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">No leads in this view yet.</p>';
-      list.querySelectorAll('.lead-status').forEach(select => select.onchange = async () => {
-        const lead = leads.find(item => item.id === select.dataset.lead);
-        const previous = lead.status;
-        select.disabled = true;
-        try { await api('/client/leads/' + encodeURIComponent(lead.id), {method:'PATCH',body:JSON.stringify({status:select.value})}); lead.status = select.value; toast('Lead status updated.'); show(); }
-        catch (error) { select.value = previous; select.disabled = false; toast(error.message, true); }
-      });
-      bind();
-    };
-    root.querySelector('#lead-filter').onchange = show;
-    root.querySelector('#export-leads').onclick = async () => {
+        ['customerName', 'Customer name', workflow.customer_name || workflow.name],
+        ['request', 'Customer request', lead.interest],
+        ['service', 'Service or course', workflow.service],
+        ['product', 'Product', workflow.product || workflow.product_name],
+        ['quantity', 'Quantity', workflow.quantity],
+        ['city', 'City', workflow.city || workflow.ville],
+        ['address', 'Delivery address', workflow.address || workflow.adresse],
+        ['preferredTime', 'Preferred date or time', workflow.preferred_time || workflow.date]
+      ];
+      const ticket = `<h3>Request ticket</h3><p class="small muted">Details from a completed workflow appear here. Fill missing fields after checking with the customer; this is not a confirmed booking or order.</p>${fields.map(([key,label,detected]) => `<div class="field"><label for="lead-detail-${key}">${label}</label><input id="lead-detail-${key}" data-ticket-field="${key}" maxlength="${key === 'address' || key === 'request' ? 500 : 150}" value="${esc(saved[key] || detected || '')}"></div>`).join('')}`;
+      root.innerHTML = shell(header('Lead details', 'Follow up with this customer and record the result.', '<a class="btn secondary" href="/app/leads" data-route>All leads</a>') +
+        `<div class="lead-detail-grid"><article class="card lead-profile"><p class="eyebrow">Customer</p><h2>${esc(nameOf(lead))}</h2><p>${esc(lead.customerPhone || '')}</p><div class="lead-facts"><div><span>Interest</span><strong>${esc(lead.interest || 'Not recorded')}</strong></div><div><span>Detected from</span><strong>${esc(signalLabels[lead.signalReason] || 'Sales conversation')}</strong></div><div><span>First seen</span><strong>${esc(date(lead.createdAt))}</strong></div></div>${lead.conversationId ? `<a class="btn" href="/app/inbox/${encodeURIComponent(lead.conversationId)}" data-route>Open conversation ›</a>` : '<p class="small muted">Conversation unavailable.</p>'}</article>
+        <article class="card"><h2>Next action</h2><p>Update the stage after you speak with the customer. Mark Won only when the sale is confirmed.</p><form id="lead-form">${ticket}<div class="field"><label for="lead-stage">Stage</label><select id="lead-stage">${stages.filter(s => s !== 'ALL').map(s => `<option value="${s}" ${lead.status === s ? 'selected' : ''}>${labels[s]}</option>`).join('')}</select></div><div class="field"><label for="lead-followup">Follow up at</label><input id="lead-followup" type="datetime-local" value="${esc(followUpValue)}"></div><div class="field"><label for="lead-note">Internal note</label><textarea id="lead-note" maxlength="2000" rows="5">${esc(lead.note || '')}</textarea></div><button class="btn" type="submit">Save lead</button></form><p class="small muted">Last updated ${esc(date(lead.updatedAt))}</p></article></div>`, false, 'Leads');
+      document.querySelector('#lead-form').onsubmit = async event => {
+        event.preventDefault();
+        const button = event.target.querySelector('button[type=submit]'); button.disabled = true;
+        try {
+          const rawFollowUp = document.querySelector('#lead-followup').value;
+          await api('/client/leads/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({
+            status: document.querySelector('#lead-stage').value,
+            note: document.querySelector('#lead-note').value,
+            followUpAt: rawFollowUp ? new Date(rawFollowUp).toISOString() : null,
+            details: Object.fromEntries([...document.querySelectorAll('[data-ticket-field]')].map(input => [input.dataset.ticketField, input.value.trim()]))
+          }) });
+          toast('Lead updated.'); await renderLeads(ctx);
+        } catch (error) { toast(error.message, true); button.disabled = false; }
+      };
+      bind(); return;
+    }
+
+    const selected = new URLSearchParams(location.search).get('stage') || 'ALL';
+    const status = stages.includes(selected) ? selected : 'ALL';
+    const offset = Math.max(0, Number(new URLSearchParams(location.search).get('offset') || 0) || 0);
+    const [{ leads, pagination }, summary] = await Promise.all([
+      api('/client/leads?status=' + status + '&limit=20&offset=' + offset),
+      api('/client/leads/summary')
+    ]);
+    const filters = stages.map(stage => `<button type="button" class="lead-filter ${status === stage ? 'is-active' : ''}" data-stage="${stage}">${labels[stage]}</button>`).join('');
+    const rows = leads.map(lead => `<a class="lead-row" href="/app/leads/${encodeURIComponent(lead.id)}" data-route><span class="lead-avatar">${esc(nameOf(lead).slice(0, 2).toUpperCase())}</span><span class="lead-row-main"><strong>${esc(nameOf(lead))}</strong><small>${esc(lead.interest || 'Sales inquiry')}</small>${lead.lastCustomerMessage && lead.lastCustomerMessage !== lead.interest ? `<small>Latest: ${esc(lead.lastCustomerMessage)}</small>` : ''}</span><span class="lead-row-meta"><span class="badge ${lead.status === 'WON' ? 'green' : lead.status === 'LOST' ? 'red' : lead.status === 'NEW' ? 'orange' : 'blue'}">${labels[lead.status] || esc(lead.status)}</span><small>${lead.followUpAt ? 'Follow up ' + esc(date(lead.followUpAt)) : esc(date(lead.updatedAt))}</small></span><b aria-hidden="true">›</b></a>`).join('');
+    root.innerHTML = shell(header('Leads', 'Sales opportunities found in customer conversations.', '<button class="btn secondary" id="export-leads" type="button">Export CSV</button>') +
+      `<div class="lead-stat-grid"><article class="card"><p>New</p><strong>${Number(summary.new || 0)}</strong></article><article class="card"><p>Follow-ups due</p><strong>${Number(summary.dueFollowUps || 0)}</strong></article><article class="card"><p>Qualified</p><strong>${Number(summary.qualified || 0)}</strong></article><article class="card"><p>Won</p><strong>${Number(summary.won || 0)}</strong></article></div>
+      <article class="card lead-list-card"><div class="card-title"><div><h2>Lead queue</h2><p>New and qualified leads appear first.</p></div><span class="badge blue">${pagination.total} leads</span></div><div class="lead-filters" aria-label="Filter lead stage">${filters}</div><div class="lead-rows">${rows || '<p class="empty compact">No leads in this stage yet. New sales inquiries will appear here.</p>'}</div><div class="lead-pagination">${offset > 0 ? '<button class="btn secondary" data-page="previous">Previous</button>' : ''}${pagination.hasMore ? '<button class="btn secondary" data-page="next">Next</button>' : ''}</div></article>`, false, 'Leads');
+    document.querySelectorAll('[data-stage]').forEach(button => button.onclick = () => go('/app/leads?stage=' + button.dataset.stage));
+    document.querySelectorAll('[data-page]').forEach(button => button.onclick = () => go('/app/leads?stage=' + status + '&offset=' + (button.dataset.page === 'next' ? offset + 20 : Math.max(0, offset - 20))));
+    document.querySelector('#export-leads').onclick = async () => {
       try {
         const response = await fetch('/api/client/leads/export.csv', {credentials:'same-origin'});
-        if (!response.ok) throw new Error('Could not export leads. Please try again.');
+        if (!response.ok) throw new Error('Could not export leads.');
         const url = URL.createObjectURL(await response.blob());
         const link = document.createElement('a'); link.href = url; link.download = 'relayqo-leads.csv'; link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-      } catch(error) { toast(error.message, true); }
+      } catch (error) { toast(error.message, true); }
     };
-    show();
+    bind();
   }
-  return {render};
+
+  window.RelayqoLeads = { renderLeads, toLocalDateTimeValue };
 })();
