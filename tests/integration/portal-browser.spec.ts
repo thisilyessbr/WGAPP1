@@ -42,7 +42,10 @@ describe('portal browser flow',()=>{
       await page.goto(origin+'/signup');await page.locator('.language-select').selectOption('ar');await page.getByLabel('اسمك').waitFor();
       await page.locator('.language-select').selectOption('fr');await page.getByLabel('Votre nom').waitFor();
       await page.locator('.language-select').selectOption('en');await page.getByLabel('Your name').fill('Atlas Boutique');await page.getByLabel('Choose a plan').selectOption({label:'Commerce Demo'});
-      await page.getByLabel('Email address').fill('browser-client@portal.test');await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Create account',exact:true}).click();
+      await page.getByLabel('Email address').fill('browser-client@portal.test');await page.getByLabel('Password',{exact:true}).fill(password);
+      await page.getByRole('button',{name:'Show password'}).click();expect(await page.locator('#password').getAttribute('type')).toBe('text');
+      await page.getByRole('button',{name:'Hide password'}).click();expect(await page.locator('#password').getAttribute('type')).toBe('password');
+      await page.getByRole('button',{name:'Create account',exact:true}).click();
       await page.getByRole('link',{name:'Open development email link'}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
       await page.getByLabel('Email address').fill('browser-client@portal.test');await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Log in',exact:true}).click();
       await page.getByRole('heading',{name:/Atlas/}).waitFor();expect(await page.locator('.nav').innerText()).not.toContain('Clients');
@@ -62,7 +65,7 @@ describe('portal browser flow',()=>{
       await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.getByText('All changes saved',{exact:true}).waitFor();
       await page.reload();await page.getByRole('tab',{name:'Products',exact:true}).click();await page.getByLabel('Product name').waitFor();expect(await page.getByLabel('Product name').inputValue()).toBe('Babouches artisanales');expect(await page.getByLabel('Variant SKU').inputValue()).toBe('SHOE-42');await page.getByRole('tab',{name:'Profile',exact:true}).click();expect(await page.getByLabel('What does your business offer?').inputValue()).toContain('Maroc');
       await page.getByRole('button',{name:'Send for review'}).click();await page.getByRole('heading',{name:/Atlas/}).waitFor();
-      await ap.goto(origin+'/login');await ap.getByLabel('Email address').fill('browser-admin@portal.test');await ap.getByLabel('Password',{exact:true}).fill(password);await ap.getByRole('button',{name:'Log in',exact:true}).click();await ap.getByRole('link',{name:'Open development email link'}).click();await ap.getByRole('button',{name:'Confirm',exact:true}).click();
+      await ap.goto(origin+'/login');await ap.getByLabel('Email address').fill('browser-admin@portal.test');await ap.getByLabel('Password',{exact:true}).fill(password);await ap.getByRole('button',{name:'Log in',exact:true}).click();
       await ap.getByRole('heading',{name:'Platform dashboard'}).waitFor();expect(await ap.locator('.admin-metric').count()).toBe(8);
       await ap.getByRole('heading',{name:'Needs attention'}).waitFor();await ap.screenshot({path:resolve('output/portal-verification/admin-dashboard.png'),fullPage:true});
       await ap.setViewportSize({width:390,height:844});expect(await ap.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);

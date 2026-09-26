@@ -19,7 +19,7 @@ afterEach(() => {
   }
 });
 
-describe('temporary administrator email bypass', () => {
+describe('verified administrator login', () => {
   function setup(address = 'admin@admin123.com') {
     delete process.env.RESEND_API_KEY;
     delete process.env.PORTAL_MAIL_WEBHOOK_URL;
@@ -46,15 +46,17 @@ describe('temporary administrator email bypass', () => {
     expect(store.newSession).toHaveBeenCalledOnce();
   });
 
-  it('does not bypass another administrator or remain active after the deadline', async () => {
+  it('requires the password for all verified administrators even when mail is unavailable', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-25T12:00:00Z'));
     const other = setup('other-admin@example.com');
+    await expect(other.auth.login({ email: 'other-admin@example.com', password: 'wrong-password' }, '127.0.0.1', other.res))
+      .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
     await expect(other.auth.login({ email: 'other-admin@example.com', password }, '127.0.0.1', other.res))
-      .rejects.toMatchObject({ code: 'EMAIL_SETUP_REQUIRED' });
+      .resolves.toMatchObject({ redirect: '/admin' });
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-02T00:00:00Z'));
     const expired = setup();
     await expect(expired.auth.login({ email: 'admin@admin123.com', password }, '127.0.0.1', expired.res))
-      .rejects.toMatchObject({ code: 'EMAIL_SETUP_REQUIRED' });
-    expect(expired.res.cookie).not.toHaveBeenCalled();
+      .resolves.toMatchObject({ redirect: '/admin' });
+    expect(expired.res.cookie).toHaveBeenCalledOnce();
   });
 });
