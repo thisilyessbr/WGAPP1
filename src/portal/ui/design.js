@@ -68,10 +68,13 @@
   function accountSections() {
     const technical = document.querySelector('#technical'); if (!technical || technical.dataset.sections) return; technical.dataset.sections = 'true';
     const content = document.querySelector('.content'), oldTabs = content.querySelector(':scope > .tabs');
-    const settings = technical.previousElementSibling, overview = content.querySelector(':scope > .grid-2');
+    const settings = document.querySelector('#everyday-settings'), overview = content.querySelector(':scope > .grid-2');
+    const editing = document.querySelector('#editing-freeze')?.closest('article');
+    const clientMeta = document.querySelector('#client-owned-meta');
     const groups = [
-      { name: 'Overview', nodes: [overview] },
-      { name: 'Chatbot & limits', nodes: [settings, technical] },
+      { name: 'Overview', nodes: [overview, editing] },
+      { name: 'Chatbot & limits', nodes: [settings] },
+      { name: 'Permissions & advanced', nodes: [technical, clientMeta] },
       { name: 'Workflows & intents', nodes: [document.querySelector('#workflow-editor')] },
       { name: 'Statistics', nodes: [document.querySelector('#usage')] },
       { name: 'Documents', nodes: [document.querySelector('#documents-list')?.closest('article')] },
