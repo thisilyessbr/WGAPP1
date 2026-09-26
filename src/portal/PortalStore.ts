@@ -92,10 +92,20 @@ export class PortalStore {
     if (!row) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
     return row;
   }
+  async setEditingFrozen(actorId: string, accountId: string, frozen: boolean) {
+    return this.transaction(async s => {
+      const p = await s.lockProfile(accountId);
+      if (p.editingFrozen === frozen) return p;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "editingFrozen"=${frozen},revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      await s.audit(actorId, accountId, frozen ? 'CLIENT_EDITING_FROZEN' : 'CLIENT_EDITING_UNFROZEN');
+      return s.profile(accountId);
+    });
+  }
   async saveDraft(actorId: string, accountId: string, tenantId: string, draft: unknown, expectedRevision: number, administrative = false) {
     return this.transaction(async s => {
       const profile = await s.lockProfile(accountId);
       if (profile.tenantId !== tenantId) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
+      if (profile.editingFrozen && !administrative) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       if (profile.revision !== expectedRevision) throw new PortalError(409, 'REVISION_CONFLICT', 'Your data changed in another window. Reload before saving.');
       const plan = profile.planSnapshot || (profile.requestedPlanId ? await s.plan(profile.requestedPlanId) : null);
       const data = validateBusiness(draft, plan, profile.draft, administrative ? [] : profile.lockedFields);
@@ -109,6 +119,7 @@ export class PortalStore {
   async submit(actorId: string, accountId: string, expectedRevision: number) {
     return this.transaction(async s => {
       const p = await s.lockProfile(accountId);
+      if (p.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       if (p.revision !== expectedRevision) throw new PortalError(409, 'REVISION_CONFLICT');
       if (!p.draft.name || !p.draft.description || (!p.draft.email && !p.draft.phone)) throw new PortalError(400, 'INCOMPLETE_SETUP', 'Add a business description and contact details before submitting.');
       if (p.status === 'SUSPENDED') throw new PortalError(403, 'ACCOUNT_SUSPENDED');

@@ -409,6 +409,7 @@ model PortalProfile {
   autoPublish Boolean @default(false)
   reviewNote String @default("")
   lockedFields Json @default("[]")
+  editingFrozen Boolean @default(false)
   adminConfig Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @db.Timestamptz(6)

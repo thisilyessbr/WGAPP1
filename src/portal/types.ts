@@ -37,7 +37,7 @@ export interface BusinessData {
 export interface PortalProfile {
   accountId: string; tenantId: string; status: string; draft: BusinessData; published: BusinessData | null;
   revision: number; publishedRevision: number; planId: string | null; planSnapshot: PortalPlan | null;
-  requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[];
+  requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[]; editingFrozen: boolean;
   adminConfig: Record<string, any>; createdAt: Date; updatedAt: Date;
 }
 export const EMPTY_BUSINESS: BusinessData = {
