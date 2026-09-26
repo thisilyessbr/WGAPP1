@@ -170,6 +170,33 @@
     ['Document storage (MB)','Stockage des documents (Mo)','تخزين المستندات (ميغابايت)'],
     ['Raw configuration (JSON)','Configuration brute (JSON)','الإعدادات الخام (JSON)']
   ]) translations.set(en, { fr, ar });
+  for (const [en, fr, ar] of [
+    ['Leads','Prospects','العملاء المحتملون'],
+    ['Follow up on people who showed buying or booking intent.','Suivez les personnes intéressées par un achat ou une réservation.','تابع الأشخاص المهتمين بالشراء أو الحجز.'],
+    ['Export CSV','Exporter en CSV','تصدير CSV'],
+    ['New','Nouveau','جديد'],['Contacted','Contacté','تم التواصل'],['Qualified','Qualifié','مؤهل'],['Won','Gagné','ناجح'],['Lost','Perdu','مفقود'],
+    ['Lead pipeline','Suivi des prospects','متابعة العملاء المحتملين'],
+    ['Lead detection does not confirm an order. Check the conversation before marking a sale.','La détection d’un prospect ne confirme pas une commande. Vérifiez la conversation avant de valider une vente.','اكتشاف عميل محتمل لا يؤكد الطلب. راجع المحادثة قبل تأكيد البيع.'],
+    ['Status','Statut','الحالة'],['Contact','Contact','جهة الاتصال'],['Order / booking details','Détails de commande ou réservation','تفاصيل الطلب أو الحجز'],
+    ['Updated','Mis à jour','آخر تحديث'],['Conversation','Conversation','محادثة'],['Open chat ›','Ouvrir la conversation ›','فتح المحادثة ›'],
+    ['Not collected','Non recueilli','لم تُجمع المعلومات'],['No leads in this view yet.','Aucun prospect dans cette vue.','لا يوجد عملاء محتملون هنا بعد.'],
+    ['Create clear offers for clients and keep provider costs under control.','Créez des offres claires tout en maîtrisant les coûts des fournisseurs.','أنشئ باقات واضحة مع التحكم في تكاليف الخدمات.'],
+    ['Create plan','Créer une offre','إنشاء باقة'],['Edit plan','Modifier l’offre','تعديل الباقة'],
+    ['Start from a suggested offer','Commencer avec une offre suggérée','ابدأ بباقة مقترحة'],['Custom plan','Offre personnalisée','باقة مخصصة'],
+    ['Monthly price','Prix mensuel','السعر الشهري'],['Plan name','Nom de l’offre','اسم الباقة'],['Currency','Devise','العملة'],
+    ['What does the client get?','Que reçoit le client ?','ماذا يحصل عليه العميل؟'],['Included features','Fonctionnalités incluses','الميزات المشمولة'],
+    ['Capacity','Capacité','السعة'],['Unlimited customer messages','Messages clients illimités','رسائل العملاء غير محدودة'],
+    ['AI replies','Réponses IA','ردود الذكاء الاصطناعي'],['AI spend ceiling (USD)','Plafond de dépenses IA (USD)','حد تكلفة الذكاء الاصطناعي (دولار)'],
+    ['Save plan','Enregistrer l’offre','حفظ الباقة'],['Cancel','Annuler','إلغاء'],['Advanced configuration','Configuration avancée','إعدادات متقدمة'],
+    ['FAQs and PDF knowledge','FAQ et documents PDF','الأسئلة الشائعة وملفات PDF'],['Services and appointments','Services et rendez-vous','الخدمات والمواعيد'],
+    ['Product catalog','Catalogue de produits','كتالوج المنتجات'],['Product images','Images des produits','صور المنتجات'],
+    ['QR connection (experimental)','Connexion QR (expérimentale)','اتصال QR (تجريبي)'],
+    ['Cash on delivery','Paiement à la livraison','الدفع عند التسليم'],['View captured details','Voir les informations recueillies','عرض المعلومات المجمعة'],
+    ['Review the chat before confirming this order.','Vérifiez la conversation avant de confirmer cette commande.','راجع المحادثة قبل تأكيد هذا الطلب.'],
+    ['Lead follow-up and CSV export','Suivi des prospects et export CSV','متابعة العملاء المحتملين وتصدير CSV'],
+    ['Pick the features that fit your business. Your administrator confirms the final offer.','Choisissez les fonctionnalités adaptées à votre activité. Votre administrateur confirme l’offre finale.','اختر الميزات المناسبة لنشاطك. يؤكد المشرف الباقة النهائية.'],
+    ['Showing the latest 1,000 leads. CSV export includes the full history.','Affichage des 1 000 prospects les plus récents. L’export CSV contient tout l’historique.','يتم عرض آخر ١٠٠٠ عميل محتمل. يتضمن تصدير CSV السجل الكامل.']
+  ]) translations.set(en, {fr, ar});
 
   function setLocale(next) {
     if (!supported.has(next)) return;

@@ -52,6 +52,34 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId",status,"updatedAt") VALUES (${randomUUID()},${c.tenantId},${c.accountId},${randomUUID()},'CONNECTED',NOW())`;
     return store.updateAccount(admin.id,c.accountId,p.revision,{status:'ACTIVE'});
   }
+  it('keeps lead management and CSV export inside the client account', async () => {
+    const owner = await client(), stranger = await client();
+    const customerId = randomUUID(), leadId = randomUUID(), conversationId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      VALUES (${customerId},${owner.tenantId},${'=447700900123'},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      VALUES (${leadId},${owner.tenantId},${owner.accountId},${customerId},'NEW',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
+      VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId","collectedData","updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_test','done',${JSON.stringify({city:'Rabat',address:'Rue 12',product:'Sneakers',quantity:'2'})}::jsonb,NOW())`;
+    const ownerHeaders = await cookie(owner.user), strangerHeaders = await cookie(stranger.user);
+    const own = await request(app).get('/api/client/leads').set(ownerHeaders);
+    expect(own.status).toBe(200);
+    expect(own.body.leads.some((lead: any) => lead.id === leadId)).toBe(true);
+    expect(own.body.leads.find((lead: any) => lead.id === leadId).orderDetails.city).toBe('Rabat');
+    expect((await request(app).get('/api/client/leads').set(strangerHeaders)).body.leads).toEqual([]);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(strangerHeaders).send({status:'WON'})).status).toBe(404);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(ownerHeaders).send({status:'INVALID'})).status).toBe(400);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(ownerHeaders).send({status:'QUALIFIED'})).body.lead.status).toBe('QUALIFIED');
+    const csv = await request(app).get('/api/client/leads/export.csv').set(ownerHeaders);
+    expect(csv.status).toBe(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(csv.text).toContain("'=447700900123");
+    expect(csv.text).toContain('Rabat');
+    expect(csv.text).toContain('Cash on delivery');
+    expect((await request(app).get('/api/client/leads/export.csv').set(strangerHeaders)).text).not.toContain('447700900123');
+  });
   it('freezes and unfreezes one client without blocking admin edits or plan requests', async () => {
     const c = await client(), other = await client();
     const adminHeaders = await cookie(admin), clientHeaders = await cookie(c.user);
@@ -366,7 +394,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     const main = await createApp({ prisma: database.db, portalService: { store, auth, documents: docs, connections },
       conversationEngine: {}, whatsAppNumberService: {}, whatsAppOnboardingService: onboarding, clientSafetyGuard: {} } as any);
     for (const path of ['/signup','/login','/app/business','/admin/clients']) {
-      const r=await request(main).get(path);expect(r.status).toBe(200);expect(r.text).toContain('/portal-assets/portal.js');
+      const r=await request(main).get(path);expect(r.status, path).toBe(200);expect(r.text).toContain('/portal-assets/portal.js');
       expect(r.headers['content-security-policy']).toContain("default-src 'self'");
     }
     expect((await request(main).get('/portal-assets/portal.js')).status).toBe(200);

@@ -111,6 +111,58 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       recentConversations: recentConversations.map(c => ({ id: c.id, status: c.status, messageCount: c.messageCount, humanRequested: c.humanRequested, updatedAt: c.updatedAt, customerLabel: maskCustomer(c.customerId) }))
     });
   }));
+  const leadStatuses = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'];
+  const leadRows = async (accountId: string, tenantId: string, limit = 1000, offset = 0, status = '') => store.db.$queryRaw<any[]>`
+    SELECT l.id,l.status,l."createdAt",l."updatedAt",c."externalId" AS "contact",
+      conv.id AS "conversationId",ws."collectedData" AS "orderDetails",ws."workflowId"
+    FROM "Lead" l JOIN "Customer" c ON c.id=l."customerId" AND c."tenantId"=l."tenantId"
+    LEFT JOIN LATERAL (SELECT id FROM "Conversation" WHERE "tenantId"=l."tenantId"
+      AND "accountId"=l."accountId" AND "customerId"=l."customerId"
+      AND "customerId" NOT LIKE 'portal-preview:%' ORDER BY "updatedAt" DESC LIMIT 1) conv ON true
+    LEFT JOIN LATERAL (SELECT "collectedData","workflowId" FROM "WorkflowSession"
+      WHERE "tenantId"=l."tenantId" AND "conversationId"=conv.id
+      ORDER BY "updatedAt" DESC LIMIT 1) ws ON true
+    WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND (${status}='' OR l.status=${status})
+    ORDER BY l."updatedAt" DESC,l.id DESC LIMIT ${limit} OFFSET ${offset}`;
+  client.get('/leads', route(async (req, res) => {
+    const status = req.query.status ? String(req.query.status) : '';
+    if (status && !leadStatuses.includes(status)) throw new PortalError(400, 'INVALID_LEAD_STATUS');
+    const rows = await leadRows(req.portal.accountId!, req.portal.tenantId!, 1001, 0, status);
+    send(res, { leads: rows.slice(0, 1000), hasMore: rows.length > 1000 });
+  }));
+  client.patch('/leads/:id', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['status']);
+    const status = text(body.status, 20);
+    if (!leadStatuses.includes(status)) throw new PortalError(400, 'INVALID_LEAD_STATUS');
+    const result = await store.db.$queryRaw<any[]>`UPDATE "Lead" SET status=${status},"updatedAt"=NOW()
+      WHERE id=${String(req.params.id)} AND "accountId"=${req.portal.accountId!} AND "tenantId"=${req.portal.tenantId!}
+      RETURNING id,status,"updatedAt"`;
+    if (!result.length) throw new PortalError(404, 'LEAD_NOT_FOUND');
+    await store.audit(req.portal.user.id, req.portal.accountId!, 'LEAD_STATUS_UPDATED', { leadId: result[0].id, status });
+    send(res, { lead: result[0] });
+  }));
+  client.get('/leads/export.csv', route(async (req, res) => {
+    const cell = (value: unknown) => {
+      const raw = String(value ?? '').replace(/^[\s]*[=+\-@]/, "'$&");
+      return '"' + raw.replace(/"/g, '""') + '"';
+    };
+    const headers = ['Contact', 'Status', 'Created', 'Updated', 'City', 'Address', 'Product', 'Quantity', 'Payment', 'Conversation'];
+    await store.audit(req.portal.user.id, req.portal.accountId!, 'LEADS_EXPORTED', {});
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="relayqo-leads.csv"');
+    res.write('\uFEFF' + headers.map(cell).join(',') + '\r\n');
+    for (let offset = 0; ; offset += 1000) {
+      const rows = await leadRows(req.portal.accountId!, req.portal.tenantId!, 1000, offset);
+      for (const row of rows) {
+        const d = row.orderDetails && typeof row.orderDetails === 'object' && !Array.isArray(row.orderDetails) ? row.orderDetails : {};
+        res.write([row.contact, row.status, row.createdAt?.toISOString?.(), row.updatedAt?.toISOString?.(),
+          d.city || d.ville || d.delivery_city || '', d.address || d.adresse || d.delivery_address || '', d.product || d.produit || d.product_name || '',
+          d.quantity || d.quantite || '', d.payment || d.payment_method || (String(row.workflowId || '').startsWith('checkout_') ? 'Cash on delivery' : ''), row.conversationId || ''].map(cell).join(',') + '\r\n');
+      }
+      if (rows.length < 1000) break;
+    }
+    res.end();
+  }));
   client.put('/business', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['data', 'revision']);
     send(res, { profile: clientProfile(await store.saveDraft(req.portal.user.id, req.portal.accountId!, req.portal.tenantId!, body.data, integer(body.revision, 1))) });

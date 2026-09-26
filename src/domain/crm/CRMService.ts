@@ -42,6 +42,9 @@ export class CRMService {
 
     const normalizedWfId = (workflowId || '').toLowerCase().trim();
     if (!normalizedWfId) return false;
+    // A cancelled COD confirmation also ends the workflow. Only the actual end step is a lead.
+    if (/(?:checkout|cash_on_delivery|cod_order)/i.test(normalizedWfId)
+      && (!terminalStateId || workflowConfig?.states?.[terminalStateId]?.type !== 'end')) return false;
 
     // Collect all associated intent identifiers
     const intents: string[] = [];
@@ -88,7 +91,7 @@ export class CRMService {
     }
 
     // 4. Workflow ID Semantic Conventions (Secondary Support)
-    const SALES_WF_PATTERNS = /(?:consultation|booking|lead_capture|leadcapture|quote|appointment|service_selector|tutor_session)/i;
+    const SALES_WF_PATTERNS = /(?:consultation|booking|lead_capture|leadcapture|quote|appointment|service_selector|tutor_session|checkout|cash_on_delivery|cod_order)/i;
     const OPERATIONAL_WF_PATTERNS = /(?:support|tracking|return|feedback|survey|issue|ticket|help)/i;
 
     if (SALES_WF_PATTERNS.test(normalizedWfId) && !OPERATIONAL_WF_PATTERNS.test(normalizedWfId)) {

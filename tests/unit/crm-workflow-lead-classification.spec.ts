@@ -27,6 +27,15 @@ describe('Phase CRM-WORKFLOW-FIX-04 — CRM Workflow Lead Classification Unit Te
     };
     crmService = new CRMService(mockPrisma);
   });
+  it('creates a lead only after the cash-on-delivery checkout workflow completes', async () => {
+    const params = { tenantId, accountId, customerId, workflowId:'checkout_test', workflowConfig:{id:'checkout_test',states:{confirm:{type:'confirm'},done:{type:'end'}}}, terminalStateId:'done' };
+    await crmService.processTurnSignal({...params,isWorkflowCompleted:false});
+    expect(mockPrisma.lead.upsert).not.toHaveBeenCalled();
+    await crmService.processTurnSignal({...params,isWorkflowCompleted:true});
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledTimes(1);
+    await crmService.processTurnSignal({...params,terminalStateId:'confirm',isWorkflowCompleted:true});
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledTimes(1);
+  });
 
   describe('1. Sales / Booking Workflows (Expected: TRUE -> Lead Created)', () => {
     it('creates lead for consultation_booking workflow', async () => {
