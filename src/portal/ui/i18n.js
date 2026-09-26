@@ -157,6 +157,19 @@
   translations.set('Hide', { fr: 'Masquer', ar: 'إخفاء' });
   translations.set('Show password', { fr: 'Afficher le mot de passe', ar: 'إظهار كلمة المرور' });
   translations.set('Hide password', { fr: 'Masquer le mot de passe', ar: 'إخفاء كلمة المرور' });
+  for (const [en, fr, ar] of [
+    ['Permissions & advanced','Autorisations et paramètres avancés','الصلاحيات والإعدادات المتقدمة'],
+    ['Identity & voice','Identité et voix','الهوية والأسلوب'],['Answer policy','Règles de réponse','قواعد الرد'],
+    ['Knowledge','Connaissances','المعرفة'],['Model & response limits','Modèle et limites de réponse','النموذج وحدود الرد'],
+    ['Plan allowances','Limites de l’offre','حدود الباقة'],['Show settings','Afficher les paramètres','إظهار الإعدادات'],
+    ['Hide settings','Masquer les paramètres','إخفاء الإعدادات'],['Default language','Langue par défaut','اللغة الافتراضية'],
+    ['Customer messages','Messages clients','رسائل العملاء'],['AI calls','Appels IA','استدعاءات الذكاء الاصطناعي'],
+    ['Estimated AI spend (USD)','Coût IA estimé (USD)','تكلفة الذكاء الاصطناعي المقدرة (دولار)'],
+    ['Image analyses','Analyses d’images','تحليلات الصور'],['Embeddings','Représentations vectorielles','التضمينات'],
+    ['WhatsApp numbers','Numéros WhatsApp','أرقام واتساب'],['Products','Produits','المنتجات'],
+    ['Document storage (MB)','Stockage des documents (Mo)','تخزين المستندات (ميغابايت)'],
+    ['Raw configuration (JSON)','Configuration brute (JSON)','الإعدادات الخام (JSON)']
+  ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {
     if (!supported.has(next)) return;

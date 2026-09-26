@@ -160,3 +160,38 @@
   .dashboard-shell .dashboard-metric p{font-size:11px}
   .dashboard-shell .dashboard-metric>strong{font-size:26px;overflow-wrap:anywhere}
 }
+
+/* Client configuration: one clear section for each admin decision. */
+.admin-control-stack{display:grid;gap:16px;max-width:1120px}
+.admin-panel-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:4px 2px 12px}
+.admin-panel-kicker{display:block;margin-bottom:9px;color:var(--green);font-size:11px;font-weight:800;letter-spacing:.14em}
+.admin-panel-intro h2{margin:0;font-size:clamp(24px,2.6vw,32px);letter-spacing:-.04em}
+.admin-panel-intro p{max-width:640px;margin:9px 0 0;color:var(--muted);font-size:14px;line-height:1.55}
+.admin-panel-intro .badge{flex:none;margin-top:8px}
+.admin-control-group{margin:0;padding:25px 28px;border-radius:18px}
+.admin-group-heading{display:flex;align-items:flex-start;gap:16px;margin-bottom:23px}
+.admin-group-index{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:11px;background:var(--soft);color:var(--green);font-size:12px;font-weight:800}
+.admin-group-heading h3{margin:0;font-size:17px;letter-spacing:-.02em}
+.admin-group-heading p{margin:5px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.admin-control-grid,.admin-allowance-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 22px}
+.admin-control-grid .field,.admin-allowance-grid .field{margin:0}
+.admin-setting-toggle{display:flex;align-items:flex-start;gap:13px;min-height:56px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--input);cursor:pointer}
+.admin-setting-toggle:hover{border-color:var(--green)}
+.admin-setting-toggle input{flex:none;width:18px;height:18px;margin:1px 0 0;accent-color:var(--green)}
+.admin-setting-toggle strong{display:block;font-size:13px;font-weight:650;line-height:1.4}
+.admin-setting-toggle small{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.45}
+.admin-control-advanced{padding:0}
+.admin-control-advanced>summary{align-items:center;margin:0;padding:23px 28px;cursor:pointer;list-style:none}
+.admin-control-advanced>summary::-webkit-details-marker{display:none}
+.admin-control-advanced[open]>summary{margin:0;border-bottom:1px solid var(--line)}
+.admin-control-advanced>.admin-control-grid{padding:23px 28px 28px}
+.admin-disclosure-hint{margin-inline-start:auto;color:var(--green);font-size:12px;font-weight:700;white-space:nowrap}
+.admin-control-advanced[open] .admin-disclosure-hint{font-size:0}
+.admin-control-advanced[open] .admin-disclosure-hint::after{content:'Hide settings';font-size:12px}
+.admin-unlimited{margin-bottom:18px}
+.admin-allowance-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.allowance-row.is-hidden{display:none}
+.admin-refresh-plan{display:flex;align-items:center;gap:9px;margin-top:20px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;cursor:pointer}
+.admin-refresh-plan input{accent-color:var(--green)}
+@media(max-width:900px){.admin-allowance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.admin-control-group{padding:20px}.admin-control-advanced{padding:0}.admin-control-advanced>summary{padding:20px}.admin-control-advanced>.admin-control-grid{padding:20px}.admin-control-grid,.admin-allowance-grid{grid-template-columns:1fr}.admin-panel-intro{align-items:start}.admin-disclosure-hint{display:none}}
