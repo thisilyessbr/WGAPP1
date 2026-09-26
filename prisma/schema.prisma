@@ -272,6 +272,14 @@ model Lead {
   accountId  String
   customerId String
   status     String   @default("NEW")
+  interest   String?
+  signalReason String?
+  sourceConversationId String?
+  note       String?
+  details    Json     @default("{}")
+  followUpAt DateTime? @db.Timestamptz(3)
+  contactedAt DateTime? @db.Timestamptz(3)
+  closedAt   DateTime? @db.Timestamptz(3)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -281,6 +289,7 @@ model Lead {
 
   @@unique([tenantId, accountId, customerId])
   @@index([tenantId, accountId, status])
+  @@index([tenantId, accountId, followUpAt])
 }
 
 model WhatsAppBusinessNumber {
