@@ -99,7 +99,7 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
   if ((deps as any).portalService) {
     app.use('/api', createPortalRouter((deps as any).portalService, deps as any));
     app.use('/portal-assets', express.static(path.join(__dirname, 'portal/ui')));
-    app.use(['/signup', '/login', '/app', '/admin'], (req, res) => {
+    app.use(['/signup', '/login', '/forgot-password', '/reset-password', '/verify-email', '/admin-confirm', '/app', '/admin'], (req, res) => {
       if (process.env.NODE_ENV === 'production' && req.hostname === 'relayqo-backend.onrender.com') {
         res.redirect(302, new URL(req.originalUrl, process.env.PORTAL_PUBLIC_URL).toString());
         return;
