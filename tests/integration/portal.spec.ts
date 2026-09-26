@@ -135,11 +135,13 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(detail.body).toMatchObject({ hasMore: false, messages: [{ content: 'Hello, do you deliver?' }] });
     expect((await request(app).get('/api/admin/accounts/' + other.accountId + '/conversations/' + conversationId).set(headers)).status).toBe(404);
   });
-  it('requires email confirmation for every administrator login', async () => {
-    const r=await request(app).post('/api/auth/login').send({email:admin.email,password});expect(r.body.requiresEmailConfirmation).toBe(true);expect(r.headers['set-cookie']).toBeUndefined();
-    const link=delivered.findLast(d=>d.kind==='ADMIN_LOGIN')!;const token=new URLSearchParams(new URL(link.url).hash.slice(1)).get('token');
-    expect((await request(app).post('/api/auth/admin-confirm').send({token})).body.redirect).toBe('/admin');
-    expect((await request(app).post('/api/auth/admin-confirm').send({token})).status).toBe(400);
+  it('signs in a verified administrator with the correct password without another email', async () => {
+    const sent=delivered.length;
+    const invalid=await request(app).post('/api/auth/login').send({email:admin.email,password:'wrong-password'});
+    expect(invalid.status).toBe(401);expect(invalid.headers['set-cookie']).toBeUndefined();
+    const r=await request(app).post('/api/auth/login').send({email:admin.email,password});
+    expect(r.status).toBe(200);expect(r.body.redirect).toBe('/admin');expect(r.headers['set-cookie']).toBeDefined();
+    expect(r.body).not.toHaveProperty('requiresEmailConfirmation');expect(delivered).toHaveLength(sent);
   });
   it('skips email locally without verifying users, bypassing passwords or widening roles', async () => {
     vi.stubEnv('PORTAL_DEV_SKIP_EMAIL', 'true');

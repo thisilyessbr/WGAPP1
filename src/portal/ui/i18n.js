@@ -153,6 +153,11 @@
     document.querySelectorAll('.language-select').forEach(select => { if (select.value !== locale) select.value = locale; });
   }
 
+  translations.set('Show', { fr: 'Afficher', ar: 'إظهار' });
+  translations.set('Hide', { fr: 'Masquer', ar: 'إخفاء' });
+  translations.set('Show password', { fr: 'Afficher le mot de passe', ar: 'إظهار كلمة المرور' });
+  translations.set('Hide password', { fr: 'Masquer le mot de passe', ar: 'إخفاء كلمة المرور' });
+
   function setLocale(next) {
     if (!supported.has(next)) return;
     locale = next;

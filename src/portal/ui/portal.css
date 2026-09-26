@@ -146,3 +146,8 @@
   :root[data-theme=light] .auth-story{background:#f5f8ef;border-color:#dce6d6}
 }
 
+.auth-form .password-field{position:relative}
+.auth-form .password-field input{padding-inline-end:76px}
+.auth-form .password-visibility{position:absolute;inset-inline-end:10px;top:34px;min-height:36px;padding:0 9px;border:0;background:transparent;color:var(--green);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.auth-form .password-visibility:focus-visible{outline:2px solid var(--green);border-radius:6px}
+

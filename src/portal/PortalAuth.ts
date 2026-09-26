@@ -9,7 +9,6 @@ export const hashToken = (token: string) => createHash('sha256').update(token).d
 const randomToken = () => randomBytes(32).toString('base64url');
 // Temporary launch access while outbound email is unavailable. Remove after email delivery is configured.
 const EMAIL_TESTING_EXPIRES_AT = Date.parse('2026-10-02T00:00:00Z');
-const ADMIN_EMAIL_BYPASS_ACCOUNT = 'admin@admin123.com';
 export async function hashPassword(password: string): Promise<string> {
   if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw new PortalError(400, 'WEAK_PASSWORD', 'Use a password with 12–256 characters.');
   const salt = randomBytes(16).toString('hex');
@@ -46,10 +45,6 @@ export class PortalAuth {
   private mailAvailable() { return Boolean(this.options.sendLink || this.developmentLinks() || this.resendConfigured() || (process.env.PORTAL_MAIL_WEBHOOK_URL && process.env.PORTAL_MAIL_WEBHOOK_SECRET)); }
   skipsEmail() { return localEmailBypass(this.origin); }
   private temporaryClientSignupBypass() { return !this.skipsEmail() && Date.now() < EMAIL_TESTING_EXPIRES_AT && !this.mailAvailable(); }
-  private temporaryAdminEmailBypass(user: PortalUser) {
-    return user.role === 'ADMIN' && user.email === ADMIN_EMAIL_BYPASS_ACCOUNT && Boolean(user.verifiedAt)
-      && Date.now() < EMAIL_TESTING_EXPIRES_AT && !this.mailAvailable();
-  }
   assertMailConfigured() {
     if (!this.mailAvailable()) {
       throw new PortalError(503, 'EMAIL_SETUP_REQUIRED', 'Email delivery is not configured. Contact the service administrator.');
@@ -140,14 +135,6 @@ export class PortalAuth {
     const valid = await verifyPassword(input.password, user?.passwordHash || fallback);
     if (!user || !valid || user.disabled) throw new PortalError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
     if (!user.verifiedAt && !this.skipsEmail()) throw new PortalError(403, 'EMAIL_NOT_VERIFIED', 'Verify your email before logging in.');
-    if (user.role === 'ADMIN' && !this.skipsEmail() && !this.temporaryAdminEmailBypass(user)) {
-      this.assertMailConfigured();
-      const token = randomToken();
-      await this.store.db.$executeRaw`DELETE FROM "PortalAuthToken" WHERE "userId"=${user.id} AND kind='ADMIN_LOGIN'`;
-      await this.store.db.$executeRaw`INSERT INTO "PortalAuthToken"("tokenHash","userId",kind,"expiresAt") VALUES (${hashToken(token)},${user.id},'ADMIN_LOGIN',${new Date(Date.now() + 600000)})`;
-      const delivery = await this.deliver(address, 'ADMIN_LOGIN', `${this.origin}/admin-confirm#token=${token}`);
-      return { requiresEmailConfirmation: true, message: 'Confirm this administrator login using the link sent to your email.', ...delivery };
-    }
     return this.issueSession(user, res);
   }
   async confirmAdmin(token: string, res: Response) {

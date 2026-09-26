@@ -9,9 +9,10 @@ function portal(entries=['/login'], role: 'CLIENT'|'ADMIN'|null=null) {
   let html='',nodes:Record<string,any>={},index=entries.length-1,current=role;
   let sessionError=0;
   const location={pathname:entries[index],hash:''};
-  const element=(id:string)=>nodes[id]??=(id==='#auth-form'?{querySelector:()=>element('#auth-button')}:{value:'',textContent:'',className:'',append(){}});
+  const element=(id:string)=>nodes[id]??=(id==='#auth-form'?{querySelector:()=>element('#auth-button')}:{value:'',textContent:'',className:'',append(){},insertAdjacentElement(){},parentElement:{classList:{add(){}}},setAttribute(){},focus(){}});
   const root={get innerHTML(){return html},set innerHTML(value:string){html=value;nodes={};painted.push(value)}};
   const document={
+    createElement:()=>({setAttribute(){},focus(){}}),
     querySelector:(selector:string)=>selector==='#root'?root:element(selector),
     querySelectorAll:(selector:string)=>selector==='.logout'&&html.includes('class="logout')?[element('.logout')]:selector==='[data-route]'?[...html.matchAll(/href="([^"]+)" data-route/g)].map(m=>({getAttribute:()=>m[1]})):[]
   };
