@@ -195,3 +195,31 @@
 .admin-refresh-plan input{accent-color:var(--green)}
 @media(max-width:900px){.admin-allowance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.admin-control-group{padding:20px}.admin-control-advanced{padding:0}.admin-control-advanced>summary{padding:20px}.admin-control-advanced>.admin-control-grid{padding:20px}.admin-control-grid,.admin-allowance-grid{grid-template-columns:1fr}.admin-panel-intro{align-items:start}.admin-disclosure-hint{display:none}}
+.lead-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.lead-summary .card{display:flex;flex-direction:column;gap:8px;padding:18px}
+.lead-summary span{color:var(--muted);font-size:13px}
+.lead-summary strong{font-size:27px}
+.lead-filter{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
+.lead-filter select,.lead-status{border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface);color:var(--text)}
+.lead-table-wrap{overflow:auto}
+.lead-table{width:100%;border-collapse:collapse;text-align:left;min-width:700px}
+.lead-table th,.lead-table td{padding:16px 10px;border-bottom:1px solid var(--line);vertical-align:middle;font-size:14px}
+.lead-table th{font-size:12px;color:var(--muted);font-weight:700}
+.lead-table tr:last-child td{border-bottom:0}
+@media(max-width:900px){.lead-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.lead-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.lead-filter{margin-top:12px}}
+.plan-editor{display:grid;gap:18px;max-width:1100px}
+.plan-editor>.card{padding:26px}
+.plan-editor h2{margin:0 0 16px}
+.plan-editor .form-grid{margin-top:16px}
+.plan-feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+.plan-feature{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:15px;cursor:pointer}
+.plan-feature input,.plan-editor input[type=checkbox]{accent-color:var(--green)}
+.plan-editor details>summary{cursor:pointer;font-weight:700}
+.plan-editor details .field{margin-top:18px}
+@media(max-width:600px){.plan-feature-grid{grid-template-columns:1fr}.plan-editor>.card{padding:20px}}
+.lead-ticket{min-width:220px}
+.lead-ticket summary{cursor:pointer;color:var(--green);font-weight:700}
+.lead-ticket>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:12px 0}
+.lead-ticket span{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.lead-ticket b,.lead-ticket small{color:var(--muted);font-size:11px}

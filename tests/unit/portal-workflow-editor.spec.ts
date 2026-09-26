@@ -23,10 +23,18 @@ describe('portal visual workflows',()=>{
     removeIntent({test:wf},intents,0);
     expect(intents).toEqual([]);expect(wf.activation.intents).toEqual([]);
   });
-  it.each(['blank','triage','lead','feedback'])('creates a valid %s template that the backend accepts',kind=>{
+  it.each(['blank','triage','lead','cod','feedback'])('creates a valid %s template that the backend accepts',kind=>{
     const workflow=template(kind,'test');
     expect(diagnostics({test:workflow},[]).errors).toEqual([]);
     expect(()=>validateAdminConfig({workflows:{test:workflow}})).not.toThrow();
+  });
+  it('captures the fields needed for a cash-on-delivery ticket before confirmation',()=>{
+    const workflow=template('cod','checkout_test');
+    expect(orderedSteps(workflow)).toEqual(['start','quantity','customer_name','phone','city','address','confirm','done']);
+    expect(['product','quantity','customer_name','phone','city','address']).toEqual(
+      orderedSteps(workflow).filter((key:string)=>workflow.states[key].type==='collect').map((key:string)=>workflow.states[key].field.name));
+    expect(workflow.activation.intents).toEqual(['BUY_INTENT']);
+    expect(workflow.states.done.prompt.en).toContain('contact you to confirm');
   });
   it('renames steps without breaking branching, linear, conditional or initial references',()=>{
     const wf=template('lead','test');wf.states.start.options=[{label:'Go',next:'phone'}];wf.states.start.transitions=[{condition:'ready',intent:'CONTACT',target:'phone'}];wf.initialState='phone';
