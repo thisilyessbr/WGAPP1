@@ -3,6 +3,30 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 describe('plan editor presets', () => {
+  it('shows unsaved suggestions separately and creates four unpublished drafts without changing saved plans', async () => {
+    const dom = new JSDOM('<div id="root"></div>', {url:'https://app.relayqo.online/admin/plans',runScripts:'outside-only'});
+    dom.window.eval(readFileSync('src/portal/ui/plans.js','utf8'));
+    const root = dom.window.document.querySelector('#root')!;
+    const created: any[] = [];
+    const savedPlan = {id:'existing',name:'p1',description:'Existing offer',price:200,currency:'MAD',published:true,modules:['knowledge'],limits:{messages:1000,numbers:1,monthlyUsd:5}};
+    await (dom.window as any).RelayqoPlans.renderAdmin({root,
+      shell:(html: string) => html, header:(title: string, _text: string, actions = '') => `<h1>${title}</h1>${actions}`,
+      escape:(value: unknown) => String(value), toast:() => {}, bind:() => {}, go:() => {},
+      api:async (path: string, options?: any) => {
+        if(path === '/admin/plans' && !options)return {plans:[savedPlan]};
+        created.push(JSON.parse(options.body));return {plan:{id:'new'}};
+      }
+    });
+    expect(root.textContent).toContain('Suggested · not saved');
+    expect(root.textContent).toContain('COD order workflow can be added per client');
+    expect(root.textContent).toContain('No COD workflow is activated just by creating a plan.');
+    (root.querySelector('#save-suggested') as HTMLButtonElement).click();
+    await new Promise(resolve => setTimeout(resolve,0));
+    expect(created.map(plan => plan.name)).toEqual(['Essential','Services','Commerce','Growth']);
+    expect(created.every(plan => plan.published === false)).toBe(true);
+    expect(savedPlan.name).toBe('p1');
+    dom.window.close();
+  });
   it('creates an unpublished commerce offer with distinct customer and AI limits', async () => {
     const dom = new JSDOM('<div id="root"></div>', {url:'https://app.relayqo.online/admin/plans',runScripts:'outside-only'});
     dom.window.eval(readFileSync('src/portal/ui/plans.js','utf8'));

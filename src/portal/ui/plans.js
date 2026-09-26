@@ -26,14 +26,30 @@ window.RelayqoPlans = (() => {
     const response = await api('/admin/plans');
     const plans = response.plans || [];
     const list = () => {
+      const missing = Object.entries(presets).filter(([,preset]) => !plans.some(plan => plan.name.trim().toLowerCase() === preset.name.toLowerCase()));
       root.innerHTML = shell(header('Plans','Create clear offers for clients and keep provider costs under control.','<button class="btn" id="new-plan" type="button">Create plan</button>') +
-        `<div class="notice">Start with one of the suggested offers or build a custom plan. Suggested prices are drafts until you publish them. Existing client accounts keep their assigned plan snapshot until you update them individually.</div><div class="plan-grid">${plans.map(plan => `<article class="card plan"><span class="badge ${plan.published?'green':''}">${plan.published?'Published':'Draft'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><p class="small muted">${plan.modules.map(m => escape(features[m] || m)).join(' · ') || 'Core chatbot'}</p><ul><li>${plan.limits.messages === -1 ? 'Unlimited inbound messages' : plan.limits.messages + ' customer messages'}</li><li>${plan.limits.numbers} WhatsApp number${plan.limits.numbers===1?'':'s'}</li><li>Internal AI ceiling: $${plan.limits.monthlyUsd}</li></ul><button class="btn secondary edit-plan" data-id="${escape(plan.id)}">Edit plan</button></article>`).join('') || '<p class="empty">No plans yet. Create an Essential, Services, Commerce or Growth offer.</p>'}</div>`,true,'Plans');
+        `<div class="notice">Saved plans appear below. Suggested offers are examples until you save them as drafts; only published plans are visible to clients. Existing accounts keep their assigned plan until you update them.</div><div class="section-heading"><div><h2>Saved plans</h2><p class="muted small">These are the actual offers in your account.</p></div></div><div class="plan-grid">${plans.map(plan => `<article class="card plan"><span class="badge ${plan.published?'green':''}">${plan.published?'Published':'Draft'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><p class="small muted">${plan.modules.map(m => escape(features[m] || m)).join(' · ') || 'Core chatbot'}</p><ul><li>${plan.limits.messages === -1 ? 'Unlimited inbound messages' : plan.limits.messages + ' customer messages'}</li><li>${plan.limits.numbers} WhatsApp number${plan.limits.numbers===1?'':'s'}</li><li>Internal AI ceiling: $${plan.limits.monthlyUsd}</li></ul><button class="btn secondary edit-plan" data-id="${escape(plan.id)}">Edit plan</button></article>`).join('') || '<p class="empty">No saved plans yet.</p>'}</div><div class="section-heading plan-suggestions-heading"><div><h2>Suggested offers</h2><p class="muted small">Review a template, or save the missing offers as unpublished drafts.</p></div>${missing.length?'<button class="btn secondary" id="save-suggested" type="button">Create '+missing.length+' draft plan'+(missing.length===1?'':'s')+'</button>':''}</div><div class="plan-grid">${Object.entries(presets).map(([key,preset]) => `<article class="card plan"><span class="badge">${missing.some(([id])=>id===key)?'Suggested · not saved':'Already saved'}</span><h2>${escape(preset.name)}</h2><p class="muted small">${escape(preset.description)}</p><div class="plan-price">${preset.price} <small>MAD / month · suggested</small></div><ul><li>${preset.limits.messages} customer messages</li><li>${preset.limits.numbers} WhatsApp number${preset.limits.numbers===1?'':'s'}</li>${preset.modules.includes('commerce')?'<li>COD order workflow can be added per client</li>':''}</ul><button class="btn secondary use-preset" data-preset="${key}" type="button">${missing.some(([id])=>id===key)?'Review & create draft':'Edit saved plan'}</button></article>`).join('')}</div><article class="card plan-cod-guide"><h2>Cash on delivery (COD)</h2><p class="muted small">COD order capture is a client chatbot workflow, not a separate plan. After assigning a Commerce or Growth plan, open that client’s Chatbot controls → Guided workflows → Cash on delivery. Review, test, save and publish the workflow for that client. No COD workflow is activated just by creating a plan.</p></article>`,true,'Plans');
       root.querySelector('#new-plan').onclick = () => editor();
       root.querySelectorAll('.edit-plan').forEach(button => button.onclick = () => editor(plans.find(plan => plan.id === button.dataset.id)));
+      root.querySelectorAll('.use-preset').forEach(button => button.onclick = () => {
+        const preset = presets[button.dataset.preset];
+        const saved = plans.find(plan => plan.name.trim().toLowerCase() === preset.name.toLowerCase());
+        if (saved) editor(saved);
+        else editor(undefined, button.dataset.preset);
+      });
+      const saveSuggested = root.querySelector('#save-suggested');
+      if (saveSuggested) saveSuggested.onclick = async () => {
+        saveSuggested.disabled = true;
+        try {
+          for (const [,preset] of missing) await api('/admin/plans',{method:'POST',body:JSON.stringify({...preset,currency:'MAD',published:false,template:{}})});
+          toast('Suggested plans saved as drafts. Review each plan before publishing.');
+          go('/admin/plans');
+        } catch (error) { toast(error.message,true); go('/admin/plans'); }
+      };
       bind();
     };
-    const editor = existing => {
-      let plan = existing ? structuredClone(existing) : {name:'',description:'',price:0,currency:'MAD',published:false,modules:[],limits:{...base},template:{}};
+    const editor = (existing, suggestedKey) => {
+      let plan = existing ? structuredClone(existing) : suggestedKey ? {...presets[suggestedKey],currency:'MAD',published:false,template:{}} : {name:'',description:'',price:0,currency:'MAD',published:false,modules:[],limits:{...base},template:{}};
       root.innerHTML = shell(header(existing?'Edit plan':'Create plan','Choose customer features first, then set internal safeguards.') +
         `<form id="plan-form" class="plan-editor"><article class="card"><h2>Offer</h2>${existing?'':`<div class="field"><label for="plan-preset">Start from a suggested offer</label><select id="plan-preset"><option value="">Custom plan</option>${Object.entries(presets).map(([key,value]) => `<option value="${key}">${escape(value.name)} · suggested ${value.price} MAD</option>`).join('')}</select><span class="hint">Prices are suggestions. Review them before publishing.</span></div>`}<div class="form-grid"><div class="field"><label for="plan-name">Plan name</label><input id="plan-name" required maxlength="100"></div><div class="field"><label for="plan-price">Monthly price</label><input id="plan-price" type="number" min="0" step="0.01" required></div><div class="field"><label for="plan-currency">Currency</label><input id="plan-currency" maxlength="3" required></div><div class="field full"><label for="plan-description">What does the client get?</label><textarea id="plan-description" maxlength="1000"></textarea></div></div></article>`+
         `<article class="card"><h2>Included features</h2><p class="muted small">Only enable what this offer can actually provide.</p><div class="plan-feature-grid">${Object.entries(features).map(([key,label]) => `<label class="plan-feature"><input type="checkbox" data-module="${key}"><span>${escape(label)}</span></label>`).join('')}</div><p class="hint">QR sessions require separate infrastructure; leave off for normal Meta Cloud plans.</p></article>`+
@@ -51,6 +67,7 @@ window.RelayqoPlans = (() => {
         form.querySelector('#plan-published').checked = !!plan.published;
       };
       fill(plan);
+      if(suggestedKey)form.querySelector('#plan-preset').value=suggestedKey;
       if(!existing) form.querySelector('#plan-preset').onchange = event => {
         const preset = presets[event.target.value];
         if (preset) fill({...preset,currency:'MAD',published:false,template:{}});
