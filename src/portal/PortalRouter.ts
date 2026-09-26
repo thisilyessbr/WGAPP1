@@ -120,7 +120,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       AND "accountId"=l."accountId" AND "customerId"=l."customerId"
       AND "customerId" NOT LIKE 'portal-preview:%' ORDER BY "updatedAt" DESC LIMIT 1) conv ON true
     LEFT JOIN LATERAL (SELECT "collectedData","workflowId" FROM "WorkflowSession"
-      WHERE "tenantId"=l."tenantId" AND "conversationId"=conv.id
+      WHERE "tenantId"=l."tenantId" AND "conversationId"=conv.id AND status='COMPLETED'
+      AND ("workflowId" !~* '(checkout|cash_on_delivery|cod_order)'
+        OR "collectedData"->>'_confirmed'='true'
+        OR ("collectedData"->>'_confirmed' IS NULL AND "stateId"='done'))
       ORDER BY "updatedAt" DESC LIMIT 1) ws ON true
     WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND (${status}='' OR l.status=${status})
     ORDER BY l."updatedAt" DESC,l.id DESC LIMIT ${limit} OFFSET ${offset}`;
