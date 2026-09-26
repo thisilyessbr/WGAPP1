@@ -802,6 +802,7 @@ export class WorkflowEngine {
 
         if (confirmKeywords.includes(lowerMsg)) {
           // Confirmation confirmed -> proceed to next state transition
+          collectedData['_confirmed'] = true;
           nextStateId = stateConfig.next || (stateConfig.transitions && stateConfig.transitions[0] ? stateConfig.transitions[0].target : null);
           if (!nextStateId) {
             isComplete = true;
@@ -811,19 +812,20 @@ export class WorkflowEngine {
               ? resolveLocalizedPrompt(stateConfig.prompt, lang, defaultCompletion, script)
               : defaultCompletion;
             response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
-            return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true });
+            return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true, updatedCollectedData: collectedData });
           }
         } else if (isConfirmCancel) {
+          collectedData['_confirmed'] = false;
           const defaultCancelled = getWorkflowMessage('workflowCancelled', lang, script);
           const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled);
           const promptToUse = stateConfig.cancellationPrompt || businessConfig.prompts?.workflowCancelled;
           response = promptToUse && (!defaultVals.includes(promptToUse as string) || typeof promptToUse === 'object')
             ? resolveLocalizedPrompt(promptToUse, lang, defaultCancelled, script)
             : defaultCancelled;
-          return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true });
+          return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true, updatedCollectedData: collectedData });
         } else {
           response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script);
-          return finishAndReturn({ updatedContext: currentContext, nextStateId, response, isComplete });
+          return finishAndReturn({ updatedContext: currentContext, nextStateId, response, isComplete, updatedCollectedData: collectedData });
         }
       }
 
@@ -870,7 +872,8 @@ export class WorkflowEngine {
         updatedContext: currentContext,
         nextStateId,
         response,
-        isComplete
+        isComplete,
+        updatedCollectedData: collectedData
       });
     } catch (err: any) {
       telemetry.emit({

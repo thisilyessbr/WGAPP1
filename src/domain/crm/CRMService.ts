@@ -1,7 +1,7 @@
 import { PrismaClient, Lead, Customer } from '@prisma/client';
 import { TurnDecision } from '../conversation/TurnDecision';
 import { logger } from '../../utils/logger';
-import { isActionNegated } from '../conversation/IntentLanguage';
+import { isActionNegated, normalizeIntentText } from '../conversation/IntentLanguage';
 
 export const VALID_LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'] as const;
 export type LeadStatus = typeof VALID_LEAD_STATUSES[number];
@@ -248,12 +248,15 @@ export class CRMService {
 
     // 3. User message keywords check for explicit buy/order phrases in Arabic/Darija/French/English
     if (!isStrongSignal && userMessage) {
-      const lower = userMessage.toLowerCase().trim();
+      const lower = normalizeIntentText(userMessage).toLowerCase().trim();
       const buyPhrases = [
         'i want to buy', 'i want to order', 'how to buy', 'place order',
-        'bghit nchri', 'bghit ncommandi', 'kifash nchri', 'kifesh nechri',
-        'je veux acheter', 'je veux commander', 'comment acheter', 'passer commande',
-        'أريد الشراء', 'أريد الطلب', 'كيفية الشراء', 'بغيت نشري', 'بغيت نكوموندي'
+        'bghit nchri', 'bghit ncommandi', 'bghit nkomandi', 'baghi nchri', 'baghya nchri',
+        'kifash nchri', 'kifesh nechri',
+        'je veux acheter', 'je veux commander', 'je voudrais acheter', 'je voudrais commander',
+        'je vais acheter', 'je vais commander', 'je passe commande', 'comment acheter', 'passer commande',
+        'أريد الشراء', 'أريد شراء', 'أريد الطلب', 'أود شراء', 'اود شراء', 'سأشتري', 'سوف أشتري',
+        'كيفية الشراء', 'بغيت نشري', 'بغيت نكوموندي', 'باغي نشري', 'باغية نشري'
       ];
       if (buyPhrases.some(phrase => lower.includes(phrase))) {
         isStrongSignal = true;

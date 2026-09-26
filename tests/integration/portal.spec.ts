@@ -61,13 +61,23 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
       VALUES (${leadId},${owner.tenantId},${owner.accountId},${customerId},'NEW',NOW())`;
     await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
       VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
-    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId","collectedData","updatedAt")
-      VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_test','done',${JSON.stringify({city:'Rabat',address:'Rue 12',product:'Sneakers',quantity:'2'})}::jsonb,NOW())`;
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_test','done','COMPLETED',${JSON.stringify({city:'Rabat',address:'Rue 12',product:'Sneakers',quantity:'2'})}::jsonb,NOW())`;
+    const cancelledCustomerId = randomUUID(), cancelledConversationId = randomUUID(), cancelledLeadId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      VALUES (${cancelledCustomerId},${owner.tenantId},${'cancelled-cod'},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      VALUES (${cancelledLeadId},${owner.tenantId},${owner.accountId},${cancelledCustomerId},'NEW',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
+      VALUES (${cancelledConversationId},${owner.tenantId},${owner.accountId},${cancelledCustomerId},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${cancelledConversationId},'checkout_cancelled','confirm','COMPLETED',${JSON.stringify({_confirmed:false,city:'CANCELLED CITY',address:'CANCELLED ADDRESS'})}::jsonb,NOW())`;
     const ownerHeaders = await cookie(owner.user), strangerHeaders = await cookie(stranger.user);
     const own = await request(app).get('/api/client/leads').set(ownerHeaders);
     expect(own.status).toBe(200);
     expect(own.body.leads.some((lead: any) => lead.id === leadId)).toBe(true);
     expect(own.body.leads.find((lead: any) => lead.id === leadId).orderDetails.city).toBe('Rabat');
+    expect(own.body.leads.find((lead: any) => lead.id === cancelledLeadId).orderDetails).toBeNull();
     expect((await request(app).get('/api/client/leads').set(strangerHeaders)).body.leads).toEqual([]);
     expect((await request(app).patch('/api/client/leads/' + leadId).set(strangerHeaders).send({status:'WON'})).status).toBe(404);
     expect((await request(app).patch('/api/client/leads/' + leadId).set(ownerHeaders).send({status:'INVALID'})).status).toBe(400);
@@ -78,8 +88,39 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(csv.text).toContain("'=447700900123");
     expect(csv.text).toContain('Rabat');
     expect(csv.text).toContain('Cash on delivery');
+    expect(csv.text).not.toContain('CANCELLED CITY');
+    expect(csv.text).not.toContain('CANCELLED ADDRESS');
     expect((await request(app).get('/api/client/leads/export.csv').set(strangerHeaders)).text).not.toContain('447700900123');
   });
+  it('exports more than one batch with Arabic, French, quotes and spreadsheet-safe cells', async () => {
+    const owner = await client(), stranger = await client();
+    await database.pg.query(`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      SELECT gen_random_uuid()::text,$1,'csv-stress:' || n,NOW() FROM generate_series(1,1002) AS n`,[owner.tenantId]);
+    await database.pg.query(`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      SELECT gen_random_uuid()::text,$1,$2,id,'NEW',NOW() FROM "Customer"
+      WHERE "tenantId"=$1 AND "externalId" LIKE 'csv-stress:%'`,[owner.tenantId,owner.accountId]);
+    const customerId = randomUUID(), conversationId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      VALUES (${customerId},${owner.tenantId},${'+212 600000000'},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${owner.accountId},${customerId},'QUALIFIED',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
+      VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_stress','done','COMPLETED',${JSON.stringify({city:'الدار البيضاء',address:'12, Rue "Atlas"',product:'=SUM(1,1)',quantity:'2',payment:'Paiement à la livraison'})}::jsonb,NOW())`;
+    const response = await request(app).get('/api/client/leads/export.csv').set(await cookie(owner.user));
+    expect(response.status).toBe(200);
+    expect(response.text.startsWith('\uFEFF"Contact","Status"')).toBe(true);
+    expect((response.text.match(/csv-stress:/g) || [])).toHaveLength(1002);
+    expect(response.text).toContain("\"'+212 600000000\"");
+    expect(response.text).toContain('"الدار البيضاء"');
+    expect(response.text).toContain('"12, Rue ""Atlas"""');
+    expect(response.text).toContain('"\'=SUM(1,1)"');
+    expect(response.text).toContain('"Paiement à la livraison"');
+    const other = await request(app).get('/api/client/leads/export.csv').set(await cookie(stranger.user));
+    expect(other.text).not.toContain('csv-stress:');
+    expect(other.text).not.toContain('الدار البيضاء');
+  }, 30000);
   it('freezes and unfreezes one client without blocking admin edits or plan requests', async () => {
     const c = await client(), other = await client();
     const adminHeaders = await cookie(admin), clientHeaders = await cookie(c.user);

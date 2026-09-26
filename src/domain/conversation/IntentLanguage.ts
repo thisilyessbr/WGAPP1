@@ -40,9 +40,14 @@ export function isActionNegated(text: string, action: 'purchase' | 'handoff'): b
   // Negation of a return request must not negate a purchase in a later "but" clause.
   const clauses = normalized.split(/[.!?;؟،]|\s+(?:but|however|mais|walakin|ولكن|لكن)\s+/iu).map(s => s.trim()).filter(Boolean);
   const deniedAction = new RegExp(`(?:^|[^\\p{L}\\p{N}])${negative}(?:\\s+[\\p{L}\\p{N}’\x27-]+){0,6}\\s+${actionWords}(?=$|[^\\p{Script=Latin}\\p{N}])`, 'iu');
-  if (clauses.some(clause => deniedAction.test(clause))) return true;
+  // A later purchase request can supersede an earlier refusal after "but/mais/walakin".
+  // Check the last clause that mentions this action, not any earlier refusal.
+  const actionPattern = new RegExp(actionWords, 'iu');
+  const lastActionClause = clauses.filter(clause => actionPattern.test(clause)).at(-1);
+  if (lastActionClause && deniedAction.test(lastActionClause)) return true;
   // A final explicit correction ("... ? la mabghitch") withdraws the earlier request.
   const last = clauses.at(-1) || '';
-  return clauses.length > 1 && new RegExp(actionWords, 'iu').test(clauses.slice(0, -1).join(' ')) &&
-    /^(?:(?:la|لا|no|non)\s*)?(?:ma\s*bghit\s*(?:ch|sh)|ما\s*بغيت\s*ش)(?:\s+(?:daba|دابا))?$/iu.test(last);
+  return clauses.length > 1 && actionPattern.test(clauses.slice(0, -1).join(' ')) &&
+    (/^(?:(?:la|لا|no|non)\s*)?(?:ma\s*bghit\s*(?:ch|sh)|ما\s*بغيت\s*ش)(?:\s+(?:daba|دابا))?$/iu.test(last)
+      || /^(?:la|لا|no|non)(?:\s+(?:finalement|daba|دابا))?$/iu.test(last));
 }

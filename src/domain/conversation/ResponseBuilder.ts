@@ -137,9 +137,17 @@ export class ResponseBuilder {
     lang: string = 'en',
     script?: string
   ): string {
+    const checkoutLabels: Record<string, Record<string, string>> = {
+      en: { product: 'Product', quantity: 'Quantity', customer_name: 'Customer name', phone: 'Phone', city: 'City', address: 'Address' },
+      fr: { product: 'Produit', quantity: 'Quantité', customer_name: 'Nom', phone: 'Téléphone', city: 'Ville', address: 'Adresse' },
+      ar: { product: 'المنتج', quantity: 'الكمية', customer_name: 'الاسم', phone: 'الهاتف', city: 'المدينة', address: 'العنوان' },
+      darija: { product: 'Lproduit', quantity: 'L3adad', customer_name: 'Smiya', phone: 'Téléphone', city: 'Lmdina', address: 'L3onwan' },
+      darija_arabic: { product: 'المنتوج', quantity: 'العدد', customer_name: 'السمية', phone: 'النمرة', city: 'المدينة', address: 'العنوان' }
+    };
+    const labelLanguage = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
     const summary = Object.entries(contextData)
       .filter(([key]) => !key.startsWith('_'))
-      .map(([key, val]) => `${key}: ${val}`)
+      .map(([key, val]) => `${checkoutLabels[labelLanguage]?.[key] || key}: ${val}`)
       .join('\n');
 
     const interpolationData: Record<string, unknown> = {
