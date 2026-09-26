@@ -261,6 +261,18 @@ export class CRMService {
       if (buyPhrases.some(phrase => lower.includes(phrase))) {
         isStrongSignal = true;
       }
+      // Service businesses also need leads for explicit booking requests, even when
+      // no booking workflow is configured. Questions about availability alone are not leads.
+      const bookingPatterns = [
+        /\bi\s+(?:want|need|would\s+like)\s+to\s+(?:book|reserve|schedule)\b/u,
+        /\bje\s+(?:veux|voudrais|souhaite)\s+(?:r[eé]server|m['’]inscrire|prendre\s+(?:un\s+)?rendez-vous)\b/u,
+        /\bj['’]aimerais\s+(?:r[eé]server|m['’]inscrire|prendre\s+(?:un\s+)?rendez-vous)\b/u,
+        /\b(?:bghit|baghi|baghya)\s+(?:n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel)\b/u,
+        /(?:بغيت|باغي|باغية|اريد|أريد|اود|أود)\s+(?:ان\s+|أن\s+)?(?:نحجز|احجز|أحجز|نسجل|أسجل|التسجيل|حجز|الحجز)/u
+      ];
+      if (!isStrongSignal && bookingPatterns.some(pattern => pattern.test(lower)) && !isActionNegated(lower, 'booking')) {
+        isStrongSignal = true;
+      }
     }
 
     if (isStrongSignal && !isActionNegated(userMessage || '', 'purchase')) {

@@ -90,7 +90,21 @@ describe('lead detection multilingual stress matrix', () => {
     ['je voudrais acheter ces chaussures',true],
     ['je vais commander ces chaussures',true],
     ['je ne veux pas acheter ces chaussures',false],
-    ['combien ça coûte ?',false]
+    ['combien ça coûte ?',false],
+    ['Salam, bghit n7jez cours anglais. Kifach n9der nbda?',true],
+    ['baghya ntsjel f cours l-français',true],
+    ['بغيت نحجز درس ديال الإنجليزية',true],
+    ['أريد التسجيل في دورة اللغة الإنجليزية',true],
+    ['je voudrais réserver un cours de français',true],
+    ['j’aimerais m’inscrire à une formation',true],
+    ['I want to book a consultation',true],
+    ['bghit n7jez cours anglais. la',false],
+    ['ma bghitch n7jez cours anglais',false],
+    ['لا أريد حجز درس',false],
+    ['je ne veux pas réserver un cours',false],
+    ['I do not want to book a consultation',false],
+    ['wach kayn cours anglais?',false],
+    ['combien coûte le cours?',false]
   ])('normal chatbot lead signal: %s → %s', async (message, expected) => {
     const upsert = vi.fn(async () => ({ id: 'lead-1' }));
     const crm = new CRMService({ lead: { upsert } } as any);

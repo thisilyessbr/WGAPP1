@@ -31,11 +31,13 @@ export function matchesPolicyPhrase(text: string, pattern: RegExp): boolean {
 }
 
 /** Conservative action guard; negated requests must never authorize state changes. */
-export function isActionNegated(text: string, action: 'purchase' | 'handoff'): boolean {
+export function isActionNegated(text: string, action: 'purchase' | 'handoff' | 'booking'): boolean {
   const normalized = normalizeIntentText(text);
   const actionWords = action === 'purchase'
     ? '(?:buy|order|purchase|checkout|acheter|commander|prendre|(?:nchri|nechri|nshri|ncommandi|nkomandi|nkhod|nakhod)(?:h|ha)?|شراء|الشراء|اشتري|أشتري|نشري|نطلب|نكوموندي|نكموندي|ناخد|ناخذ)'
-    : '(?:transfer|connect|talk|speak|human|agent|person|parler|transf[eé]rer|humain|conseiller|nhder|nhdr|nhedar|ndwi|نهضر|ندوي|تحويل|حولني|موظف|إنسان|انسان|شخص)';
+    : action === 'booking'
+      ? '(?:book|reserve|schedule|r[eé]server|rendez-vous|inscrire|n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel|حجز|الحجز|احجز|أحجز|نحجز|نسجل|التسجيل)'
+      : '(?:transfer|connect|talk|speak|human|agent|person|parler|transf[eé]rer|humain|conseiller|nhder|nhdr|nhedar|ndwi|نهضر|ندوي|تحويل|حولني|موظف|إنسان|انسان|شخص)';
   const negative = '(?:do\\s+not|don[’\x27]?t|doesn[’\x27]?t|not|never|no|ne|pas|sans|لا|لن|ليس|ماشي|ما\\s*بغيت\\s*ش|ما\\s*باغي(?:ش|اش)|ma\\s*bghit\\s*(?:ch|sh)|ma\\s*bagh[yi]a?(?:ch|sh)|machi|manbghich)';
   // Negation of a return request must not negate a purchase in a later "but" clause.
   const clauses = normalized.split(/[.!?;؟،]|\s+(?:but|however|mais|walakin|ولكن|لكن)\s+/iu).map(s => s.trim()).filter(Boolean);
