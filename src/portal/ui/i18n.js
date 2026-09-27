@@ -80,7 +80,7 @@
   ]) translations.set(en, { fr, ar });
 
   for (const [en, fr, ar] of [
-    ['Requests','Demandes','الطلبات'],['Inquiries','Demandes de renseignements','الاستفسارات'],
+    ['Requests','Demandes','الطلبات'],['Inquiries','Demandes de renseignements','الاستفسارات'],['Request','Demande','الطلب'],['Customer conversation','Conversation client','محادثة العميل'],
     ['Inquiry details','Détails de la demande','تفاصيل الاستفسار'],['Inquiry queue','Demandes à traiter','قائمة الاستفسارات'],
     ['Customer follow-up','Suivi des clients','متابعة العملاء'],['Inquiries to review','Demandes à examiner','استفسارات للمراجعة'],
     ['Service requests and booking inquiries from customer conversations.','Demandes de services et de réservation issues des conversations clients.','طلبات الخدمات والحجز من محادثات العملاء.'],
