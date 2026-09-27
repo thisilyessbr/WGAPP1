@@ -151,6 +151,37 @@
     if (count) return left + count[1] + ' ' + (translations.get(count[2])?.[locale] || count[2]) + right;
     const accountCount = key.match(/^(\d+) (matching )?accounts$/);
     if (accountCount) return left + (locale === 'fr' ? `${accountCount[1]} ${accountCount[2] ? 'comptes correspondants' : 'comptes'}` : `${accountCount[1]} ${accountCount[2] ? 'حسابات مطابقة' : 'حسابات'}`) + right;
+    const adminStatus = key.match(/^Status: (DRAFT|SUBMITTED|NEEDS_CHANGES|APPROVED|ACTIVE|SUSPENDED)\. Changes are recorded in the activity history\.$/);
+    if (adminStatus) {
+      const value = translations.get(adminStatus[1].replaceAll('_', ' '))?.[locale] || adminStatus[1];
+      return left + (locale === 'fr' ? `Statut : ${value}. Les changements sont consignés dans l’historique.` : `الحالة: ${value}. تُسجّل التغييرات في سجل النشاط.`) + right;
+    }
+    const savedPlan = key.match(/^Saved plan: (.+)$/);
+    if (savedPlan) return left + (locale === 'fr' ? 'Offre enregistrée : ' : 'الباقة المحفوظة: ') + savedPlan[1] + right;
+    const draftCount = key.match(/^Create (\d+) draft plans?$/);
+    if (draftCount) return left + (locale === 'fr' ? `Créer ${draftCount[1]} offre${draftCount[1] === '1' ? '' : 's'} en brouillon` : `إنشاء ${draftCount[1]} باقة كمسودة`) + right;
+    const customerMessages = key.match(/^(\d+) customer messages$/);
+    if (customerMessages) return left + (locale === 'fr' ? `${customerMessages[1]} messages clients` : `${customerMessages[1]} رسالة عميل`) + right;
+    const numberCount = key.match(/^(\d+) WhatsApp numbers?$/);
+    if (numberCount) return left + (locale === 'fr' ? `${numberCount[1]} numéro${numberCount[1] === '1' ? '' : 's'} WhatsApp` : `${numberCount[1]} رقم واتساب`) + right;
+    const costCeiling = key.match(/^Internal AI ceiling: \$(.+)$/);
+    if (costCeiling) return left + (locale === 'fr' ? `Plafond IA interne : ${costCeiling[1]} $` : `حد تكلفة الذكاء الاصطناعي الداخلي: ${costCeiling[1]} دولار`) + right;
+    const recentMessages = key.match(/^Messages · last (\d+) days$/);
+    if (recentMessages) return left + (locale === 'fr' ? `Messages · ${recentMessages[1]} derniers jours` : `الرسائل · آخر ${recentMessages[1]} يومًا`) + right;
+    const providerSwitch = key.match(/^(Provider ready|The selected provider needs an API key\.) · Client switch: (On|Off)$/);
+    if (providerSwitch) return left + `${translations.get(providerSwitch[1])?.[locale] || providerSwitch[1]} · ${translations.get('Client switch:')?.[locale] || 'Client switch:'} ${translations.get(providerSwitch[2])?.[locale] || providerSwitch[2]}` + right;
+    const planPrice = key.match(/^MAD \/ month · suggested$/);
+    if (planPrice) return left + (locale === 'fr' ? 'MAD / mois · suggéré' : 'درهم / شهر · مقترح') + right;
+    const planSuggestion = key.match(/^(.+) · suggested (\d+) MAD$/);
+    if (planSuggestion) return left + `${translations.get(planSuggestion[1])?.[locale] || planSuggestion[1]}${locale === 'fr' ? ` · suggéré ${planSuggestion[2]} MAD` : ` · سعر مقترح ${planSuggestion[2]} درهم`}` + right;
+    const transitionCount = key.match(/^Conditional transitions \((\d+)\)$/);
+    if (transitionCount) return left + `${translations.get('Conditional transitions')?.[locale]} (${transitionCount[1]})` + right;
+    const transitionField = key.match(/^(Transition|Default transition|Remove transition) (\d+)( intent| condition| target)?$/);
+    if (transitionField) {
+      const field = transitionField[3] ? translations.get(transitionField[3].trim())?.[locale] || transitionField[3].trim() : '';
+      const action = translations.get(transitionField[1])?.[locale] || transitionField[1];
+      return left + `${action} ${transitionField[2]}${field ? ` · ${field}` : ''}` + right;
+    }
     const inquiryCount = key.match(/^(\d+) (inquiry|inquiries|lead|leads)$/);
     if (inquiryCount) {
       const singular = inquiryCount[2] === 'inquiry' || inquiryCount[2] === 'lead';
@@ -172,9 +203,11 @@
 
   function textNode(node) {
     if (['SCRIPT', 'STYLE', 'TEXTAREA'].includes(node.parentElement?.tagName) || node.parentElement?.isContentEditable) return;
+    if (node.parentElement?.closest('[data-no-translate], .admin-convo-message p, .admin-convo-snippet, .preview-message p')) return;
     const raw = node.nodeValue || '';
     const previous = originals.get(node);
     const source = previous && raw === previous.rendered ? previous.source : raw;
+    if (node.parentElement?.tagName === 'OPTION' && !node.parentElement.hasAttribute('value')) node.parentElement.value = source.trim();
     const rendered = translate(source);
     originals.set(node, { source, rendered });
     if (raw !== rendered) node.nodeValue = rendered;
@@ -271,6 +304,130 @@
     ['Pick the features that fit your business. Your administrator confirms the final offer.','Choisissez les fonctionnalités adaptées à votre activité. Votre administrateur confirme l’offre finale.','اختر الميزات المناسبة لنشاطك. يؤكد المشرف الباقة النهائية.'],
     ['Showing the latest 1,000 leads. CSV export includes the full history.','Affichage des 1 000 prospects les plus récents. L’export CSV contient tout l’historique.','يتم عرض آخر ١٠٠٠ عميل محتمل. يتضمن تصدير CSV السجل الكامل.']
   ]) translations.set(en, {fr, ar});
+
+  // Administrator pages are rendered from several modules. Keep their shared
+  // vocabulary here so switching language works after every client-side render.
+  for (const [en, fr, ar] of [
+    ['No activity yet.','Aucune activité pour le moment.','لا يوجد نشاط بعد.'],
+    ['Manage plans','Gérer les offres','إدارة الباقات'],
+    ['Review & edit data','Vérifier et modifier les données','مراجعة البيانات وتعديلها'],
+    ['Publish data','Publier les données','نشر البيانات'],
+    ['Save controls','Enregistrer les paramètres','حفظ الإعدادات'],
+    ['Chatbot controls','Paramètres du chatbot','إعدادات روبوت المحادثة'],
+    ['Usage & statistics','Utilisation et statistiques','الاستخدام والإحصاءات'],
+    ['Account status','Statut du compte','حالة الحساب'],
+    ['Activation requires an approved plan, published data and a WhatsApp connection.','L’activation nécessite une offre approuvée, des données publiées et une connexion WhatsApp.','يتطلب التفعيل باقة معتمدة وبيانات منشورة واتصال واتساب.'],
+    ['Client review note','Note de révision du client','ملاحظة مراجعة العميل'],
+    ['Choose a plan','Choisir une offre','اختر باقة'],
+    ['No plan assigned yet. Select a plan, then save or publish.','Aucune offre attribuée. Choisissez-en une, puis enregistrez ou publiez.','لم تُعيّن باقة بعد. اختر باقة ثم احفظ الإعدادات أو انشرها.'],
+    ['Connection status can be enabled or paused from this account.','Vous pouvez activer ou suspendre la connexion depuis ce compte.','يمكن تفعيل الاتصال أو إيقافه مؤقتًا من هذا الحساب.'],
+    ['The client has not linked a WhatsApp number yet.','Le client n’a pas encore associé de numéro WhatsApp.','لم يربط العميل رقم واتساب بعد.'],
+    ['Pause','Suspendre','إيقاف مؤقت'],['Enable','Activer','تفعيل'],
+    ['Only administrators can edit technical behavior.','Seuls les administrateurs peuvent modifier le comportement technique.','يمكن للمشرفين فقط تعديل سلوك الروبوت التقني.'],
+    ['Lock client business fields','Verrouiller les champs de l’entreprise','قفل حقول بيانات النشاط للعميل'],
+    ['Automatically publish client changes','Publier automatiquement les changements du client','نشر تغييرات العميل تلقائيًا'],
+    ['Publish validated changes while active','Publier les changements validés pendant l’activation','نشر التغييرات المعتمدة أثناء تفعيل الحساب'],
+    ['Advanced chatbot configuration (JSON)','Configuration avancée du chatbot (JSON)','إعدادات الروبوت المتقدمة (JSON)'],
+    ['Model, prompts, workflow, retrieval and chatbot rules. Invalid configuration is rejected.','Modèle, instructions, parcours, recherche et règles du chatbot. Une configuration invalide est refusée.','النموذج والتعليمات ومسار العمل والاسترجاع وقواعد الروبوت. تُرفض الإعدادات غير الصالحة.'],
+    ['Usage and statistics','Utilisation et statistiques','الاستخدام والإحصاءات'],
+    ['Actual receipts where available; conservative reservations otherwise.','Coûts réels lorsqu’ils sont disponibles ; estimations prudentes sinon.','تكاليف فعلية عند توفرها، وتقديرات احتياطية في غير ذلك.'],
+    ['Test this client’s chatbot','Tester le chatbot de ce client','اختبار روبوت هذا العميل'],
+    ['Run an isolated conversation without sending a WhatsApp message.','Lancez une conversation isolée sans envoyer de message WhatsApp.','ابدأ محادثة اختبار مستقلة دون إرسال رسالة واتساب.'],
+    ['New session','Nouvelle session','جلسة جديدة'],['Configuration','Configuration','الإعدادات'],
+    ['Saved draft','Brouillon enregistré','المسودة المحفوظة'],['Published version','Version publiée','النسخة المنشورة'],
+    ['Start with a customer question in English, French, Arabic or Darija.','Commencez par une question en anglais, français, arabe ou darija.','ابدأ بسؤال عميل بالإنجليزية أو الفرنسية أو العربية أو الدارجة.'],
+    ['Customer message','Message du client','رسالة العميل'],['Type a customer message…','Saisissez un message client…','اكتب رسالة العميل…'],['Send test','Envoyer le test','إرسال الاختبار'],
+    ['Publication history','Historique des publications','سجل النشر'],['Restore','Restaurer','استعادة'],['No published version yet.','Aucune version publiée.','لم تُنشر أي نسخة بعد.'],
+    ['Client editing','Modification par le client','تعديل العميل'],
+    ['Chatbot information is frozen for this client.','Les informations du chatbot sont verrouillées pour ce client.','بيانات الروبوت مقفلة لهذا العميل.'],
+    ['This client can edit their chatbot information.','Ce client peut modifier les informations de son chatbot.','يمكن لهذا العميل تعديل بيانات روبوته.'],
+    ['WhatsApp replies and inbox work continue.','Les réponses WhatsApp et la boîte de réception restent actives.','تستمر ردود واتساب وصندوق الوارد في العمل.'],
+    ['Freeze editing','Verrouiller les modifications','قفل التعديل'],['Unfreeze editing','Déverrouiller les modifications','فتح التعديل'],
+    ['Client editing frozen.','Modifications du client verrouillées.','تم قفل تعديل العميل.'],['Client editing unfrozen.','Modifications du client déverrouillées.','تم فتح تعديل العميل.'],
+    ['Contacts','Contacts','جهات الاتصال'],['Estimated AI cost','Coût IA estimé','تكلفة الذكاء الاصطناعي المقدّرة'],
+    ['CLIENT CONFIGURATION','CONFIGURATION DU CLIENT','إعدادات العميل'],
+    ['Changes affect this client only. Saving settings updates an active chatbot immediately; Publish data also releases the latest business content.','Ces changements concernent uniquement ce client. Enregistrer met à jour immédiatement un chatbot actif ; publier les données rend aussi le dernier contenu disponible.','تخص هذه التغييرات هذا العميل فقط. يحفظ الإعدادات تغييرات الروبوت النشط فورًا؛ وينشر زر «نشر البيانات» أحدث محتوى للنشاط.'],
+    ['Overrides apply only to this client. Recorded usage remains unchanged.','Les dérogations concernent uniquement ce client. L’utilisation enregistrée reste inchangée.','تخص الحدود المعدّلة هذا العميل فقط. يبقى الاستخدام المسجل دون تغيير.'],
+    ['AI calls and estimated spend still have separate limits.','Les appels IA et les dépenses estimées conservent des limites distinctes.','تبقى لاستدعاءات الذكاء الاصطناعي والتكلفة المقدّرة حدود منفصلة.'],
+    ['Apply the latest version of the selected plan when saving','Appliquer la dernière version de l’offre choisie à l’enregistrement','تطبيق أحدث نسخة من الباقة المحددة عند الحفظ'],
+    ['Assign a plan in Overview to set this account’s allowances.','Attribuez une offre dans Vue d’ensemble pour définir les limites de ce compte.','عيّن باقة في «نظرة عامة» لتحديد حدود هذا الحساب.'],
+    ['No recorded activity in this period.','Aucune activité enregistrée pendant cette période.','لا يوجد نشاط مسجل خلال هذه الفترة.'],
+    ['AI and voice usage','Utilisation de l’IA et de la voix','استخدام الذكاء الاصطناعي والصوت'],
+    ['Languages, intents and response sources','Langues, intentions et sources des réponses','اللغات والنوايا ومصادر الردود'],
+    ['Lead status','Statut des prospects','حالة العملاء المحتملين'],
+    ['WhatsApp delivery and retries','Envois WhatsApp et nouvelles tentatives','إرسال واتساب وإعادة المحاولة'],
+    ['Connect this client’s Meta app','Connecter l’application Meta de ce client','ربط تطبيق ميتا الخاص بهذا العميل'],
+    ['Prepare connection','Préparer la connexion','إعداد الاتصال'],['Show setup','Afficher la configuration','عرض الإعداد'],
+    ['Meta webhook callback URL','URL de rappel du webhook Meta','رابط استدعاء ويب هوك ميتا'],
+    ['Meta webhook verify token','Jeton de vérification du webhook Meta','رمز التحقق من ويب هوك ميتا'],
+    ['Activate after Meta verification','Activer après vérification Meta','تفعيل بعد تحقق ميتا'],
+    ['Saved plans','Offres enregistrées','الباقات المحفوظة'],
+    ['These are the actual offers in your account.','Voici les offres réellement enregistrées dans votre compte.','هذه هي الباقات المحفوظة فعليًا في حسابك.'],
+    ['No saved plans yet.','Aucune offre enregistrée.','لا توجد باقات محفوظة بعد.'],
+    ['Suggested offers','Offres suggérées','باقات مقترحة'],
+    ['Service Assistant','Assistant de services','مساعد الخدمات'],
+    ['Sales Assistant','Assistant commercial','مساعد المبيعات'],
+    ['For service businesses: answer FAQs and PDFs, explain services, capture appointment requests and follow up on inquiries. No product catalog or COD.','Pour les entreprises de services : répondre aux FAQ et aux PDF, présenter les services, recueillir les demandes de rendez-vous et suivre les demandes. Sans catalogue ni paiement à la livraison.','للأنشطة الخدمية: الرد على الأسئلة وملفات PDF، وشرح الخدمات، وتسجيل طلبات المواعيد ومتابعتها. دون كتالوج منتجات أو دفع عند التسليم.'],
+    ['For shops: answer FAQs and PDFs, show products and images, capture purchase requests and optionally configure COD. No service bookings.','Pour les commerces : répondre aux FAQ et aux PDF, présenter les produits et les images, recueillir les demandes d’achat et, si nécessaire, configurer le paiement à la livraison. Sans réservations de services.','للمتاجر: الرد على الأسئلة وملفات PDF، وعرض المنتجات والصور، وتسجيل طلبات الشراء، مع إمكانية إعداد الدفع عند التسليم. دون حجز خدمات.'],
+    ['Suggested · not saved','Suggérée · non enregistrée','مقترحة · غير محفوظة'],
+    ['Already saved','Déjà enregistrée','محفوظة مسبقًا'],
+    ['Review & create draft','Vérifier et créer le brouillon','مراجعة المسودة وإنشاؤها'],
+    ['Edit saved plan','Modifier l’offre enregistrée','تعديل الباقة المحفوظة'],
+    ['Review a template, or save the missing offers as unpublished drafts.','Vérifiez un modèle ou enregistrez les offres manquantes comme brouillons non publiés.','راجع نموذجًا أو احفظ الباقات الناقصة كمسودات غير منشورة.'],
+    ['Cash on delivery (COD)','Paiement à la livraison','الدفع عند التسليم'],
+    ['Offer','Offre','الباقة'],['Prices are suggestions. Review them before publishing.','Les prix sont suggérés. Vérifiez-les avant publication.','الأسعار مقترحة. راجعها قبل النشر.'],
+    ['Only enable what this offer can actually provide.','N’activez que les fonctions réellement disponibles dans cette offre.','فعّل فقط الميزات التي توفرها هذه الباقة فعليًا.'],
+    ['QR sessions require separate infrastructure; leave off for normal Meta Cloud plans.','Les sessions QR nécessitent une infrastructure distincte ; désactivez-les pour les offres Meta Cloud classiques.','تحتاج جلسات QR إلى بنية منفصلة؛ اتركها معطّلة في باقات ميتا السحابية المعتادة.'],
+    ['AI reply and spend ceilings still apply. Do not market unlimited AI replies.','Les plafonds de réponses IA et de dépenses restent applicables. Ne promettez pas de réponses IA illimitées.','تبقى حدود ردود الذكاء الاصطناعي والتكلفة سارية. لا تسوّق ردودًا غير محدودة.'],
+    ['Technical template (JSON)','Modèle technique (JSON)','النموذج التقني (JSON)'],
+    ['Publish this plan so clients can request it','Publier cette offre pour que les clients puissent la demander','نشر هذه الباقة ليتمكن العملاء من طلبها'],
+    ['Saving does not change plans already assigned to clients.','L’enregistrement ne modifie pas les offres déjà attribuées aux clients.','لا يغيّر الحفظ الباقات المعيّنة للعملاء مسبقًا.'],
+    ['Correct the advanced JSON before editing workflows.','Corrigez le JSON avancé avant de modifier les parcours.','صحّح إعدادات JSON المتقدمة قبل تعديل مسارات العمل.'],
+    ['Guided workflows','Parcours guidés','مسارات العمل الموجّهة'],
+    ['Build conversation steps, branching choices and customer information forms.','Créez des étapes de conversation, des choix et des formulaires clients.','أنشئ خطوات المحادثة والخيارات المتفرعة ونماذج بيانات العملاء.'],
+    ['Start from a template','Commencer avec un modèle','ابدأ بنموذج'],['Conversation steps','Étapes de conversation','خطوات المحادثة'],
+    ['Input validation and extraction','Validation et extraction des données','التحقق من المدخلات واستخراج البيانات'],
+    ['Customer choices','Choix du client','خيارات العميل'],['Conditional transitions','Transitions conditionnelles','الانتقالات المشروطة'],
+    ['Transition','Transition','انتقال'],['Default transition','Transition par défaut','الانتقال الافتراضي'],['Remove transition','Supprimer la transition','حذف الانتقال'],
+    ['intent','intention','النية'],['condition','condition','الشرط'],['target','destination','الوجهة'],
+    ['Step identifier','Identifiant de l’étape','معرّف الخطوة'],['Live flow preview','Aperçu du parcours','معاينة المسار'],
+    ['Select a step in the diagram to edit it.','Choisissez une étape dans le schéma pour la modifier.','اختر خطوة في المخطط لتعديلها.'],
+    ['No workflows yet. Add one or start from a template.','Aucun parcours pour le moment. Ajoutez-en un ou partez d’un modèle.','لا توجد مسارات عمل بعد. أضف مسارًا أو ابدأ بنموذج.'],
+    ['Intents & routing','Intentions et routage','النوايا وتوجيه المحادثات'],
+    ['Connect what the customer asks to the right workflow.','Associez la demande du client au bon parcours.','اربط طلب العميل بمسار العمل المناسب.'],
+    ['No custom intents configured.','Aucune intention personnalisée configurée.','لم تُضبط نوايا مخصصة.'],
+    ['Ends here','Se termine ici','ينتهي هنا'],
+    ['Verified','Vérifié','تم التحقق'],['Pending','En attente','قيد الانتظار'],
+    ['Restore access','Rétablir l’accès','استعادة الوصول'],['Disable access','Désactiver l’accès','تعطيل الوصول'],
+    ['Reserved','Réservé','محجوز'],['Monthly cap','Plafond mensuel','الحد الشهري'],
+    ['No accounts yet.','Aucun compte pour le moment.','لا توجد حسابات بعد.'],
+    ['Estimates exclude WhatsApp, hosting, taxes and payment fees. Unknown provider outcomes keep their reservation.','Les estimations excluent WhatsApp, l’hébergement, les taxes et les frais de paiement. Les coûts incertains restent réservés.','لا تشمل التقديرات واتساب والاستضافة والضرائب ورسوم الدفع. تبقى التكلفة محجوزة عند عدم معرفة نتيجة المزود.']
+  ]) translations.set(en, { fr, ar });
+  for (const [en, fr, ar] of [
+    ['Name','Nom','الاسم'],['Email','E-mail','البريد الإلكتروني'],['Address','Adresse','العنوان'],['Hours','Horaires','ساعات العمل'],
+    ['name','nom','الاسم'],['email','e-mail','البريد الإلكتروني'],['phone','téléphone','الهاتف'],['website','site web','الموقع الإلكتروني'],
+    ['description','description','الوصف'],['address','adresse','العنوان'],['hours','horaires','ساعات العمل'],['currency','devise','العملة'],
+    ['policies','politiques','السياسات'],['faqs','FAQ','الأسئلة الشائعة'],['services','services','الخدمات'],
+    ['short','court','قصير'],['medium','moyen','متوسط'],['long','long','طويل'],['professional','professionnel','مهني'],
+    ['Draft','Brouillon','مسودة'],['Published','Publié','منشور'],['NEEDS_CHANGES','MODIFICATIONS REQUISES','يتطلب تعديلات'],
+    ['New isolated test session started.','Nouvelle session de test isolée lancée.','بدأت جلسة اختبار مستقلة جديدة.'],
+    ['Published version restored.','Version publiée restaurée.','تمت استعادة النسخة المنشورة.'],
+    ['The chatbot returned no response.','Le chatbot n’a pas répondu.','لم يقدّم الروبوت ردًا.'],
+    ['Correct the advanced configuration before changing these settings.','Corrigez la configuration avancée avant de modifier ces paramètres.','صحّح الإعدادات المتقدمة قبل تغيير هذه الخيارات.'],
+    ['Control which fields clients can edit. Raw configuration is available only when needed.','Définissez les champs modifiables par le client. La configuration brute reste disponible au besoin.','حدّد الحقول التي يمكن للعميل تعديلها. تتوفر الإعدادات الخام عند الحاجة فقط.'],
+    ['No messages yet','Aucun message pour le moment','لا توجد رسائل بعد'],
+    ['Load older messages','Charger les messages précédents','تحميل الرسائل الأقدم'],
+    ['Select a conversation to read the transcript.','Choisissez une conversation pour afficher les messages.','اختر محادثة لعرض رسائلها.'],
+    ['No plan','Aucune offre','لا توجد باقة'],['Current month','Ce mois-ci','الشهر الحالي'],
+    ['Status:','Statut :','الحالة:'],['Client switch:','Option du client :','خيار العميل:'],
+    ['On','Activé','مفعّل'],['Off','Désactivé','معطّل'],
+    ['Verification','Vérification','التحقق'],['Access','Accès','الوصول'],['Images','Images','الصور'],
+    ['Estimated spend','Coût estimé','التكلفة المقدّرة'],['Messages','Messages','الرسائل'],['Version','Version','النسخة'],
+    ['Try again','Réessayer','حاول مجددًا'],['COD order workflow can be added per client','Le parcours de commande à la livraison peut être ajouté par client','يمكن إضافة مسار طلب الدفع عند التسليم لكل عميل'],
+    ['Preserves existing intent and condition rules. A direct next step can take precedence for linear steps.','Conserve les règles d’intention et de condition existantes. Une étape suivante directe peut prévaloir dans les parcours linéaires.','يحافظ على قواعد النوايا والشروط الحالية. قد تتقدم الخطوة التالية المباشرة في المسارات المتتابعة.'],
+    ['Chatbot information is frozen for this client. WhatsApp replies and inbox work continue.','Les informations du chatbot sont verrouillées pour ce client. Les réponses WhatsApp et la boîte de réception restent actives.','بيانات الروبوت مقفلة لهذا العميل. تستمر ردود واتساب وصندوق الوارد في العمل.'],
+    ['This client can edit their chatbot information. WhatsApp replies and inbox work continue.','Ce client peut modifier les informations de son chatbot. Les réponses WhatsApp et la boîte de réception restent actives.','يمكن لهذا العميل تعديل بيانات روبوته. تستمر ردود واتساب وصندوق الوارد في العمل.']
+  ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {
     if (!supported.has(next)) return;

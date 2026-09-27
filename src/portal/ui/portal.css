@@ -151,3 +151,20 @@
 .auth-form .password-visibility{position:absolute;inset-inline-end:10px;top:34px;min-height:36px;padding:0 9px;border:0;background:transparent;color:var(--green);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .auth-form .password-visibility:focus-visible{outline:2px solid var(--green);border-radius:6px}
 
+/* Keep dense administrator screens readable in Arabic without changing data values. */
+:root[dir=rtl] .admin-shell th,
+:root[dir=rtl] .admin-shell td,
+:root[dir=rtl] .admin-shell .field,
+:root[dir=rtl] .admin-shell .card-title,
+:root[dir=rtl] .admin-shell .allowance-card .card-title,
+:root[dir=rtl] .lead-table{ text-align:start; }
+:root[dir=rtl] .admin-shell .table-wrap{ direction:rtl; }
+:root[dir=rtl] .admin-shell input[type=email],
+:root[dir=rtl] .admin-shell input[type=tel],
+:root[dir=rtl] .admin-shell input[readonly],
+:root[dir=rtl] .admin-shell .code-editor{ direction:ltr; text-align:left; }
+:root[dir=rtl] .admin-shell .preview-message.user{ margin-left:0; margin-inline-start:auto; }
+:root[dir=rtl] .admin-shell .preview-message span{ text-transform:none; letter-spacing:0; }
+:root[dir=rtl] .admin-shell .table-wrap a,
+:root[dir=rtl] .admin-shell .admin-account-row strong{ overflow-wrap:anywhere; }
+
