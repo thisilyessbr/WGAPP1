@@ -8,6 +8,7 @@ import { MetaCloudTransport } from '../routing/MetaCloudTransport';
 import { ClientSafetyGuard } from '../guard/ClientSafetyGuard';
 import { logger } from '../../../utils/logger';
 import { IncomingMessagePayload } from '../../conversation/CapabilityRouter';
+import { VoiceNoteTranscriber } from './VoiceNoteTranscriber';
 
 export interface WhatsAppWorkerResult {
   jobId: string;
@@ -32,7 +33,11 @@ export class WhatsAppWorker {
     private numberService?: WhatsAppNumberService,
     private policyAdapter: WhatsAppPolicyAdapter = new WhatsAppPolicyAdapter(),
     channelRouter?: ChannelRouter,
-    private safetyGuard?: ClientSafetyGuard
+    private safetyGuard?: ClientSafetyGuard,
+    private voiceNotes?: {
+      enabled: (tenantId: string, accountId: string) => Promise<boolean>;
+      transcriber: Pick<VoiceNoteTranscriber, 'transcribe'>;
+    }
   ) {
     if (channelRouter) {
       this.channelRouter = channelRouter;
@@ -141,6 +146,15 @@ export class WhatsAppWorker {
           contentInput = { ...image, text: media.caption || '' };
         } catch {
           logger.warn('WhatsAppWorker: Inbound image unavailable; returning a text-request fallback.');
+        }
+      } else if (job.rawType === 'audio' && media.mediaId && this.voiceNotes) {
+        try {
+          if (await this.voiceNotes.enabled(job.tenantId, job.accountId)) {
+            const audio = await this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId);
+            contentInput = await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType);
+          }
+        } catch {
+          logger.warn('WhatsAppWorker: Voice note unavailable; returning a text-request fallback.');
         }
       }
     }

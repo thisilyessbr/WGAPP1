@@ -198,7 +198,7 @@ describe('audit: WhatsApp attachments',()=>{
     expect(result).toHaveLength(3);
     expect(JSON.parse(result[0].message)).toEqual({mediaId:'789',caption:'Do you sell this?'});
     expect(result[1]).toMatchObject({message:'Yes',rawType:'text'});
-    expect(JSON.parse(result[2].message).unsupportedMediaType).toBe('audio');
+    expect(JSON.parse(result[2].message)).toEqual({mediaId:'987'});
   });
   it('downloads permitted Meta media with time and size bounds',async()=>{
     const fetchFn=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({url:'https://lookaside.fbsbx.com/media',mime_type:'image/png',file_size:3}))).mockResolvedValueOnce(new Response(new Uint8Array([1,2,3])));

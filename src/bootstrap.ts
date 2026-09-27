@@ -22,6 +22,7 @@ import { WhatsAppNumberService } from './domain/channel/whatsapp/WhatsAppNumberS
 import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJob } from './domain/channel/whatsapp/MessageQueue';
 import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
 import { WhatsAppWorker } from './domain/channel/whatsapp/WhatsAppWorker';
+import { VoiceNoteTranscriber } from './domain/channel/whatsapp/VoiceNoteTranscriber';
 import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
 import { WhatsAppOnboardingService } from './domain/channel/whatsapp/WhatsAppOnboardingService';
@@ -130,6 +131,19 @@ export interface WorkerBootstrapOptions {
   autoStartQueue?: boolean;
   enableDocumentWorker?: boolean;
   useMemoryQueue?: boolean;
+}
+
+function voiceNoteOptions(prisma: PrismaClient) {
+  return {
+    enabled: async (tenantId: string, accountId: string) => {
+      if (!process.env.GROQ_API_KEY) return false;
+      const profile = await prisma.portalProfile.findUnique({
+        where: { accountId }, select: { tenantId: true, voiceNotesEnabled: true, voiceNotesAllowed: true }
+      });
+      return profile?.tenantId === tenantId && profile.voiceNotesAllowed === true && profile.voiceNotesEnabled === true;
+    },
+    transcriber: new VoiceNoteTranscriber()
+  };
 }
 
 /**
@@ -359,7 +373,8 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     whatsAppNumberService,
     whatsAppPolicyAdapter,
     channelRouter,
-    clientSafetyGuard
+    clientSafetyGuard,
+    voiceNoteOptions(prisma)
   );
 
   if (portalService) {
@@ -544,7 +559,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     whatsAppNumberService,
     whatsAppPolicyAdapter,
     channelRouter,
-    clientSafetyGuard
+    clientSafetyGuard,
+    voiceNoteOptions(prisma)
   );
 
   const dependencies: ChatbotDependencies = {

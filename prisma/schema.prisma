@@ -419,6 +419,8 @@ model PortalProfile {
   reviewNote String @default("")
   lockedFields Json @default("[]")
   editingFrozen Boolean @default(false)
+  voiceNotesEnabled Boolean @default(false)
+  voiceNotesAllowed Boolean @default(false)
   adminConfig Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @db.Timestamptz(6)
