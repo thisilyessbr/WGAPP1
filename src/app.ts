@@ -14,6 +14,7 @@ import { createClientOwnedMetaWebhookRouter } from './domain/channel/whatsapp/Cl
 import { createWhatsAppOnboardingRouter } from './domain/channel/whatsapp/WhatsAppOnboardingRouter';
 import { createPortalRouter } from './portal/PortalRouter';
 import { createChannelManagementRouter } from './domain/channel/guard/ChannelManagementRouter';
+import { createInstagramRouter } from './domain/channel/instagram/InstagramRouter';
 
 export async function createApp(deps: ChatbotDependencies | WebDependencies): Promise<express.Application> {
   const app = express();
@@ -97,7 +98,11 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
 
   // Mount Client / Admin Portal Router and Assets if enabled
   if ((deps as any).portalService) {
-    app.use('/api', createPortalRouter((deps as any).portalService, deps as any));
+    const instagram = (deps as any).conversationEngine
+      ? createInstagramRouter(deps.prisma, (deps as any).portalService, (deps as any).conversationEngine)
+      : null;
+    if (instagram) app.use('/api/instagram', instagram.router);
+    app.use('/api', createPortalRouter((deps as any).portalService, { ...deps, instagramService: instagram?.service } as any));
     app.use('/portal-assets', express.static(path.join(__dirname, 'portal/ui')));
     app.use(['/signup', '/login', '/forgot-password', '/reset-password', '/verify-email', '/admin-confirm', '/app', '/admin'], (req, res) => {
       if (process.env.NODE_ENV === 'production' && req.hostname === 'relayqo-backend.onrender.com') {

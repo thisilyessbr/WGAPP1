@@ -208,6 +208,7 @@
               </div>
               <div class="inbox-item-preview">${esc(preview)}</div>
               <div class="inbox-item-footer">
+                <span class="badge ${c.channel === 'INSTAGRAM' ? 'blue' : ''}">${c.channel === 'INSTAGRAM' ? 'Instagram' : 'WhatsApp'}</span>
                 ${getStatusBadge(state)}
               </div>
             </div>
