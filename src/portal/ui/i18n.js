@@ -138,6 +138,8 @@
       const label = singular ? (inquiryCount[2] === 'inquiry' ? 'Inquiry' : 'Lead') : (inquiryCount[2] === 'inquiries' ? 'Inquiries' : 'Leads');
       return left + inquiryCount[1] + ' ' + (translations.get(label)?.[locale] || inquiryCount[2]) + right;
     }
+    const serviceDate = key.match(/^(Received|Reminder:) (.+)$/);
+    if (serviceDate) return left + (locale === 'fr' ? (serviceDate[1] === 'Received' ? 'Reçue le ' : 'Rappel : ') : (serviceDate[1] === 'Received' ? 'وصل في ' : 'تذكير: ')) + serviceDate[2] + right;
     const followUp = key.match(/^(Follow up|Last updated) (.+)$/);
     if (followUp) return left + (locale === 'fr' ? (followUp[1] === 'Follow up' ? 'Relancer le ' : 'Mis à jour le ') : (followUp[1] === 'Follow up' ? 'المتابعة: ' : 'آخر تحديث: ')) + followUp[2] + right;
     const ready = key.match(/^(\d+\/\d+) ready$/);
@@ -203,6 +205,27 @@
     ['Raw configuration (JSON)','Configuration brute (JSON)','الإعدادات الخام (JSON)']
   ]) translations.set(en, { fr, ar });
   for (const [en, fr, ar] of [
+    ['Customer requests','Demandes clients','طلبات العملاء'],['Customers to contact','Clients à contacter','عملاء يحتاجون إلى تواصل'],
+    ['Need a reply','Réponse attendue','يحتاج إلى رد'],['Needs reply','Réponse attendue','يحتاج إلى رد'],['Planned','Planifiés','مجدول'],['Handled','Traités','تمت المعالجة'],
+    ['Open requests','Ouvrir les demandes','فتح الطلبات'],['Customer request','Demande du client','طلب العميل'],
+    ['Customers who asked about a service or booking. Decide who needs a reply and when.','Clients qui ont demandé un service ou une réservation. Décidez à qui répondre et quand.','العملاء الذين سألوا عن خدمة أو حجز. حدد من يحتاج إلى رد ومتى.'],
+    ['Open the chat to answer, or choose a reminder.','Ouvrez la conversation pour répondre ou programmez un rappel.','افتح المحادثة للرد أو حدد تذكيرًا.'],
+    ['Requests return to Needs reply when their reminder is due.','Les demandes reviennent dans Réponse attendue à l’échéance du rappel.','تعود الطلبات إلى «يحتاج إلى رد» عند حلول موعد التذكير.'],
+    ['Requests you have finished handling.','Demandes que vous avez traitées.','الطلبات التي انتهيت من معالجتها.'],
+    ['No customers need a reply right now.','Aucun client n’attend de réponse pour le moment.','لا يوجد عميل يحتاج إلى رد الآن.'],
+    ['No reminders planned.','Aucun rappel prévu.','لا توجد تذكيرات مجدولة.'],['No handled requests yet.','Aucune demande traitée pour le moment.','لا توجد طلبات منتهية بعد.'],
+    ['Reply in chat','Répondre dans la conversation','الرد في المحادثة'],['Remind or finish','Rappel ou terminer','تذكير أو إنهاء'],['View request','Voir la demande','عرض الطلب'],
+    ['See what the customer needs, then choose the next step.','Voyez le besoin du client, puis choisissez la suite.','اطلع على طلب العميل ثم اختر الخطوة التالية.'],
+    ['All requests','Toutes les demandes','كل الطلبات'],['Customer asked about a service','Le client a posé une question sur un service','سأل العميل عن خدمة'],
+    ['What happens next?','Quelle est la prochaine étape ?','ما الخطوة التالية؟'],['Remind me at','Me rappeler le','ذكّرني في'],
+    ['Reminder set for','Rappel prévu le','موعد التذكير'],['Request saved.','Demande enregistrée.','تم حفظ الطلب.'],
+    ['Private note','Note privée','ملاحظة داخلية'],['(optional)','(facultatif)','(اختياري)'],['What should you check before replying?','Que vérifier avant de répondre ?','ما الذي يجب التحقق منه قبل الرد؟'],
+    ['Save reminder & note','Enregistrer le rappel et la note','حفظ التذكير والملاحظة'],['Mark handled','Marquer comme traité','تمت المعالجة'],['Reopen request','Rouvrir la demande','إعادة فتح الطلب'],
+    ['More details','Plus de détails','تفاصيل إضافية'],['Use these only if they help your team. A request is not a confirmed booking.','Utilisez-les seulement si cela aide votre équipe. Une demande n’est pas une réservation confirmée.','استخدم هذه الحقول إذا أفادت فريقك. الطلب ليس حجزًا مؤكدًا.'],
+    ['Customer\'s preferred time','Horaire préféré du client','الوقت الذي يفضله العميل'],['Received','Reçue','وصل'],
+    ['Opening the conversation lets you reply. Saving a reminder does not message the customer.','Ouvrir la conversation permet de répondre. Enregistrer un rappel n’envoie aucun message au client.','افتح المحادثة للرد. حفظ التذكير لا يرسل رسالة إلى العميل.'],
+    ['Reply to the customer now, or set a time to come back to this request.','Répondez maintenant ou fixez un rappel pour cette demande.','رد على العميل الآن أو حدد وقتًا للعودة إلى هذا الطلب.'],
+    ['This request is marked handled. Reopen it if you still need to respond.','Cette demande est traitée. Rouvrez-la si vous devez encore répondre.','هذا الطلب معالَج. أعد فتحه إذا كنت بحاجة إلى الرد.'],
     ['Leads','Prospects','العملاء المحتملون'],
     ['Follow up on people who showed buying or booking intent.','Suivez les personnes intéressées par un achat ou une réservation.','تابع الأشخاص المهتمين بالشراء أو الحجز.'],
     ['Export CSV','Exporter en CSV','تصدير CSV'],

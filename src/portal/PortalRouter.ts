@@ -139,9 +139,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     ORDER BY l."updatedAt" DESC,l.id DESC LIMIT ${limit} OFFSET ${offset}`;
   client.get('/leads', route(async (req, res) => {
     const status = String(req.query.status || 'ALL').toUpperCase();
+    const view = String(req.query.view || 'ALL').toUpperCase();
     const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
     const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
-    send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset));
+    send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset, view));
   }));
   client.get('/leads/summary', route(async (req, res) =>
     send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!))));
