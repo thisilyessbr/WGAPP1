@@ -116,6 +116,18 @@
     } catch {}
   }
   for (const [en, fr, ar] of [
+    ['Chatbot settings','Paramètres du chatbot','إعدادات روبوت المحادثة'],
+    ['Control optional features of your chatbot.','Gérez les fonctionnalités facultatives de votre chatbot.','تحكم في الميزات الاختيارية لروبوت المحادثة.'],
+    ['CUSTOMER MESSAGES','MESSAGES CLIENTS','رسائل العملاء'],
+    ['Understand customer voice notes sent through WhatsApp.','Comprendre les messages vocaux envoyés par les clients sur WhatsApp.','فهم الرسائل الصوتية التي يرسلها العملاء عبر واتساب.'],
+    ['When the audio is unclear, the chatbot asks the customer to write their question.','Si le message vocal est peu clair, le chatbot demande au client de rédiger sa question.','إذا كان الصوت غير واضح، يطلب الروبوت من العميل كتابة سؤاله.'],
+    ['HOW IT WORKS','FONCTIONNEMENT','كيف تعمل الميزة'],
+    ['Who controls this?','Qui contrôle cette fonction ?','من يتحكم في هذه الميزة؟'],
+    ['Your administrator chooses the voice model and makes this feature available to your account. Once allowed, you can turn voice understanding on or off here.','Votre administrateur choisit le modèle vocal et active cette fonction pour votre compte. Vous pouvez ensuite l’activer ou la désactiver ici.','يختار المسؤول نموذج الصوت ويتيح هذه الميزة لحسابك. بعد السماح بها، يمكنك تشغيل فهم الصوت أو إيقافه هنا.'],
+    ['Manage WhatsApp connection ›','Gérer la connexion WhatsApp ›','إدارة اتصال واتساب ›'],
+    ['Voice notes enabled. New audio messages will be transcribed.','Messages vocaux activés. Les nouveaux messages seront transcrits.','الرسائل الصوتية مفعّلة. سيتم تفريغ الرسائل الجديدة.'],
+    ['Instagram DMs require an Instagram-enabled plan.','Les messages privés Instagram nécessitent une offre qui inclut Instagram.','تتطلب رسائل إنستغرام الخاصة باقة تتضمن إنستغرام.'],
+    ['Your administrator has not enabled Instagram for this account.','Votre administrateur n’a pas activé Instagram pour ce compte.','لم يفعّل المسؤول إنستغرام لهذا الحساب.'],
     ['Voice notes','Messages vocaux','الرسائل الصوتية'],
     ['Understand customer voice notes','Comprendre les messages vocaux des clients','فهم الرسائل الصوتية للعملاء'],
     ['Allow voice notes','Autoriser les messages vocaux','السماح بالرسائل الصوتية'],
