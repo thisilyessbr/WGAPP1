@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { SecretBox } from '../../../core/security/SecretBox';
 import { ConversationEngine } from '../../conversation/ConversationEngine';
+import { instagramEntitled } from './InstagramEntitlement';
 
 type Identity = { userId: string; accountId: string; tenantId: string; issuedAt: number; nonce: string };
 type Token = { access_token: string; expires_in?: number; user_id?: string };
@@ -133,7 +134,7 @@ export class InstagramService {
       const connection = await this.db.instagramConnection.findUnique({ where: { instagramUserId: event.igUserId } });
       if (!connection?.enabled || connection.status !== 'CONNECTED') continue;
       const profile = await this.db.portalProfile.findUnique({ where: { accountId: connection.accountId } });
-      if (!profile || profile.status !== 'ACTIVE' || profile.tenantId !== connection.tenantId) continue;
+      if (!profile || profile.status !== 'ACTIVE' || profile.tenantId !== connection.tenantId || !instagramEntitled(profile)) continue;
       const created = await this.db.instagramInboundJob.createMany({ data: [{ tenantId: connection.tenantId, accountId: connection.accountId,
         instagramUserId: event.igUserId, senderId: event.senderId, messageId: event.mid, text: event.text }], skipDuplicates: true });
       accepted += created.count;
@@ -167,6 +168,8 @@ export class InstagramService {
   }
 
   async sendManual(accountId: string, tenantId: string, externalId: string, text: string): Promise<string> {
+    const profile = await this.db.portalProfile.findUnique({ where: { accountId } });
+    if (!profile || profile.tenantId !== tenantId || !instagramEntitled(profile)) throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
     const connection = await this.db.instagramConnection.findFirst({ where: { accountId, tenantId, enabled: true, status: 'CONNECTED' } });
     if (!connection || !externalId.startsWith(`instagram:${connection.instagramUserId}:`)) throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
     return this.sendText(connection, externalId.slice(`instagram:${connection.instagramUserId}:`.length), text);
@@ -201,7 +204,7 @@ export class InstagramService {
         const connection = await this.db.instagramConnection.findFirst({ where: { instagramUserId: job.instagramUserId,
           accountId: job.accountId, tenantId: job.tenantId, enabled: true, status: 'CONNECTED' } });
         const profile = await this.db.portalProfile.findUnique({ where: { accountId: job.accountId } });
-        if (!connection || !profile || profile.status !== 'ACTIVE') {
+        if (!connection || !profile || profile.status !== 'ACTIVE' || !instagramEntitled(profile)) {
           await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'SKIPPED', leaseUntil: null } });
           return;
         }
@@ -219,6 +222,14 @@ export class InstagramService {
           await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { responseText } });
         }
         if (responseText) {
+          const [currentConnection, currentProfile] = await Promise.all([
+            this.db.instagramConnection.findUnique({ where: { instagramUserId: job.instagramUserId } }),
+            this.db.portalProfile.findUnique({ where: { accountId: job.accountId } })
+          ]);
+          if (!currentConnection?.enabled || !currentProfile || !instagramEntitled(currentProfile)) {
+            await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'SKIPPED', leaseUntil: null } });
+            return;
+          }
           await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'SENDING', leaseUntil: new Date(Date.now() + 90000) } });
           sendStarted = true;
           const providerId = await this.sendText(connection, job.senderId, responseText);

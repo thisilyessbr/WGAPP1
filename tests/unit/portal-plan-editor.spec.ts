@@ -22,10 +22,12 @@ describe('plan editor presets', () => {
     expect(root.textContent).toContain('No COD workflow is activated just by creating a plan.');
     (root.querySelector('#save-suggested') as HTMLButtonElement).click();
     await new Promise(resolve => setTimeout(resolve,0));
-    expect(created.map(plan => plan.name)).toEqual(['Service Assistant','Sales Assistant']);
+    expect(created.map(plan => plan.name)).toEqual(['Service Assistant','Sales Assistant','Service Assistant · Instagram','Sales Assistant · Instagram']);
     expect(created.every(plan => plan.published === false)).toBe(true);
     expect(created[0].modules).toEqual(['knowledge','services']);
     expect(created[1].modules).toEqual(['knowledge','commerce','images']);
+    expect(created[2].modules).toEqual(['knowledge','services','instagram']);
+    expect(created[3].modules).toEqual(['knowledge','commerce','images','instagram']);
     expect(savedPlan.name).toBe('p1');
     dom.window.close();
   });

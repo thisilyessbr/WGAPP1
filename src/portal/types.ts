@@ -37,7 +37,7 @@ export interface BusinessData {
 export interface PortalProfile {
   accountId: string; tenantId: string; status: string; draft: BusinessData; published: BusinessData | null;
   revision: number; publishedRevision: number; planId: string | null; planSnapshot: PortalPlan | null;
-  requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[]; editingFrozen: boolean; voiceNotesEnabled: boolean; voiceNotesAllowed: boolean; voiceTranscriptionProvider: 'groq' | 'deepgram';
+  requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[]; editingFrozen: boolean; voiceNotesEnabled: boolean; voiceNotesAllowed: boolean; instagramAllowed: boolean; voiceTranscriptionProvider: 'groq' | 'deepgram';
   adminConfig: Record<string, any>; createdAt: Date; updatedAt: Date;
 }
 export const EMPTY_BUSINESS: BusinessData = {
