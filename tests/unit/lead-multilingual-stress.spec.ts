@@ -129,4 +129,18 @@ describe('lead detection multilingual stress matrix', () => {
     expect(Boolean(lead), `${language}: ${message}; parser=${parsed.intent}; decision=${decision.intent}`).toBe(expected);
     expect(upsert).toHaveBeenCalledTimes(expected ? 1 : 0);
   });
+  it.each([
+    ['SERVICE', 'bghit n7jez cours anglais', true],
+    ['SERVICE', 'bghit nchri had sbat', false],
+    ['COMMERCE', 'bghit nchri had sbat', true],
+    ['COMMERCE', 'bghit n7jez cours anglais', false],
+    ['NONE', 'bghit n7jez cours anglais', false],
+    ['SERVICE', 'Jm3 krk a w9', false],
+    ['COMMERCE', 'L9lawi a zb', false]
+  ] as const)('separates %s inquiry intent for %s', async (leadMode, userMessage, expected) => {
+    const upsert = vi.fn(async () => ({ id: 'lead-1' }));
+    const crm = new CRMService({ lead: { upsert } } as any);
+    const lead = await crm.processTurnSignal({ tenantId: 'tenant', accountId: 'account', customerId: 'customer', leadMode, userMessage });
+    expect(Boolean(lead)).toBe(expected);
+  });
 });

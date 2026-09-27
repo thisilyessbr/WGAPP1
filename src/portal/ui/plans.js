@@ -1,10 +1,8 @@
 window.RelayqoPlans = (() => {
   const base = {messages:1000,llmCalls:900,images:0,embeddings:300,monthlyUsd:5,numbers:1,products:0,documents:3,storageMb:25};
   const presets = {
-    essential:{name:'Essential',description:'Answers questions from your business information, FAQs and PDFs on one WhatsApp number.',price:299,modules:['knowledge'],limits:{...base}},
-    services:{name:'Services',description:'For appointments and enquiries, with service information and a lead follow-up workspace.',price:449,modules:['knowledge','services'],limits:{...base,messages:2000,llmCalls:1800,embeddings:600,monthlyUsd:10,documents:8,storageMb:75}},
-    commerce:{name:'Commerce',description:'For shops with a product catalog, product images and lead follow-up.',price:649,modules:['knowledge','commerce','images'],limits:{...base,messages:3000,llmCalls:2500,images:100,embeddings:1000,monthlyUsd:18,products:300,documents:10,storageMb:150}},
-    growth:{name:'Growth',description:'Higher capacity for established teams with up to two WhatsApp numbers.',price:1099,modules:['knowledge','services','commerce','images'],limits:{...base,messages:8000,llmCalls:6500,images:300,embeddings:3000,monthlyUsd:45,numbers:2,products:1000,documents:30,storageMb:400}}
+    services:{name:'Service Assistant',description:'For service businesses: answer FAQs and PDFs, explain services, capture appointment requests and follow up on inquiries. No product catalog or COD.',price:449,modules:['knowledge','services'],limits:{...base,messages:2000,llmCalls:1800,embeddings:600,monthlyUsd:10,documents:8,storageMb:75}},
+    commerce:{name:'Sales Assistant',description:'For shops: answer FAQs and PDFs, show products and images, capture purchase requests and optionally configure COD. No service bookings.',price:649,modules:['knowledge','commerce','images'],limits:{...base,messages:3000,llmCalls:2500,images:100,embeddings:1000,monthlyUsd:18,products:300,documents:10,storageMb:150}}
   };
   const features = {knowledge:'FAQs and PDF knowledge',services:'Services and appointments',commerce:'Product catalog',images:'Product images',qr:'QR connection (experimental)'};
   const labels = {messages:'Customer messages',llmCalls:'AI replies',images:'Images',embeddings:'Document indexing',monthlyUsd:'AI spend ceiling (USD)',numbers:'WhatsApp numbers',products:'Products',documents:'PDF documents',storageMb:'Document storage (MB)'};
@@ -14,7 +12,7 @@ window.RelayqoPlans = (() => {
     root.innerHTML = shell(header('Choose a plan','Pick the features that fit your business. Your administrator confirms the final offer.') +
       `<div class="plan-grid">${plans.map(plan => {
         const current = profile.plan?.id === plan.id;
-        return `<article class="card plan"><span class="badge ${current?'green':''}">${current?'Current plan':'Available'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><ul>${plan.modules.map(module => `<li>${escape(features[module] || module)}</li>`).join('') || '<li>Core chatbot</li>'}<li>Lead follow-up and CSV export</li></ul><button class="btn ${current?'secondary':''}" data-plan="${escape(plan.id)}" ${current?'disabled':''}>${current?'Assigned':'Request this plan'}</button></article>`;
+        return `<article class="card plan"><span class="badge ${current?'green':''}">${current?'Current plan':'Available'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><ul>${plan.modules.map(module => `<li>${escape(features[module] || module)}</li>`).join('') || '<li>Core chatbot</li>'}${plan.modules.includes('commerce') ? '<li>Sales leads and CSV export</li>' : plan.modules.includes('services') ? '<li>Service inquiries and CSV export</li>' : ''}</ul><button class="btn ${current?'secondary':''}" data-plan="${escape(plan.id)}" ${current?'disabled':''}>${current?'Assigned':'Request this plan'}</button></article>`;
       }).join('') || '<p class="empty">Plans will appear here when your administrator publishes them.</p>'}</div>`,false,'Plans');
     root.querySelectorAll('[data-plan]').forEach(button => button.onclick = async () => {
       try {await api('/client/plan-request',{method:'POST',body:JSON.stringify({planId:button.dataset.plan})});toast('Plan request sent to your administrator.');}
@@ -80,6 +78,7 @@ window.RelayqoPlans = (() => {
           const limits = Object.fromEntries(Object.keys(base).map(key => [key,Number(form.querySelector('#plan-'+key).value)]));
           if(form.querySelector('#plan-unlimited').checked)limits.messages=-1;
           const modules = [...form.querySelectorAll('[data-module]:checked')].map(box => box.dataset.module);
+          if(!existing && modules.includes('commerce') && modules.includes('services'))throw new Error('Choose either a service assistant or a sales assistant for a new offer. Keep legacy mixed plans only for existing clients.');
           if(modules.includes('commerce') && limits.products < 1)throw new Error('Commerce needs room for at least one product.');
           if(modules.includes('images') && limits.images < 1)throw new Error('Product images need a positive image allowance.');
           if(form.querySelector('#plan-published').checked && (limits.llmCalls < 1 || limits.monthlyUsd <= 0))throw new Error('Published AI plans need positive AI reply and spend limits.');

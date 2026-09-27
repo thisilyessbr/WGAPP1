@@ -22,6 +22,7 @@ export interface TurnSignalParams {
   terminalStateId?: string | null;
   workflowIntents?: string[] | null;
   userMessage?: string;
+  leadMode?: 'NONE' | 'SERVICE' | 'COMMERCE' | 'BOTH';
 }
 
 export class CRMService {
@@ -226,10 +227,11 @@ export class CRMService {
       workflowConfig,
       terminalStateId,
       workflowIntents,
-      userMessage
+      userMessage,
+      leadMode = 'BOTH'
     } = params;
 
-    if (!tenantId || !accountId || !customerId) {
+    if (!tenantId || !accountId || !customerId || leadMode === 'NONE') {
       return null;
     }
 
@@ -238,7 +240,10 @@ export class CRMService {
 
     // 1. Workflow completed (sales/booking workflows only)
     if (isWorkflowCompleted && workflowId) {
-      if (this.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
+      const workflowText = `${workflowId} ${(workflowIntents || []).join(' ')}`.toLowerCase();
+      const wrongMode = (leadMode === 'SERVICE' && /checkout|cash_on_delivery|cod_order|purchase|product_order/.test(workflowText))
+        || (leadMode === 'COMMERCE' && /booking|appointment|consultation|tutor_session|service_selector/.test(workflowText));
+      if (!wrongMode && this.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
         isStrongSignal = true;
         signalReason = 'COMPLETED_SALES_WORKFLOW';
       }
@@ -247,7 +252,8 @@ export class CRMService {
     // 2. Turn decision contains explicit sales intent
     if (turnDecision) {
       const intentUpper = (turnDecision.intent || '').toUpperCase();
-      if (['BUY_INTENT', 'BOOKING_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')) {
+      if ((leadMode !== 'SERVICE' && (['BUY_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')))
+        || (leadMode !== 'COMMERCE' && intentUpper === 'BOOKING_INTENT')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_SALES_INTENT';
       }
@@ -265,7 +271,7 @@ export class CRMService {
         'أريد الشراء', 'أريد شراء', 'أريد الطلب', 'أود شراء', 'اود شراء', 'سأشتري', 'سوف أشتري',
         'كيفية الشراء', 'بغيت نشري', 'بغيت نكوموندي', 'باغي نشري', 'باغية نشري'
       ];
-      if (buyPhrases.some(phrase => lower.includes(phrase))) {
+      if (leadMode !== 'SERVICE' && buyPhrases.some(phrase => lower.includes(phrase))) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_PURCHASE_MESSAGE';
       }
@@ -278,7 +284,7 @@ export class CRMService {
         /\b(?:bghit|baghi|baghya)\s+(?:n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel)\b/u,
         /(?:بغيت|باغي|باغية|اريد|أريد|اود|أود)\s+(?:ان\s+|أن\s+)?(?:نحجز|احجز|أحجز|نسجل|أسجل|التسجيل|حجز|الحجز)/u
       ];
-      if (!isStrongSignal && bookingPatterns.some(pattern => pattern.test(lower)) && !isActionNegated(lower, 'booking')) {
+      if (leadMode !== 'COMMERCE' && !isStrongSignal && bookingPatterns.some(pattern => pattern.test(lower)) && !isActionNegated(lower, 'booking')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_BOOKING_OR_QUOTE';
       }

@@ -196,6 +196,9 @@ export class PortalStore {
   private runtimeConfig(data: BusinessData, profile: PortalProfile) {
     const config = compileBusiness(data, profile.planSnapshot?.template || {}, profile.adminConfig);
     config.capabilities.ecommerceEnabled = Boolean(profile.planSnapshot?.modules.includes('commerce')) && config.capabilities.ecommerceEnabled !== false;
+    config.capabilities.leadMode = profile.planSnapshot?.modules.includes('commerce')
+      ? (profile.planSnapshot.modules.includes('services') ? 'BOTH' : 'COMMERCE')
+      : profile.planSnapshot?.modules.includes('services') ? 'SERVICE' : 'NONE';
     config.capabilities.imageEnabled = Boolean(profile.planSnapshot?.modules.includes('images')) && config.capabilities.imageEnabled !== false;
     if (!profile.planSnapshot?.modules.includes('knowledge')) config.knowledge.enabled = false;
     return config;
