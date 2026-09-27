@@ -30,7 +30,9 @@ const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.
 const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
   requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null,
   commerceActive: Boolean(p.planSnapshot?.modules.includes('commerce')) && p.adminConfig?.capabilities?.ecommerceEnabled !== false,
-  reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish });
+  reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
+  voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
+  voiceNotesAvailable: p.voiceNotesAllowed && Boolean(process.env.GROQ_API_KEY) });
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
 function boundedQueryInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -97,6 +99,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         : next()).catch(next);
   });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
+  client.patch('/voice-notes', route(async (req, res) => {
+    const input = object(req.body); allowed(input, ['enabled']);
+    if (typeof input.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    if (input.enabled && !process.env.GROQ_API_KEY) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Voice notes are not configured yet.');
+    send(res, { profile: clientProfile(await store.setVoiceNotesEnabled(req.portal.user.id, req.portal.accountId!, req.portal.tenantId!, input.enabled)) });
+  }));
   client.get('/dashboard', route(async (req, res) => {
     const accountId = req.portal.accountId!, tenantId = req.portal.tenantId!;
     const [profile, connections, stats, portalDocuments, recentConversations, leadSummary] = await Promise.all([
@@ -888,6 +896,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const body = object(req.body); allowed(body, ['frozen']);
     if (typeof body.frozen !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
     send(res, { profile: await store.setEditingFrozen(req.portal.user.id, String(req.params.id), body.frozen) });
+  }));
+  admin.patch('/accounts/:id/voice-notes', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['allowed']);
+    if (typeof body.allowed !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    if (body.allowed && !process.env.GROQ_API_KEY) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure Groq before allowing voice notes.');
+    send(res, { profile: await store.setVoiceNotesAllowed(req.portal.user.id, String(req.params.id), body.allowed) });
   }));
   admin.patch('/accounts/:id', route(async (req, res) => {
     const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);

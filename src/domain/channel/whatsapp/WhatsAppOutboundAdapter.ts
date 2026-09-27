@@ -140,6 +140,17 @@ export class WhatsAppOutboundAdapter {
 
   /** Downloads an inbound image with credentials scoped to its originating number. */
   async downloadInboundImage(phoneNumberId: string, mediaId: string): Promise<{ imageBase64: string; mimeType: string }> {
+    const media = await this.downloadInboundMedia(phoneNumberId, mediaId, ['image/jpeg', 'image/png']);
+    return { imageBase64: media.bytes.toString('base64'), mimeType: media.mimeType };
+  }
+
+  /** Voice notes use the same number-scoped token and trusted Meta CDN checks as images. */
+  async downloadInboundAudio(phoneNumberId: string, mediaId: string): Promise<{ bytes: Buffer; mimeType: string }> {
+    return this.downloadInboundMedia(phoneNumberId, mediaId, ['audio/ogg', 'audio/mpeg', 'audio/mp4']);
+  }
+
+  private async downloadInboundMedia(phoneNumberId: string, mediaId: string, allowedTypes: string[]): Promise<{ bytes: Buffer; mimeType: string }> {
+    const image = allowedTypes.includes('image/jpeg');
     if (!/^\d+$/.test(mediaId) || !/^\d+$/.test(phoneNumberId)) throw new Error('INVALID_MEDIA_REFERENCE');
     const token = await this.resolveToken(phoneNumberId);
     if (!token) throw new Error('MEDIA_CREDENTIALS_UNAVAILABLE');
@@ -150,8 +161,9 @@ export class WhatsAppOutboundAdapter {
     if (!metadataResponse.ok) throw new Error('MEDIA_METADATA_UNAVAILABLE');
     const metadata = await metadataResponse.json() as any;
     const maxBytes = 5 * 1024 * 1024;
-    if (!['image/jpeg', 'image/png'].includes(metadata.mime_type) || Number(metadata.file_size) > maxBytes) {
-      throw new Error('UNSUPPORTED_IMAGE');
+    const mimeType = String(metadata.mime_type || '').split(';')[0].toLowerCase();
+    if (!allowedTypes.includes(mimeType) || (metadata.file_size != null && (!Number.isFinite(Number(metadata.file_size)) || Number(metadata.file_size) > maxBytes))) {
+      throw new Error(image ? 'UNSUPPORTED_IMAGE' : 'UNSUPPORTED_AUDIO');
     }
     const url = new URL(metadata.url);
     // Never forward a customer's token to a URL outside Meta's media CDN.
@@ -163,7 +175,7 @@ export class WhatsAppOutboundAdapter {
     if (!response.ok || !response.body) throw new Error('MEDIA_DOWNLOAD_UNAVAILABLE');
     if (Number(response.headers.get('content-length')) > maxBytes) {
       await response.body.cancel();
-      throw new Error('IMAGE_TOO_LARGE');
+      throw new Error(image ? 'IMAGE_TOO_LARGE' : 'AUDIO_TOO_LARGE');
     }
     const reader = response.body.getReader();
     const chunks: Buffer[] = [];
@@ -175,15 +187,15 @@ export class WhatsAppOutboundAdapter {
         size += value.byteLength;
         if (size > maxBytes) {
           await reader.cancel();
-          throw new Error('IMAGE_TOO_LARGE');
+          throw new Error(image ? 'IMAGE_TOO_LARGE' : 'AUDIO_TOO_LARGE');
         }
         chunks.push(Buffer.from(value));
       }
     } finally {
       reader.releaseLock();
     }
-    if (!size) throw new Error('EMPTY_IMAGE');
-    return { imageBase64: Buffer.concat(chunks).toString('base64'), mimeType: metadata.mime_type };
+    if (!size) throw new Error(image ? 'EMPTY_IMAGE' : 'EMPTY_AUDIO');
+    return { bytes: Buffer.concat(chunks), mimeType };
   }
 
   /**

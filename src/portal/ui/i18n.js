@@ -115,6 +115,18 @@
       history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     } catch {}
   }
+  for (const [en, fr, ar] of [
+    ['Voice notes','Messages vocaux','الرسائل الصوتية'],
+    ['Understand customer voice notes','Comprendre les messages vocaux des clients','فهم الرسائل الصوتية للعملاء'],
+    ['Allow voice notes','Autoriser les messages vocaux','السماح بالرسائل الصوتية'],
+    ['Revoke voice notes','Retirer les messages vocaux','إلغاء السماح بالرسائل الصوتية'],
+    ['Your administrator has not enabled voice notes for this account.','Votre administrateur n’a pas activé les messages vocaux pour ce compte.','لم يفعّل المسؤول الرسائل الصوتية لهذا الحساب.'],
+    ['Voice notes are not configured yet. Ask your administrator to enable the transcription service.','Les messages vocaux ne sont pas encore configurés. Demandez à votre administrateur d’activer la transcription.','الرسائل الصوتية غير مُعدّة بعد. اطلب من المسؤول تفعيل خدمة التفريغ الصوتي.'],
+    ['Off by default. You can change this at any time.','Désactivé par défaut. Vous pouvez modifier ce choix à tout moment.','معطّل افتراضيًا. يمكنك تغيير هذا الخيار في أي وقت.'],
+    ['Your administrator has locked chatbot settings.','Votre administrateur a verrouillé les paramètres du chatbot.','أقفل المسؤول إعدادات روبوت المحادثة.'],
+    ['Let customers send voice notes in Darija, Arabic, French or English. Groq transcribes the audio, then your chatbot replies in text. Unclear notes receive a request to type the message.','Les clients peuvent envoyer des messages vocaux en darija, arabe, français ou anglais. Groq les transcrit et le chatbot répond par écrit. Si le message est peu clair, le client est invité à écrire.','يمكن للعملاء إرسال رسائل صوتية بالدارجة أو العربية أو الفرنسية أو الإنجليزية. يفرغ Groq الصوت ويرد الروبوت نصيًا. إذا كان الصوت غير واضح، يُطلب من العميل الكتابة.'],
+    ['Allow this client to turn on customer voice-note understanding. Revoking access also turns their switch off immediately.','Autorisez ce client à activer la compréhension des messages vocaux. Le retrait de l’autorisation la désactive immédiatement.','اسمح لهذا العميل بتفعيل فهم الرسائل الصوتية. إلغاء السماح يعطّل الخيار فورًا.']
+  ]) translations.set(en, {fr, ar});
   const originals = new WeakMap();
   const attributeOriginals = new WeakMap();
   const title = 'Relayqo · Your business, connected';

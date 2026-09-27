@@ -101,6 +101,27 @@ export class PortalStore {
       return s.profile(accountId);
     });
   }
+  async setVoiceNotesEnabled(actorId: string, accountId: string, tenantId: string, enabled: boolean) {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.tenantId !== tenantId) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
+      if (profile.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot settings are locked by the administrator.');
+      if (enabled && !profile.voiceNotesAllowed) throw new PortalError(403, 'VOICE_NOTES_NOT_ALLOWED', 'Your administrator has not enabled voice notes for this account.');
+      if (profile.voiceNotesEnabled === enabled) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceNotesEnabled"=${enabled},"updatedAt"=NOW() WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}`;
+      await s.audit(actorId, accountId, enabled ? 'VOICE_NOTES_ENABLED' : 'VOICE_NOTES_DISABLED');
+      return s.profile(accountId, tenantId);
+    });
+  }
+  async setVoiceNotesAllowed(actorId: string, accountId: string, allowed: boolean) {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.voiceNotesAllowed === allowed) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceNotesAllowed"=${allowed},"voiceNotesEnabled"=CASE WHEN ${allowed} THEN "voiceNotesEnabled" ELSE false END,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      await s.audit(actorId, accountId, allowed ? 'VOICE_NOTES_ALLOWED' : 'VOICE_NOTES_REVOKED');
+      return s.profile(accountId);
+    });
+  }
   async saveDraft(actorId: string, accountId: string, tenantId: string, draft: unknown, expectedRevision: number, administrative = false) {
     return this.transaction(async s => {
       const profile = await s.lockProfile(accountId);
