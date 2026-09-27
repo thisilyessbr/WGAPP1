@@ -24,7 +24,7 @@ describe('lead follow-up form', () => {
     const root = { innerHTML: '' };
     const form = { onsubmit: null };
     const window: Record<string, any> = {};
-    const lead = { id: 'lead-1', status: 'NEW', details: {}, workflowDetails: {}, customerPhone: '212600000000', createdAt: '2026-09-25T10:30:00Z', updatedAt: '2026-09-25T10:30:00Z' };
+    const lead = { id: 'lead-1', status: 'NEW', interest: null, sourceRequest: 'Bghit n7jez anglais', details: {}, workflowDetails: {}, customerPhone: '212600000000', createdAt: '2026-09-25T10:30:00Z', updatedAt: '2026-09-25T10:30:00Z' };
     runInNewContext(source, { window, document: { querySelector: () => form }, Date });
     await window.RelayqoLeads.renderLeads({
       root, path: '/app/leads/lead-1', shell: (content: string) => content,
@@ -37,6 +37,7 @@ describe('lead follow-up form', () => {
     expect(root.innerHTML).toContain(heading);
     expect(root.innerHTML).toContain(expected);
     expect(root.innerHTML).not.toContain(excluded);
+    expect(root.innerHTML).toContain('Bghit n7jez anglais');
   });
 
   it('shows the qualifying request, not a later unrelated insult, in the inquiry queue', async () => {
@@ -48,7 +49,7 @@ describe('lead follow-up form', () => {
       header: (title: string, _subtitle: string, action = '') => `<h1>${title}</h1>${action}`, escape: (value: unknown) => String(value ?? ''),
       toast: () => {}, bind: () => {}, go: () => {},
       api: async (path: string) => path === '/client/profile' ? { profile: { commerceActive: false } }
-        : path.startsWith('/client/leads?') ? { leads: [{ id: 'one', status: 'NEW', customerPhone: '212600000000', interest: 'Bghit n7jez anglais', lastCustomerMessage: 'Jm3 krk a w9', updatedAt: '2026-09-26T21:20:00Z' }], pagination: { total: 1, hasMore: false } }
+        : path.startsWith('/client/leads?') ? { leads: [{ id: 'one', status: 'NEW', customerPhone: '212600000000', interest: null, sourceRequest: 'Bghit n7jez anglais', lastCustomerMessage: 'Jm3 krk a w9', updatedAt: '2026-09-26T21:20:00Z' }], pagination: { total: 1, hasMore: false } }
         : { new: 1, dueFollowUps: 0, qualified: 0, won: 0 }
     });
     expect(root.textContent).toContain('Bghit n7jez anglais');

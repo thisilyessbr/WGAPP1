@@ -82,6 +82,20 @@ describe('client lead workspace under realistic account data', () => {
     expect((await request(app).get('/api/client/leads/summary').set(firstHeaders)).body.new).toBe(1);
   });
 
+  it('recovers the request that created a legacy inquiry without using later unrelated messages', async () => {
+    const contact = await customer(first, '212600199999');
+    const sourceConversation = await conversation(first, contact, 'I would like to book a lesson');
+    const inquiryId = await lead(first, contact, 'NEW', { conversationId: sourceConversation });
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content,"createdAt")
+      VALUES (${randomUUID()},${first.tenantId},${sourceConversation},'USER','Unrelated later message',NOW() + INTERVAL '1 second')`;
+
+    const detail = await request(app).get(`/api/client/leads/${inquiryId}`).set(firstHeaders);
+    expect(detail.status).toBe(200);
+    expect(detail.body.lead.sourceRequest).toBe('I would like to book a lesson');
+    const list = await request(app).get('/api/client/leads').set(firstHeaders);
+    expect(list.body.leads.find((item: any) => item.id === inquiryId).sourceRequest).toBe('I would like to book a lesson');
+  });
+
   it('validates inputs and requires a client session and CSRF token for changes', async () => {
     const id = await lead(first, await customer(first, '212600100003'), 'NEW');
     expect((await request(app).get('/api/client/leads')).status).toBe(401);
