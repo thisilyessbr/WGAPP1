@@ -37,6 +37,7 @@ export class WhatsAppWorker {
     private voiceNotes?: {
       enabled: (tenantId: string, accountId: string) => Promise<boolean>;
       transcriber: Pick<VoiceNoteTranscriber, 'transcribe'>;
+      recordUsage?: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null) => Promise<void>;
     }
   ) {
     if (channelRouter) {
@@ -151,7 +152,9 @@ export class WhatsAppWorker {
         try {
           if (await this.voiceNotes.enabled(job.tenantId, job.accountId)) {
             const audio = await this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId);
-            contentInput = await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType);
+            const transcript = await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType);
+            await this.voiceNotes.recordUsage?.(job.tenantId, job.accountId, job.wamid, transcript.durationSeconds);
+            contentInput = transcript.text;
           }
         } catch {
           logger.warn('WhatsAppWorker: Voice note unavailable; returning a text-request fallback.');
