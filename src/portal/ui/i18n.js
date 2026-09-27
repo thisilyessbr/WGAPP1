@@ -79,6 +79,21 @@
     ['Assigned to','Attribuée à','مُسندة إلى'],['Chatbot','Chatbot','روبوت المحادثة'],['Team','Équipe','الفريق']
   ]) translations.set(en, { fr, ar });
 
+  for (const [en, fr, ar] of [
+    ['Requests','Demandes','الطلبات'],['Inquiries','Demandes de renseignements','الاستفسارات'],
+    ['Inquiry details','Détails de la demande','تفاصيل الاستفسار'],['Inquiry queue','Demandes à traiter','قائمة الاستفسارات'],
+    ['Customer follow-up','Suivi des clients','متابعة العملاء'],['Inquiries to review','Demandes à examiner','استفسارات للمراجعة'],
+    ['Service requests and booking inquiries from customer conversations.','Demandes de services et de réservation issues des conversations clients.','طلبات الخدمات والحجز من محادثات العملاء.'],
+    ['Inquiry details','Détails de la demande','تفاصيل الاستفسار'],['Order details','Détails de la commande','تفاصيل الطلب'],
+    ['Service or course','Service ou cours','الخدمة أو الدورة'],['Preferred date or time','Date ou heure souhaitée','التاريخ أو الوقت المفضل'],
+    ['Delivery city','Ville de livraison','مدينة التوصيل'],['Delivery address','Adresse de livraison','عنوان التوصيل'],
+    ['Request ticket','Fiche de demande','بطاقة الطلب'],['Customer request','Demande du client','طلب العميل'],
+    ['Follow-ups due','Relances à effectuer','متابعات مستحقة'],['Qualified','Qualifiés','مؤهلون'],['Confirmed','Confirmé','مؤكد'],['Closed','Clôturé','مغلق'],
+    ['New requests and upcoming follow-ups appear here.','Les nouvelles demandes et les relances à venir apparaissent ici.','تظهر هنا الطلبات الجديدة والمتابعات القادمة.'],
+    ['Track the request and follow up. Mark Confirmed only when the service or booking is agreed.','Suivez la demande. Marquez-la comme confirmée uniquement après accord sur le service ou la réservation.','تابع الطلب ولا تضعه كمؤكد إلا بعد الاتفاق على الخدمة أو الحجز.'],
+    ['Use the conversation to confirm the service and preferred time. This is not a confirmed booking.','Vérifiez le service et l’horaire avec le client. Il ne s’agit pas encore d’une réservation confirmée.','تأكد من الخدمة والموعد مع العميل. هذا ليس حجزاً مؤكداً بعد.']
+  ]) translations.set(en, { fr, ar });
+
   const supported = new Set(['en', 'fr', 'ar']);
   const stored = (() => { try { return localStorage.getItem('relayqo-language'); } catch { return null; } })();
   const requested = new URLSearchParams(location.search).get('lang');
