@@ -69,12 +69,32 @@ describe('opt-in WhatsApp voice notes', () => {
       method: 'POST', headers: { Authorization: 'Bearer test-groq-key' }, signal: expect.any(AbortSignal)
     });
     expect((fetchFn.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
+    expect(((fetchFn.mock.calls[0][1] as RequestInit).body as FormData).get('model')).toBe('whisper-large-v3');
+  });
+
+  it('flags unclear transcriptions so the worker can account for the call and request a clearer note', async () => {
+    const weak = new VoiceNoteTranscriber('test-key', vi.fn(async () => new Response(JSON.stringify({
+      text: 'garbled', language: 'arabic', segments: [{ end: 8, avg_logprob: -0.9 }]
+    }))));
+    expect(await weak.transcribe(Buffer.from([1]), 'audio/ogg')).toEqual({ text: '', durationSeconds: 8, understood: false });
+    const wrongLanguage = new VoiceNoteTranscriber('test-key', vi.fn(async () => new Response(JSON.stringify({
+      text: 'unrelated words', language: 'korean'
+    }))));
+    expect(await wrongLanguage.transcribe(Buffer.from([1]), 'audio/ogg')).toEqual({ text: '', durationSeconds: null, understood: false });
+  });
+
+  it('records an unclear transcription against the account without sending garbled text to the chatbot', async () => {
+    const { instance, handleMessage, recordUsage } = worker(true, vi.fn(async () => ({ text: '', durationSeconds: 9, understood: false })));
+    await instance.processJob(job);
+    expect(recordUsage).toHaveBeenCalledWith('tenant-1', 'account-1', 'wamid-1', 9);
+    expect(handleMessage).toHaveBeenCalledWith('tenant-1', 'customer-1',
+      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1' });
   });
 
   it('uses Groq minimum billing time and an explicit unknown-duration estimate', () => {
-    expect(voiceNoteChargeMicros(3)).toBe(112);
-    expect(voiceNoteChargeMicros(60)).toBe(667);
-    expect(voiceNoteChargeMicros(null)).toBe(667);
+    expect(voiceNoteChargeMicros(3)).toBe(309);
+    expect(voiceNoteChargeMicros(60)).toBe(1850);
+    expect(voiceNoteChargeMicros(null)).toBe(1850);
   });
 
   it('rejects a tenant/account mismatch before writing usage', async () => {
