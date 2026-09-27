@@ -23,6 +23,7 @@ import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJ
 import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
 import { WhatsAppWorker } from './domain/channel/whatsapp/WhatsAppWorker';
 import { VoiceNoteTranscriber } from './domain/channel/whatsapp/VoiceNoteTranscriber';
+import { recordVoiceNoteUsage } from './portal/VoiceNoteUsage';
 import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
 import { WhatsAppOnboardingService } from './domain/channel/whatsapp/WhatsAppOnboardingService';
@@ -142,7 +143,9 @@ function voiceNoteOptions(prisma: PrismaClient) {
       });
       return profile?.tenantId === tenantId && profile.voiceNotesAllowed === true && profile.voiceNotesEnabled === true;
     },
-    transcriber: new VoiceNoteTranscriber()
+    transcriber: new VoiceNoteTranscriber(),
+    recordUsage: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null) =>
+      recordVoiceNoteUsage(prisma, tenantId, accountId, wamid, durationSeconds)
   };
 }
 
