@@ -105,7 +105,6 @@ export class PortalStore {
     return this.transaction(async s => {
       const profile = await s.lockProfile(accountId);
       if (profile.tenantId !== tenantId) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
-      if (profile.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot settings are locked by the administrator.');
       if (enabled && !profile.voiceNotesAllowed) throw new PortalError(403, 'VOICE_NOTES_NOT_ALLOWED', 'Your administrator has not enabled voice notes for this account.');
       if (profile.voiceNotesEnabled === enabled) return profile;
       await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceNotesEnabled"=${enabled},"updatedAt"=NOW() WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}`;

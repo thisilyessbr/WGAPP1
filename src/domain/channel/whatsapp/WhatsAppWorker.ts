@@ -154,7 +154,7 @@ export class WhatsAppWorker {
             const audio = await this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId);
             const transcript = await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType);
             await this.voiceNotes.recordUsage?.(job.tenantId, job.accountId, job.wamid, transcript.durationSeconds);
-            contentInput = transcript.text;
+            if (transcript.understood !== false) contentInput = transcript.text;
           }
         } catch {
           logger.warn('WhatsAppWorker: Voice note unavailable; returning a text-request fallback.');

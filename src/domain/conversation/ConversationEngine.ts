@@ -637,7 +637,14 @@ ${content}
       const mediaScript = payload.text
         ? DirectRagGuard.detectScript(payload.text, lang as any)
         : (conversation.contextData as any)?._script || DirectRagGuard.detectScript('', lang as any);
-      const fallback = this.applyResponseLimit(lang === 'darija' && mediaScript === 'arabic'
+      const audioFallback = payload.unsupportedMediaType === 'audio';
+      const fallback = this.applyResponseLimit(audioFallback ? (lang === 'darija' && mediaScript === 'arabic'
+        ? 'ما فهمتش الميساج الصوتي مزيان. عفاك عاود صيفطو بوضوح ولا كتب ليا السؤال ديالك.' : {
+          en: "I couldn't understand that voice note clearly. Please resend it or type your question.",
+          fr: "Je n'ai pas bien compris ce message vocal. Renvoyez-le plus clairement ou écrivez votre question.",
+          ar: 'لم أفهم الرسالة الصوتية بوضوح. يرجى إعادة إرسالها أو كتابة سؤالك.',
+          darija: 'Ma fhemtch l-vocal mzyan. 3afak 3awed sifto b-wodou7 wla kteb lia soualek.'
+        }[lang]) : lang === 'darija' && mediaScript === 'arabic'
         ? 'ما نقدرش نقرا هاد الملف دابا. عفاك كتب ليا الطلب ديالك.' : {
         en: "I can't process this attachment right now. Please send your request as text.",
         fr: "Je ne peux pas traiter cette pièce jointe pour le moment. Envoyez votre demande par écrit.",
