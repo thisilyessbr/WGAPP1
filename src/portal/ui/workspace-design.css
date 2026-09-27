@@ -70,7 +70,7 @@
 .dashboard-shell .dashboard-metrics{gap:16px;margin-bottom:24px}
 .dashboard-shell .dashboard-metric{min-height:154px;padding:23px 24px;border-radius:17px;background:var(--surface);box-shadow:var(--shadow);transition:transform .18s,box-shadow .18s}
 .dashboard-shell .dashboard-metric:hover{transform:translateY(-3px);box-shadow:0 20px 42px rgba(7,21,19,.09)}
-.dashboard-shell .dashboard-metric .metric-symbol{top:21px;right:21px;width:36px;height:36px;border-radius:11px;background:var(--soft);color:var(--green);font-size:19px}
+.dashboard-shell .dashboard-metric .metric-symbol{top:21px;right:auto;inset-inline-end:21px;width:36px;height:36px;border-radius:11px;background:var(--soft);color:var(--green);font-size:19px}
 .dashboard-shell .dashboard-metric p{color:var(--muted);font-size:12px;font-weight:600;padding-inline-end:45px}
 .dashboard-shell .dashboard-metric>strong{font-size:clamp(29px,2.6vw,37px);letter-spacing:-.05em;font-weight:750;margin:18px 0 2px;line-height:1.1}
 .dashboard-shell .dashboard-metric small{font-size:11px}
@@ -104,6 +104,7 @@
 .admin-convo-item{width:100%;display:flex;align-items:flex-start;gap:11px;padding:16px;text-align:start;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--line);cursor:pointer;font:inherit}
 .admin-convo-item:hover,.admin-convo-item.active{background:var(--raised)}
 .admin-convo-item.active{box-shadow:inset 3px 0 0 var(--green)}
+:root[dir=rtl] .admin-convo-item.active{box-shadow:inset -3px 0 0 var(--green)}
 .admin-convo-avatar{display:grid;place-items:center;flex:none;width:35px;height:35px;border-radius:10px;background:var(--soft);color:var(--green);font-weight:800}
 .admin-convo-item-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:5px}
 .admin-convo-item-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
@@ -145,7 +146,7 @@
   .dashboard-shell .dashboard-status .status-meta{gap:14px}
   .dashboard-shell .dashboard-metrics{gap:10px}
   .dashboard-shell .dashboard-metric{min-height:137px;padding:17px}
-  .dashboard-shell .dashboard-metric .metric-symbol{width:30px;height:30px;top:15px;right:15px}
+  .dashboard-shell .dashboard-metric .metric-symbol{width:30px;height:30px;top:15px;inset-inline-end:15px}
   .dashboard-shell .dashboard-metric p{padding-inline-end:30px}
   .dashboard-shell .dashboard-metric>strong{font-size:29px;margin-top:21px}
   .dashboard-shell .dashboard-grid,.dashboard-shell .admin-insights{gap:16px}
