@@ -12,6 +12,7 @@ import { ConversationAutomationService } from '../domain/conversation/Conversati
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
 import { ClientOwnedMetaService } from '../domain/channel/whatsapp/ClientOwnedMetaService';
+import { voiceProviderConfigured, voiceTranscriptionAvailable } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
 import { logger } from '../utils/logger';
 import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
 
@@ -32,7 +33,7 @@ const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p
   commerceActive: Boolean(p.planSnapshot?.modules.includes('commerce')) && p.adminConfig?.capabilities?.ecommerceEnabled !== false,
   reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
   voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
-  voiceNotesAvailable: p.voiceNotesAllowed && Boolean(process.env.GROQ_API_KEY) });
+  voiceNotesAvailable: p.voiceNotesAllowed && voiceTranscriptionAvailable(p.voiceTranscriptionProvider) });
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
 function boundedQueryInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -102,7 +103,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   client.patch('/voice-notes', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['enabled']);
     if (typeof input.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
-    if (input.enabled && !process.env.GROQ_API_KEY) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Voice notes are not configured yet.');
+    if (input.enabled && !voiceTranscriptionAvailable((await store.profile(req.portal.accountId!, req.portal.tenantId!)).voiceTranscriptionProvider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Voice notes are not configured yet.');
     send(res, { profile: clientProfile(await store.setVoiceNotesEnabled(req.portal.user.id, req.portal.accountId!, req.portal.tenantId!, input.enabled)) });
   }));
   client.get('/dashboard', route(async (req, res) => {
@@ -839,7 +840,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.get('/accounts', route(async (req, res) => send(res, { accounts: await store.accounts(text(req.query.search, 160), Number(req.query.offset || 0) || 0) })));
   admin.get('/accounts/:id', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    send(res, { profile: p, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
+    send(res, { profile: { ...p, voiceNotesAvailable: voiceTranscriptionAvailable(p.voiceTranscriptionProvider), availableVoiceProviders: { groq: voiceProviderConfigured('groq'), deepgram: voiceProviderConfigured('deepgram') } }, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
       members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id
         WHERE m."accountId"=${p.accountId} AND m."tenantId"=${p.tenantId} AND u.role='CLIENT' ORDER BY u."createdAt",u.id` });
   }));
@@ -900,8 +901,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.patch('/accounts/:id/voice-notes', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['allowed']);
     if (typeof body.allowed !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
-    if (body.allowed && !process.env.GROQ_API_KEY) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure Groq before allowing voice notes.');
+    if (body.allowed && !voiceTranscriptionAvailable((await store.profile(String(req.params.id))).voiceTranscriptionProvider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure the transcription provider before allowing voice notes.');
     send(res, { profile: await store.setVoiceNotesAllowed(req.portal.user.id, String(req.params.id), body.allowed) });
+  }));
+  admin.patch('/accounts/:id/voice-provider', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['provider']);
+    if (body.provider !== 'groq' && body.provider !== 'deepgram') throw new PortalError(400, 'INVALID_VOICE_PROVIDER');
+    if (!voiceProviderConfigured(body.provider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure this transcription provider before selecting it.');
+    send(res, { profile: await store.setVoiceTranscriptionProvider(req.portal.user.id, String(req.params.id), body.provider) });
   }));
   admin.patch('/accounts/:id', route(async (req, res) => {
     const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);

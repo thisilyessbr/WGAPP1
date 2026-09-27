@@ -22,7 +22,7 @@ import { WhatsAppNumberService } from './domain/channel/whatsapp/WhatsAppNumberS
 import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJob } from './domain/channel/whatsapp/MessageQueue';
 import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
 import { WhatsAppWorker } from './domain/channel/whatsapp/WhatsAppWorker';
-import { VoiceNoteTranscriber } from './domain/channel/whatsapp/VoiceNoteTranscriber';
+import { VoiceNoteTranscriber, VoiceProvider, voiceTranscriptionAvailable } from './domain/channel/whatsapp/VoiceNoteTranscriber';
 import { recordVoiceNoteUsage } from './portal/VoiceNoteUsage';
 import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
@@ -137,15 +137,16 @@ export interface WorkerBootstrapOptions {
 function voiceNoteOptions(prisma: PrismaClient) {
   return {
     enabled: async (tenantId: string, accountId: string) => {
-      if (!process.env.GROQ_API_KEY) return false;
       const profile = await prisma.portalProfile.findUnique({
-        where: { accountId }, select: { tenantId: true, voiceNotesEnabled: true, voiceNotesAllowed: true }
+        where: { accountId }, select: { tenantId: true, voiceNotesEnabled: true, voiceNotesAllowed: true, voiceTranscriptionProvider: true }
       });
-      return profile?.tenantId === tenantId && profile.voiceNotesAllowed === true && profile.voiceNotesEnabled === true;
+      if (profile?.tenantId !== tenantId || !profile.voiceNotesAllowed || !profile.voiceNotesEnabled) return null;
+      const selected = profile.voiceTranscriptionProvider as VoiceProvider;
+      return voiceTranscriptionAvailable(selected) ? selected : null;
     },
     transcriber: new VoiceNoteTranscriber(),
-    recordUsage: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null) =>
-      recordVoiceNoteUsage(prisma, tenantId, accountId, wamid, durationSeconds)
+    recordUsage: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider) =>
+      recordVoiceNoteUsage(prisma, tenantId, accountId, wamid, durationSeconds, provider)
   };
 }
 

@@ -52,6 +52,21 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId",status,"updatedAt") VALUES (${randomUUID()},${c.tenantId},${c.accountId},${randomUUID()},'CONNECTED',NOW())`;
     return store.updateAccount(admin.id,c.accountId,p.revision,{status:'ACTIVE'});
   }
+  it('keeps the voice transcription provider scoped to each client account', async () => {
+    const moroccan = await client(), international = await client();
+    expect((await store.profile(moroccan.accountId)).voiceTranscriptionProvider).toBe('groq');
+    expect((await store.profile(international.accountId)).voiceTranscriptionProvider).toBe('groq');
+    vi.stubEnv('DEEPGRAM_API_KEY', 'test-key');
+    try {
+      const response = await request(app).patch('/api/admin/accounts/' + moroccan.accountId + '/voice-provider')
+        .set(await cookie(admin)).send({ provider: 'deepgram' });
+      expect(response.status).toBe(200);
+      expect((await store.profile(moroccan.accountId)).voiceTranscriptionProvider).toBe('deepgram');
+      expect((await store.profile(international.accountId)).voiceTranscriptionProvider).toBe('groq');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('keeps lead management and CSV export inside the client account', async () => {
     const owner = await client(), stranger = await client();
     const customerId = randomUUID(), leadId = randomUUID(), conversationId = randomUUID();
