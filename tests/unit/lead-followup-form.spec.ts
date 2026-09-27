@@ -18,7 +18,7 @@ describe('lead follow-up form', () => {
   });
 
   it.each([
-    [false, 'Customer request', 'Remind me at', 'Delivery address'],
+    [false, 'Customer request', 'Return to Needs reply on', 'Delivery address'],
     [true, 'Lead details', 'Delivery address', 'Inquiry details']
   ])('shows fields for commerce=%s', async (commerce, heading, expected, excluded) => {
     const root = { innerHTML: '' };
@@ -80,6 +80,8 @@ describe('lead follow-up form', () => {
     };
     await (dom.window as any).RelayqoLeads.renderLeads(ctx);
     expect(root.textContent).toContain('Mark handled');
+    expect(root.textContent).toContain('No notification or WhatsApp message is sent automatically.');
+    expect(root.textContent).toContain('Return to Needs reply on');
     expect(root.textContent).not.toContain('Confirmed');
     (root.querySelector('#service-reminder') as HTMLInputElement).value = '2026-09-28T11:00';
     await (root.querySelector('#service-request-form') as any).onsubmit({ preventDefault() {} });
