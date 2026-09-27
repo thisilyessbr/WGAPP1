@@ -342,6 +342,45 @@ model ChannelConnection {
   @@index([tenantId, provider])
 }
 
+model InstagramConnection {
+  id               String   @id @default(uuid())
+  tenantId         String
+  accountId        String   @unique
+  instagramUserId  String   @unique
+  username         String?
+  encryptedToken   String
+  tokenExpiresAt   DateTime
+  enabled          Boolean  @default(false)
+  status           String   @default("CONNECTED")
+  lastError        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, accountId])
+}
+
+model InstagramInboundJob {
+  id               String    @id @default(uuid())
+  tenantId         String
+  accountId        String
+  instagramUserId  String
+  senderId         String
+  messageId        String
+  text             String
+  responseText     String?
+  status           String    @default("PENDING")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now())
+  leaseUntil       DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([instagramUserId, messageId])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, accountId])
+}
+
 model PortalUser {
   id String @id
   email String @unique

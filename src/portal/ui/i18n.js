@@ -158,6 +158,8 @@
     }
     const savedPlan = key.match(/^Saved plan: (.+)$/);
     if (savedPlan) return left + (locale === 'fr' ? 'Offre enregistrée : ' : 'الباقة المحفوظة: ') + savedPlan[1] + right;
+    const connectedInstagram = key.match(/^Connected as (@.+)$/);
+    if (connectedInstagram) return left + (locale === 'fr' ? 'Connecté en tant que ' : 'متصل باسم ') + connectedInstagram[1] + right;
     const draftCount = key.match(/^Create (\d+) draft plans?$/);
     if (draftCount) return left + (locale === 'fr' ? `Créer ${draftCount[1]} offre${draftCount[1] === '1' ? '' : 's'} en brouillon` : `إنشاء ${draftCount[1]} باقة كمسودة`) + right;
     const customerMessages = key.match(/^(\d+) customer messages$/);
@@ -308,6 +310,24 @@
   // Administrator pages are rendered from several modules. Keep their shared
   // vocabulary here so switching language works after every client-side render.
   for (const [en, fr, ar] of [
+    ['Instagram DMs','Messages privés Instagram','رسائل إنستغرام الخاصة'],
+    ['Let your chatbot answer private messages sent to your Instagram professional account.','Laissez votre chatbot répondre aux messages privés de votre compte Instagram professionnel.','دع روبوتك يرد على الرسائل الخاصة لحساب إنستغرام المهني.'],
+    ['Your Instagram account','Votre compte Instagram','حساب إنستغرام الخاص بك'],
+    ['No Instagram account connected yet.','Aucun compte Instagram connecté.','لم يتم ربط حساب إنستغرام بعد.'],
+    ['Connect Instagram','Connecter Instagram','ربط إنستغرام'],
+    ['Reconnect account','Reconnecter le compte','إعادة ربط الحساب'],
+    ['Disconnect','Déconnecter','قطع الاتصال'],
+    ['How it works','Comment ça marche','كيف يعمل'],
+    ['Your chatbot uses the same published business information as WhatsApp. It answers incoming Instagram DMs only. Comments and unsolicited messages are not included.','Votre chatbot utilise les mêmes informations publiées que sur WhatsApp. Il répond uniquement aux messages privés Instagram entrants, sans commentaires ni messages non sollicités.','يستخدم روبوتك بيانات النشاط المنشورة نفسها المستخدمة في واتساب. يرد فقط على رسائل إنستغرام الخاصة الواردة، دون التعليقات أو الرسائل غير المطلوبة.'],
+    ['A customer must message your professional account first. Human handoff and replies appear in your Inbox with an Instagram label.','Le client doit d’abord écrire à votre compte professionnel. Les transferts à un humain et les réponses apparaissent dans votre boîte de réception avec la mention Instagram.','يجب أن يرسل العميل رسالة إلى حسابك المهني أولًا. تظهر المحادثات المحوّلة إلى موظف والردود في صندوق الوارد مع علامة إنستغرام.'],
+    ['AI replies are enabled.','Les réponses automatiques sont actives.','الردود الآلية مفعّلة.'],
+    ['Your administrator has paused Instagram replies.','L’administrateur a suspendu les réponses Instagram.','أوقف المشرف ردود إنستغرام مؤقتًا.'],
+    ['Instagram setup is not ready yet. Ask your administrator to configure Meta access.','Instagram n’est pas encore configuré. Demandez à votre administrateur de configurer l’accès Meta.','إعداد إنستغرام غير جاهز بعد. اطلب من المشرف ضبط الوصول إلى ميتا.'],
+    ['The client connects their own Instagram professional account. You control whether chatbot replies are active.','Le client connecte son propre compte Instagram professionnel. Vous contrôlez l’activation des réponses.','يربط العميل حساب إنستغرام المهني الخاص به. وتتحكم أنت في تفعيل الردود.'],
+    ['Chatbot replies enabled','Réponses du chatbot actives','ردود الروبوت مفعّلة'],
+    ['Chatbot replies paused','Réponses du chatbot suspendues','ردود الروبوت متوقفة'],
+    ['Pause replies','Suspendre les réponses','إيقاف الردود مؤقتًا'],
+    ['Enable replies','Activer les réponses','تفعيل الردود'],
     ['No activity yet.','Aucune activité pour le moment.','لا يوجد نشاط بعد.'],
     ['Manage plans','Gérer les offres','إدارة الباقات'],
     ['Review & edit data','Vérifier et modifier les données','مراجعة البيانات وتعديلها'],

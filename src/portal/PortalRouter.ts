@@ -14,6 +14,7 @@ import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumber
 import { ClientOwnedMetaService } from '../domain/channel/whatsapp/ClientOwnedMetaService';
 import { voiceProviderConfigured, voiceTranscriptionAvailable } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
 import { logger } from '../utils/logger';
+import { InstagramService } from '../domain/channel/instagram/InstagramService';
 import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
@@ -25,6 +26,7 @@ export interface PortalRouterDeps {
   conversationAutomationService?: ConversationAutomationService;
   whatsAppOutboundQueue?: OutboundMessageQueue;
   whatsAppNumberService?: WhatsAppNumberService;
+  instagramService?: InstagramService;
   [key: string]: any;
 }
 const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules });
@@ -390,6 +392,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
 
       return {
         id: r.id,
+        channel: String(r.customerPhone || '').startsWith('instagram:') ? 'INSTAGRAM' : 'WHATSAPP',
         status: state,
         rawStatus: r.status,
         ownership: {
@@ -401,7 +404,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         customer: {
           id: r.customerId,
           name: r.customerMetadata?.name || null,
-          phone: r.customerPhone || r.customerId
+          phone: String(r.customerPhone || '').startsWith('instagram:') ? `Instagram · ${String(r.customerPhone).split(':').at(-1)}` : (r.customerPhone || r.customerId)
         },
         lastMessage: r.lastMessageId ? {
           id: r.lastMessageId,
@@ -490,6 +493,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, {
       conversation: {
         id: conv.id,
+        channel: String(conv.customerPhone || '').startsWith('instagram:') ? 'INSTAGRAM' : 'WHATSAPP',
         status: state,
         rawStatus: conv.status,
         ownership: {
@@ -501,7 +505,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         customer: {
           id: conv.customerId,
           name: conv.customerMetadata?.name || null,
-          phone: conv.customerPhone || conv.customerId
+          phone: String(conv.customerPhone || '').startsWith('instagram:') ? `Instagram · ${String(conv.customerPhone).split(':').at(-1)}` : (conv.customerPhone || conv.customerId)
         },
         lastMerchantViewedAt: viewedAt,
         humanRequested: Boolean(conv.humanRequested),
@@ -708,6 +712,20 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const lastUserTime = new Date(latestUserMsg.createdAt).getTime();
     if (Date.now() - lastUserTime > 24 * 60 * 60 * 1000) {
       throw new PortalError(400, 'CUSTOMER_SERVICE_WINDOW_EXPIRED', 'Customer service window has expired (24h). Free-form messages cannot be sent.');
+    }
+
+    if (String(conv.customerPhone || '').startsWith('instagram:')) {
+      if (!deps.instagramService) throw new PortalError(503, 'INSTAGRAM_UNAVAILABLE');
+      const providerId = await deps.instagramService.sendManual(accountId, tenantId, conv.customerPhone, messageText);
+      const now = new Date();
+      const messageId = randomUUID();
+      await (store.db as any).message.create({ data: { id: messageId, tenantId, conversationId, role: 'ASSISTANT', content: messageText,
+        externalId: `instagram:${providerId}`, metadata: { deliveryStatus: 'SENT', manual: true,
+          authorId: req.portal.user.id, authorName: req.portal.user.name } } });
+      await (store.db as any).conversation.update({ where: { id: conversationId }, data: { lastMerchantViewedAt: now, messageCount: { increment: 1 } } });
+      send(res, { success: true, message: { id: messageId, role: 'ASSISTANT', content: messageText, status: 'SENT',
+        metadata: { deliveryStatus: 'SENT', manual: true }, createdAt: now } }, 201);
+      return;
     }
 
     // Precondition 3: Resolve connected WhatsApp number

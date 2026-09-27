@@ -54,6 +54,14 @@ services:
         generateValue: true
       - key: META_APP_ID
         sync: false
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
+      - key: INSTAGRAM_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: INSTAGRAM_GRAPH_API_VERSION
+        value: v26.0
       - key: META_APP_SECRET
         sync: false
       - key: WHATSAPP_APP_SECRET
