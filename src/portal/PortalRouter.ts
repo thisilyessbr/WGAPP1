@@ -28,7 +28,9 @@ export interface PortalRouterDeps {
 }
 const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules });
 const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
-  requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish });
+  requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null,
+  commerceActive: Boolean(p.planSnapshot?.modules.includes('commerce')) && p.adminConfig?.capabilities?.ecommerceEnabled !== false,
+  reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish });
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
 function boundedQueryInteger(value: unknown, fallback: number, min: number, max: number): number {
