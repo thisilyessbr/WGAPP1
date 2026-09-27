@@ -14,6 +14,10 @@ export class PortalLeads {
       SELECT l.id,l.status,l.interest,l."signalReason",l.note,l.details,l."followUpAt",l."contactedAt",l."closedAt",l."createdAt",l."updatedAt",
         cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
         COALESCE(c.id,l."sourceConversationId") AS "conversationId",c."updatedAt" AS "conversationUpdatedAt",
+        (SELECT m.content FROM "Message" m
+          WHERE m."conversationId"=COALESCE(l."sourceConversationId",c.id) AND m."tenantId"=l."tenantId"
+            AND m.role='USER' AND m."createdAt"<=l."createdAt"
+          ORDER BY m."createdAt" DESC LIMIT 1) AS "sourceRequest",
         (SELECT m.content FROM "Message" m WHERE m."conversationId"=c.id AND m."tenantId"=l."tenantId" AND m.role='USER' ORDER BY m."createdAt" DESC LIMIT 1) AS "lastCustomerMessage"
       FROM "Lead" l
       JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
@@ -38,7 +42,11 @@ export class PortalLeads {
   async get(tenantId: string, accountId: string, id: string) {
     const rows = await this.store.db.$queryRaw<any[]>`
       SELECT l.*,cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
-        COALESCE(c.id,l."sourceConversationId") AS "conversationId",ws."collectedData" AS "workflowDetails",ws."workflowId",ws.status AS "workflowStatus"
+        COALESCE(c.id,l."sourceConversationId") AS "conversationId",ws."collectedData" AS "workflowDetails",ws."workflowId",ws.status AS "workflowStatus",
+        (SELECT m.content FROM "Message" m
+          WHERE m."conversationId"=COALESCE(l."sourceConversationId",c.id) AND m."tenantId"=l."tenantId"
+            AND m.role='USER' AND m."createdAt"<=l."createdAt"
+          ORDER BY m."createdAt" DESC LIMIT 1) AS "sourceRequest"
       FROM "Lead" l
       JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
       LEFT JOIN LATERAL (
