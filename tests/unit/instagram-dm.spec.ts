@@ -33,14 +33,18 @@ describe('Instagram DM boundary', () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     const db = {
       instagramConnection: { findUnique: vi.fn().mockResolvedValue({ instagramUserId: '1234567890', accountId: 'account-a', tenantId: 'tenant-a', enabled: true, status: 'CONNECTED' }) },
-      portalProfile: { findUnique: vi.fn().mockResolvedValue({ accountId: 'account-a', tenantId: 'tenant-a', status: 'ACTIVE' }) },
+      portalProfile: { findUnique: vi.fn().mockResolvedValue({ accountId: 'account-a', tenantId: 'tenant-a', status: 'ACTIVE', instagramAllowed: true, planSnapshot: { modules: ['instagram'] } }) },
       instagramInboundJob: { createMany }
     };
     const service = new InstagramService(db as any, undefined, { box: new SecretBox({ key: 'test-secret' }) });
     const payload = { object: 'instagram', entry: [{ id: '1234567890', messaging: [{ sender: { id: '2222222222' }, message: { mid: 'mid-1', text: 'Hi' } }] }] };
     expect(await service.ingest(payload)).toBe(1);
     expect(createMany).toHaveBeenCalledWith({ data: [{ tenantId: 'tenant-a', accountId: 'account-a', instagramUserId: '1234567890', senderId: '2222222222', messageId: 'mid-1', text: 'Hi' }], skipDuplicates: true });
-    db.portalProfile.findUnique.mockResolvedValue({ accountId: 'account-a', tenantId: 'tenant-a', status: 'SUSPENDED' });
+    db.portalProfile.findUnique.mockResolvedValue({ accountId: 'account-a', tenantId: 'tenant-a', status: 'ACTIVE', instagramAllowed: false, planSnapshot: { modules: ['instagram'] } });
+    expect(await service.ingest(payload)).toBe(0);
+    db.portalProfile.findUnique.mockResolvedValue({ accountId: 'account-a', tenantId: 'tenant-a', status: 'ACTIVE', instagramAllowed: true, planSnapshot: { modules: ['knowledge'] } });
+    expect(await service.ingest(payload)).toBe(0);
+    db.portalProfile.findUnique.mockResolvedValue({ accountId: 'account-a', tenantId: 'tenant-a', status: 'SUSPENDED', instagramAllowed: true, planSnapshot: { modules: ['instagram'] } });
     expect(await service.ingest(payload)).toBe(0);
     expect(createMany).toHaveBeenCalledTimes(1);
   });
@@ -58,7 +62,7 @@ describe('Instagram DM boundary', () => {
       expect(url.searchParams.get('scope')).toBe('instagram_business_basic,instagram_business_manage_messages');
       expect(service.verifyState(url.searchParams.get('state')!)).toMatchObject({ userId: 'user-a', accountId: 'account-a', tenantId: 'tenant-a' });
       const state = url.searchParams.get('state')!;
-      expect(() => service.verifyState(state.slice(0, -1) + (state.endsWith('x') ? 'y' : 'x'))).toThrow('INVALID_INSTAGRAM_STATE');
+      expect(() => service.verifyState(state.slice(0, -10) + 'aaaaaaaaaa')).toThrow('INVALID_INSTAGRAM_STATE');
     } finally {
       for (const [key, value] of Object.entries({ INSTAGRAM_APP_ID: previous.id, INSTAGRAM_APP_SECRET: previous.secret,
         INSTAGRAM_WEBHOOK_VERIFY_TOKEN: previous.verify, PORTAL_PUBLIC_URL: previous.url })) {

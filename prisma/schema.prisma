@@ -460,6 +460,7 @@ model PortalProfile {
   editingFrozen Boolean @default(false)
   voiceNotesEnabled Boolean @default(false)
   voiceNotesAllowed Boolean @default(false)
+  instagramAllowed Boolean @default(false)
   voiceTranscriptionProvider String @default("groq")
   adminConfig Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)

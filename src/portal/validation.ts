@@ -161,8 +161,8 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
 export function validatePlan(input: unknown): Omit<PortalPlan, 'id' | 'revision'> {
   const p = object(input); allowed(p, ['name', 'description', 'price', 'currency', 'published', 'modules', 'limits', 'template', 'revision']);
   const name = text(p.name, 100); if (!name) throw new PortalError(400, 'PLAN_NAME_REQUIRED');
-  const modules = list(p.modules || [], 5).map(m => text(m, 30));
-  if (modules.some(m => !['commerce', 'services', 'knowledge', 'images', 'qr'].includes(m))) throw new PortalError(400, 'INVALID_MODULE');
+  const modules = list(p.modules || [], 6).map(m => text(m, 30));
+  if (modules.some(m => !['commerce', 'services', 'knowledge', 'images', 'qr', 'instagram'].includes(m))) throw new PortalError(400, 'INVALID_MODULE');
   const rawLimits = object(p.limits || {}); allowed(rawLimits, Object.keys(DEFAULT_PLAN_LIMITS));
   const limits = { ...DEFAULT_PLAN_LIMITS };
   for (const key of Object.keys(limits) as (keyof PlanLimits)[]) if (rawLimits[key] !== undefined) limits[key] = key === 'monthlyUsd' ? money(rawLimits[key], 10000) : integer(rawLimits[key], key === 'messages' ? -1 : 0, key === 'numbers' ? 100 : 1000000);

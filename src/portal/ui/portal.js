@@ -281,15 +281,20 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     if(!anchor)return;
     const card=document.createElement('article');
     card.className='card';
-    card.innerHTML='<h2>Instagram DMs</h2><p class="small muted">The client connects their own Instagram professional account. You control whether chatbot replies are active.</p><div id="admin-instagram-connection">Loading…</div>';
+    card.innerHTML='<h2>Instagram DMs</h2><p class="small muted">An Instagram plan and your approval are both required before the client can connect. You can pause replies after connection.</p><div id="admin-instagram-connection">Loading…</div>';
     anchor.before(card);
     try {
       const result=await api('/instagram/admin/accounts/'+encodeURIComponent(id));
       const connection=result.connection;
       const container=card.querySelector('#admin-instagram-connection');
-      if(!connection){container.innerHTML='<p class="small muted">No Instagram account connected yet.</p>';return;}
-      container.innerHTML=`<div class="connection-card"><div><strong>@${escape(connection.username||connection.instagramUserId)}</strong><p class="small muted">${connection.enabled?'Chatbot replies enabled':'Chatbot replies paused'} · ${escape(connection.status)}</p></div><button class="btn secondary" type="button">${connection.enabled?'Pause replies':'Enable replies'}</button></div>`;
-      container.querySelector('button').onclick=async()=>{
+      container.innerHTML=`<div class="connection-card"><div><strong>Client access</strong><p class="small muted">${result.planIncluded?'Instagram is in the assigned plan.':'Assign an Instagram plan first.'} ${result.allowed?'Access allowed.':'Access blocked.'}</p></div><button class="btn secondary" id="ig-admin-access" type="button" ${!result.planIncluded&&!result.allowed?'disabled':''}>${result.allowed?'Revoke access':'Allow access'}</button></div>`+
+        (connection?`<div class="connection-card"><div><strong>@${escape(connection.username||connection.instagramUserId)}</strong><p class="small muted">${connection.enabled?'Chatbot replies enabled':'Chatbot replies paused'} · ${escape(connection.status)}</p></div><button class="btn secondary" id="ig-admin-replies" type="button" ${!result.planIncluded||!result.allowed?'disabled':''}>${connection.enabled?'Pause replies':'Enable replies'}</button></div>`:'<p class="small muted">No Instagram account connected yet.</p>');
+      container.querySelector('#ig-admin-access').onclick=async()=>{
+        try{await api('/instagram/admin/accounts/'+encodeURIComponent(id)+'/access',{method:'PATCH',body:JSON.stringify({allowed:!result.allowed})});clientAdmin(id)}
+        catch(error){toast(error.message,true)}
+      };
+      if(!connection)return;
+      container.querySelector('#ig-admin-replies').onclick=async()=>{
         try{await api('/instagram/admin/accounts/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({enabled:!connection.enabled})});clientAdmin(id)}
         catch(error){toast(error.message,true)}
       };

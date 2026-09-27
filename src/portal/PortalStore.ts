@@ -193,6 +193,7 @@ export class PortalStore {
       if (changes.reviewNote !== undefined) profile.reviewNote = changes.reviewNote;
       if (changes.lockedFields !== undefined) profile.lockedFields = changes.lockedFields;
       if (changes.adminConfig !== undefined) profile.adminConfig = changes.adminConfig;
+      const instagramRemoved = Boolean(profile.instagramAllowed && !profile.planSnapshot?.modules.includes('instagram'));
       if (profile.status === 'ACTIVE' && (!profile.planSnapshot || !profile.published)) throw new PortalError(400, 'ACTIVATION_NOT_READY', 'Assign a plan and publish the business data before activation.');
       if (profile.status === 'ACTIVE') {
         const users = await s.db.$queryRaw<any[]>`SELECT u.id FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id WHERE m."accountId"=${accountId} AND (u."verifiedAt" IS NOT NULL OR ${localEmailBypass()}) AND u.disabled=false`;
@@ -203,6 +204,11 @@ export class PortalStore {
       await s.db.$executeRaw`UPDATE "PortalProfile" SET status=${profile.status},"planId"=${profile.planId},"planSnapshot"=${json(profile.planSnapshot)}::jsonb,
         "autoPublish"=${profile.autoPublish},"reviewNote"=${profile.reviewNote},"lockedFields"=${json(profile.lockedFields)}::jsonb,"adminConfig"=${json(profile.adminConfig)}::jsonb,
         revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      if (instagramRemoved) {
+        await s.db.$executeRaw`UPDATE "PortalProfile" SET "instagramAllowed"=false WHERE "accountId"=${accountId}`;
+        await s.db.$executeRaw`UPDATE "InstagramConnection" SET enabled=false WHERE "accountId"=${accountId}`;
+        await s.audit(actorId, accountId, 'INSTAGRAM_ACCESS_UPDATED', { allowed: false, reason: 'PLAN_CHANGED' });
+      }
       await s.db.$executeRaw`UPDATE "Account" SET enabled=${profile.status !== 'SUSPENDED'},"updatedAt"=NOW() WHERE id=${accountId} AND "tenantId"=${profile.tenantId}`;
       if ((changes.adminConfig !== undefined || changes.planId !== undefined) && profile.published) {
         if (profile.planSnapshot) validateBusiness(profile.published, profile.planSnapshot);

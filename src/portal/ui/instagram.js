@@ -6,10 +6,11 @@
     root.innerHTML = shell(header('Instagram DMs', 'Let your chatbot answer private messages sent to your Instagram professional account.') +
       `<div class="grid-2"><article class="card"><h2>Your Instagram account</h2>` +
       (connection ? `<p class="small muted">Connected as <strong>@${escape(connection.username || connection.instagramUserId)}</strong></p>
-        <p class="small muted">${connection.enabled ? 'AI replies are enabled.' : 'Your administrator has paused Instagram replies.'}</p>
-        <div class="actions"><button type="button" class="btn secondary" id="ig-reconnect">Reconnect account</button>
+        <p class="small muted">${data.allowed && connection.enabled ? 'AI replies are enabled.' : 'Instagram replies are currently paused by your administrator or plan.'}</p>
+        <div class="actions"><button type="button" class="btn secondary" id="ig-reconnect" ${data.allowed ? '' : 'disabled'}>Reconnect account</button>
         <button type="button" class="btn secondary" id="ig-disconnect">Disconnect</button></div>`
-        : `<p class="small muted">No Instagram account connected yet.</p><button type="button" class="btn" id="ig-connect" ${data.configured ? '' : 'disabled'}>Connect Instagram</button>` ) +
+        : `<p class="small muted">No Instagram account connected yet.</p><button type="button" class="btn" id="ig-connect" ${data.configured && data.allowed ? '' : 'disabled'}>Connect Instagram</button>` ) +
+      (!data.planIncluded ? '<p class="small muted">Instagram DMs require an Instagram-enabled plan.</p>' : data.allowed ? '' : '<p class="small muted">Your administrator has not enabled Instagram for this account.</p>') +
       (!data.configured ? '<p class="small muted">Instagram setup is not ready yet. Ask your administrator to configure Meta access.</p>' : '') +
       '</article><article class="card"><h2>How it works</h2><p>Your chatbot uses the same published business information as WhatsApp. It answers incoming Instagram DMs only. Comments and unsolicited messages are not included.</p><p>A customer must message your professional account first. Human handoff and replies appear in your Inbox with an Instagram label.</p></article></div>', false, 'Instagram');
     bind();
