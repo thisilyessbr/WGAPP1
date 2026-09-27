@@ -255,6 +255,7 @@ export interface CapabilitiesConfig {
   faq?: FaqEntry[];
   imageEnabled?: boolean;
   ecommerceEnabled?: boolean;
+  leadMode?: 'NONE' | 'SERVICE' | 'COMMERCE' | 'BOTH';
   ecommerceTaxonomy?: EcommerceTaxonomyConfig;
   ecommerceCategories?: Record<string, string[]>;
   shippingScope?: ShippingScopeConfig;

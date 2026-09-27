@@ -137,6 +137,13 @@ describe('Darija full engine regression', () => {
     const { engine } = fixture(); const reply = await engine.handleMessage('t', 'c', { text, unsupportedMediaType: 'document' }, 'a');
     expect(/[\u0600-\u06ff]/.test(reply)).toBe(/[\u0600-\u06ff]/.test(text));
   });
+  it('keeps the conversation language for an audio message without a caption', async () => {
+    const { engine, conversation } = fixture();
+    conversation.contextData = { _lang: 'darija', _script: 'arabizi' };
+    const reply = await engine.handleMessage('t', 'c', { unsupportedMediaType: 'audio' }, 'a');
+    expect(reply).toContain('3afak');
+    expect(reply).not.toContain('Je ne peux pas');
+  });
   it.each(['بغيت نورّيك هاد التصويرة', 'bghit nwerik had tswira'])('uses the same script when images are disabled: %s', async text => {
     const { engine, llm } = fixture(); const reply = await engine.handleMessage('t', 'c', { text, imageBase64: 'AQID', mimeType: 'image/png' }, 'a');
     expect(/[\u0600-\u06ff]/.test(reply)).toBe(/[\u0600-\u06ff]/.test(text));

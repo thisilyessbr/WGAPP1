@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 describe('plan editor presets', () => {
-  it('shows unsaved suggestions separately and creates four unpublished drafts without changing saved plans', async () => {
+  it('shows separate service and sales offers as unpublished drafts without changing saved plans', async () => {
     const dom = new JSDOM('<div id="root"></div>', {url:'https://app.relayqo.online/admin/plans',runScripts:'outside-only'});
     dom.window.eval(readFileSync('src/portal/ui/plans.js','utf8'));
     const root = dom.window.document.querySelector('#root')!;
@@ -22,8 +22,10 @@ describe('plan editor presets', () => {
     expect(root.textContent).toContain('No COD workflow is activated just by creating a plan.');
     (root.querySelector('#save-suggested') as HTMLButtonElement).click();
     await new Promise(resolve => setTimeout(resolve,0));
-    expect(created.map(plan => plan.name)).toEqual(['Essential','Services','Commerce','Growth']);
+    expect(created.map(plan => plan.name)).toEqual(['Service Assistant','Sales Assistant']);
     expect(created.every(plan => plan.published === false)).toBe(true);
+    expect(created[0].modules).toEqual(['knowledge','services']);
+    expect(created[1].modules).toEqual(['knowledge','commerce','images']);
     expect(savedPlan.name).toBe('p1');
     dom.window.close();
   });
@@ -62,7 +64,7 @@ describe('plan editor presets', () => {
       api:async (path:string)=>path==='/portal/plans' ? {plans:[{id:'one',name:'Commerce',description:'Shop',price:649,currency:'MAD',modules:['commerce','images']}]} : {profile:{plan:null}}
     });
     expect(root.textContent).toContain('Product catalog');
-    expect(root.textContent).toContain('Lead follow-up and CSV export');
+    expect(root.textContent).toContain('Sales leads and CSV export');
     expect(root.textContent).not.toContain('AI spend ceiling');
     expect(root.textContent).not.toContain('llmCalls');
     dom.window.close();

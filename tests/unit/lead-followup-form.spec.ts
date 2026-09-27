@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { JSDOM } from 'jsdom';
 
 describe('lead follow-up form', () => {
   const source = readFileSync('src/portal/ui/leads.js', 'utf8');
@@ -36,5 +37,22 @@ describe('lead follow-up form', () => {
     expect(root.innerHTML).toContain(heading);
     expect(root.innerHTML).toContain(expected);
     expect(root.innerHTML).not.toContain(excluded);
+  });
+
+  it('shows the qualifying request, not a later unrelated insult, in the inquiry queue', async () => {
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://app.relayqo.online/app/leads', runScripts: 'outside-only' });
+    dom.window.eval(source);
+    const root = dom.window.document.querySelector('#root')!;
+    await (dom.window as any).RelayqoLeads.renderLeads({
+      root, path: '/app/leads', shell: (html: string) => html,
+      header: (title: string, _subtitle: string, action = '') => `<h1>${title}</h1>${action}`, escape: (value: unknown) => String(value ?? ''),
+      toast: () => {}, bind: () => {}, go: () => {},
+      api: async (path: string) => path === '/client/profile' ? { profile: { commerceActive: false } }
+        : path.startsWith('/client/leads?') ? { leads: [{ id: 'one', status: 'NEW', customerPhone: '212600000000', interest: 'Bghit n7jez anglais', lastCustomerMessage: 'Jm3 krk a w9', updatedAt: '2026-09-26T21:20:00Z' }], pagination: { total: 1, hasMore: false } }
+        : { new: 1, dueFollowUps: 0, qualified: 0, won: 0 }
+    });
+    expect(root.textContent).toContain('Bghit n7jez anglais');
+    expect(root.textContent).not.toContain('Jm3 krk a w9');
+    dom.window.close();
   });
 });

@@ -91,7 +91,16 @@
     ['Follow-ups due','Relances à effectuer','متابعات مستحقة'],['Qualified','Qualifiés','مؤهلون'],['Confirmed','Confirmé','مؤكد'],['Closed','Clôturé','مغلق'],
     ['New requests and upcoming follow-ups appear here.','Les nouvelles demandes et les relances à venir apparaissent ici.','تظهر هنا الطلبات الجديدة والمتابعات القادمة.'],
     ['Track the request and follow up. Mark Confirmed only when the service or booking is agreed.','Suivez la demande. Marquez-la comme confirmée uniquement après accord sur le service ou la réservation.','تابع الطلب ولا تضعه كمؤكد إلا بعد الاتفاق على الخدمة أو الحجز.'],
-    ['Use the conversation to confirm the service and preferred time. This is not a confirmed booking.','Vérifiez le service et l’horaire avec le client. Il ne s’agit pas encore d’une réservation confirmée.','تأكد من الخدمة والموعد مع العميل. هذا ليس حجزاً مؤكداً بعد.']
+    ['Use the conversation to confirm the service and preferred time. This is not a confirmed booking.','Vérifiez le service et l’horaire avec le client. Il ne s’agit pas encore d’une réservation confirmée.','تأكد من الخدمة والموعد مع العميل. هذا ليس حجزاً مؤكداً بعد.'],
+    ['Follow up with this customer and record the result.','Recontactez ce client et notez le résultat.','تابع مع هذا العميل وسجّل النتيجة.'],['All inquiries','Toutes les demandes','كل الاستفسارات'],['All leads','Tous les prospects','كل العملاء المحتملين'],
+    ['Not recorded','Non renseigné','غير مسجل'],['Detected from','Détecté dans','تم رصده من'],['First seen','Première détection','أول رصد'],['Open conversation ›','Ouvrir la conversation ›','فتح المحادثة ›'],['Conversation unavailable.','Conversation indisponible.','المحادثة غير متاحة.'],
+    ['Next action','Prochaine action','الإجراء التالي'],['Customer name','Nom du client','اسم العميل'],['Customer','Client','العميل'],['Interest','Intérêt','الاهتمام'],['Product','Produit','المنتج'],['Quantity','Quantité','الكمية'],
+    ['Stage','Étape','المرحلة'],['New','Nouveau','جديد'],['Contacted','Contacté','تم التواصل'],['Won','Gagné','مؤكد'],['Lost','Perdu','مغلق'],['All','Tous','الكل'],
+    ['Follow up at','Relancer le','موعد المتابعة'],['Internal note','Note interne','ملاحظة داخلية'],['Save inquiry','Enregistrer la demande','حفظ الاستفسار'],['Save lead','Enregistrer le prospect','حفظ العميل المحتمل'],
+    ['Sales conversation','Conversation commerciale','محادثة بيع'],['Sales request','Demande commerciale','طلب شراء'],['Purchase request','Demande d’achat','طلب شراء'],['Booking or quote request','Demande de réservation ou de devis','طلب حجز أو عرض سعر'],['Completed sales request','Demande commerciale terminée','طلب بيع مكتمل'],
+    ['Sales inquiry','Demande commerciale','استفسار شراء'],['Service inquiry','Demande de service','استفسار عن خدمة'],['Inquiry','Demande','استفسار'],['Lead','Prospect','عميل محتمل'],['Lead details','Détails du prospect','تفاصيل العميل المحتمل'],['Lead queue','Prospects à traiter','قائمة العملاء المحتملين'],
+    ['Check order details with the customer before marking the sale complete.','Vérifiez les détails de la commande avec le client avant de confirmer la vente.','تحقق من تفاصيل الطلب مع العميل قبل تأكيد البيع.'],['Update the stage after speaking with the customer. Mark Won only when the order is confirmed.','Mettez à jour l’étape après avoir parlé au client. Marquez la vente comme gagnée uniquement après confirmation de la commande.','حدّث المرحلة بعد التحدث مع العميل. لا تؤكد البيع إلا بعد تأكيد الطلب.'],
+    ['Sales opportunities found in customer conversations.','Opportunités de vente détectées dans les conversations clients.','فرص بيع رُصدت في محادثات العملاء.'],['Export CSV','Exporter en CSV','تصدير CSV'],['Previous','Précédent','السابق'],['Next','Suivant','التالي']
   ]) translations.set(en, { fr, ar });
 
   const supported = new Set(['en', 'fr', 'ar']);
@@ -123,6 +132,14 @@
     if (count) return left + count[1] + ' ' + (translations.get(count[2])?.[locale] || count[2]) + right;
     const accountCount = key.match(/^(\d+) (matching )?accounts$/);
     if (accountCount) return left + (locale === 'fr' ? `${accountCount[1]} ${accountCount[2] ? 'comptes correspondants' : 'comptes'}` : `${accountCount[1]} ${accountCount[2] ? 'حسابات مطابقة' : 'حسابات'}`) + right;
+    const inquiryCount = key.match(/^(\d+) (inquiry|inquiries|lead|leads)$/);
+    if (inquiryCount) {
+      const singular = inquiryCount[2] === 'inquiry' || inquiryCount[2] === 'lead';
+      const label = singular ? (inquiryCount[2] === 'inquiry' ? 'Inquiry' : 'Lead') : (inquiryCount[2] === 'inquiries' ? 'Inquiries' : 'Leads');
+      return left + inquiryCount[1] + ' ' + (translations.get(label)?.[locale] || inquiryCount[2]) + right;
+    }
+    const followUp = key.match(/^(Follow up|Last updated) (.+)$/);
+    if (followUp) return left + (locale === 'fr' ? (followUp[1] === 'Follow up' ? 'Relancer le ' : 'Mis à jour le ') : (followUp[1] === 'Follow up' ? 'المتابعة: ' : 'آخر تحديث: ')) + followUp[2] + right;
     const ready = key.match(/^(\d+\/\d+) ready$/);
     if (ready) return left + ready[1] + ' ' + translations.get('ready')[locale] + right;
     const version = key.match(/^Version (\d+)$/);
