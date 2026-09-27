@@ -121,6 +121,15 @@ export class PortalStore {
       return s.profile(accountId);
     });
   }
+  async setVoiceTranscriptionProvider(actorId: string, accountId: string, provider: 'groq' | 'deepgram') {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.voiceTranscriptionProvider === provider) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceTranscriptionProvider"=${provider},"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      await s.audit(actorId, accountId, 'VOICE_TRANSCRIPTION_PROVIDER_CHANGED', { from: profile.voiceTranscriptionProvider, to: provider });
+      return s.profile(accountId);
+    });
+  }
   async saveDraft(actorId: string, accountId: string, tenantId: string, draft: unknown, expectedRevision: number, administrative = false) {
     return this.transaction(async s => {
       const profile = await s.lockProfile(accountId);

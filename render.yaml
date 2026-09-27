@@ -72,5 +72,9 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: VOICE_TRANSCRIPTION_PROVIDER
+        sync: false
       - key: RESEND_API_KEY
         sync: false

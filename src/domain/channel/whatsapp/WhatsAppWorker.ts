@@ -8,7 +8,7 @@ import { MetaCloudTransport } from '../routing/MetaCloudTransport';
 import { ClientSafetyGuard } from '../guard/ClientSafetyGuard';
 import { logger } from '../../../utils/logger';
 import { IncomingMessagePayload } from '../../conversation/CapabilityRouter';
-import { VoiceNoteTranscriber } from './VoiceNoteTranscriber';
+import { VoiceNoteTranscriber, VoiceProvider } from './VoiceNoteTranscriber';
 
 export interface WhatsAppWorkerResult {
   jobId: string;
@@ -35,9 +35,9 @@ export class WhatsAppWorker {
     channelRouter?: ChannelRouter,
     private safetyGuard?: ClientSafetyGuard,
     private voiceNotes?: {
-      enabled: (tenantId: string, accountId: string) => Promise<boolean>;
+      enabled: (tenantId: string, accountId: string) => Promise<VoiceProvider | null>;
       transcriber: Pick<VoiceNoteTranscriber, 'transcribe'>;
-      recordUsage?: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null) => Promise<void>;
+      recordUsage?: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider) => Promise<void>;
     }
   ) {
     if (channelRouter) {
@@ -150,10 +150,11 @@ export class WhatsAppWorker {
         }
       } else if (job.rawType === 'audio' && media.mediaId && this.voiceNotes) {
         try {
-          if (await this.voiceNotes.enabled(job.tenantId, job.accountId)) {
+          const provider = await this.voiceNotes.enabled(job.tenantId, job.accountId);
+          if (provider) {
             const audio = await this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId);
-            const transcript = await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType);
-            await this.voiceNotes.recordUsage?.(job.tenantId, job.accountId, job.wamid, transcript.durationSeconds);
+            const transcript = await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType, provider);
+            await this.voiceNotes.recordUsage?.(job.tenantId, job.accountId, job.wamid, transcript.durationSeconds, provider);
             if (transcript.understood !== false) contentInput = transcript.text;
           }
         } catch {

@@ -124,8 +124,15 @@
     ['Voice notes are not configured yet. Ask your administrator to enable the transcription service.','Les messages vocaux ne sont pas encore configurés. Demandez à votre administrateur d’activer la transcription.','الرسائل الصوتية غير مُعدّة بعد. اطلب من المسؤول تفعيل خدمة التفريغ الصوتي.'],
     ['Off by default. You can change this at any time.','Désactivé par défaut. Vous pouvez modifier ce choix à tout moment.','معطّل افتراضيًا. يمكنك تغيير هذا الخيار في أي وقت.'],
     ['Your administrator has locked chatbot settings.','Votre administrateur a verrouillé les paramètres du chatbot.','أقفل المسؤول إعدادات روبوت المحادثة.'],
-    ['Let customers send voice notes in Darija, Arabic, French or English. Groq transcribes the audio, then your chatbot replies in text. Unclear notes receive a request to type the message.','Les clients peuvent envoyer des messages vocaux en darija, arabe, français ou anglais. Groq les transcrit et le chatbot répond par écrit. Si le message est peu clair, le client est invité à écrire.','يمكن للعملاء إرسال رسائل صوتية بالدارجة أو العربية أو الفرنسية أو الإنجليزية. يفرغ Groq الصوت ويرد الروبوت نصيًا. إذا كان الصوت غير واضح، يُطلب من العميل الكتابة.'],
-    ['Allow this client to turn on customer voice-note understanding. Revoking access also turns their switch off immediately.','Autorisez ce client à activer la compréhension des messages vocaux. Le retrait de l’autorisation la désactive immédiatement.','اسمح لهذا العميل بتفعيل فهم الرسائل الصوتية. إلغاء السماح يعطّل الخيار فورًا.']
+    ['Customers can send voice notes. Your administrator selects the transcription model; unclear notes receive a request to type the message.','Les clients peuvent envoyer des messages vocaux. Votre administrateur choisit le modèle de transcription ; si l’audio est peu clair, le client est invité à écrire.','يمكن للعملاء إرسال رسائل صوتية. يختار المسؤول نموذج التفريغ الصوتي، وإذا لم يكن الصوت واضحاً يُطلب من العميل كتابة رسالته.'],
+    ['Allow this client to turn on customer voice-note understanding. Revoking access also turns their switch off immediately.','Autorisez ce client à activer la compréhension des messages vocaux. Le retrait de l’autorisation la désactive immédiatement.','اسمح لهذا العميل بتفعيل فهم الرسائل الصوتية. إلغاء السماح يعطّل الخيار فورًا.'],
+    ['Choose one transcription provider for this account. Deepgram targets Moroccan Arabic; Groq handles several languages. The client can only turn voice notes on after you allow them.','Choisissez un seul service de transcription pour ce compte. Deepgram cible l’arabe marocain ; Groq prend en charge plusieurs langues. Le client ne peut activer les messages vocaux qu’après votre autorisation.','اختر مزوداً واحداً للتفريغ الصوتي لهذا الحساب. يستهدف Deepgram الدارجة المغربية، بينما يدعم Groq عدة لغات. لا يمكن للعميل تفعيل الرسائل الصوتية إلا بعد سماحك.'],
+    ['Transcription model','Modèle de transcription','نموذج التفريغ الصوتي'],
+    ['Groq · multilingual','Groq · multilingue','Groq · متعدد اللغات'],
+    ['Deepgram · Moroccan Arabic','Deepgram · arabe marocain','Deepgram · الدارجة المغربية'],
+    ['Provider ready','Service prêt','الخدمة جاهزة'],
+    ['The selected provider needs an API key.','Le service choisi nécessite une clé API.','المزود المختار يحتاج إلى مفتاح API.'],
+    ['Save voice model','Enregistrer le modèle vocal','حفظ النموذج الصوتي']
   ]) translations.set(en, {fr, ar});
   const originals = new WeakMap();
   const attributeOriginals = new WeakMap();

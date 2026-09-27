@@ -1,26 +1,31 @@
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import { effectiveVoiceProvider, VoiceProvider } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
 
-const GROQ_V3_USD_PER_HOUR = 0.111;
+const GROQ_V3_MICROS_PER_HOUR = 111_000;
+const DEEPGRAM_NOVA3_MICROS_PER_MINUTE = 4_300;
 
-export function voiceNoteChargeMicros(durationSeconds: number | null): number {
-  // Groq bills at least ten seconds. An absent duration gets a conservative
-  // one-minute estimate, which remains visible as UNKNOWN in the ledger.
+export function voiceNoteChargeMicros(durationSeconds: number | null, selected: VoiceProvider = 'groq'): number {
+  const provider = effectiveVoiceProvider(selected);
+  // Keep unknown durations visible as estimates rather than silently charging zero.
   const billedSeconds = durationSeconds !== null && Number.isFinite(durationSeconds) && durationSeconds > 0
-    ? Math.max(10, durationSeconds) : 60;
-  return Math.ceil(billedSeconds * GROQ_V3_USD_PER_HOUR * 1_000_000 / 3600);
+    ? (provider === 'groq' ? Math.max(10, durationSeconds) : durationSeconds) : 60;
+  return Math.ceil(provider === 'groq'
+    ? billedSeconds * GROQ_V3_MICROS_PER_HOUR / 3600
+    : billedSeconds * DEEPGRAM_NOVA3_MICROS_PER_MINUTE / 60);
 }
 
 /** Attribute each successful provider call to the account that received it. */
 export async function recordVoiceNoteUsage(
-  prisma: PrismaClient, tenantId: string, accountId: string, wamid: string, durationSeconds: number | null
+  prisma: PrismaClient, tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, selected: VoiceProvider = 'groq'
 ): Promise<void> {
   const period = new Date().toISOString().slice(0, 7);
-  const chargedMicros = voiceNoteChargeMicros(durationSeconds);
+  const chargedMicros = voiceNoteChargeMicros(durationSeconds, selected);
   const status = durationSeconds === null ? 'UNKNOWN' : 'COMPLETED';
-  const metadata = JSON.stringify({ provider: 'groq', model: 'whisper-large-v3',
-    durationSeconds, billedSeconds: durationSeconds === null ? 60 : Math.max(10, durationSeconds),
-    priceBasis: 'USD 0.111 per audio hour, minimum 10 seconds', wamid });
+  const groq = effectiveVoiceProvider(selected) === 'groq';
+  const metadata = JSON.stringify({ provider: groq ? 'groq' : 'deepgram', model: groq ? 'whisper-large-v3' : 'nova-3-ar-MA',
+    durationSeconds, billedSeconds: durationSeconds === null ? 60 : groq ? Math.max(10, durationSeconds) : durationSeconds,
+    priceBasis: groq ? 'USD 0.111 per audio hour, minimum 10 seconds' : 'USD 0.0043 per audio minute, per-second billing', wamid });
   await prisma.$transaction(async db => {
     const profile = await db.portalProfile.findUnique({ where: { accountId }, select: { tenantId: true } });
     if (profile?.tenantId !== tenantId) throw new Error('VOICE_USAGE_ACCOUNT_MISMATCH');
