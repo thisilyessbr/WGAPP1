@@ -133,6 +133,26 @@ describe('client lead workspace under realistic account data', () => {
     expect(reopened.body.lead.closedAt).toBeNull();
   });
 
+  it('separates service requests needing a reply, planned reminders, and handled work', async () => {
+    const id = await lead(first, await customer(first, '212600100088'), 'NEW');
+    const action = await request(app).get('/api/client/leads?view=ACTION').set(firstHeaders);
+    expect(action.status).toBe(200);
+    expect(action.body.leads.some((item: any) => item.id === id)).toBe(true);
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ followUpAt: future }).expect(200);
+    expect((await request(app).get('/api/client/leads?view=ACTION').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(false);
+    expect((await request(app).get('/api/client/leads?view=LATER').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(true);
+    const handled = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'DONE', followUpAt: null });
+    expect(handled.status).toBe(200);
+    expect(handled.body.lead.closedAt).toBeTruthy();
+    expect((await request(app).get('/api/client/leads?view=DONE').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(true);
+    expect((await request(app).get('/api/client/leads/summary').set(firstHeaders)).body.done).toBeGreaterThanOrEqual(1);
+    const reopened = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'NEW' });
+    expect(reopened.body.lead.closedAt).toBeNull();
+    expect((await request(app).get('/api/client/leads?view=ACTION').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(true);
+    expect((await request(app).get('/api/client/leads?view=BAD').set(firstHeaders)).status).toBe(400);
+  });
+
   it('filters and paginates without exposing another account', async () => {
     const customerIds = await Promise.all(Array.from({ length: 23 }, (_, n) => customer(first, `2126002${String(n).padStart(5, '0')}`)));
     for (const id of customerIds) await lead(first, id, 'LOST');

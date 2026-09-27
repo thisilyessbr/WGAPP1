@@ -18,7 +18,7 @@ describe('lead follow-up form', () => {
   });
 
   it.each([
-    [false, 'Inquiry details', 'Service or course', 'Delivery address'],
+    [false, 'Customer request', 'Remind me at', 'Delivery address'],
     [true, 'Lead details', 'Delivery address', 'Inquiry details']
   ])('shows fields for commerce=%s', async (commerce, heading, expected, excluded) => {
     const root = { innerHTML: '' };
@@ -54,6 +54,41 @@ describe('lead follow-up form', () => {
     });
     expect(root.textContent).toContain('Bghit n7jez anglais');
     expect(root.textContent).not.toContain('Jm3 krk a w9');
+    dom.window.close();
+  });
+
+  it('saves a service reminder without claiming a booking, and marks it handled separately', async () => {
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://app.relayqo.online/app/leads/lead-1', runScripts: 'outside-only' });
+    dom.window.eval(source);
+    const root = dom.window.document.querySelector('#root')!;
+    const changes: any[] = [];
+    let lead: any = { id: 'lead-1', status: 'NEW', sourceRequest: 'Bghit n7jez anglais', details: {}, customerPhone: '212600000000', createdAt: '2026-09-25T10:30:00Z' };
+    const ctx = {
+      root, path: '/app/leads/lead-1', shell: (html: string) => html,
+      header: (title: string) => `<h1>${title}</h1>`, escape: (value: unknown) => String(value ?? ''),
+      toast: () => {}, bind: () => {}, go: () => {},
+      api: async (path: string, options?: any) => {
+        if (path === '/client/profile') return { profile: { commerceActive: false } };
+        if (options?.method === 'PATCH') {
+          const change = JSON.parse(options.body);
+          changes.push(change);
+          lead = { ...lead, ...change };
+          return { lead };
+        }
+        return { lead };
+      }
+    };
+    await (dom.window as any).RelayqoLeads.renderLeads(ctx);
+    expect(root.textContent).toContain('Mark handled');
+    expect(root.textContent).not.toContain('Confirmed');
+    (root.querySelector('#service-reminder') as HTMLInputElement).value = '2026-09-28T11:00';
+    await (root.querySelector('#service-request-form') as any).onsubmit({ preventDefault() {} });
+    expect(changes[0].status).toBeUndefined();
+    expect(changes[0].followUpAt).toBeTruthy();
+    expect(root.textContent).toContain('Planned');
+    await (root.querySelector('#service-done') as any).onclick();
+    expect(changes[1]).toMatchObject({ status: 'DONE', followUpAt: null });
+    expect(root.textContent).toContain('Reopen request');
     dom.window.close();
   });
 });
