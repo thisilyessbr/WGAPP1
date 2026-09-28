@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
 import { MeteredLLMProvider } from '../../src/core/llm/MeteredLLMProvider';
 import { ConversationMemory } from '../../src/domain/conversation/ConversationMemory';
@@ -12,6 +12,16 @@ const memory = {
 } as ConversationMemory;
 
 describe('multilingual retrieval query reformulation', () => {
+  beforeEach(() => vi.stubEnv('CHATBOT_FAST_REFORMULATION', 'true'));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('preserves released behavior when the faster rule is not enabled', () => {
+    vi.stubEnv('CHATBOT_FAST_REFORMULATION', 'false');
+    expect(QuestionReformulator.isAmbiguous('Ch7al taman cours anglais?', memory)).toBe(true);
+    expect(QuestionReformulator.isAmbiguous('Combien coûte le cours de français ?', memory)).toBe(true);
+    expect(QuestionReformulator.isAmbiguous('كم ثمن دورة الإنجليزية؟', memory)).toBe(true);
+  });
+
   it.each([
     'How much does the English course cost?',
     'How long is the English course?',

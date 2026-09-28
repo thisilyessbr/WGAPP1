@@ -21,6 +21,14 @@ export class QuestionReformulator {
   // A question word alone can refer to the previous turn. In a longer question it
   // often has its own subject, so it must not trigger a paid reformulation call.
   private static readonly REFERENCE_ONLY_QUERY = /^(?:how much|how long|combien|bch7al|bchal|ch7al|chhal|kifach|wchno|w chhal|كم|بكم|وكيف|وهل)[؟?]?\s*$/iu;
+  // Preserve the released classifier until the faster rule is validated on real
+  // conversations. This flag is intentionally off unless explicitly enabled.
+  private static readonly LEGACY_BROAD_PATTERNS = [
+    /\b(how much|how long)\b/i,
+    /\bcombien\b/i,
+    /(كم|بكم|وكيف|وهل)/i,
+    /\b(bch7al|bchal|wchno|w chhal|ch7al|kifach)\b/i
+  ];
 
   /**
    * Evaluates deterministically whether a query is ambiguous and context-dependent.
@@ -40,7 +48,11 @@ export class QuestionReformulator {
         return true;
       }
     }
-    if (this.REFERENCE_ONLY_QUERY.test(trimmed)) return true;
+    if (process.env.CHATBOT_FAST_REFORMULATION === 'true') {
+      if (this.REFERENCE_ONLY_QUERY.test(trimmed)) return true;
+    } else if (this.LEGACY_BROAD_PATTERNS.some(pattern => pattern.test(trimmed))) {
+      return true;
+    }
 
     // 2. Short follow-up queries (<= 3 words and ends with '?')
     const wordCount = trimmed.split(/\s+/).length;
