@@ -28,6 +28,8 @@ services:
         value: https://app.relayqo.online
       - key: PORTAL_DOCUMENT_WORKER
         value: "true"
+      - key: PORTAL_STAFF_ALERT_WORKER
+        value: "true"
       - key: PORTAL_DEV_AUTH_LINKS
         value: "false"
       - key: PORTAL_DEV_SKIP_EMAIL
