@@ -6,6 +6,7 @@ import { resolve } from 'path';
 describe('staff action screens',()=>{
   it('keeps the latest inbox turn visible while loading older history and changing conversations',async()=>{
     const app=express();app.use(express.json());
+    let detailLoads=0,report:any=null;
     const recent={id:'recent',role:'ASSISTANT',content:'Newest WhatsApp reply',createdAt:'2026-09-28T15:00:00Z'};
     const old={id:'old',role:'USER',content:'Older customer message',createdAt:'2026-09-25T15:00:00Z'};
     const conversation=(id:string)=>({id,status:'AI_ACTIVE',ownership:{state:'AI_ACTIVE'},customer:{phone:id},customerServiceWindow:{canSendFreeform:true},messageCount:1});
@@ -13,7 +14,8 @@ describe('staff action screens',()=>{
       if(req.path==='/auth/session')return res.json({user:{id:'owner',name:'Owner',role:'CLIENT'},csrf:'test',accounts:[]});
       if(req.path==='/client/profile')return res.json({profile:{plan:{modules:['services']}}});
       if(req.path==='/client/conversations')return res.json({conversations:['chat-a','chat-b'].map(id=>({...conversation(id),customerPhone:id,lastMessage:{content:'Newest WhatsApp reply',createdAt:recent.createdAt}})),pagination:{total:2,hasMore:false}});
-      if(req.path==='/client/conversations/chat-a')return res.json({conversation:conversation('chat-a'),messages:req.query.before?[old]:[recent],hasOlderMessages:!req.query.before,nextBefore:req.query.before?null:'recent'});
+      if(req.path==='/client/conversations/chat-a'){detailLoads++;return res.json({conversation:conversation('chat-a'),messages:req.query.before?[old]:[recent],hasOlderMessages:!req.query.before,nextBefore:req.query.before?null:'recent'});}
+      if(req.path==='/client/conversations/chat-a/answer-feedback'){report=req.body;return res.json({success:true});}
       if(req.path==='/client/conversations/chat-b')return res.json({conversation:conversation('chat-b'),messages:[{...recent,id:'other',content:'Other customer reply'}],hasOlderMessages:false});
       return res.status(404).json({error:'NOT_FOUND'});
     });
@@ -23,12 +25,26 @@ describe('staff action screens',()=>{
     const browser=await chromium.launch({headless:true});
     try{
       const page=await browser.newPage(),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+      await page.clock.install();
       await page.goto('http://127.0.0.1:'+(server.address() as any).port+'/app/inbox/chat-a');
       const log=page.getByRole('log');await log.getByText('Newest WhatsApp reply',{exact:true}).waitFor();
       await page.getByRole('button',{name:'Load older messages',exact:true}).click();
       await log.getByText('Older customer message',{exact:true}).waitFor();
       expect(await log.getByText('Newest WhatsApp reply',{exact:true}).count()).toBe(1);
       expect(await page.getByRole('button',{name:'Load older messages',exact:true}).count()).toBe(0);
+      await page.getByRole('button',{name:'Report a wrong chatbot answer',exact:true}).click();
+      const note=page.getByPlaceholder('Wrong fact, missed question, wrong language…');
+      await note.fill('The requested service was changed without confirmation.');
+      const loadsBefore=detailLoads;
+      await page.clock.fastForward(4500);
+      await page.waitForResponse(response=>response.url().includes('/client/conversations/chat-a?'));
+      expect(detailLoads).toBeGreaterThan(loadsBefore);
+      expect(await note.isVisible()).toBe(true);
+      expect(await note.inputValue()).toBe('The requested service was changed without confirmation.');
+      await page.getByRole('button',{name:'Send for review',exact:true}).click();
+      await page.getByRole('status').filter({hasText:'Answer sent for review.'}).waitFor();
+      expect(report).toEqual({messageId:'recent',note:'The requested service was changed without confirmation.'});
+      expect(await note.isVisible()).toBe(false);
       await page.getByRole('navigation',{name:'Conversations list'}).getByRole('button').filter({hasText:'chat-b'}).click();
       await log.getByText('Other customer reply',{exact:true}).waitFor();
       expect(await log.getByText('Older customer message',{exact:true}).count()).toBe(0);
