@@ -284,6 +284,11 @@
 
     const transcriptEl = container.querySelector('.inbox-transcript');
     const scrollBottom = transcriptEl ? transcriptEl.scrollHeight - transcriptEl.scrollTop : 0;
+    const reportDrafts = [...container.querySelectorAll('[data-flag-form]')].map(form => {
+      const input=form.querySelector('textarea');
+      return {id:form.dataset.flagForm,hidden:form.hidden,note:input.value,busy:form.querySelector('button').disabled,
+        focused:document.activeElement===input,start:input.selectionStart,end:input.selectionEnd};
+    });
 
     const conv = activeConversation;
     const displayName = conv.customer?.name || conv.customer?.phone || 'Customer';
@@ -545,17 +550,26 @@
       };
     });
     container.querySelectorAll('[data-flag-form]').forEach(form => {
+      const draft=reportDrafts.find(item=>item.id===form.dataset.flagForm);
+      if (draft) {
+        const input=form.querySelector('textarea');
+        form.hidden=draft.hidden; input.value=draft.note; form.querySelector('button').disabled=draft.busy;
+        if (draft.focused) {input.focus({preventScroll:true});input.setSelectionRange(draft.start,draft.end);}
+      }
       form.onsubmit = async event => {
         event.preventDefault();
+        const conversationId=activeConversation.id,messageId=form.dataset.flagForm;
+        const currentForm=()=>activeConversationId===conversationId ? container.querySelector(`[data-flag-form="${messageId}"]`) : null;
         const button = form.querySelector('button'); button.disabled = true;
         try {
-          await ctx.api('/client/conversations/' + encodeURIComponent(activeConversation.id) + '/answer-feedback', {
-            method: 'POST', body: JSON.stringify({ messageId: form.dataset.flagForm, note: form.querySelector('textarea').value.trim() })
+          await ctx.api('/client/conversations/' + encodeURIComponent(conversationId) + '/answer-feedback', {
+            method: 'POST', body: JSON.stringify({ messageId, note: form.querySelector('textarea').value.trim() })
           });
-          form.hidden = true;
+          const visibleForm=currentForm();
+          if (visibleForm) {visibleForm.hidden=true;visibleForm.querySelector('textarea').value='';}
           ctx.toast('Answer sent for review.');
         } catch (error) { ctx.toast(error.message || 'Could not report answer', true); }
-        finally { button.disabled = false; }
+        finally { button.disabled = false; const visibleForm=currentForm(); if (visibleForm) visibleForm.querySelector('button').disabled=false; }
       };
     });
 
