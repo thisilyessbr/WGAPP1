@@ -98,7 +98,13 @@ export class PortalStaffActions {
     if (this.busy || !process.env.RESEND_API_KEY || !process.env.PORTAL_MAIL_FROM) return;
     this.busy = true;
     try {
-      // Only recent events generate mail on rollout; the full historical queue remains visible in-app.
+      // Start with recent events at rollout, then retain a durable checkpoint across worker outages.
+      await this.store.db.$executeRaw`INSERT INTO "PortalStaffAlertCursor"(id,"scannedThrough")
+        VALUES ('staff-alerts',NOW()-INTERVAL '1 hour') ON CONFLICT DO NOTHING`;
+      const checkpoint = (await this.store.db.$queryRaw<any[]>`SELECT "scannedThrough",NOW() AS through
+        FROM "PortalStaffAlertCursor" WHERE id='staff-alerts'`)[0];
+      // Brief overlap covers transactions committed just after the preceding scan.
+      const since = new Date(new Date(checkpoint.scannedThrough).getTime() - 120000), through = new Date(checkpoint.through);
       await this.store.db.$executeRaw`INSERT INTO "PortalActionAlert"(id,"tenantId","accountId","recipientId",kind,"sourceId",occurrence)
         SELECT gen_random_uuid()::text,c."tenantId",c."accountId",u.id,'HANDOFF',c.id,
           COALESCE(c."humanRequestedAt",c."updatedAt")::text
@@ -107,7 +113,7 @@ export class PortalStaffActions {
         JOIN "PortalMembership" pm ON pm."accountId"=c."accountId" AND pm."tenantId"=c."tenantId"
         JOIN "PortalUser" u ON u.id=pm."userId"
         WHERE c.status='HANDOFF_REQUESTED' AND p.status='ACTIVE' AND u.disabled=false AND u."verifiedAt" IS NOT NULL AND u.email NOT ILIKE '%.test'
-          AND c."humanRequestedAt">NOW()-INTERVAL '1 hour'
+          AND c."humanRequestedAt">${since}::timestamptz AND c."humanRequestedAt"<=${through}::timestamptz
           AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
         ON CONFLICT DO NOTHING`;
       await this.store.db.$executeRaw`INSERT INTO "PortalActionAlert"(id,"tenantId","accountId","recipientId",kind,"sourceId",occurrence)
@@ -116,7 +122,7 @@ export class PortalStaffActions {
         JOIN "PortalProfile" p ON p."accountId"=l."accountId" AND p."tenantId"=l."tenantId"
         JOIN "PortalMembership" pm ON pm."accountId"=l."accountId" AND pm."tenantId"=l."tenantId"
         JOIN "PortalUser" u ON u.id=pm."userId"
-        WHERE l.status IN ('NEW','QUALIFIED') AND l."createdAt">NOW()-INTERVAL '1 hour'
+        WHERE l.status IN ('NEW','QUALIFIED') AND l."createdAt">${since}::timestamptz AND l."createdAt"<=${through}::timestamptz
           AND p.status='ACTIVE' AND u.disabled=false AND u."verifiedAt" IS NOT NULL AND u.email NOT ILIKE '%.test'
           AND (l."assignedToUserId" IS NULL OR l."assignedToUserId"=u.id)
           AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
@@ -127,12 +133,13 @@ export class PortalStaffActions {
         JOIN "PortalProfile" p ON p."accountId"=l."accountId" AND p."tenantId"=l."tenantId"
         JOIN "PortalMembership" pm ON pm."accountId"=l."accountId" AND pm."tenantId"=l."tenantId"
         JOIN "PortalUser" u ON u.id=pm."userId"
-        WHERE l.status IN ('NEW','CONTACTED','QUALIFIED') AND l."followUpAt"<=NOW()
-          AND l."followUpAt">NOW()-INTERVAL '1 hour' AND p.status='ACTIVE'
+        WHERE l.status IN ('NEW','CONTACTED','QUALIFIED') AND l."followUpAt"<=${through}
+          AND (l."followUpAt">${since} OR (l."updatedAt">${since} AND l."updatedAt"<=${through})) AND p.status='ACTIVE'
           AND u.disabled=false AND u."verifiedAt" IS NOT NULL AND u.email NOT ILIKE '%.test'
           AND (l."assignedToUserId" IS NULL OR l."assignedToUserId"=u.id)
           AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
         ON CONFLICT DO NOTHING`;
+      await this.store.db.$executeRaw`UPDATE "PortalStaffAlertCursor" SET "scannedThrough"=GREATEST("scannedThrough",${through}) WHERE id='staff-alerts'`;
       await this.store.db.$executeRaw`UPDATE "PortalActionAlert" SET status='PENDING',"leaseUntil"=NULL
         WHERE status='SENDING' AND "leaseUntil"<NOW()`;
       for (let i = 0; i < 10; i++) {

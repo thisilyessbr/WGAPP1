@@ -322,6 +322,11 @@ model PortalActionAlert {
   @@index([tenantId, accountId])
 }
 
+model PortalStaffAlertCursor {
+  id String @id
+  scannedThrough DateTime @default(now()) @db.Timestamptz(3)
+}
+
 model PortalAnswerFeedback {
   id String @id @default(uuid())
   tenantId String

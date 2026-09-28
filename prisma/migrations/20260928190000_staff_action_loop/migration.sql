@@ -11,6 +11,7 @@ CREATE TABLE "PortalActionAlert" (
 CREATE UNIQUE INDEX "PortalActionAlert_dedupe_idx" ON "PortalActionAlert"("recipientId",kind,"sourceId",occurrence);
 CREATE INDEX "PortalActionAlert_delivery_idx" ON "PortalActionAlert"(status,"nextAttemptAt");
 CREATE INDEX "PortalActionAlert_account_idx" ON "PortalActionAlert"("tenantId","accountId");
+CREATE TABLE "PortalStaffAlertCursor" (id TEXT PRIMARY KEY, "scannedThrough" TIMESTAMPTZ(3) NOT NULL DEFAULT NOW());
 CREATE TABLE "PortalAnswerFeedback" (
  id TEXT NOT NULL PRIMARY KEY, "tenantId" TEXT NOT NULL, "accountId" TEXT NOT NULL,
  "conversationId" TEXT NOT NULL, "messageId" TEXT NOT NULL, "reportedById" TEXT NOT NULL,

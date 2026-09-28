@@ -546,7 +546,27 @@
     ['Retest published','Retester la version publiée','إعادة اختبار النسخة المنشورة'],
     ['What changed?','Qu’est-ce qui a changé ?','ما الذي تغيّر؟'],
     ['Mark reviewed','Marquer comme révisé','تأكيد المراجعة'],
-    ['No answers need review.','Aucune réponse à réviser.','لا توجد إجابات تحتاج إلى مراجعة.']
+    ['No answers need review.','Aucune réponse à réviser.','لا توجد إجابات تحتاج إلى مراجعة.'],
+    ['Claim the chat to take over. Open chats are shared with your account team.','Prenez en charge la conversation. Les conversations ouvertes sont partagées avec votre équipe.','تولَّ المحادثة للرد بنفسك. تُعرض المحادثات المفتوحة لفريق حسابك.'],
+    ['Open the request, reply to the customer, or choose a later follow-up time.','Ouvrez la demande, répondez au client ou planifiez une relance.','افتح الطلب وردّ على العميل، أو حدّد موعداً لاحقاً للمتابعة.'],
+    ['Handoff requested','Intervention demandée','طلب تدخل موظف'],
+    ['Follow-up due','Relance à effectuer','حان موعد المتابعة'],
+    ['New request','Nouvelle demande','طلب جديد'],
+    ['Unassigned','Non attribué','غير معيّن'],
+    ['Answer review','Révision de réponse','مراجعة إجابة'],
+    ['Reported issue','Problème signalé','مشكلة مبلّغ عنها'],
+    ['Needs correction','À corriger','تحتاج إلى تصحيح'],
+    ['Reviewed','Révisée','تمت المراجعة'],
+    ['Open client','Voir le client','فتح حساب العميل'],
+    ['Open conversation','Ouvrir la conversation','فتح المحادثة'],
+    ['Question unavailable','Question indisponible','السؤال غير متاح'],
+    ['Correct approved knowledge, retest the original question, publish, then confirm the live answer.','Corrigez les informations approuvées, retestez la question, publiez puis vérifiez la réponse publiée.','صحّح المعلومات المعتمدة، وأعد اختبار السؤال، وانشر التعديلات، ثم تحقّق من الإجابة المنشورة.'],
+    ['Answers reported from your customer conversations. Your administrator can correct and retest them.','Réponses signalées dans vos conversations. Votre administrateur peut les corriger et les retester.','إجابات مبلّغ عنها في محادثات عملائك. يمكن للمسؤول تصحيحها وإعادة اختبارها.'],
+    ['Back to client','Retour au client','العودة إلى حساب العميل'],
+    ['Describe the correction and confirm the published retest answer is right.','Décrivez la correction et confirmez que la réponse publiée est correcte.','اشرح التصحيح وأكّد صحة الإجابة عند اختبار النسخة المنشورة.'],
+    ['No completed reviews yet.','Aucune révision terminée.','لا توجد مراجعات مكتملة بعد.'],
+    ['Retest complete. Review the answer before closing.','Test terminé. Vérifiez la réponse avant de clôturer.','اكتمل الاختبار. راجع الإجابة قبل إغلاق المراجعة.'],
+    ['Review completed.','Révision terminée.','اكتملت المراجعة.']
   ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {

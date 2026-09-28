@@ -1174,7 +1174,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       : account.config;
     const engine = deps.conversationEngine;
     if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE');
-    const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:feedback-${feedbackId}`, flagged.question, config);
+    const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:feedback-${feedbackId}-${randomUUID()}`, flagged.question, config);
     const answer = typeof response === 'string' ? response : JSON.stringify(response);
     await staffActions.retest(p.tenantId, p.accountId, feedbackId, req.portal.user.id, mode, answer);
     send(res, { answer, mode });
