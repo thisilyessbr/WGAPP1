@@ -262,6 +262,13 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(first.status).toBe(200);expect(first.body.messages).toHaveLength(50);
     expect(first.body.messages.at(-1).id).toBe(latest);expect(first.body.messages[0].content).toBe('12');
     expect(first.body.hasOlderMessages).toBe(true);expect(first.body.conversation.customerServiceWindow.canSendFreeform).toBe(true);
+    const reportedId=first.body.messages[0].id;
+    const report=await request(app).post('/api/client/conversations/'+conversationId+'/answer-feedback').set(headers).send({messageId:reportedId,note:'The answer gave incorrect opening hours.'});
+    expect(report.status).toBe(201);expect(report.body.feedback.status).toBe('OPEN');
+    const reported=await request(app).get('/api/client/conversations/'+conversationId).set(headers);
+    const reportedMessage=reported.body.messages.find((m:any)=>m.id===reportedId);
+    expect(reportedMessage.feedbackStatus).toBe('OPEN');expect(reportedMessage).not.toHaveProperty('resolutionNote');
+    expect((await request(app).get('/api/client/answer-feedback').set(headers)).status).toBe(404);
     const older=await request(app).get('/api/client/conversations/'+conversationId).query({before:first.body.nextBefore}).set(headers);
     expect(older.body.messages.map((m:any)=>m.content)).toEqual(Array.from({length:11},(_,i)=>String(i+1)));
     expect(older.body.hasOlderMessages).toBe(false);expect(older.body.conversation.customerServiceWindow.canSendFreeform).toBe(true);

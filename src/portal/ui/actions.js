@@ -3,21 +3,23 @@
 
   async function renderToday(ctx) {
     const { root, shell, header, escape: esc, api, bind } = ctx;
-    const actions = await api('/client/actions');
-    const handoffs = actions.handoffs || [], requests = actions.requests || [], feedback = actions.feedback || [];
+    const [actions, { profile }] = await Promise.all([api('/client/actions'), api('/client/profile')]);
+    const followupsEnabled = profile.plan?.modules?.some(module => module === 'services' || module === 'commerce');
+    const handoffs = actions.handoffs || [], requests = followupsEnabled ? actions.requests || [] : [];
     const row = (item, label, detail) => `<a class="staff-action-row" href="${esc(item.url)}" data-route>
       <span class="staff-action-dot"></span><span><strong>${esc(label)}</strong><small>${detail.split(' · ').map(part=>`<span>${esc(part)}</span>`).join(' · ')}</small></span><span class="staff-action-time">${esc(when(item.at))}</span><b aria-hidden="true">›</b></a>`;
     root.innerHTML = shell(header('Today', 'Everything that needs a person, in one place.') +
-      `<div class="staff-action-summary"><div><span>Needs a person</span><strong>${handoffs.length}</strong></div><div><span>Customer requests due</span><strong>${requests.length}</strong></div><div><span>Answers to review</span><strong>${feedback.length}</strong></div></div>
+      `<div class="staff-action-summary"><div><span>Needs a person</span><strong>${handoffs.length}</strong></div>${followupsEnabled ? `<div><span>Follow-ups due</span><strong>${requests.length}</strong></div>` : ''}</div>
       <article class="card staff-action-card"><h2>Conversations waiting for you</h2><p>Claim the chat to take over. Open chats are shared with your account team.</p>${handoffs.map(item => row(item, item.customer || 'Customer', 'Handoff requested')).join('') || '<p class="empty compact">No handoffs waiting.</p>'}</article>
-      <article class="card staff-action-card"><h2>Requests to follow up</h2><p>Open the request, reply to the customer, or choose a later follow-up time.</p>${requests.map(item => row(item, item.customer || 'Customer', (item.at ? 'Follow-up due' : 'New request') + ' · ' + (item.assigneeName || 'Unassigned'))).join('') || '<p class="empty compact">No requests due now.</p>'}</article>
-      <article class="card staff-action-card"><h2>Chatbot answers to improve</h2>${feedback.map(item => row(item, 'Answer review', 'Reported issue')).join('') || '<p class="empty compact">No answers flagged.</p>'}</article>`, false, 'Today');
+      ${followupsEnabled ? `<article class="card staff-action-card"><h2>Customers to contact</h2><p>Open the request, reply to the customer, or choose a later follow-up time.</p>${requests.map(item => row(item, item.customer || 'Customer', (item.at ? 'Follow-up due' : 'New request') + ' · ' + (item.assigneeName || 'Unassigned'))).join('') || '<p class="empty compact">No requests due now.</p>'}</article>` : ''}
+      `, false, 'Today');
     bind();
   }
 
   async function renderReviews(ctx, accountId) {
     const { root, shell, header, escape: esc, api, toast, bind } = ctx;
-    const admin = Boolean(accountId);
+    if (!accountId) return ctx.go('/app/inbox');
+    const admin = true;
     const base = admin ? `/admin/accounts/${encodeURIComponent(accountId)}` : '/client';
     const { feedback } = await api(base + '/answer-feedback');
     const open = feedback.filter(item => item.status === 'OPEN');

@@ -18,14 +18,14 @@ describe('lead follow-up form', () => {
   });
 
   it.each([
-    [false, 'Customer request', 'Return to Needs reply on', 'Delivery address'],
-    [true, 'Lead details', 'Delivery address', 'Inquiry details']
+    [false, 'Customer request', 'Remind me on', 'Delivery address'],
+    [true, 'Customer request', 'Delivery address', 'Service or course']
   ])('shows fields for commerce=%s', async (commerce, heading, expected, excluded) => {
-    const root = { innerHTML: '' };
-    const form = { onsubmit: null };
-    const window: Record<string, any> = {};
+    const dom = new JSDOM('<div id="root"></div>', {url:'https://example.com/app/leads/lead-1',runScripts:'outside-only'});
+    const root = dom.window.document.querySelector('#root')!;
+    const window = dom.window as any;
     const lead = { id: 'lead-1', status: 'NEW', interest: null, sourceRequest: 'Bghit n7jez anglais', details: {}, workflowDetails: {}, customerPhone: '212600000000', createdAt: '2026-09-25T10:30:00Z', updatedAt: '2026-09-25T10:30:00Z' };
-    runInNewContext(source, { window, document: { querySelector: () => form }, Date });
+    dom.window.eval(source);
     await window.RelayqoLeads.renderLeads({
       root, path: '/app/leads/lead-1', shell: (content: string) => content,
       header: (title: string) => title, escape: (value: unknown) => String(value ?? ''),
@@ -38,6 +38,8 @@ describe('lead follow-up form', () => {
     expect(root.innerHTML).toContain(expected);
     expect(root.innerHTML).not.toContain(excluded);
     expect(root.innerHTML).toContain('Bghit n7jez anglais');
+    expect(root.querySelector('#sales-stage')?.closest('details')?.hasAttribute('open')).toBe(commerce ? false : undefined);
+    dom.window.close();
   });
 
   it('shows the qualifying request, not a later unrelated insult, in the inquiry queue', async () => {
@@ -79,18 +81,18 @@ describe('lead follow-up form', () => {
       }
     };
     await (dom.window as any).RelayqoLeads.renderLeads(ctx);
-    expect(root.textContent).toContain('Mark handled');
-    expect(root.textContent).toContain('No notification or WhatsApp message is sent automatically.');
-    expect(root.textContent).toContain('Return to Needs reply on');
+    expect(root.textContent).toContain('Done');
+    expect(root.textContent).toContain('It does not send them a message.');
+    expect(root.textContent).toContain('Remind me on');
     expect(root.textContent).not.toContain('Confirmed');
     (root.querySelector('#service-reminder') as HTMLInputElement).value = (dom.window as any).RelayqoLeads.toLocalDateTimeValue(new Date(Date.now()+86400000).toISOString());
     await (root.querySelector('#service-request-form') as any).onsubmit({ preventDefault() {} });
     expect(changes[0].status).toBeUndefined();
     expect(changes[0].followUpAt).toBeTruthy();
-    expect(root.textContent).toContain('Planned');
+    expect(root.textContent).toContain('Later');
     await (root.querySelector('#service-done') as any).onclick();
     expect(changes[1]).toMatchObject({ status: 'DONE', followUpAt: null });
-    expect(root.textContent).toContain('Reopen request');
+    expect(root.textContent).toContain('Reopen');
     dom.window.close();
   });
 });

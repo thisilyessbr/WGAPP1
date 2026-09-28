@@ -124,7 +124,6 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
   client.get('/actions', route(async (req, res) => send(res, await staffActions.queue(req.portal.tenantId!, req.portal.accountId!))));
-  client.get('/answer-feedback', route(async (req, res) => send(res, { feedback: await staffActions.feedback(req.portal.tenantId!, req.portal.accountId!) })));
   client.post('/conversations/:id/answer-feedback', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['messageId', 'note']);
     const result = await staffActions.report(req.portal.tenantId!, req.portal.accountId!, String(req.params.id),
@@ -523,7 +522,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     `;
 
     const messageRows = await store.db.$queryRaw<any[]>`
-      SELECT id, role, content, metadata, "externalId", "createdAt"
+      SELECT id, role, content, metadata, "externalId", "createdAt",
+        (SELECT f.status FROM "PortalAnswerFeedback" f
+          WHERE f."messageId"="Message".id AND f."tenantId"=${tenantId}
+            AND f."accountId"=${accountId} AND f."conversationId"=${conversationId}) AS "feedbackStatus"
       FROM "Message"
       WHERE "conversationId" = ${conversationId} AND "tenantId" = ${tenantId}
         AND (${beforeMessageId}::text IS NULL OR ("createdAt",id) < (
@@ -599,6 +601,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         content: m.content,
         externalId: m.externalId,
         metadata: m.metadata || {},
+        feedbackStatus: m.feedbackStatus || null,
         createdAt: m.createdAt
       }))
     });
