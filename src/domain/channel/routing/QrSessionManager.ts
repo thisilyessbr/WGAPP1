@@ -265,14 +265,17 @@ export class QrSessionManager {
     return this.ownership.getQr(connectionId);
   }
 
-  async send(connectionId: string, recipient: string, text: string): Promise<{ id: string | null }> {
+  async send(connectionId: string, recipient: string, text: string, scope: { tenantId: string; accountId: string; phoneNumberId: string }): Promise<{ id: string | null }> {
     if (!this.enabled || await this.numberService.isEmergencyQrStopped()) {
       throw new Error('QR delivery is disabled by feature flag or emergency stop');
     }
     const live = this.sessions.get(connectionId);
     if (!live) throw new Error('QR session is not active on this worker');
     const connection=await this.prisma.channelConnection.findUnique({where:{id:connectionId}});
+    if (!scope || connection?.tenantId !== scope.tenantId || connection?.accountId !== scope.accountId) throw new Error('QR_SCOPE_CHANGED');
     if(!connection || connection.status!=='CONNECTED'||!await this.permitted(connection,true)||!await this.ownership.owns(connectionId))throw new Error('QR_NOT_ALLOWED');
+    const mapping = await this.prisma.whatsAppBusinessNumber.findFirst({ where: { connectionId, tenantId: scope.tenantId, accountId: scope.accountId, phoneNumberId: scope.phoneNumberId, enabled: true } });
+    if (!mapping) throw new Error('QR_SCOPE_CHANGED');
     const phone=qrPhone(recipient.includes('@')?recipient:`${recipient}@s.whatsapp.net`);
     if(!phone||!text.trim()||text.length>4096)throw new Error('QR_INVALID_MESSAGE');
     const window=await this.prisma.qrContactWindow.findUnique({where:{connectionId_recipient:{connectionId,recipient:phone}}});
@@ -285,6 +288,10 @@ export class QrSessionManager {
         if(rows[0].count>max)throw new Error('QR_RATE_LIMIT');
       }
     });
+    // Throttling awaits database work; ownership or activation may change meanwhile.
+    const finalConnection = await this.prisma.channelConnection.findUnique({ where: { id: connectionId } });
+    if (!finalConnection || finalConnection.tenantId !== scope.tenantId || finalConnection.accountId !== scope.accountId
+      || finalConnection.status !== 'CONNECTED' || !await this.permitted(finalConnection,true) || !await this.ownership.owns(connectionId)) throw new Error('QR_SCOPE_CHANGED');
     try{const result=await live.socket.sendMessage(`${phone}@s.whatsapp.net`,{text});if(!result?.key?.id)throw new Error();return {id:result.key.id};}
     catch{throw new Error('QR_SEND_OUTCOME_UNKNOWN');}
   }

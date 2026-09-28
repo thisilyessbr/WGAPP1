@@ -162,6 +162,7 @@
     ['Instagram DMs require an Instagram-enabled plan.','Les messages privés Instagram nécessitent une offre qui inclut Instagram.','تتطلب رسائل إنستغرام الخاصة باقة تتضمن إنستغرام.'],
     ['Your administrator has not enabled Instagram for this account.','Votre administrateur n’a pas activé Instagram pour ce compte.','لم يفعّل المسؤول إنستغرام لهذا الحساب.'],
     ['Voice notes','Messages vocaux','الرسائل الصوتية'],
+    ['Voice notes: up to 5 minutes and 5 MB each.','Messages vocaux : jusqu’à 5 minutes et 5 Mo chacun.','الرسائل الصوتية: حتى 5 دقائق و5 ميغابايت لكل رسالة.'],
     ['Understand customer voice notes','Comprendre les messages vocaux des clients','فهم الرسائل الصوتية للعملاء'],
     ['Allow voice notes','Autoriser les messages vocaux','السماح بالرسائل الصوتية'],
     ['Revoke voice notes','Retirer les messages vocaux','إلغاء السماح بالرسائل الصوتية'],

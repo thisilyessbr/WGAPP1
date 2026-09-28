@@ -120,13 +120,13 @@ describe('optional QR pilot controls and session ownership',()=>{
     return {owner,id,manager,socket,queue};
   }
   it('blocks unsolicited replies, enforces shared limits and immediately respects revoked access',async()=>{
-    const {owner,id,manager,socket}=await running();
-    await expect(manager.send(id,'212608477191','hello')).rejects.toThrow('QR_CUSTOMER_MESSAGE_REQUIRED');expect(socket.sendMessage).not.toHaveBeenCalled();
+    const {owner,id,manager,socket}=await running(); const scope={tenantId:owner.tenantId,accountId:owner.accountId,phoneNumberId:`qr:${id}`};
+    await expect(manager.send(id,'212608477191','hello',scope)).rejects.toThrow('QR_CUSTOMER_MESSAGE_REQUIRED');expect(socket.sendMessage).not.toHaveBeenCalled();
     await store.db.$executeRaw`INSERT INTO "QrContactWindow"("connectionId",recipient,"lastInboundAt") VALUES (${id},'212608477191',NOW())`;
-    for(let n=0;n<4;n++)await manager.send(id,'212608477191','reply');
-    await expect(manager.send(id,'212608477191','loop')).rejects.toThrow('QR_RATE_LIMIT');expect(socket.sendMessage).toHaveBeenCalledTimes(4);
+    for(let n=0;n<4;n++)await manager.send(id,'212608477191','reply',scope);
+    await expect(manager.send(id,'212608477191','loop',scope)).rejects.toThrow('QR_RATE_LIMIT');expect(socket.sendMessage).toHaveBeenCalledTimes(4);
     await store.setQrAllowed(owner.userId,owner.accountId,false);
-    await expect(manager.send(id,'212608477191','reply')).rejects.toThrow('QR_NOT_ALLOWED');expect(socket.sendMessage).toHaveBeenCalledTimes(4);
+    await expect(manager.send(id,'212608477191','reply',scope)).rejects.toThrow('QR_NOT_ALLOWED');expect(socket.sendMessage).toHaveBeenCalledTimes(4);
   });
   it('ignores history, groups and unresolved device IDs and namespaces incoming message IDs',async()=>{
     const {id,socket,queue}=await running(),handler=socket.handlers.get('messages.upsert');
