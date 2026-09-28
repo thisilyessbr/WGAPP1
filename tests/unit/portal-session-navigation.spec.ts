@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 
 // Execute the shipped UI script with a small DOM/HTTP fixture. No real accounts or providers.
 const script=readFileSync('src/portal/ui/portal.js','utf8');
-function portal(entries=['/login'], role: 'CLIENT'|'ADMIN'|null=null) {
+function portal(entries=['/login'], role: 'CLIENT'|'ADMIN'|null=null, modules:string[]=[] ) {
   const events:Record<string,Function>={},painted:string[]=[],calls:string[]=[];
   let html='',nodes:Record<string,any>={},index=entries.length-1,current=role;
   let sessionError=0;
@@ -25,7 +25,7 @@ function portal(entries=['/login'], role: 'CLIENT'|'ADMIN'|null=null) {
     else if(url==='/api/auth/logout')current=null;
     else if(url==='/api/portal/plans')data={plans:[]};
     else if(url==='/api/portal/settings')data={emailVerificationSkipped:true};
-    else if(url==='/api/client/profile')data={profile:{draft:{name:'Test',description:'Test business'},status:'DRAFT',plan:null}};
+    else if(url==='/api/client/profile')data={profile:{draft:{name:'Test',description:'Test business'},status:'DRAFT',plan:{modules}}};
     else if(url==='/api/client/dashboard')data={profile:{draft:{name:'Test',description:'Test business'},status:'DRAFT',plan:null,publishedRevision:0},connections:[],metrics:{totals:{},daily:[],usage:{}},documents:{total:0,ready:0,pending:0},recentConversations:[]};
     else if(url==='/api/client/whatsapp')data={connections:[]};
     else if(url==='/api/admin/overview')data={counts:[],usage:{},activity:[]};
@@ -51,6 +51,12 @@ function portal(entries=['/login'], role: 'CLIENT'|'ADMIN'|null=null) {
 }
 
 describe('portal session navigation',()=>{
+  it('shows Instagram in the client sidebar only when the assigned plan includes it',async()=>{
+    const standard=portal(['/app'],'CLIENT');await standard.start();
+    expect(standard.root.innerHTML).not.toContain('href="/app/instagram"');
+    const instagram=portal(['/app'],'CLIENT',['knowledge','instagram']);await instagram.start();
+    expect(instagram.root.innerHTML).toContain('href="/app/instagram"');
+  });
   it('requires a separate login after signup and replaces authentication history',async()=>{
     const p=portal(['/signup']);await p.start();
     expect(p.root.innerHTML).not.toContain('id="plan"');
