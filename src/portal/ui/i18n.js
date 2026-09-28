@@ -496,6 +496,30 @@
     ['This client can edit their chatbot information. WhatsApp replies and inbox work continue.','Ce client peut modifier les informations de son chatbot. Les réponses WhatsApp et la boîte de réception restent actives.','يمكن لهذا العميل تعديل بيانات روبوته. تستمر ردود واتساب وصندوق الوارد في العمل.']
   ]) translations.set(en, { fr, ar });
 
+  for (const [en, fr, ar] of [
+    ['Client data review','Vue des données client','مراجعة بيانات العميل'],
+    ['Editing client data','Modification des données client','تعديل بيانات العميل'],
+    ['Read the saved draft below. Edit only when you need to make a change.','Consultez le brouillon enregistré ci-dessous. Modifiez-le seulement si nécessaire.','راجع المسودة المحفوظة أدناه، وعدّلها عند الحاجة فقط.'],
+    ['Changes save automatically. Finish editing to return to the review.','Les modifications sont enregistrées automatiquement. Terminez pour revenir à la vue.','تُحفظ التغييرات تلقائياً. أنهِ التعديل للعودة إلى المراجعة.'],
+    ['Edit client data','Modifier les données client','تعديل بيانات العميل'],
+    ['Done editing','Terminer la modification','إنهاء التعديل'],
+    ['Client knowledge · Draft','Connaissances client · Brouillon','معرفة العميل · مسودة'],
+    ['Review what the chatbot knows before publishing changes.','Vérifiez les connaissances du chatbot avant de publier les modifications.','راجع ما يعرفه روبوت المحادثة قبل نشر التغييرات.'],
+    ['At a glance','En bref','نظرة سريعة'],
+    ['The information currently saved for this client.','Les informations actuellement enregistrées pour ce client.','البيانات المحفوظة حالياً لهذا العميل.'],
+    ['Identity, offer and contact details','Identité, offre et coordonnées','الهوية والخدمات وبيانات الاتصال'],
+    ['Answers customers may need before deciding','Réponses utiles aux clients avant leur décision','إجابات قد يحتاجها العملاء قبل اتخاذ قرارهم'],
+    ['Catalog entries available to the chatbot','Articles du catalogue disponibles pour le chatbot','عناصر الكتالوج المتاحة لروبوت المحادثة'],
+    ['Services and appointment information','Informations sur les services et les rendez-vous','معلومات الخدمات والمواعيد'],
+    ['Frequently asked questions','Questions fréquentes','الأسئلة الشائعة'],
+    ['Approved answers for common customer questions','Réponses approuvées aux questions courantes des clients','إجابات معتمدة لأسئلة العملاء الشائعة'],
+    ['What they offer','Ce que propose cette entreprise','ما يقدمه هذا النشاط'],
+    ['Variants','Variantes','الخيارات'],
+    ['Nothing added yet.','Aucune information ajoutée.','لم تُضف بيانات بعد.'],
+    ['Not provided','Non renseigné','غير مذكور'],
+    ['No plan assigned','Aucune offre attribuée','لم تُعيّن باقة']
+  ]) translations.set(en, { fr, ar });
+
   function setLocale(next) {
     if (!supported.has(next)) return;
     locale = next;
