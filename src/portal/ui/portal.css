@@ -169,3 +169,10 @@
 :root[dir=rtl] .admin-shell .table-wrap a,
 :root[dir=rtl] .admin-shell .admin-account-row strong{ overflow-wrap:anywhere; }
 
+.page-loading{display:flex;align-items:center;gap:12px;min-height:70px;color:var(--muted);font-size:14px}
+.navigation-skeleton{display:grid;gap:20px;grid-template-columns:repeat(3,minmax(0,1fr));pointer-events:none}
+.navigation-skeleton>div{height:180px;border-radius:20px;background:var(--surface,#17221d);border:1px solid var(--line,#27372e);opacity:.5;animation:navigation-pulse 1.3s ease-in-out infinite alternate}
+@keyframes navigation-pulse{to{opacity:.8}}
+@media(max-width:760px){.navigation-skeleton{grid-template-columns:1fr}.navigation-skeleton>div{height:100px}}
+@media(prefers-reduced-motion:reduce){.navigation-skeleton>div{animation:none}}
+

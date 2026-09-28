@@ -1,5 +1,6 @@
 (() => {
   const translations = new Map([
+    ['Loading…','Chargement…','جارٍ التحميل…'],
     ['Experimental','Expérimental','تجريبي'],
     ['Your administrator is preparing a connection to your own Meta app and WhatsApp Business Account.','Votre administrateur prépare la connexion à votre application Meta et à votre compte WhatsApp Business.','يجهّز المسؤول الاتصال بتطبيق Meta وحساب واتساب للأعمال الخاصين بك.'],
     ['Official API','API officielle','واجهة واتساب الرسمية'],
