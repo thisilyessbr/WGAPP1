@@ -61,7 +61,7 @@
     const names = { 'Business profile': 'Profile', 'Customer policies': 'Policies', 'Knowledge documents': 'Documents' };
     const articles = [...form.querySelectorAll(':scope > article')];
     const documents = document.querySelector('#documents');
-    if (documents) { form.insertBefore(documents, form.querySelector('.sticky-save')); articles.push(documents); }
+    if (documents && !form.dataset.adminReview) { form.insertBefore(documents, form.querySelector('.sticky-save')); articles.push(documents); }
     tabs(form, articles.map(node => { const title = node.querySelector('h2').textContent; return { name: names[title] || title, nodes: [node] }; }), 'business');
     form.querySelectorAll('[data-path]').forEach(el => { if (/description|address|hours|policies/.test(el.dataset.path)) el.closest('.field').classList.add('full'); });
   }
