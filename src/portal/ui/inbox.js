@@ -18,6 +18,7 @@
   let pendingListReload = false;
   let pendingDetailReload = null;
   let failedSendDraft = '';
+  let renderVersion = 0;
 
   const esc = (s) => (ctx ? ctx.escape(s) : String(s ?? ''));
 
@@ -680,6 +681,7 @@
   }
 
   function cleanup() {
+    renderVersion++;
     stopInboxPolling();
     clearTimeout(searchTimer);
     activeConversationId = null;
@@ -691,6 +693,7 @@
   async function renderInbox(context) {
     ctx = context;
     cleanup();
+    const version = renderVersion;
 
     // Determine initial conversation ID from path if present: /app/inbox/:id
     const parts = location.pathname.split('/');
@@ -780,9 +783,11 @@
 
     // Load initial data
     await loadConversationList();
+    if (version !== renderVersion) return;
 
     if (activeConversationId) {
       await loadConversation(activeConversationId);
+      if (version !== renderVersion) return;
     }
 
     // Start background polling
