@@ -14,7 +14,7 @@ export class PortalLeads {
     if (status !== 'ALL' && !LEAD_STAGES.includes(status as LeadStage)) throw new PortalError(400, 'INVALID_LEAD_STAGE');
     if (!LEAD_VIEWS.includes(view as LeadView)) throw new PortalError(400, 'INVALID_LEAD_VIEW');
     const rows = await this.store.db.$queryRaw<any[]>`
-      SELECT l.id,l.status,l.interest,l."signalReason",l.note,l.details,l."followUpAt",l."contactedAt",l."closedAt",l."createdAt",l."updatedAt",
+      SELECT l.id,l.status,l.interest,l."signalReason",l.note,l.details,l."followUpAt",l."assignedToUserId",assignee.name AS "assigneeName",l."contactedAt",l."closedAt",l."createdAt",l."updatedAt",
         cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
         COALESCE(l."sourceConversationId",c.id) AS "conversationId",c."updatedAt" AS "conversationUpdatedAt",
         ws."collectedData" AS "orderDetails",
@@ -25,6 +25,7 @@ export class PortalLeads {
         (SELECT m.content FROM "Message" m WHERE m."conversationId"=c.id AND m."tenantId"=l."tenantId" AND m.role='USER' ORDER BY m."createdAt" DESC LIMIT 1) AS "lastCustomerMessage"
       FROM "Lead" l
       JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
+      LEFT JOIN "PortalUser" assignee ON assignee.id=l."assignedToUserId"
       LEFT JOIN LATERAL (
         SELECT id,"updatedAt" FROM "Conversation"
         WHERE "tenantId"=l."tenantId" AND "accountId"=l."accountId" AND "customerId"=l."customerId"
@@ -60,7 +61,7 @@ export class PortalLeads {
 
   async get(tenantId: string, accountId: string, id: string) {
     const rows = await this.store.db.$queryRaw<any[]>`
-      SELECT l.*,cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
+      SELECT l.*,assignee.name AS "assigneeName",cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
         COALESCE(l."sourceConversationId",c.id) AS "conversationId",ws."collectedData" AS "workflowDetails",ws."workflowId",ws.status AS "workflowStatus",
         (SELECT m.content FROM "Message" m
           WHERE m."conversationId"=COALESCE(l."sourceConversationId",c.id) AND m."tenantId"=l."tenantId"
@@ -68,6 +69,7 @@ export class PortalLeads {
           ORDER BY m."createdAt" DESC LIMIT 1) AS "sourceRequest"
       FROM "Lead" l
       JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
+      LEFT JOIN "PortalUser" assignee ON assignee.id=l."assignedToUserId"
       LEFT JOIN LATERAL (
         SELECT id FROM "Conversation" WHERE "tenantId"=l."tenantId" AND "accountId"=l."accountId" AND "customerId"=l."customerId"
         ORDER BY "updatedAt" DESC LIMIT 1
@@ -84,7 +86,7 @@ export class PortalLeads {
     return rows[0];
   }
 
-  async update(tenantId: string, accountId: string, id: string, actorId: string, changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null; details?: Record<string, string> }) {
+  async update(tenantId: string, accountId: string, id: string, actorId: string, changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null; details?: Record<string, string>; assignedToUserId?: string | null }) {
     return this.store.transaction(async tx => {
       const previous = await tx.db.$queryRaw<any[]>`
         SELECT l.status FROM "Lead" l JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
@@ -96,16 +98,23 @@ export class PortalLeads {
       const note = changes.note === undefined ? undefined : changes.note;
       const followUpAt = changes.followUpAt === undefined ? undefined : changes.followUpAt;
       const details = changes.details === undefined ? undefined : JSON.stringify(changes.details);
+      if (changes.assignedToUserId) {
+        const member = await tx.db.$queryRaw<any[]>`SELECT 1 FROM "PortalMembership" pm JOIN "PortalUser" u ON u.id=pm."userId"
+          WHERE pm."accountId"=${accountId} AND pm."tenantId"=${tenantId} AND pm."userId"=${changes.assignedToUserId} AND u.disabled=false`;
+        if (!member.length) throw new PortalError(400, 'ASSIGNEE_NOT_IN_ACCOUNT');
+      }
+      const assignedToUserId = changes.assignedToUserId;
       await tx.db.$executeRaw`
         UPDATE "Lead" SET status=${nextStatus},
           note=CASE WHEN ${note === undefined} THEN note ELSE ${note ?? null} END,
           "followUpAt"=CASE WHEN ${followUpAt === undefined} THEN "followUpAt" ELSE ${followUpAt ?? null}::timestamptz END,
+          "assignedToUserId"=CASE WHEN ${assignedToUserId === undefined} THEN "assignedToUserId" ELSE ${assignedToUserId ?? null} END,
           details=CASE WHEN ${details === undefined} THEN details ELSE ${details ?? '{}'}::jsonb END,
           "contactedAt"=CASE WHEN ${nextStatus}='CONTACTED' THEN COALESCE("contactedAt",NOW()) ELSE "contactedAt" END,
           "closedAt"=CASE WHEN ${nextStatus} IN ('WON','LOST','DONE') THEN COALESCE("closedAt",NOW()) WHEN ${nextStatus}<>status THEN NULL ELSE "closedAt" END,
           "updatedAt"=NOW()
         WHERE id=${id} AND "tenantId"=${tenantId} AND "accountId"=${accountId}`;
-      await tx.audit(actorId, accountId, 'LEAD_UPDATED', { leadId: id, from: oldStatus, to: nextStatus, noteChanged: note !== undefined, followUpChanged: followUpAt !== undefined, detailsChanged: details !== undefined });
+      await tx.audit(actorId, accountId, 'LEAD_UPDATED', { leadId: id, from: oldStatus, to: nextStatus, noteChanged: note !== undefined, followUpChanged: followUpAt !== undefined, detailsChanged: details !== undefined, assigneeChanged: assignedToUserId !== undefined });
       return new PortalLeads(tx).get(tenantId, accountId, id);
     });
   }

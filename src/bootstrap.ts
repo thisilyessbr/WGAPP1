@@ -428,6 +428,10 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
       portalService.documents.start();
       logger.info('Portal document ingestion worker started');
     }
+    if (autoStart && process.env.PORTAL_STAFF_ALERT_WORKER === 'true' && process.env.NODE_ENV !== 'test') {
+      portalService.staffActions.start();
+      logger.info('Portal staff alert worker started');
+    }
   }
 
   return {

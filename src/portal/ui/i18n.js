@@ -520,6 +520,35 @@
     ['No plan assigned','Aucune offre attribuée','لم تُعيّن باقة']
   ]) translations.set(en, { fr, ar });
 
+  for (const [en, fr, ar] of [
+    ['Today','Aujourd’hui','اليوم'],
+    ['Answer reviews','Révision des réponses','مراجعة الإجابات'],
+    ['Everything that needs a person, in one place.','Toutes les actions humaines au même endroit.','كل ما يحتاج إلى تدخل بشري في مكان واحد.'],
+    ['Needs a person','Intervention humaine','يحتاج إلى موظف'],
+    ['Customer requests due','Demandes clients à traiter','طلبات العملاء المستحقة'],
+    ['Answers to review','Réponses à vérifier','إجابات للمراجعة'],
+    ['Conversations waiting for you','Conversations en attente','محادثات تنتظر تدخلك'],
+    ['Requests to follow up','Demandes à relancer','طلبات للمتابعة'],
+    ['Chatbot answers to improve','Réponses du chatbot à améliorer','إجابات الروبوت للتحسين'],
+    ['No handoffs waiting.','Aucun transfert en attente.','لا توجد محادثات تنتظر التدخل.'],
+    ['No requests due now.','Aucune demande à traiter maintenant.','لا توجد طلبات مستحقة الآن.'],
+    ['No answers flagged.','Aucune réponse signalée.','لا توجد إجابات مبلّغ عنها.'],
+    ['Report answer','Signaler la réponse','الإبلاغ عن الإجابة'],
+    ['What was wrong with this answer?','Quel était le problème avec cette réponse ?','ما الخطأ في هذه الإجابة؟'],
+    ['Send for review','Envoyer pour révision','إرسال للمراجعة'],
+    ['Who will handle this?','Qui traitera cette demande ?','من سيتولى هذا الطلب؟'],
+    ['Unassigned · account team','Non attribué · équipe du compte','غير معيّن · فريق الحساب'],
+    ['Customer asked','Le client a demandé','سأل العميل'],
+    ['Chatbot replied','Le chatbot a répondu','رد روبوت المحادثة'],
+    ['Why it was flagged:','Motif du signalement :','سبب الإبلاغ:'],
+    ['Edit business knowledge','Modifier les informations','تعديل معلومات النشاط'],
+    ['Retest draft','Retester le brouillon','إعادة اختبار المسودة'],
+    ['Retest published','Retester la version publiée','إعادة اختبار النسخة المنشورة'],
+    ['What changed?','Qu’est-ce qui a changé ?','ما الذي تغيّر؟'],
+    ['Mark reviewed','Marquer comme révisé','تأكيد المراجعة'],
+    ['No answers need review.','Aucune réponse à réviser.','لا توجد إجابات تحتاج إلى مراجعة.']
+  ]) translations.set(en, { fr, ar });
+
   function setLocale(next) {
     if (!supported.has(next)) return;
     locale = next;

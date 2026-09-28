@@ -1,0 +1,27 @@
+.staff-action-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:24px}
+.staff-action-summary>div{padding:20px;border:1px solid var(--line,#dce5de);border-radius:18px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:8px}
+.staff-action-summary span,.staff-action-row small{color:var(--muted,#687a70)}
+.staff-action-summary strong{font-size:2rem;line-height:1}
+.staff-action-card{margin-bottom:18px}
+.staff-action-card>p{color:var(--muted,#687a70)}
+.staff-action-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto 16px;align-items:center;gap:14px;padding:14px 4px;border-top:1px solid var(--line,#dce5de);color:inherit;text-decoration:none}
+.staff-action-row:hover{background:rgba(96,168,80,.06)}
+.staff-action-row>span:nth-child(2){display:flex;flex-direction:column;gap:4px;min-width:0}
+.staff-action-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.staff-action-dot{width:8px;height:8px;border-radius:50%;background:#72b75b}
+.staff-action-time{font-size:.8rem;color:var(--muted,#687a70)}
+.answer-review-stack{max-width:960px;display:grid;gap:16px}
+.answer-review-stack>h2{font-size:1.15rem;margin:10px 0 0}
+.answer-review-card{display:grid;gap:14px}
+.answer-review-card .card-title>div{display:flex;align-items:center;gap:10px}
+.answer-review-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.answer-review-pair>div,.answer-retest-result{border:1px solid var(--line,#dce5de);border-radius:12px;padding:14px;overflow-wrap:anywhere}
+.answer-review-pair span{font-size:.8rem;color:var(--muted,#687a70)}
+.answer-review-pair p,.answer-retest-result p{white-space:pre-wrap;margin:8px 0 0}
+.answer-review-actions{display:flex;flex-wrap:wrap;gap:8px}
+.answer-flag-toggle{border:0;background:transparent;color:inherit;text-decoration:underline;font:inherit;font-size:.75rem;cursor:pointer}
+.answer-flag-form{padding:10px;display:grid;gap:8px}
+.answer-flag-form[hidden]{display:none}
+.answer-flag-form label{display:grid;gap:6px;font-size:.8rem}
+.answer-flag-form textarea{width:100%;resize:vertical}
+@media(max-width:760px){.staff-action-summary,.answer-review-pair{grid-template-columns:1fr}.staff-action-time{display:none}.staff-action-row{grid-template-columns:10px minmax(0,1fr) 16px}}

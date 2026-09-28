@@ -17,6 +17,7 @@ import { voiceProviderConfigured, voiceTranscriptionAvailable } from '../domain/
 import { logger } from '../utils/logger';
 import { InstagramService } from '../domain/channel/instagram/InstagramService';
 import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
+import { PortalStaffActions } from './PortalStaffActions';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
 export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; }
@@ -62,6 +63,7 @@ function validateAccountChanges(changes: Record<string, any>) {
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
   const portalLeads = new PortalLeads(store);
+  const staffActions = new PortalStaffActions(store);
   const photos = new PortalProductImages(store);
   const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
   const sendPhoto = async (res: Response, id: string, accountId?: string) => {
@@ -121,6 +123,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       .catch(next);
   });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
+  client.get('/actions', route(async (req, res) => send(res, await staffActions.queue(req.portal.tenantId!, req.portal.accountId!))));
+  client.get('/answer-feedback', route(async (req, res) => send(res, { feedback: await staffActions.feedback(req.portal.tenantId!, req.portal.accountId!) })));
+  client.post('/conversations/:id/answer-feedback', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['messageId', 'note']);
+    const result = await staffActions.report(req.portal.tenantId!, req.portal.accountId!, String(req.params.id),
+      text(body.messageId, 100), req.portal.user.id, text(body.note, 1000));
+    send(res, { feedback: result }, 201);
+  }));
   client.patch('/voice-notes', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['enabled']);
     if (typeof input.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
@@ -169,6 +179,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND (${status}='' OR l.status=${status})
       AND (c."externalId" IS NULL OR c."externalId" NOT LIKE 'portal-preview:%')
     ORDER BY l."updatedAt" DESC,l.id DESC LIMIT ${limit} OFFSET ${offset}`;
+  client.get('/team', route(async (req, res) => send(res, { members: await store.db.$queryRaw<any[]>`
+    SELECT u.id,u.name FROM "PortalMembership" pm JOIN "PortalUser" u ON u.id=pm."userId"
+    WHERE pm."tenantId"=${req.portal.tenantId!} AND pm."accountId"=${req.portal.accountId!} AND u.disabled=false
+    ORDER BY u.name LIMIT 50` })));
   client.get('/leads', route(async (req, res) => {
     const status = String(req.query.status || 'ALL').toUpperCase();
     const view = String(req.query.view || 'ALL').toUpperCase();
@@ -179,9 +193,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   client.get('/leads/summary', route(async (req, res) =>
     send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!))));
   client.patch('/leads/:id', route(async (req, res) => {
-    const body = object(req.body); allowed(body, ['status', 'note', 'followUpAt', 'details']);
+    const body = object(req.body); allowed(body, ['status', 'note', 'followUpAt', 'details', 'assignedToUserId']);
     if (!Object.keys(body).length) throw new PortalError(400, 'NO_LEAD_CHANGES');
-    const changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null; details?: Record<string, string> } = {};
+    const changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null; details?: Record<string, string>; assignedToUserId?: string | null } = {};
+    if (body.assignedToUserId !== undefined) {
+      if (body.assignedToUserId !== null && (typeof body.assignedToUserId !== 'string' || body.assignedToUserId.length > 100)) throw new PortalError(400, 'INVALID_ASSIGNEE');
+      changes.assignedToUserId = body.assignedToUserId || null;
+    }
     if (body.status !== undefined) {
       if (typeof body.status !== 'string' || !LEAD_STAGES.includes(body.status as LeadStage)) throw new PortalError(400, 'INVALID_LEAD_STAGE');
       changes.status = body.status as LeadStage;
@@ -1093,11 +1111,18 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')`)[0];
     if (!conversation) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
     const offset = Math.max(0, Math.min(100000, Math.floor(Number(req.query.offset) || 0)));
-    const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m."createdAt" FROM "Message" m
+    const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m.metadata,m."createdAt" FROM "Message" m
       WHERE m."conversationId"=${conversationId} AND m."tenantId"=${p.tenantId}
       ORDER BY m."createdAt" DESC,m.id DESC LIMIT 101 OFFSET ${offset}`;
     await store.audit(req.portal.user.id, p.accountId, 'CONVERSATION_VIEWED', { conversationId: String(req.params.conversationId) });
     send(res, { messages: rows.slice(0,100).reverse(), hasMore: rows.length > 100, offset });
+  }));
+  admin.post('/accounts/:id/conversations/:conversationId/answer-feedback', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const body = object(req.body); allowed(body, ['messageId', 'note']);
+    const result = await staffActions.report(p.tenantId, p.accountId, String(req.params.conversationId),
+      text(body.messageId, 100), req.portal.user.id, text(body.note, 1000));
+    send(res, { feedback: result }, 201);
   }));
   admin.post('/accounts/:id/preview', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
@@ -1122,6 +1147,43 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config);
     await store.audit(req.portal.user.id, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
     send(res, { response, mode, sessionId });
+  }));
+  admin.get('/accounts/:id/actions', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    send(res, await staffActions.queue(p.tenantId, p.accountId));
+  }));
+  admin.get('/accounts/:id/answer-feedback', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    send(res, { feedback: await staffActions.feedback(p.tenantId, p.accountId) });
+  }));
+  admin.post('/accounts/:id/answer-feedback/:feedbackId/retest', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    await store.throttle('feedback-retest:' + p.accountId, 10, 60);
+    const feedbackId = String(req.params.feedbackId);
+    const flagged = (await staffActions.feedback(p.tenantId, p.accountId)).find((item: any) => item.id === feedbackId && item.status === 'OPEN');
+    if (!flagged) throw new PortalError(404, 'FEEDBACK_NOT_FOUND');
+    if (!flagged.question) throw new PortalError(400, 'ORIGINAL_QUESTION_UNAVAILABLE');
+    const body = object(req.body); allowed(body, ['mode']);
+    const mode = text(body.mode, 20, 'draft');
+    if (!['draft', 'published'].includes(mode)) throw new PortalError(400, 'INVALID_PREVIEW_MODE');
+    const account = (await store.db.$queryRaw<any[]>`SELECT config FROM "Account" WHERE id=${p.accountId} AND "tenantId"=${p.tenantId}`)[0];
+    if (!account) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
+    if (mode === 'published' && !p.published) throw new PortalError(400, 'PUBLISH_FIRST');
+    const config = mode === 'draft'
+      ? compileBusiness(p.draft, p.planSnapshot?.template || {}, p.adminConfig || {}, account.config || {})
+      : account.config;
+    const engine = deps.conversationEngine;
+    if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE');
+    const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:feedback-${feedbackId}`, flagged.question, config);
+    const answer = typeof response === 'string' ? response : JSON.stringify(response);
+    await staffActions.retest(p.tenantId, p.accountId, feedbackId, req.portal.user.id, mode, answer);
+    send(res, { answer, mode });
+  }));
+  admin.post('/accounts/:id/answer-feedback/:feedbackId/resolve', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const body = object(req.body); allowed(body, ['resolutionNote']);
+    await staffActions.resolve(p.tenantId, p.accountId, String(req.params.feedbackId), req.portal.user.id, text(body.resolutionNote, 1000));
+    send(res, { success: true });
   }));
   admin.get('/plans', route(async (_req, res) => send(res, { plans: await store.plans() })));
   admin.post('/plans', route(async (req, res) => {

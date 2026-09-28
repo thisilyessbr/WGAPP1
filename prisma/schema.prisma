@@ -52,6 +52,8 @@ model Account {
   portalUsageEntries PortalUsageEntry[]
   portalConnectionAttempts PortalConnectionAttempt[]
   portalDocuments PortalDocument[]
+  actionAlerts PortalActionAlert[]
+  answerFeedback PortalAnswerFeedback[]
   portalProductImages PortalProductImage[]
   id               String              @id @default(uuid())
   tenantId         String
@@ -115,6 +117,7 @@ model Conversation {
   customer                   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant                     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   messages                   Message[]
+  answerFeedback             PortalAnswerFeedback[]
   sessions                   WorkflowSession[]
   lastMerchantViewedAt       DateTime?
   automationState            ConversationAutomationState?
@@ -136,6 +139,7 @@ model Message {
   metadata       Json?
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  answerFeedback PortalAnswerFeedback[]
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, externalId])
@@ -280,6 +284,8 @@ model Lead {
   note       String?
   details    Json     @default("{}")
   followUpAt DateTime? @db.Timestamptz(3)
+  assignedToUserId String?
+  assignee PortalUser? @relation("AssignedLeads", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   contactedAt DateTime? @db.Timestamptz(3)
   closedAt   DateTime? @db.Timestamptz(3)
   createdAt  DateTime @default(now())
@@ -292,6 +298,56 @@ model Lead {
   @@index([tenantId, accountId, customerId, createdAt(sort: Desc)], map: "Lead_customer_history_idx")
   @@index([tenantId, accountId, status])
   @@index([tenantId, accountId, followUpAt])
+}
+
+model PortalActionAlert {
+  id String @id @default(uuid())
+  accountId String
+  tenantId String
+  recipientId String
+  kind String
+  sourceId String
+  occurrence String
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
+  leaseUntil DateTime? @db.Timestamptz(3)
+  sentAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  recipient PortalUser @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([recipientId, kind, sourceId, occurrence])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, accountId])
+}
+
+model PortalAnswerFeedback {
+  id String @id @default(uuid())
+  tenantId String
+  accountId String
+  conversationId String
+  messageId String
+  reportedById String
+  question String
+  answer String
+  note String
+  status String @default("OPEN")
+  resolutionNote String?
+  resolvedById String?
+  retestAt DateTime? @db.Timestamptz(3)
+  retestAnswer String?
+  retestMode String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime? @db.Timestamptz(3)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporter PortalUser @relation("ReportedFeedback", fields: [reportedById], references: [id], onDelete: Cascade)
+  resolver PortalUser? @relation("ResolvedFeedback", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, messageId])
+  @@index([tenantId, accountId, status, createdAt(sort: Desc)])
 }
 
 model WhatsAppBusinessNumber {
@@ -399,6 +455,10 @@ model PortalUser {
   sessions PortalSession[]
   tokens PortalAuthToken[]
   connectionAttempts PortalConnectionAttempt[]
+  assignedLeads Lead[] @relation("AssignedLeads")
+  actionAlerts PortalActionAlert[]
+  reportedFeedback PortalAnswerFeedback[] @relation("ReportedFeedback")
+  resolvedFeedback PortalAnswerFeedback[] @relation("ResolvedFeedback")
 }
 
 model PortalMembership {

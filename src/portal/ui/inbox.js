@@ -379,7 +379,9 @@
               <div class="inbox-msg-meta">
                 <span>${esc(timeStr)}</span>
                 ${deliveryHtml}
+                ${isAi ? `<button class="answer-flag-toggle" type="button" data-flag-answer="${esc(m.id)}" aria-label="Report a wrong chatbot answer">Report answer</button>` : ''}
               </div>
+              ${isAi ? `<form class="answer-flag-form" data-flag-form="${esc(m.id)}" hidden><label>What was wrong with this answer?<textarea maxlength="1000" rows="2" required placeholder="Wrong fact, missed question, wrong language…"></textarea></label><button class="btn secondary" type="submit">Send for review</button></form>` : ''}
             </div>
           `;
         })
@@ -505,6 +507,28 @@
           input.value = text;
           input.focus();
         }
+      };
+    });
+
+    container.querySelectorAll('[data-flag-answer]').forEach(button => {
+      button.onclick = () => {
+        const form = container.querySelector(`[data-flag-form="${button.dataset.flagAnswer}"]`);
+        form.hidden = !form.hidden;
+        if (!form.hidden) form.querySelector('textarea').focus();
+      };
+    });
+    container.querySelectorAll('[data-flag-form]').forEach(form => {
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const button = form.querySelector('button'); button.disabled = true;
+        try {
+          await ctx.api('/client/conversations/' + encodeURIComponent(activeConversation.id) + '/answer-feedback', {
+            method: 'POST', body: JSON.stringify({ messageId: form.dataset.flagForm, note: form.querySelector('textarea').value.trim() })
+          });
+          form.hidden = true;
+          ctx.toast('Answer sent for review.');
+        } catch (error) { ctx.toast(error.message || 'Could not report answer', true); }
+        finally { button.disabled = false; }
       };
     });
 
