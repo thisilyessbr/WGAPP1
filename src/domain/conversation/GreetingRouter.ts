@@ -139,7 +139,7 @@ Respond with ONLY one word:
 
     try {
       // Enforce strict timeout
-      const rawResult = await generateResponseWithDeadline(llm, prompt, [], { maxTokens: 10, temperature: 0.0, timeoutMs });
+      const rawResult = await generateResponseWithDeadline(llm, prompt, [], { purpose: 'greeting_classifier', maxTokens: 10, temperature: 0.0, timeoutMs });
       const latencyMs = Date.now() - startTime;
       const normalizedResult = (rawResult || '').trim().toUpperCase();
       const result: 'GREETING' | 'NOT_GREETING' = normalizedResult.includes('GREETING') && !normalizedResult.includes('NOT_GREETING')

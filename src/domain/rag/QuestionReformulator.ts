@@ -8,15 +8,19 @@ export class QuestionReformulator {
   private static readonly REFERENCE_PATTERNS = [
     // English
     /\b(it|that|this|they|them|those|these|its|their|theirs)\b/i,
-    /\b(how much|how long|what about|and what|why that|which one|how do i get one|what about size|what about color)\b/i,
+    /\b(what about|and what|why that|which one|how do i get one|what about size|what about color)\b/i,
     // French
     /\b(il|elle|ils|elles|ça|cela|ceci|celui-ci|celle-ci|ceux-ci|celles-ci)\b/i,
-    /\b(combien|et pour|qu'en est-il|et concernant|c'est combien|et pour la taille|et pour la couleur)\b/i,
+    /\b(et pour|qu'en est-il|et concernant|c'est combien|et pour la taille|et pour la couleur)\b/i,
     // Arabic
-    /(هذا|هذه|ذلك|تلك|هؤلاء|كم|بكم|ماذا عن|وكيف|وهل|ماهو سعره|ماهي تكلفته|وماذا عن)/i,
+    /(هذا|هذه|ذلك|تلك|هؤلاء|ماذا عن|ماهو سعره|ماهي تكلفته|وماذا عن)/i,
     // Darija / Arabizi
-    /\b(hada|hadi|hadik|hadou|hadok|bch7al|bchal|wchno|w chhal|ch7al|kifach|w bnesba)\b/i
+    /\b(hada|hadi|hadik|hadou|hadok|w bnesba)\b/i
   ];
+
+  // A question word alone can refer to the previous turn. In a longer question it
+  // often has its own subject, so it must not trigger a paid reformulation call.
+  private static readonly REFERENCE_ONLY_QUERY = /^(?:how much|how long|combien|bch7al|bchal|ch7al|chhal|kifach|wchno|w chhal|كم|بكم|وكيف|وهل)[؟?]?\s*$/iu;
 
   /**
    * Evaluates deterministically whether a query is ambiguous and context-dependent.
@@ -36,6 +40,7 @@ export class QuestionReformulator {
         return true;
       }
     }
+    if (this.REFERENCE_ONLY_QUERY.test(trimmed)) return true;
 
     // 2. Short follow-up queries (<= 3 words and ends with '?')
     const wordCount = trimmed.split(/\s+/).length;
@@ -95,6 +100,7 @@ Standalone Search Query:`;
         systemPrompt,
         [{ role: 'user', content: userPrompt }],
         {
+          purpose: 'query_reformulation',
           temperature: options?.temperature ?? 0.0,
           maxTokens: 50,
           timeoutMs

@@ -35,6 +35,8 @@ export interface LLMUsage {
 }
 
 export interface LLMRequestOptions {
+  /** Internal telemetry label; never sent in the provider request body. */
+  purpose?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
