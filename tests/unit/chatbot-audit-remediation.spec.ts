@@ -10,6 +10,8 @@ import { ResponseBuilder } from '../../src/domain/conversation/ResponseBuilder';
 import { ClientSafetyGuard } from '../../src/domain/channel/guard/ClientSafetyGuard';
 import { WhatsAppWorker } from '../../src/domain/channel/whatsapp/WhatsAppWorker';
 import { CRMService } from '../../src/domain/crm/CRMService';
+import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
+import { resolveGroundedAnswer } from '../../src/domain/conversation/GroundedAnswer';
 import { GeminiEmbeddingProvider } from '../../src/core/rag/GeminiEmbeddingProvider';
 import { UnavailableEmbeddingProvider } from '../../src/core/rag/EmbeddingProvider';
 import { requireServiceAuth } from '../../packages/shared/service-auth';
@@ -18,6 +20,65 @@ import { WhatsAppOutboundAdapter } from '../../src/domain/channel/whatsapp/Whats
 import { PostgresMessageQueue } from '../../src/domain/channel/whatsapp/MessageQueue';
 
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();vi.useRealTimers();});
+
+describe('contact filtering preserves the answer',()=>{
+  it.each([
+    ['en','latin','We offer repairs for 200 MAD. Email demo@shop.test.','We offer repairs for 200 MAD.'],
+    ['fr','latin','Je ne peux pas confirmer ce service. Contactez demo@example.com.','Je ne peux pas confirmer ce service.'],
+    ['ar','arabic','لا أستطيع تأكيد هذا الحجز. راسل demo@shop.invalid.','لا أستطيع تأكيد هذا الحجز.'],
+    ['darija','arabizi','Had produit b 120 MAD. Sift email l demo@shop.example.','Had produit b 120 MAD.']
+  ])('keeps unrelated information in %s', (lang,script,raw,retained)=>{
+    const decision:any={responseLanguage:lang,responseScript:script};
+    const answer=AnswerComposer.finalizeResponse(raw,decision);
+    expect(answer).toContain(retained);
+    expect(answer).not.toMatch(/demo@|shop\.(test|invalid|example)|example\.com/);
+  });
+  it('retains real contact addresses',()=>{
+    const raw='Repairs cost 200 MAD. Email contact@repair.ma.';
+    expect(AnswerComposer.finalizeResponse(raw)).toBe(raw);
+  });
+  it('still sanitizes internal errors when a placeholder contact is present',()=>{
+    const result=AnswerComposer.finalizeResponse('Error: private stack. Email demo@shop.test.');
+    expect(result).not.toContain('private stack');
+    expect(result).not.toContain('demo@');
+  });
+});
+
+describe('generic grounded request identity',()=>{
+  it.each([
+    ['darija','arabizi','Bghit produit zenta','zenta'],
+    ['fr','latin','Je veux un soin luma','luma'],
+    ['ar','arabic','أريد خدمة زينتا','زينتا'],
+    ['en','latin','Do you sell the delta model?','delta']
+  ])('renders a clarification in %s without a speculative offer', (lang,script,question,phrase)=>{
+    const raw=JSON.stringify({status:'clarify',phrase,answer:'Buy another item for 900 MAD.'});
+    const answer=resolveGroundedAnswer(raw,question,lang,script);
+    expect(answer).toContain(phrase);
+    expect(answer).not.toContain('900');
+    expect(answer).not.toContain('another item');
+    expect(answer).not.toContain('status');
+  });
+  it.each(['clarify','unconfirmed'])('rejects an invented phrase for %s', status=>{
+    expect(resolveGroundedAnswer(JSON.stringify({status,phrase:'different item'}),'I want item alpha','en')).toBe('UNANSWERABLE');
+  });
+  it('does not turn undocumented availability into unavailability',()=>{
+    const result=resolveGroundedAnswer('{"status":"unconfirmed","phrase":"MRI"}','Can I book an MRI?','en');
+    expect(result).toContain('cannot confirm');
+    expect(result).not.toContain('unavailable');
+  });
+  it.each(['{"status":"answer","answer":', '{"status":"other"}', '{"status":"answer"}', 'CLARIFY without a phrase'])('does not leak malformed protocol output: %s',raw=>{
+    expect(resolveGroundedAnswer(raw,'question','en')).toBe('UNANSWERABLE');
+  });
+  it('preserves a grounded normal answer',()=>{
+    expect(resolveGroundedAnswer('{"status":"answer","answer":"The charger costs 120 MAD."}','Charger price?','en')).toBe('The charger costs 120 MAD.');
+  });
+  it('handles the clarification with one provider call through the actual engine',async()=>{
+    const {engine,llm}=engineFixture();
+    llm.generateResponse.mockResolvedValue('{"status":"clarify","phrase":"zenta"}');
+    expect(await engine.handleMessage('t','customer','Tell me about the zenta service','a')).toContain('zenta');
+    expect(llm.generateResponse).toHaveBeenCalledTimes(1);
+  });
+});
 
 function engineFixture() {
   const config:any=structuredClone(DEFAULT_BUSINESS_CONFIG);

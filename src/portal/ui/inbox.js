@@ -10,6 +10,9 @@
   let activeConversation = null;
   let activeMessages = [];
   let transcriptLimit = 50;
+  let olderCursor = null;
+  let hasOlderMessages = false;
+  let olderPageLoaded = false;
   let isSending = false;
   let listPollingTimer = null;
   let detailPollingTimer = null;
@@ -126,9 +129,12 @@
     detailFetchInProgress = true;
     try {
       const res = await ctx.api('/client/conversations/' + id + '?limit=' + transcriptLimit);
+      if (id !== activeConversationId) return;
       const prevOwnerState = activeConversation?.ownership?.state;
       activeConversation = res.conversation;
-      activeMessages = res.messages || [];
+      const combined = new Map([...activeMessages, ...(res.messages || [])].map(message => [message.id, message]));
+      activeMessages = [...combined.values()].sort((a,b) => new Date(a.createdAt)-new Date(b.createdAt) || a.id.localeCompare(b.id));
+      if (!olderPageLoaded) { olderCursor = res.nextBefore; hasOlderMessages = Boolean(res.hasOlderMessages); }
 
       // If unread, mark it read locally in the conversations list
       const itemInList = conversations.find((c) => c.id === id);
@@ -246,6 +252,10 @@
     activeConversationId = id;
     failedSendDraft = '';
     transcriptLimit = 50;
+    activeMessages = [];
+    olderCursor = null;
+    hasOlderMessages = false;
+    olderPageLoaded = false;
 
     // Update URL without full reload
     history.replaceState({}, '', '/app/inbox/' + id);
@@ -318,7 +328,7 @@
 
     // Render Transcript Messages
     let transcriptHtml = '';
-    if (conv.messageCount > activeMessages.length) {
+    if (hasOlderMessages) {
       transcriptHtml += `
         <div class="inbox-load-older-wrap">
           <button class="btn secondary small inbox-load-older" id="inbox-load-older-btn">Load older messages</button>
@@ -476,9 +486,26 @@
 
     const loadOlderBtn = container.querySelector('#inbox-load-older-btn');
     if (loadOlderBtn) {
-      loadOlderBtn.onclick = () => {
-        transcriptLimit += 50;
-        loadConversation(activeConversation.id, false, true);
+      loadOlderBtn.onclick = async () => {
+        if (!olderCursor || detailFetchInProgress) return;
+        const id = activeConversationId;
+        loadOlderBtn.disabled = true;
+        detailFetchInProgress = true;
+        try {
+          const res = await ctx.api('/client/conversations/' + encodeURIComponent(id) + '?limit=50&before=' + encodeURIComponent(olderCursor));
+          if (id !== activeConversationId) return;
+          const combined = new Map([...(res.messages || []), ...activeMessages].map(message => [message.id,message]));
+          activeMessages = [...combined.values()].sort((a,b) => new Date(a.createdAt)-new Date(b.createdAt) || a.id.localeCompare(b.id));
+          olderCursor = res.nextBefore; hasOlderMessages = Boolean(res.hasOlderMessages); olderPageLoaded = true;
+          renderDetail(true);
+        } catch(error) { ctx.toast(error.message,true); loadOlderBtn.disabled=false; }
+        finally {
+          detailFetchInProgress=false;
+          if (pendingDetailReload) {
+            const next=pendingDetailReload; pendingDetailReload=null;
+            void loadConversation(next.id,false,next.preserveScroll);
+          }
+        }
       };
     }
 
@@ -711,6 +738,9 @@
     activeConversationId = null;
     activeConversation = null;
     activeMessages = [];
+    olderCursor = null;
+    hasOlderMessages = false;
+    olderPageLoaded = false;
     conversations = [];
   }
 
