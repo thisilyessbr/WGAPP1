@@ -1,15 +1,30 @@
 (() => {
   const root = document.querySelector('#root'); let session, csrf, plans=[], portalSettings={}, authNotice='', instagramInPlan=false, requestsInPlan=false;
   const icons={home:'⌂',inbox:'✉',data:'▤',wa:'◉',plan:'◇',users:'♙',chart:'↗',settings:'⚙',logout:'↪',plus:'+'};
-  const api=async(path,opts={})=>{const r=await fetch('/api'+path,{...opts,credentials:'same-origin',headers:{...(opts.body&&!(opts.body instanceof FormData)?{'Content-Type':'application/json'}:{}),...(csrf?{'X-CSRF-Token':csrf}:{}),...(opts.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(d.message||d.error||'Request failed'),{code:d.error,status:r.status});return d};
+  let navigationController, profileRead, sessionReadAt=0;
+  const reads=new Map();
+  const api=(path,opts={})=>{
+    const reading=!opts.method||opts.method==='GET',controller=navigationController;
+    if(!reading){profileRead=null;reads.clear();}
+    if(reading&&reads.has(path))return reads.get(path);
+    const request=(async()=>{
+      const r=await fetch('/api'+path,{...opts,...(reading&&controller?{signal:controller.signal}:{}),credentials:'same-origin',headers:{...(opts.body&&!(opts.body instanceof FormData)?{'Content-Type':'application/json'}:{}),...(csrf?{'X-CSRF-Token':csrf}:{}),...(opts.headers||{})}});
+      const d=await r.json().catch(()=>({}));
+      if(reading&&controller?.signal.aborted)throw new DOMException('Navigation cancelled','AbortError');
+      if(!r.ok)throw Object.assign(new Error(d.message||d.error||'Request failed'),{code:d.error,status:r.status});
+      return d;
+    })();
+    if(reading){reads.set(path,request);request.then(()=>{if(path!=='/client/profile'&&reads.get(path)===request)reads.delete(path)},()=>{if(reads.get(path)===request)reads.delete(path)});}
+    return request;
+  };
   const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const toast=(m,bad=false)=>{const el=document.querySelector('#toast');el.textContent=m;el.className='show '+(bad?'error':'');setTimeout(()=>el.className='',4200)};
+  const toast=(m,bad=false)=>{if(m==='Navigation cancelled'||m==='This operation was aborted')return;const el=document.querySelector('#toast');el.textContent=m;el.className='show '+(bad?'error':'');setTimeout(()=>el.className='',4200)};
   const nav=(admin=false)=>`<aside class="sidebar"><a class="brand" href="${admin?'/admin':'/app'}"><span class="brand-mark" aria-hidden="true"><span></span></span>Relayqo</a><nav class="nav"><p class="nav-label">${admin?'Platform':'Workspace'}</p>${admin?`<a href="/admin" data-route><span aria-hidden="true">${icons.home}</span>Overview</a><a href="/admin/clients" data-route><span aria-hidden="true">${icons.users}</span>Clients</a><a href="/admin/plans" data-route><span aria-hidden="true">${icons.plan}</span>Plans</a><a href="/admin/users" data-route><span>♙</span>Users</a><a href="/admin/usage" data-route><span aria-hidden="true">${icons.chart}</span>Usage & costs</a>`:`<a href="/app" data-route><span aria-hidden="true">${icons.home}</span>Overview</a><a href="/app/inbox" data-route><span aria-hidden="true">${icons.inbox}</span>Inbox</a>${requestsInPlan?`<a href="/app/leads" data-route><span aria-hidden="true">♙</span>Requests</a>`:''}<a href="/app/business" data-route><span aria-hidden="true">${icons.data}</span>Business data</a><a href="/app/settings" data-route><span aria-hidden="true">${icons.settings}</span>Chatbot settings</a><a href="/app/whatsapp" data-route><span aria-hidden="true">${icons.wa}</span>WhatsApp</a>${instagramInPlan?'<a href="/app/instagram" data-route><span aria-hidden="true">◎</span>Instagram</a>':''}<a href="/app/plans" data-route><span aria-hidden="true">${icons.plan}</span>Plans</a>`}</nav><div class="sidebar-bottom"><div class="help-card"><strong>Need help?</strong>Our team can help you prepare your chatbot.</div><div class="user-card"><span class="avatar">${escape(session?.user?.name?.slice(0,2).toUpperCase()||'R')}</span><div><div class="user-name">${escape(session?.user?.name||'')}</div><small>${admin?'Administrator':'Business owner'}</small></div><button class="logout" title="Log out">${icons.logout}</button></div></div></aside>`;
   const shell=(content,admin=false,title='')=>`<div class="shell ${admin?'admin-shell':'client-shell'} ${title==='Overview'||title==='Dashboard'?'dashboard-shell':''}">${nav(admin)}<main class="main"><header class="topbar"><div class="breadcrumb"><span>${admin?'Administration':'Your workspace'}</span><span>›</span><strong>${title}</strong></div><div class="top-actions"><button class="logout mobile-logout" aria-label="Log out"></button><span class="top-pill"><i class="status-dot"></i>Secure workspace</span></div></header><section class="content">${content}</section></main></div>`;
   const field=(key,label,value='',type='text',hint='')=>`<div class="field ${key==='description'||key==='address'||key==='hours'?'full':''}"><label for="${key}">${label}</label>${type==='textarea'?`<textarea id="${key}" data-field>${escape(value)}</textarea>`:`<input id="${key}" data-field type="${type}" step="any" value="${escape(value)}">`}${hint?`<span class="hint">${hint}</span>`:''}</div>`;
   const status=s=>`<span class="badge ${s==='ACTIVE'||s==='READY'||s==='APPROVED'?'green':s==='SUSPENDED'||s==='FAILED'?'red':s==='SUBMITTED'||s==='PROCESSING'?'orange':'blue'}">${escape(String(s).replaceAll('_',' '))}</span>`;
   const header=(title,text,actions='')=>`<div class="page-heading"><div><h1>${title}</h1><p>${text||''}</p></div><div class="actions">${actions}</div></div>`;
-  async function clientProfile(){return (await api('/client/profile')).profile}
+  async function clientProfile(){if(!profileRead)profileRead=api('/client/profile').then(r=>r.profile);return profileRead}
   const percent=(used,limit)=>limit>0?Math.min(100,Math.round(Number(used||0)/Number(limit)*100)):0;
   const chartBars=(rows,emptyMessage='No customer messages yet. Activity will appear after your first WhatsApp conversation.')=>{
     const days=Array.from({length:14},(_,i)=>{const date=new Date();date.setHours(0,0,0,0);date.setDate(date.getDate()-(13-i));return date});
@@ -18,8 +33,8 @@
     if(max===0)return `<div class="chart-empty">${escape(emptyMessage)}</div>`;
     return `<div class="dashboard-chart" aria-label="Messages during the last 14 days">${days.map(d=>{const key=d.toISOString().slice(0,10),value=values.get(key)||0;return `<div class="dashboard-bar-wrap" title="${escape(d.toLocaleDateString())}: ${value} messages"><span class="dashboard-bar ${value?'':'is-empty'}" style="height:${Math.round(value/max*100)}%"></span><small>${d.toLocaleDateString(undefined,{weekday:'narrow'})}</small></div>`}).join('')}</div>`;
   };
-  async function clientHome(){
-    const dashboard=await api('/client/dashboard'),p=dashboard.profile,d=p.draft,connections=dashboard.connections||[],m=dashboard.metrics||{},totals=m.totals||{};
+  async function clientHome(loadedDashboard){
+    const dashboard=loadedDashboard||await api('/client/dashboard'),p=dashboard.profile,d=p.draft,connections=dashboard.connections||[],m=dashboard.metrics||{},totals=m.totals||{};
     const connected=connections.some(c=>c.numberStatus==='CONNECTED'&&c.enabled),active=p.status==='ACTIVE';
     const steps=[['Business profile',!!d.name&&!!d.description,'Tell the chatbot what your business offers','/app/business'],['Choose a plan',!!p.plan,'Select the capacity your business needs','/app/plans'],['Connect WhatsApp',connected,'Link the number your customers use','/app/whatsapp'],['Submit for review',!['DRAFT','NEEDS_CHANGES'].includes(p.status),'Send your setup to the Relayqo team','/app/business']];
     const done=steps.filter(s=>s[1]).length;
@@ -156,8 +171,8 @@
     };
     bind();
   }
-  async function whatsapp(){
-    const d=await api('/client/whatsapp'),p=await clientProfile();
+  async function whatsapp(loadedConnection){
+    const d=loadedConnection||await api('/client/whatsapp'),p=await clientProfile();
     const qrDisclosure=d.qrEnabled?`<article class="card qr-pilot-card"><span class="badge">Experimental</span><h2>Additional number via QR</h2><p>The official WhatsApp API is the recommended connection. QR uses an unofficial linked-device connection that can disconnect or lead to number restrictions. Relayqo cannot guarantee availability or prevent restrictions.</p><p>QR supports text replies to customers who messaged you recently. It is not for campaigns or unsolicited messages.</p><label class="settings-switch-row"><span>I understand and accept the QR connection limitations.</span><input type="checkbox" id="qr-risk-accepted"></label></article>`:'';
     const connectionPanel=d.canAddNumber!==false?`<article class="card"><h2>Link a business number</h2><p class="small muted">Your plan must be approved before linking a number.</p><div class="actions" style="margin-top:22px"><button class="btn" id="prepare-meta" ${!d.metaConfigured?'disabled':''}>Connect with Meta</button>${d.qrEnabled&&p.plan?.modules.includes('qr')?'<button class="btn secondary" id="prepare-qr">Add number with QR (experimental)</button>':''}</div><p class="small muted" id="wa-progress" aria-live="polite">${!d.metaConfigured?'Your administrator is preparing a connection to your own Meta app and WhatsApp Business Account.':''}</p><div class="field"><label for="wa-pin">Existing WhatsApp verification PIN (if required)</label><input id="wa-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div><button class="btn secondary" id="launch-meta" hidden>Continue to WhatsApp</button><div id="wa-candidates" hidden></div></article>`:`<article class="card"><h2>WhatsApp connected</h2><p class="small muted">Your business number is connected and ready. Use Reconnect only if Meta access stops working.</p></article>`;
 root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The administrator controls activation.')+`<div class="grid-2"><article class="card"><h2>Your connections</h2>${d.connections.map(c=>`<div class="connection-card"><div><strong>${escape(c.displayPhoneNumber||c.label||'WhatsApp')}</strong><p class="small muted">${c.provider==='QR_WEB'?'QR · Experimental':'Official API'}</p></div>${status(c.numberStatus||c.status)}${c.provider==='QR_WEB'?`<button class="btn secondary" data-qr-disconnect="${c.id}">Disconnect QR</button>`:''}${(c.label?.startsWith('CLIENT_OWNED:') || (!d.metaConfigured && c.provider==='META_CLOUD'))?'':`<button class="btn secondary" data-reconnect="${c.id}">Reconnect</button>`}</div>`).join('')||'<p class="empty">No number connected yet.</p>'}<div id="qr-view"></div></article>${connectionPanel}</div>`,false,'WhatsApp');
@@ -424,36 +439,50 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
   }
   function bind(){
     window.RelayqoDesign?.decorate();
-    document.querySelectorAll('[data-route]').forEach(a=>a.onclick=e=>{e.preventDefault();go(a.getAttribute('href'))});
+    document.querySelectorAll('[data-route],.brand').forEach(a=>a.onclick=e=>{if(e.button>0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;e.preventDefault();return go(a.getAttribute('href'))});
     document.querySelectorAll('.logout').forEach(b=>b.onclick=async()=>{
       b.disabled=true;
       try {
         try { await api('/auth/logout',{method:'POST'}); } catch(e) { if(e.status!==401)throw e; }
-        session=null;csrf=null;await go('/login',{replace:true});
+        session=null;csrf=null;sessionReadAt=0;profileRead=null;reads.clear();await go('/login',{replace:true});
       } catch(e) { toast(e.message,true); } finally { b.disabled=false; }
     });
   }
+  document.addEventListener('click',e=>{
+    const link=e.target.closest?.('[data-route],.brand');
+    if(!link||e.defaultPrevented||e.button>0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
+    e.preventDefault();void go(link.getAttribute('href'));
+  });
   const go=(x,{replace=false}={})=>{
     if((dirtyBusiness||dirtyAdmin)&&!confirm('Some changes are not saved. Leave this page?'))return;
     dirtyBusiness=false;dirtyAdmin=false;clearTimeout(businessTimer);whatsappCleanup();window.RelayqoInbox?.cleanup();
     history[replace||location.pathname===x?'replaceState':'pushState']({},'',x);
-    return render();
+    return render({reuseSession:true});
   };
   const authRoutes={'/signup':'signup','/login':'login','/forgot-password':'forgot','/reset-password':'reset','/verify-email':'verify','/admin-confirm':'admin'};
   const guestRoutes=new Set(['/signup','/login','/forgot-password']);
   let renderVersion=0;
-  async function render(){
+  async function render({reuseSession=false}={}){
     let path=location.pathname;
     const version=++renderVersion;
+    navigationController?.abort(new DOMException('Navigation cancelled','AbortError'));navigationController=new AbortController();reads.clear();profileRead=null;
     whatsappCleanup();window.RelayqoInbox?.cleanup();
+    if(session&&!authRoutes[path]){
+      const titles={'/app':'Overview','/app/inbox':'Inbox','/app/leads':'Requests','/app/business':'Business data','/app/settings':'Chatbot settings','/app/whatsapp':'WhatsApp','/app/instagram':'Instagram','/app/plans':'Plans','/admin':'Overview','/admin/clients':'Clients','/admin/plans':'Plans','/admin/users':'Users','/admin/usage':'Usage & costs'};
+      const title=titles[path]||(path.startsWith('/admin/client/')?'Client account':path.startsWith('/admin/business/')?'Business data':path.startsWith('/app/inbox/')?'Inbox':'Requests');
+      root.innerHTML=shell(`<div class="page-loading" role="status" aria-live="polite"><span class="spinner"></span><span>Loading…</span></div><div class="navigation-skeleton" aria-hidden="true"><div></div><div></div><div></div></div>`,session.user.role==='ADMIN',title);
+      bind();
+    }
     try {
       // Read the cookie-backed session before showing login or any protected page.
       // Token actions remain reachable so email verification and password reset still work.
       if(!authRoutes[path]||guestRoutes.has(path)){
         let current;
-        try { current=await api('/auth/session'); } catch(e) { if(e.status!==401)throw e; }
+        const cachedSession=reuseSession&&session&&Date.now()-sessionReadAt<30000;
+        try { current=cachedSession?session:await api('/auth/session'); } catch(e) { if(e.status!==401)throw e; }
         if(version!==renderVersion)return;
         session=current;csrf=current?.csrf;
+        if(current&&!cachedSession)sessionReadAt=Date.now();
         if(current&&guestRoutes.has(path)){
           path=current.user.role==='ADMIN'?'/admin':'/app';
           history.replaceState({},'',path);
@@ -479,7 +508,9 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
         return await adminHome();
       }
       if(session.user.role!=='CLIENT')return go('/admin',{replace:true});
-      const profile=await clientProfile();
+      const dashboard=path==='/app'||path==='/app/'?await api('/client/dashboard'):null;
+      const [profile,connection]=await Promise.all([dashboard?.profile||clientProfile(),path==='/app/whatsapp'?api('/client/whatsapp'):null]);
+      if(dashboard)profileRead=Promise.resolve(profile);
       if(version!==renderVersion)return;
       instagramInPlan=Boolean(profile.plan?.modules?.includes('instagram'));
       requestsInPlan=Boolean(profile.plan?.modules?.some(module=>module==='services'||module==='commerce'));
@@ -489,10 +520,10 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
         : go('/app',{replace:true});
       if(path==='/app/business')return await business();
       if(path==='/app/settings')return await clientSettings();
-      if(path==='/app/whatsapp')return await whatsapp();
+      if(path==='/app/whatsapp')return await whatsapp(connection);
       if(path==='/app/instagram')return await window.RelayqoInstagram.render({root,shell,header,escape,toast,api,bind});
       if(path==='/app/plans')return await window.RelayqoPlans.renderClient({root,shell,header,escape,toast,api,bind});
-      return await clientHome();
+      return await clientHome(dashboard);
     }catch(e){
       if(version!==renderVersion)return;
       if(e.status===401&&path!=='/login'){session=null;csrf=null;return go('/login',{replace:true});}
