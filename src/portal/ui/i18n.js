@@ -1,5 +1,6 @@
 (() => {
   const translations = new Map([
+    ["Choose a future reminder time.","Choisissez une date de rappel future.","اختر موعد تذكير في المستقبل."],
     ["Follow-ups", "Suivis clients", "متابعة العملاء"],
     ["Open follow-ups", "Ouvrir les suivis", "فتح متابعة العملاء"],
     ["Later", "Plus tard", "لاحقًا"],

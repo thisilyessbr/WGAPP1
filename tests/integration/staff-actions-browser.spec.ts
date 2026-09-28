@@ -124,21 +124,20 @@ describe('staff action screens',()=>{
       expect(await page.getByRole('link',{name:'Reply',exact:true}).getAttribute('href')).toBe('/app/inbox/chat-1');
       expect(await page.getByText('Qualified',{exact:true}).isVisible()).toBe(false);
       expect(await page.getByLabel('Sales stage').isVisible()).toBe(false);
-      await page.getByRole('button',{name:'Remind me later',exact:true}).click();
       await page.getByLabel('Remind me on',{exact:true}).fill('2030-01-02T09:00');
-      await page.getByRole('button',{name:'Save changes',exact:true}).click();
+      await page.getByRole('button',{name:'Remind me later',exact:true}).click();
       await page.getByText('Later',{exact:true}).waitFor();
       expect(updates[0].followUpAt).toBeTruthy();
-      expect(updates[0].status).toBe(commerce?'NEW':undefined);
+      expect(updates[0].status).toBe('NEW');
       if(commerce){expect(updates[0].details).toMatchObject({product:'Shoes',quantity:'2',city:'Rabat'});}
       await page.getByRole('button',{name:'Done',exact:true}).click();
       await page.getByRole('button',{name:'Reopen',exact:true}).waitFor();
       expect(updates[1].status).toBe('DONE');expect(updates[1].followUpAt).toBeNull();
       expect(updates.some(update=>update.status==='WON')).toBe(false);
       await page.locator('.language-select').selectOption('fr');
-      await page.getByRole('button',{name:'Me rappeler plus tard',exact:true}).waitFor();
+      await page.getByRole('link',{name:'Répondre',exact:true}).waitFor();
       await page.locator('.language-select').selectOption('ar');
-      await page.getByRole('button',{name:'ذكّرني لاحقًا',exact:true}).waitFor();
+      await page.getByRole('link',{name:'الرد',exact:true}).waitFor();
       expect(await page.locator('html').getAttribute('dir')).toBe('rtl');
       await page.setViewportSize({width:390,height:844});
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
