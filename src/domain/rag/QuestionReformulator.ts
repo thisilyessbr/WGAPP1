@@ -79,7 +79,8 @@ Rules:
 2. Do NOT answer the question.
 3. Do NOT include explanations, prefixes, markdown, or punctuation formatting.
 4. Keep the query concise and focused on the key search entities.
-5. If the question is already standalone, return it unchanged.`;
+5. If the question is already standalone, return it unchanged.
+6. Preserve explicit item names, service names and qualifiers from the latest message. Resolve references from history, but never replace an uncertain name with a different previously discussed item or invent a spelling correction.`;
 
     const userPrompt = `Conversation History:
 ${contextHistory}

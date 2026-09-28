@@ -1153,13 +1153,19 @@ ${turnDecision.inputQuery || ''}
     // Reserved example/test domains are never usable customer contact channels.
     // A draft or demo profile may contain them, but the chatbot must not direct a
     // real customer to an inbox that cannot receive mail.
-    if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.(?:test|example|invalid)\b|\b[A-Z0-9._%+-]+@example\.(?:com|org|net)\b/i.test(cleaned)) {
+    const placeholderAddress = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.(?:test|example|invalid)\b|\b[A-Z0-9._%+-]+@example\.(?:com|org|net)\b/gi;
+    if (placeholderAddress.test(cleaned)) {
       logger.warn('AnswerComposer.finalizeResponse: Placeholder contact address suppressed');
-      if (lang === 'fr') return 'Je ne peux pas confirmer ces coordonnées. Continuez ici et notre équipe pourra vous aider.';
-      if (lang === 'ar') return 'لا أستطيع تأكيد بيانات التواصل. يمكنك متابعة المحادثة هنا وسيساعدك فريقنا.';
-      if (lang === 'darija' && script === 'arabizi') return 'Ma n9drch n2ekked had l-contact. Kmml m3ana hna w l-equipe t3awnek.';
-      if (lang === 'darija') return 'ما نقدرش نأكد هاد معلومات التواصل. كمل معانا هنا والفريق يعاونك.';
-      return 'I cannot confirm those contact details. Please continue here and our team can help.';
+      // Mask addresses before sentence splitting so dots inside an email cannot
+      // leave a partial, unusable contact behind. Keep unrelated answer sentences.
+      const masked = cleaned.replace(placeholderAddress, '\uE000');
+      const retained = masked.split(/(?<=[.!?؟])\s+|\n+/u).filter(sentence => !sentence.includes('\uE000')).join(' ').trim();
+      const contactFallback = lang === 'fr' ? 'Continuez ici et notre équipe pourra vous aider.'
+        : lang === 'ar' ? 'يمكنك متابعة المحادثة هنا وسيساعدك فريقنا.'
+        : lang === 'darija' && script === 'arabizi' ? 'Kmml m3ana hna w l-equipe t3awnek.'
+        : lang === 'darija' ? 'كمل معانا هنا والفريق يعاونك.'
+        : 'Please continue here and our team can help.';
+      cleaned = [retained, contactFallback].filter(Boolean).join(' ');
     }
 
     // 1. Content Trust / Internal Leak & Error Trace Sanitization

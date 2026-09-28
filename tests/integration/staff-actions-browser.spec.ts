@@ -4,6 +4,37 @@ import express from 'express';
 import { resolve } from 'path';
 
 describe('staff action screens',()=>{
+  it('keeps the latest inbox turn visible while loading older history and changing conversations',async()=>{
+    const app=express();app.use(express.json());
+    const recent={id:'recent',role:'ASSISTANT',content:'Newest WhatsApp reply',createdAt:'2026-09-28T15:00:00Z'};
+    const old={id:'old',role:'USER',content:'Older customer message',createdAt:'2026-09-25T15:00:00Z'};
+    const conversation=(id:string)=>({id,status:'AI_ACTIVE',ownership:{state:'AI_ACTIVE'},customer:{phone:id},customerServiceWindow:{canSendFreeform:true},messageCount:1});
+    app.use('/api',(req,res)=>{
+      if(req.path==='/auth/session')return res.json({user:{id:'owner',name:'Owner',role:'CLIENT'},csrf:'test',accounts:[]});
+      if(req.path==='/client/profile')return res.json({profile:{plan:{modules:['services']}}});
+      if(req.path==='/client/conversations')return res.json({conversations:['chat-a','chat-b'].map(id=>({...conversation(id),customerPhone:id,lastMessage:{content:'Newest WhatsApp reply',createdAt:recent.createdAt}})),pagination:{total:2,hasMore:false}});
+      if(req.path==='/client/conversations/chat-a')return res.json({conversation:conversation('chat-a'),messages:req.query.before?[old]:[recent],hasOlderMessages:!req.query.before,nextBefore:req.query.before?null:'recent'});
+      if(req.path==='/client/conversations/chat-b')return res.json({conversation:conversation('chat-b'),messages:[{...recent,id:'other',content:'Other customer reply'}],hasOlderMessages:false});
+      return res.status(404).json({error:'NOT_FOUND'});
+    });
+    app.use('/portal-assets',express.static(resolve('src/portal/ui'),{dotfiles:'allow'}));
+    app.use((_req,res)=>res.sendFile(resolve('src/portal/ui/index.html'),{dotfiles:'allow'}));
+    const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.once('listening',r));
+    const browser=await chromium.launch({headless:true});
+    try{
+      const page=await browser.newPage(),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+      await page.goto('http://127.0.0.1:'+(server.address() as any).port+'/app/inbox/chat-a');
+      const log=page.getByRole('log');await log.getByText('Newest WhatsApp reply',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'Load older messages',exact:true}).click();
+      await log.getByText('Older customer message',{exact:true}).waitFor();
+      expect(await log.getByText('Newest WhatsApp reply',{exact:true}).count()).toBe(1);
+      expect(await page.getByRole('button',{name:'Load older messages',exact:true}).count()).toBe(0);
+      await page.getByRole('navigation',{name:'Conversations list'}).getByRole('button').filter({hasText:'chat-b'}).click();
+      await log.getByText('Other customer reply',{exact:true}).waitFor();
+      expect(await log.getByText('Older customer message',{exact:true}).count()).toBe(0);
+      expect(errors).toEqual([]);
+    }finally{await browser.close();await new Promise<void>(r=>server.close(()=>r()));}
+  });
   it('renders Today and the admin correction sequence on desktop, mobile and Arabic',async()=>{
     const app=express();app.use(express.json());
     let admin=false,retested=false,resolved=false;

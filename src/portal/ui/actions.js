@@ -6,7 +6,7 @@
     const actions = await api('/client/actions');
     const handoffs = actions.handoffs || [], requests = actions.requests || [], feedback = actions.feedback || [];
     const row = (item, label, detail) => `<a class="staff-action-row" href="${esc(item.url)}" data-route>
-      <span class="staff-action-dot"></span><span><strong>${esc(label)}</strong><small>${esc(detail)}</small></span><span class="staff-action-time">${esc(when(item.at))}</span><b aria-hidden="true">›</b></a>`;
+      <span class="staff-action-dot"></span><span><strong>${esc(label)}</strong><small>${detail.split(' · ').map(part=>`<span>${esc(part)}</span>`).join(' · ')}</small></span><span class="staff-action-time">${esc(when(item.at))}</span><b aria-hidden="true">›</b></a>`;
     root.innerHTML = shell(header('Today', 'Everything that needs a person, in one place.') +
       `<div class="staff-action-summary"><div><span>Needs a person</span><strong>${handoffs.length}</strong></div><div><span>Customer requests due</span><strong>${requests.length}</strong></div><div><span>Answers to review</span><strong>${feedback.length}</strong></div></div>
       <article class="card staff-action-card"><h2>Conversations waiting for you</h2><p>Claim the chat to take over. Open chats are shared with your account team.</p>${handoffs.map(item => row(item, item.customer || 'Customer', 'Handoff requested')).join('') || '<p class="empty compact">No handoffs waiting.</p>'}</article>

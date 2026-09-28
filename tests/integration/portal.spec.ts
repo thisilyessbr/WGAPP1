@@ -249,6 +249,25 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(detail.body).toMatchObject({ hasMore: false, messages: [{ content: 'Hello, do you deliver?' }] });
     expect((await request(app).get('/api/admin/accounts/' + other.accountId + '/conversations/' + conversationId).set(headers)).status).toBe(404);
   });
+  it('opens the newest transcript, pages older messages, and uses the actual latest customer turn for the reply window', async () => {
+    const c=await client(), other=await client(), headers=await cookie(c.user);
+    const customerId=randomUUID(), conversationId=randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt") VALUES (${customerId},${c.tenantId},'transcript-test',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","messageCount","updatedAt") VALUES (${conversationId},${c.tenantId},${c.accountId},${customerId},30,NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content,"createdAt")
+      SELECT 'transcript-'||${conversationId}||'-'||i::text,${c.tenantId},${conversationId},'ASSISTANT',i::text,NOW()-INTERVAL '3 days'+i*INTERVAL '1 second' FROM generate_series(1,60) i`;
+    const latest=randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content,"createdAt") VALUES (${latest},${c.tenantId},${conversationId},'USER','Live WhatsApp test',NOW())`;
+    const first=await request(app).get('/api/client/conversations/'+conversationId).set(headers);
+    expect(first.status).toBe(200);expect(first.body.messages).toHaveLength(50);
+    expect(first.body.messages.at(-1).id).toBe(latest);expect(first.body.messages[0].content).toBe('12');
+    expect(first.body.hasOlderMessages).toBe(true);expect(first.body.conversation.customerServiceWindow.canSendFreeform).toBe(true);
+    const older=await request(app).get('/api/client/conversations/'+conversationId).query({before:first.body.nextBefore}).set(headers);
+    expect(older.body.messages.map((m:any)=>m.content)).toEqual(Array.from({length:11},(_,i)=>String(i+1)));
+    expect(older.body.hasOlderMessages).toBe(false);expect(older.body.conversation.customerServiceWindow.canSendFreeform).toBe(true);
+    expect((await request(app).get('/api/client/conversations/'+conversationId).set(await cookie(other.user))).status).toBe(404);
+    expect((await request(app).get('/api/client/conversations/'+conversationId+'?limit=bad').set(headers)).status).toBe(200);
+  });
   it('signs in a verified administrator with the correct password without another email', async () => {
     const sent=delivered.length;
     const invalid=await request(app).post('/api/auth/login').send({email:admin.email,password:'wrong-password'});

@@ -501,7 +501,9 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const tenantId = req.portal.tenantId!;
     const accountId = req.portal.accountId!;
     const conversationId = String(req.params.id);
-    const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
+    const requestedLimit = Number(req.query.limit || 50);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 50;
+    const beforeMessageId = typeof req.query.before === 'string' ? req.query.before : null;
 
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT c.*, cu."externalId" AS "customerPhone", cu.metadata AS "customerMetadata"
@@ -524,11 +526,18 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       SELECT id, role, content, metadata, "externalId", "createdAt"
       FROM "Message"
       WHERE "conversationId" = ${conversationId} AND "tenantId" = ${tenantId}
-      ORDER BY "createdAt" ASC
-      LIMIT ${limit}
+        AND (${beforeMessageId}::text IS NULL OR ("createdAt",id) < (
+          SELECT "createdAt",id FROM "Message" WHERE id=${beforeMessageId}
+            AND "conversationId"=${conversationId} AND "tenantId"=${tenantId}
+        ))
+      ORDER BY "createdAt" DESC,id DESC
+      LIMIT ${limit + 1}
     `;
-
-    const latestUserMsg = [...messageRows].reverse().find(m => m.role === 'USER');
+    const hasOlderMessages = messageRows.length > limit;
+    const pageMessages = messageRows.slice(0, limit).reverse();
+    const latestUserMsg = (await store.db.$queryRaw<any[]>`SELECT "createdAt" FROM "Message"
+      WHERE "conversationId"=${conversationId} AND "tenantId"=${tenantId} AND role='USER'
+      ORDER BY "createdAt" DESC,id DESC LIMIT 1`)[0];
     let canSendFreeform = false;
     let windowExpiresAt: Date | null = null;
     let secondsRemaining = 0;
@@ -582,7 +591,9 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
           secondsRemaining
         }
       },
-      messages: messageRows.map(m => ({
+      hasOlderMessages,
+      nextBefore: hasOlderMessages ? pageMessages[0]?.id : null,
+      messages: pageMessages.map(m => ({
         id: m.id,
         role: m.role,
         content: m.content,
