@@ -50,13 +50,17 @@ export class QuestionReformulator {
     }
     if (process.env.CHATBOT_FAST_REFORMULATION === 'true') {
       if (this.REFERENCE_ONLY_QUERY.test(trimmed)) return true;
+      // JavaScript's ASCII word boundary misses the accented first letter in "ça".
+      if (/(?:^|\s)ça(?=\s|[?.!,]|$)/iu.test(trimmed)) return true;
     } else if (this.LEGACY_BROAD_PATTERNS.some(pattern => pattern.test(trimmed))) {
       return true;
     }
 
-    // 2. Short follow-up queries (<= 3 words and ends with '?')
+    // 2. Short follow-ups. With the opt-in rule, three-word questions can
+    // already name their subject ("Ch7al taman reparation?").
     const wordCount = trimmed.split(/\s+/).length;
-    if (wordCount <= 3 && trimmed.includes('?')) {
+    const shortLimit = process.env.CHATBOT_FAST_REFORMULATION === 'true' ? 2 : 3;
+    if (wordCount <= shortLimit && trimmed.includes('?')) {
       return true;
     }
 

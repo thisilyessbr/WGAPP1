@@ -27,7 +27,10 @@ describe('multilingual retrieval query reformulation', () => {
     'How long is the English course?',
     'Combien coûte le cours de français ?',
     'كم ثمن دورة الإنجليزية؟',
+    'كم ثمن العلاج؟',
     'Ch7al taman cours anglais?',
+    'Ch7al taman reparation?',
+    'Price of haircut?',
     'Kifach n9der n7jez cours anglais?'
   ])('does not spend an AI call on a standalone question: %s', async query => {
     const llm = new LLMMockProvider();
