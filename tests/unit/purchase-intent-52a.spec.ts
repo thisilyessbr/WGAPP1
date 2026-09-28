@@ -1,3 +1,4 @@
+import { transactionalLeadMock } from '../helpers/transactional-lead-mock';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { EcommerceIntentParser } from '../../src/domain/ecommerce/EcommerceIntent';
 import { TurnDecisionResolver } from '../../src/domain/conversation/TurnDecision';
@@ -308,7 +309,7 @@ describe('Phase CRM-D-FIX — Purchase Intent & Lead Flow Contract (52A)', () =>
           }
         }
       };
-      crmService = new CRMService(mockPrisma);
+      crmService = new CRMService(transactionalLeadMock(mockPrisma));
     });
 
     it('X. creates exactly 1 Lead on BUY_INTENT turn decision', async () => {

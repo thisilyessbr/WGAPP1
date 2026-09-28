@@ -95,7 +95,7 @@ describe('Minimal Choice-Based Workflow Engine', () => {
     expect(res.isComplete).toBe(false);
     expect(res.nextStateId).toBe('choice_sales');
     expect(res.updatedContext['choice_category']).toBe('Sales');
-    expect(res.response).toContain('Which plan are you interested in?');
+    expect(res.response).toContain('2. Enterprise Plan');
     expect(res.response).toContain('1. Starter Plan');
     expect(res.response).toContain('2. Enterprise Plan');
   });
@@ -118,8 +118,8 @@ describe('Minimal Choice-Based Workflow Engine', () => {
     
     expect(res.isComplete).toBe(false);
     expect(res.nextStateId).toBe('choice_sales'); // Stays in choice_sales
-    expect(res.response).toContain("Let's finish this first — please choose one of the options above.");
-    expect(res.response).toContain('Which plan are you interested in?');
+    expect(res.response).toContain("Let's finish this first — please choose one of the options below:");
+    expect(res.response).toContain('2. Enterprise Plan');
     expect(res.response).toContain('1. Starter Plan');
   });
 

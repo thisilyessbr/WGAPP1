@@ -62,7 +62,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-faq-arabizi',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -98,7 +98,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
       mockLlm.generatedResponseMock = 'نعم، يمكنك إرجاع المنتجات خلال 14 يوماً.';
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-faq-arabic',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -150,7 +150,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-rag-arabizi',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -194,7 +194,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-rag-arabic',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -250,7 +250,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-prompt-script',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -277,7 +277,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
       await engine.handleMessage('animeverse', 'cust-1', 'kifach nghsel l hoodie dyali?', 'animeverse-store');
 
-      expect(capturedSystemPrompt).toContain('Target Script: "arabizi"');
+      expect(capturedSystemPrompt).toContain('Script: "arabizi"');
       expect(capturedSystemPrompt).toContain('CRITICAL SCRIPT RULE');
     });
 
@@ -297,7 +297,7 @@ describe('Phase 31B: Final Response Boundary + Knowledge Trust Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-track-leak',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',

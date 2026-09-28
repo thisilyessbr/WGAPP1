@@ -102,7 +102,7 @@ describe('Phase 30D: Final Response + Concurrency Contract Tests', () => {
         config: mockAnimeConfig
       });
 
-      expect(response).toContain('Cyber Spirit Hoodie is available for 350 MAD. (In stock: 5)');
+      expect(response).toContain('Cyber Spirit Hoodie (Black / M) is available for 350 MAD. (In stock: 5)');
     });
 
     it('4. Ecommerce French output stays French', () => {
@@ -121,7 +121,7 @@ describe('Phase 30D: Final Response + Concurrency Contract Tests', () => {
         config: mockAnimeConfig
       });
 
-      expect(response).toContain('Le prix de Cyber Spirit Hoodie est de 350 MAD.');
+      expect(response).toContain('Le prix de Cyber Spirit Hoodie (Black / M) est de 350 MAD.');
     });
 
     it('5. All Ecommerce answers use AnswerComposer path via ConversationEngine', async () => {
@@ -133,7 +133,7 @@ describe('Phase 30D: Final Response + Concurrency Contract Tests', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-ecom-composer',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -172,7 +172,7 @@ describe('Phase 30D: Final Response + Concurrency Contract Tests', () => {
   });
 
   describe('2. Optimistic Concurrency Retry & Safety', () => {
-    it('6. Concurrent commit conflict retries successfully', async () => {
+    it('6. A stale commit fails so the whole turn can be retried from fresh state', async () => {
       let attempts = 0;
       const mockPrisma = {
         $transaction: vi.fn().mockImplementation(async (callback) => {
@@ -203,23 +203,18 @@ describe('Phase 30D: Final Response + Concurrency Contract Tests', () => {
       };
 
       const service = new ConversationService(mockPrisma as any);
-      const result = await service.commitConversationTurn({
+      await expect(service.commitConversationTurn({
         tenantId: 'animeverse',
         conversationId: 'conv-1',
         expectedVersion: 1,
         userMessage: 'Test user message',
         assistantMessage: 'Test assistant message'
-      });
-
-      expect(attempts).toBe(2);
-      expect(result.success).toBe(true);
-      expect(mockPrisma.conversation.findUnique).toHaveBeenCalledWith({
-        where: { id: 'conv-1' },
-        select: { version: true }
-      });
+      })).rejects.toThrow('Concurrency Conflict');
+      expect(attempts).toBe(1);
+      expect(mockPrisma.conversation.findUnique).not.toHaveBeenCalled();
     });
 
-    it('7. No duplicate turn after retry', async () => {
+    it('7. A rejected stale turn writes no messages', async () => {
       let messageCreateCount = 0;
       let attempts = 0;
       const mockPrisma = {
@@ -247,16 +242,14 @@ describe('Phase 30D: Final Response + Concurrency Contract Tests', () => {
       };
 
       const service = new ConversationService(mockPrisma as any);
-      await service.commitConversationTurn({
+      await expect(service.commitConversationTurn({
         tenantId: 'animeverse',
         conversationId: 'conv-1',
         expectedVersion: 1,
         userMessage: 'User message',
         assistantMessage: 'Assistant response'
-      });
-
-      // 1 user message + 1 assistant message committed only on the successful second attempt
-      expect(messageCreateCount).toBe(2);
+      })).rejects.toThrow('Concurrency Conflict');
+      expect(messageCreateCount).toBe(0);
     });
 
     it('8. No raw CONCURRENCY_CONFLICT reaches customer when retries exhaust', async () => {

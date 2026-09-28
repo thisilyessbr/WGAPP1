@@ -145,8 +145,18 @@ function voiceNoteOptions(prisma: PrismaClient) {
       return voiceTranscriptionAvailable(selected) ? selected : null;
     },
     transcriber: new VoiceNoteTranscriber(),
-    recordUsage: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider) =>
-      recordVoiceNoteUsage(prisma, tenantId, accountId, wamid, durationSeconds, provider)
+    languageHint: async (tenantId: string, accountId: string, customerExternalId: string) => {
+      const conversation = await prisma.conversation.findFirst({
+        where: { tenantId, accountId, customer: { externalId: customerExternalId, tenantId } },
+        orderBy: { updatedAt: 'desc' }, select: { contextData: true }
+      });
+      const previous = (conversation?.contextData as any)?._lang;
+      if (['en', 'fr', 'ar', 'darija'].includes(previous)) return previous;
+      const profile = await prisma.portalProfile.findUnique({ where: { accountId }, select: { tenantId: true, adminConfig: true } });
+      return profile?.tenantId === tenantId ? (profile.adminConfig as any)?.identity?.language : undefined;
+    },
+    recordUsage: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider, languageHint?: string) =>
+      recordVoiceNoteUsage(prisma, tenantId, accountId, wamid, durationSeconds, provider, languageHint)
   };
 }
 

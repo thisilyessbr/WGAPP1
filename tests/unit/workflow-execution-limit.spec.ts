@@ -1,3 +1,4 @@
+import { transactionalLeadMock } from '../helpers/transactional-lead-mock';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConversationEngine } from '../../src/domain/conversation/ConversationEngine';
 import { ConversationService } from '../../src/domain/conversation/ConversationService';
@@ -294,7 +295,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     tenantConfigService = new TenantConfigService(mockPrisma);
     conversationService = new ConversationService(mockPrisma);
-    crmService = new CRMService(mockPrisma);
+    crmService = new CRMService(transactionalLeadMock(mockPrisma));
     mockLlm = new LLMMockProvider();
     mockLlm.intentMock = 'fitness_consultation';
 

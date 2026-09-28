@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { assertBusinessImages, businessImageIds, productImageUrl } from './PortalProductImages';
 import { BusinessData, EMPTY_BUSINESS, PlanLimits, PortalDb, PortalError, PortalPlan, PortalProfile, PortalUser } from './types';
 import { compileBusiness, validateBusiness, validatePlan } from './validation';
 import { localEmailBypass } from './localTesting';
@@ -138,6 +139,7 @@ export class PortalStore {
       if (profile.revision !== expectedRevision) throw new PortalError(409, 'REVISION_CONFLICT', 'Your data changed in another window. Reload before saving.');
       const plan = profile.planSnapshot || (profile.requestedPlanId ? await s.plan(profile.requestedPlanId) : null);
       const data = validateBusiness(draft, plan, profile.draft, administrative ? [] : profile.lockedFields);
+      await assertBusinessImages(s, accountId, data);
       await s.db.$executeRaw`UPDATE "PortalProfile" SET draft=${json(data)}::jsonb,revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
       await s.audit(actorId, accountId, 'BUSINESS_DATA_SAVED', { revision: expectedRevision + 1 });
       const updated = await s.profile(accountId);
@@ -247,18 +249,20 @@ export class PortalStore {
     // Retire removed catalog entries without deleting historical product references.
     await this.db.$executeRaw`UPDATE "Product" SET active=false,"updatedAt"=NOW() WHERE "tenantId"=${tenantId} AND "accountId"=${accountId}`;
     // Batch the catalog so a large client import does not perform thousands of database round trips.
-    const catalog = data.products.map(p => ({ ...p, id: randomUUID() }));
-    const rows = await this.db.$queryRaw<any[]>`INSERT INTO "Product"(id,"tenantId","accountId",sku,name,description,price,currency,stock,active,category,"updatedAt")
-      SELECT x.id,${tenantId},${accountId},x.sku,x.name,x.description,x.price,${data.currency},x.stock,true,NULLIF(x.category,''),NOW()
-      FROM jsonb_to_recordset(${json(catalog)}::jsonb) AS x(id text,sku text,name text,description text,price numeric,stock int,category text)
-      ON CONFLICT("tenantId","accountId",sku) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,price=EXCLUDED.price,currency=EXCLUDED.currency,stock=EXCLUDED.stock,active=true,category=EXCLUDED.category,"updatedAt"=NOW() RETURNING id,sku`;
+    await assertBusinessImages(this, accountId, data);
+    const catalog = config.capabilities.ecommerceEnabled ? data.products.map(p => ({ ...p, id: randomUUID(), metadata: { images: (p.imageIds || []).map(productImageUrl) } })) : [];
+    const rows = await this.db.$queryRaw<any[]>`INSERT INTO "Product"(id,"tenantId","accountId",sku,name,description,price,currency,stock,active,category,metadata,"updatedAt")
+      SELECT x.id,${tenantId},${accountId},x.sku,x.name,x.description,x.price,${data.currency},x.stock,true,NULLIF(x.category,''),x.metadata,NOW()
+      FROM jsonb_to_recordset(${json(catalog)}::jsonb) AS x(id text,sku text,name text,description text,price numeric,stock int,category text,metadata jsonb)
+      ON CONFLICT("tenantId","accountId",sku) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,price=EXCLUDED.price,currency=EXCLUDED.currency,stock=EXCLUDED.stock,active=true,category=EXCLUDED.category,metadata=EXCLUDED.metadata,"updatedAt"=NOW() RETURNING id,sku`;
     const ids = new Map(rows.map(p => [p.sku, p.id]));
     await this.db.$executeRaw`UPDATE "ProductVariant" SET active=false,"updatedAt"=NOW() WHERE "productId" IN (SELECT id FROM "Product" WHERE "tenantId"=${tenantId} AND "accountId"=${accountId})`;
-    const variants = data.products.flatMap(p => p.variants.map(v => ({ ...v, id: randomUUID(), productId: ids.get(p.sku) })));
-    await this.db.$executeRaw`INSERT INTO "ProductVariant"(id,"productId",sku,size,color,"priceOverride",stock,active,"updatedAt")
-      SELECT x.id,x."productId",x.sku,NULLIF(x.size,''),NULLIF(x.color,''),x.price,x.stock,true,NOW()
-      FROM jsonb_to_recordset(${json(variants)}::jsonb) AS x(id text,"productId" text,sku text,size text,color text,price numeric,stock int)
-      ON CONFLICT("productId",sku) DO UPDATE SET size=EXCLUDED.size,color=EXCLUDED.color,"priceOverride"=EXCLUDED."priceOverride",stock=EXCLUDED.stock,active=true,"updatedAt"=NOW()`;
+    const variants = catalog.flatMap(p => p.variants.map(v => ({ ...v, id: randomUUID(), productId: ids.get(p.sku), metadata: v.imageId ? { images: [productImageUrl(v.imageId)] } : {} })));
+    await this.db.$executeRaw`INSERT INTO "ProductVariant"(id,"productId",sku,size,color,"priceOverride",stock,active,metadata,"updatedAt")
+      SELECT x.id,x."productId",x.sku,NULLIF(x.size,''),NULLIF(x.color,''),x.price,x.stock,true,x.metadata,NOW()
+      FROM jsonb_to_recordset(${json(variants)}::jsonb) AS x(id text,"productId" text,sku text,size text,color text,price numeric,stock int,metadata jsonb)
+      ON CONFLICT("productId",sku) DO UPDATE SET size=EXCLUDED.size,color=EXCLUDED.color,"priceOverride"=EXCLUDED."priceOverride",stock=EXCLUDED.stock,active=true,metadata=EXCLUDED.metadata,"updatedAt"=NOW()`;
+    await this.db.$executeRaw`UPDATE "PortalProductImage" SET published=(id IN (SELECT jsonb_array_elements_text(${json(businessImageIds(data))}::jsonb))) WHERE "accountId"=${accountId}`;
     const revision = profile.revision + 1;
     await this.db.$executeRaw`INSERT INTO "PortalPublication"(id,"accountId",revision,data,config,"actorId") VALUES (${randomUUID()},${accountId},${revision},${json(data)}::jsonb,${json(config)}::jsonb,${actorId})`;
     await this.db.$executeRaw`UPDATE "PortalProfile" SET published=${json(data)}::jsonb,"publishedRevision"=${revision},revision=${revision},status=CASE WHEN status IN ('ACTIVE','SUSPENDED') THEN status ELSE 'APPROVED' END,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
@@ -281,7 +285,8 @@ export class PortalStore {
   async accounts(search = '', offset = 0) {
     offset = Math.max(0, Math.min(1000000, Math.floor(Number.isFinite(offset) ? offset : 0)));
     return this.db.$queryRaw<any[]>`SELECT p."accountId",p."tenantId",a.name,owner.name AS "clientName",owner.email AS "clientEmail",p.status,p.revision,p."planId",p."requestedPlanId",p."createdAt",p."updatedAt",p."planSnapshot"->>'name' AS "planName",
-      (SELECT COUNT(*)::int FROM "Conversation" c WHERE c."accountId"=p."accountId" AND c."tenantId"=p."tenantId") AS conversations
+      (SELECT COUNT(*)::int FROM "Conversation" c WHERE c."accountId"=p."accountId" AND c."tenantId"=p."tenantId"
+        AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%')) AS conversations
       FROM "PortalProfile" p JOIN "Account" a ON a.id=p."accountId" AND a."tenantId"=p."tenantId"
       LEFT JOIN LATERAL (SELECT u.name,u.email FROM "PortalMembership" m JOIN "PortalUser" u ON u.id=m."userId"
         WHERE m."accountId"=p."accountId" AND m."tenantId"=p."tenantId" AND u.role='CLIENT'
@@ -302,11 +307,11 @@ export class PortalStore {
     days = Math.max(1, Math.min(90, Number.isFinite(days) ? Math.floor(days) : 30));
     const [totals, daily, sources, costs, usage, responses, delivery] = await Promise.all([
       this.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS conversations,COUNT(DISTINCT "customerId")::int AS contacts,
-        COUNT(*) FILTER(WHERE "humanRequested"=true)::int AS handoffs FROM "Conversation" WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
-        AND "customerId" NOT LIKE 'portal-preview:%' AND "createdAt">NOW()-${days}*INTERVAL '1 day'`,
+        COUNT(*) FILTER(WHERE "humanRequested"=true)::int AS handoffs FROM "Conversation" c WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
+        AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%') AND "createdAt">NOW()-${days}*INTERVAL '1 day'`,
       this.db.$queryRaw<any[]>`SELECT date_trunc('day',m."createdAt") AS day,COUNT(*) FILTER(WHERE m.role='USER')::int AS inbound,COUNT(*) FILTER(WHERE m.role='ASSISTANT')::int AS outbound
         FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId" WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId}
-        AND c."customerId" NOT LIKE 'portal-preview:%' AND m."tenantId"=${tenantId} AND m."createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY day ORDER BY day`,
+        AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%') AND m."tenantId"=${tenantId} AND m."createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY day ORDER BY day`,
       this.db.$queryRaw<any[]>`SELECT l.status,COUNT(*)::int AS count FROM "Lead" l JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
         WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND COALESCE(cu."externalId",'') NOT LIKE 'portal-preview:%'
         AND l."createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY l.status`,

@@ -124,6 +124,16 @@ describe('opt-in WhatsApp voice notes', () => {
     expect(voiceNoteChargeMicros(20, 'deepgram')).toBe(1434);
   });
 
+  it.each(['en', 'fr'])('uses one multilingual Deepgram call for a %s conversation', async language => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      metadata: { duration: 8 }, results: { channels: [{ alternatives: [{ transcript: 'Bonjour hello', confidence: 0.9 }] }] }
+    })));
+    await new VoiceNoteTranscriber(fetchFn, 'test-key').transcribe(Buffer.from([1]), 'audio/ogg', 'deepgram', language);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0][0]).toContain('language=multi');
+    expect(voiceNoteChargeMicros(60,'deepgram',language)).toBe(5200);
+  });
+
   it('routes another account to Groq and can force a global rollback', async () => {
     const deepgram = worker(true, undefined, 'deepgram');
     await deepgram.instance.processJob(job);

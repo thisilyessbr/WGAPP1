@@ -15,6 +15,7 @@ export interface TurnSignalParams {
   accountId?: string | null;
   customerId: string;
   conversationId?: string;
+  workflowSessionId?: string | null;
   turnDecision?: TurnDecision | null;
   isWorkflowCompleted?: boolean;
   workflowId?: string | null;
@@ -106,11 +107,8 @@ export class CRMService {
     return false;
   }
 
-  /**
-   * Upserts a minimal Lead record for a customer in a specific account.
-   * Idempotent per (tenantId, accountId, customerId).
-   */
-  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string }): Promise<Lead> {
+  /** Reuse an open request, but retain closed requests when the customer returns. */
+  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string; workflowSessionId?: string | null }): Promise<Lead> {
     if (!tenantId || !accountId || !customerId) {
       throw new Error('CRMService: tenantId, accountId, and customerId are required for upsertLead');
     }
@@ -119,26 +117,37 @@ export class CRMService {
       throw new Error(`CRMService: Invalid lead status "${status}". Allowed values: ${VALID_LEAD_STATUSES.join(', ')}`);
     }
 
-    return this.prisma.lead.upsert({
-      where: {
-        tenantId_accountId_customerId: {
-          tenantId,
-          accountId,
-          customerId
-        }
-      },
-      create: {
-        tenantId,
-        accountId,
-        customerId,
-        status,
+    return this.prisma.$transaction(async tx => {
+      // Serialize requests from the same customer before inspecting the open lead.
+      const ownership = await tx.$queryRaw<any[]>`SELECT c.id FROM "Customer" c JOIN "Account" a ON a."tenantId"=c."tenantId"
+        WHERE c.id=${customerId} AND c."tenantId"=${tenantId} AND a.id=${accountId} FOR UPDATE OF c`;
+      if (!ownership.length) throw new Error('CRM_ACCOUNT_CUSTOMER_MISMATCH');
+      const scope = { tenantId, accountId, customerId };
+      if (signal?.workflowSessionId) {
+        const matching = await tx.lead.findFirst({ where: { ...scope, sourceWorkflowSessionId: signal.workflowSessionId } });
+        if (matching) return matching;
+        const pending = await tx.lead.findFirst({
+          where: { ...scope, sourceConversationId: signal.conversationId || null,
+            sourceWorkflowSessionId: null, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (pending) return tx.lead.update({ where: { id: pending.id }, data: {
+          sourceWorkflowSessionId: signal.workflowSessionId, signalReason: signal.reason || pending.signalReason
+        } });
+      } else {
+        const open = await tx.lead.findFirst({
+          where: { ...scope, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (open) return open;
+      }
+      return tx.lead.create({ data: {
+        tenantId, accountId, customerId, status,
         interest: signal?.interest?.slice(0, 280) || null,
         signalReason: signal?.reason || null,
-        sourceConversationId: signal?.conversationId || null
-      },
-      update: {
-        // If lead already exists, touch updatedAt without overwriting advanced pipeline status unless specified
-      }
+        sourceConversationId: signal?.conversationId || null,
+        sourceWorkflowSessionId: signal?.workflowSessionId || null
+      } });
     });
   }
 
@@ -228,6 +237,7 @@ export class CRMService {
       terminalStateId,
       workflowIntents,
       userMessage,
+      workflowSessionId,
       leadMode = 'BOTH'
     } = params;
 
@@ -250,7 +260,7 @@ export class CRMService {
     }
 
     // 2. Turn decision contains explicit sales intent
-    if (turnDecision) {
+    if (!isStrongSignal && turnDecision) {
       const intentUpper = (turnDecision.intent || '').toUpperCase();
       if ((leadMode !== 'SERVICE' && (['BUY_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')))
         || (leadMode !== 'COMMERCE' && intentUpper === 'BOOKING_INTENT')) {
@@ -293,7 +303,8 @@ export class CRMService {
     if (isStrongSignal && !isActionNegated(userMessage || '', 'purchase')) {
       logger.info(`CRMService: Strong sales signal detected for customer [${customerId}] in account [${accountId}]. Upserting lead.`);
       return this.upsertLead(tenantId, accountId, customerId, 'NEW', {
-        interest: userMessage?.trim(), reason: signalReason, conversationId
+        interest: userMessage?.trim(), reason: signalReason, conversationId,
+        workflowSessionId: signalReason === 'COMPLETED_SALES_WORKFLOW' ? workflowSessionId : null
       });
     }
 

@@ -31,7 +31,8 @@ export interface BusinessData {
   policies: { shipping: string; returns: string; payment: string; privacy: string };
   faqs: { id: string; question: string; answer: string; language: string; category: string }[];
   products: { sku: string; name: string; description: string; price: number; stock: number; category: string;
-    variants: { sku: string; size: string; color: string; stock: number; price: number | null }[] }[];
+    imageIds?: string[];
+    variants: { sku: string; size: string; color: string; stock: number; price: number | null; imageId?: string | null }[] }[];
   services: { name: string; description: string; price: string; availability: string }[];
 }
 export interface PortalProfile {

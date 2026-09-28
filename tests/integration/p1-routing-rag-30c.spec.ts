@@ -56,7 +56,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-ecom-faq-1',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -117,7 +117,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-ecom-faq-2',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -174,7 +174,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-ecom-faq-3',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -269,7 +269,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-multi-1',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -325,7 +325,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-multi-2',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -380,7 +380,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
 
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-single-1',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -422,7 +422,7 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-account-1',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',

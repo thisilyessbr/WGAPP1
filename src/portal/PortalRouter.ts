@@ -5,6 +5,7 @@ import { PortalStore } from './PortalStore';
 import { PortalAuth, hashPassword, hashToken } from './PortalAuth';
 import { PortalConnections } from './PortalConnections';
 import { PortalDocuments } from './PortalDocuments';
+import { PortalProductImages } from './PortalProductImages';
 import { EMPTY_BUSINESS, PortalError, PortalPrincipal, PortalProfile, PortalPlan } from './types';
 import { allowed, compileBusiness, email, integer, list, object, text, validateAdminConfig, validatePlan } from './validation';
 import { ConversationEngine } from '../domain/conversation/ConversationEngine';
@@ -60,11 +61,21 @@ function validateAccountChanges(changes: Record<string, any>) {
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
   const portalLeads = new PortalLeads(store);
+  const photos = new PortalProductImages(store);
+  const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
+  const sendPhoto = async (res: Response, id: string, accountId?: string) => {
+    const bytes = await photos.read(id, accountId, !accountId);
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(bytes);
+  };
   const automationService = deps.conversationAutomationService || new ConversationAutomationService(services.store.db as any);
   const router = Router(), authRouter = Router(), client = Router(), admin = Router();
   router.use(['/auth', '/client', '/admin', '/portal'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   router.get('/portal/plans', route(async (_req, res) => send(res, { plans: (await store.plans(true)).map(publicPlan) })));
   router.get('/portal/settings', (_req, res) => send(res, { emailVerificationSkipped: auth.skipsEmail() }));
+  router.get('/product-images/:id', route(async (req, res) => sendPhoto(res, String(req.params.id))));
   authRouter.use((req, _res, next) => { try { if (!['GET', 'HEAD'].includes(req.method)) auth.checkOrigin(req); next(); } catch (error) { next(error); } });
   authRouter.post('/signup', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['email', 'name', 'password']);
@@ -101,6 +112,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         ? next(new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.'))
         : next()).catch(next);
   });
+  client.use('/leads', (req, _res, next) => {
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => profile.planSnapshot?.modules.some(module => module === 'services' || module === 'commerce')
+        ? next()
+        : next(new PortalError(403, 'REQUESTS_NOT_INCLUDED')))
+      .catch(next);
+  });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
   client.patch('/voice-notes', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['enabled']);
@@ -116,7 +134,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       store.stats(accountId, tenantId, 30),
       documents.list(accountId),
       store.db.$queryRaw<any[]>`SELECT id,status,"messageCount","humanRequested","updatedAt","customerId" FROM "Conversation"
-        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "customerId" NOT LIKE 'portal-preview:%'
+        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
+          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
         ORDER BY "updatedAt" DESC LIMIT 6`,
       portalLeads.summary(tenantId, accountId)
     ]);
@@ -135,18 +154,19 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   }));
   const leadRows = async (accountId: string, tenantId: string, limit = 1000, offset = 0, status = '') => store.db.$queryRaw<any[]>`
     SELECT l.id,l.status,l.interest,l.note,l.details,l."followUpAt",l."createdAt",l."updatedAt",c."externalId" AS "contact",
-      conv.id AS "conversationId",ws."collectedData" AS "orderDetails",ws."workflowId"
+      COALESCE(l."sourceConversationId",conv.id) AS "conversationId",ws."collectedData" AS "orderDetails",ws."workflowId"
     FROM "Lead" l JOIN "Customer" c ON c.id=l."customerId" AND c."tenantId"=l."tenantId"
     LEFT JOIN LATERAL (SELECT id FROM "Conversation" WHERE "tenantId"=l."tenantId"
       AND "accountId"=l."accountId" AND "customerId"=l."customerId"
-      AND "customerId" NOT LIKE 'portal-preview:%' ORDER BY "updatedAt" DESC LIMIT 1) conv ON true
-    LEFT JOIN LATERAL (SELECT "collectedData","workflowId" FROM "WorkflowSession"
-      WHERE "tenantId"=l."tenantId" AND "conversationId"=conv.id AND status='COMPLETED'
-      AND ("workflowId" !~* '(checkout|cash_on_delivery|cod_order)'
-        OR "collectedData"->>'_confirmed'='true'
-        OR ("collectedData"->>'_confirmed' IS NULL AND "stateId"='done'))
-      ORDER BY "updatedAt" DESC LIMIT 1) ws ON true
+      AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%') ORDER BY "updatedAt" DESC LIMIT 1) conv ON true
+    LEFT JOIN "WorkflowSession" ws ON ws.id=l."sourceWorkflowSessionId"
+      AND ws."tenantId"=l."tenantId" AND ws."conversationId"=COALESCE(l."sourceConversationId",conv.id)
+      AND ws.status='COMPLETED'
+      AND (ws."workflowId" !~* '(checkout|cash_on_delivery|cod_order)'
+        OR ws."collectedData"->>'_confirmed'='true'
+        OR (ws."collectedData"->>'_confirmed' IS NULL AND ws."stateId"='done'))
     WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND (${status}='' OR l.status=${status})
+      AND (c."externalId" IS NULL OR c."externalId" NOT LIKE 'portal-preview:%')
     ORDER BY l."updatedAt" DESC,l.id DESC LIMIT ${limit} OFFSET ${offset}`;
   client.get('/leads', route(async (req, res) => {
     const status = String(req.query.status || 'ALL').toUpperCase();
@@ -218,6 +238,26 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   client.post('/submit', route(async (req, res) => send(res, { profile: clientProfile(await store.submit(req.portal.user.id, req.portal.accountId!, integer(req.body?.revision, 1))) })));
   client.post('/plan-request', route(async (req, res) => { await store.requestPlan(req.portal.user.id, req.portal.accountId!, text(req.body?.planId, 100)); send(res, { success: true }); }));
   client.get('/documents', route(async (req, res) => send(res, { documents: await documents.list(req.portal.accountId!) })));
+  client.get('/product-images/:id', route(async (req, res) => sendPhoto(res, String(req.params.id), req.portal.accountId!)));
+  client.post('/product-images', photoUpload, route(async (req, res) => {
+    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
+    await store.throttle('photo-upload:' + req.portal.accountId!, 50, 3600);
+    send(res, await photos.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
+  }));
+  client.delete('/product-images/:id', route(async (req, res) => {
+    await photos.remove(req.portal.user.id, req.portal.accountId!, String(req.params.id));
+    send(res, { success: true });
+  }));
+  admin.get('/accounts/:id/product-images/:imageId', route(async (req, res) => sendPhoto(res, String(req.params.imageId), String(req.params.id))));
+  admin.post('/accounts/:id/product-images', photoUpload, route(async (req, res) => {
+    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
+    await store.throttle('photo-upload:' + String(req.params.id), 50, 3600);
+    send(res, await photos.upload(req.portal.user.id, String(req.params.id), req.file.originalname, req.file.buffer, true), 201);
+  }));
+  admin.delete('/accounts/:id/product-images/:imageId', route(async (req, res) => {
+    await photos.remove(req.portal.user.id, String(req.params.id), String(req.params.imageId), true);
+    send(res, { success: true });
+  }));
   const downloadDocument = async (res: Response, actorId: string, accountId: string, id: string) => {
     const doc = (await store.db.$queryRaw<any[]>`SELECT filename,bytes FROM "PortalDocument" WHERE id=${id} AND "accountId"=${accountId}`)[0];
     if (!doc) throw new PortalError(404, 'DOCUMENT_NOT_FOUND');
@@ -335,7 +375,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
         WHERE c."tenantId" = ${tenantId}
           AND c."accountId" = ${accountId}
-          AND c."customerId" NOT LIKE 'portal-preview:%'
+          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
       )
       SELECT *
       FROM conv_stats
@@ -445,7 +485,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       FROM "Conversation" c
       JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
       WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId} AND c."accountId" = ${accountId}
-        AND c."customerId" NOT LIKE 'portal-preview:%'
+        AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
     `;
     const conv = convRows[0];
     if (!conv) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
@@ -538,7 +578,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -574,7 +614,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -610,7 +650,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -646,7 +686,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -686,7 +726,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       FROM "Conversation" c
       JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
       WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId} AND c."accountId" = ${accountId}
-        AND c."customerId" NOT LIKE 'portal-preview:%'
+        AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
     `;
     const conv = convRows[0];
     if (!conv) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
@@ -811,12 +851,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS conversations,COUNT(DISTINCT (c."accountId",c."customerId"))::int AS contacts,
         COUNT(*) FILTER(WHERE c."humanRequested"=true)::int AS handoffs FROM "Conversation" c
         JOIN "PortalProfile" p ON p."accountId"=c."accountId" AND p."tenantId"=c."tenantId"
-        WHERE c."customerId" NOT LIKE 'portal-preview:%' AND c."createdAt">NOW()-INTERVAL '30 days'`,
+        WHERE NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%') AND c."createdAt">NOW()-INTERVAL '30 days'`,
       store.db.$queryRaw<any[]>`SELECT date_trunc('day',m."createdAt") AS day,
         COUNT(*) FILTER(WHERE m.role='USER')::int AS inbound,COUNT(*) FILTER(WHERE m.role='ASSISTANT')::int AS outbound
         FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId"
         JOIN "PortalProfile" p ON p."accountId"=c."accountId" AND p."tenantId"=c."tenantId"
-        WHERE c."customerId" NOT LIKE 'portal-preview:%' AND m."createdAt">NOW()-INTERVAL '14 days'
+        WHERE NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%') AND m."createdAt">NOW()-INTERVAL '14 days'
         GROUP BY day ORDER BY day`,
       store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS connected FROM "WhatsAppBusinessNumber" n
         JOIN "PortalProfile" p ON p."accountId"=n."accountId" AND p."tenantId"=n."tenantId"
@@ -851,7 +891,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       JOIN "Account" a ON a.id=p."accountId" AND a."tenantId"=p."tenantId"
       LEFT JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
       LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
-      WHERE c."humanRequested"=true AND c.status IN ('HANDOFF_REQUESTED','HUMAN_ACTIVE') AND c."customerId" NOT LIKE 'portal-preview:%'
+      WHERE c."humanRequested"=true AND c.status IN ('HANDOFF_REQUESTED','HUMAN_ACTIVE') AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
       ORDER BY c."humanRequestedAt" ASC NULLS LAST LIMIT 100`;
     send(res, { conversations });
   }));
@@ -979,7 +1019,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
       LEFT JOIN LATERAL (SELECT m.content,m.role FROM "Message" m WHERE m."conversationId"=c.id AND m."tenantId"=c."tenantId"
         ORDER BY m."createdAt" DESC,m.id DESC LIMIT 1) last_message ON true
-      WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} AND c."customerId" NOT LIKE 'portal-preview:%' ORDER BY c."updatedAt" DESC LIMIT 50`;
+      WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%') ORDER BY c."updatedAt" DESC LIMIT 50`;
     send(res, { conversations: rows });
   }));
   admin.post('/accounts/:id/conversations/:conversationId/triage', route(async (req, res) => {
@@ -990,7 +1030,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const conversationId = String(req.params.conversationId);
     const conversation = await store.transaction(async s => {
       const rows = await s.db.$queryRaw<any[]>`SELECT id,status,"humanRequested","humanRequestedAt","contextData" FROM "Conversation"
-        WHERE id=${conversationId} AND "accountId"=${p.accountId} AND "tenantId"=${p.tenantId} AND "customerId" NOT LIKE 'portal-preview:%' FOR UPDATE`;
+        WHERE id=${conversationId} AND "accountId"=${p.accountId} AND "tenantId"=${p.tenantId}
+          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%') FOR UPDATE`;
       const c = rows[0];
       if (!c) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
       if (!c.humanRequested || !['HANDOFF_REQUESTED','HUMAN_ACTIVE'].includes(c.status)) throw new PortalError(409, 'HANDOFF_NOT_PENDING');
@@ -1033,7 +1074,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const conversationId = String(req.params.conversationId);
     const conversation = (await store.db.$queryRaw<any[]>`SELECT c.id,c."messageCount" FROM "Conversation" c
       WHERE c.id=${conversationId} AND c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId}
-      AND c."customerId" NOT LIKE 'portal-preview:%'`)[0];
+      AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')`)[0];
     if (!conversation) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
     const offset = Math.max(0, Math.min(100000, Math.floor(Number(req.query.offset) || 0)));
     const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m."createdAt" FROM "Message" m
@@ -1089,7 +1130,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   router.use((error: any, _req: Request, res: Response, next: express.NextFunction) => {
     if (res.headersSent) return next(error);
     if (error instanceof PortalError) return send(res, { error: error.code, message: error.message }, error.status);
-    if (error instanceof multer.MulterError) return send(res, { error: 'UPLOAD_LIMIT', message: 'Choose one PDF up to 10 MB.' }, 400);
+    if (error instanceof multer.MulterError) return send(res, { error: 'UPLOAD_LIMIT', message: 'Choose one PDF up to 10 MB or one photo up to 5 MB.' }, 400);
     if (error?.code === '42P01' || error?.meta?.code === '42P01') return send(res, { error: 'PORTAL_MIGRATION_REQUIRED', message: 'Portal setup is not complete. Apply the database migration before enabling registration.' }, 503);
     if (error?.code === '23505' || error?.meta?.code === '23505') return send(res, { error: 'ALREADY_EXISTS', message: 'This record already exists. Reload and try again.' }, 409);
     logger.error('Portal request failed', {

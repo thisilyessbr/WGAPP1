@@ -91,7 +91,7 @@ describe('audit: intent meaning and complete answers',()=>{
 
 describe('audit: state and delivery',()=>{
   function workerFixture() {
-    const conv:any={id:'c',status:'ACTIVE',humanRequested:false};
+    const conv:any={id:'c',tenantId:'t',status:'ACTIVE',humanRequested:false};
     const receipt:any={id:'ack',metadata:{responseType:'HANDOFF',externalMessageId:'first'}};
     const numbers:any={resolveAccountByPhoneNumberId:async()=>({tenantId:'t',accountId:'a',enabled:true,status:'CONNECTED',transport:'META_CLOUD'})};
     const db:any={tenantConfig:{findUnique:async()=>({config:{}})},customer:{findFirst:async()=>({id:'customer'})},conversation:{findFirst:async()=>conv,findUnique:async()=>conv},conversationAutomationState:{findUnique:async()=>null},message:{findFirst:vi.fn(async({where}:any)=>where.AND?.[1]?.metadata?.equals==='first' ? receipt:null)}};
@@ -231,7 +231,7 @@ describe('audit: WhatsApp attachments',()=>{
   });
   it('records an unsupported attachment and asks for text without invoking an LLM',async()=>{
     const {engine,svc,llm}=engineFixture();
-    expect(await engine.handleMessage('t','c',{unsupportedMediaType:'audio'},'a',{externalMessageId:'audio-id'})).toContain('send your request as text');
+    expect(await engine.handleMessage('t','c',{unsupportedMediaType:'audio'},'a',{externalMessageId:'audio-id'})).toContain('type your question');
     expect(svc.commitConversationTurn.mock.calls[0][0]).toMatchObject({externalMessageId:'audio-id',responseType:'UNSUPPORTED_MEDIA'});
     expect(llm.generateResponse).not.toHaveBeenCalled();
   });

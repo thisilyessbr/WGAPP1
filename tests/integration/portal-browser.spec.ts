@@ -12,6 +12,7 @@ import { PortalDocuments } from '../../src/portal/PortalDocuments';
 import { PortalConnections } from '../../src/portal/PortalConnections';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
 import { validatePlan } from '../../src/portal/validation';
+import sharp from 'sharp';
 
 describe('portal browser flow',()=>{
   it('completes client signup, editing, admin publication and WhatsApp callback through the UI',async()=>{
@@ -25,9 +26,9 @@ describe('portal browser flow',()=>{
       const id=randomUUID();await store.db.$executeRaw`INSERT INTO "ChannelConnection"(id,"tenantId","accountId",provider,"connectionKey",status,"updatedAt") VALUES (${id},${p.tenantId},${p.accountId},'META_CLOUD',${randomUUID()},'CONNECTED',NOW())`;
       await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId","connectionId",status,"updatedAt") VALUES (${randomUUID()},${p.tenantId},${p.accountId},${p.phoneNumberId},${id},'CONNECTED',NOW())`;
       return {success:true};}},qrSessionManager:{isEnabled:()=>false}} as any);
-    app.use('/api',createPortalRouter({store,auth,documents:docs,connections},{conversationEngine:{handleMessage:async()=> 'Salam, livraison f 48 sa3a.'}} as any));
-    app.use('/portal-assets',express.static(resolve('src/portal/ui')));
-    app.use((_req,res)=>{res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.facebook.com https://graph.facebook.com; frame-src https://www.facebook.com; base-uri 'none'; form-action 'self'");res.sendFile(resolve('src/portal/ui/index.html'));});
+    app.use('/api',createPortalRouter({store,auth,documents:docs,connections},{conversationEngine:{previewMessage:async()=> 'Salam, livraison f 48 sa3a.'}} as any));
+    app.use('/portal-assets',express.static(resolve('src/portal/ui'),{dotfiles:'allow'}));
+    app.use((_req,res)=>{res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.facebook.com https://graph.facebook.com; frame-src https://www.facebook.com; base-uri 'none'; form-action 'self'");res.sendFile(resolve('src/portal/ui/index.html'),{dotfiles:'allow'});});
     const adminId=randomUUID(),password='Browser-test-password-2026!';
     await store.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash",role,"verifiedAt") VALUES (${adminId},'browser-admin@portal.test','Relayqo Admin',${await hashPassword(password)},'ADMIN',NOW())`;
     await store.savePlan(adminId,validatePlan({name:'Commerce Demo',price:299,published:true,modules:['commerce','services','knowledge'],limits:{monthlyUsd:2}}));
@@ -38,10 +39,12 @@ describe('portal browser flow',()=>{
       browser=await chromium.launch({headless:true});
       const clientContext=await browser.newContext({viewport:{width:1440,height:1000}}),adminContext=await browser.newContext({viewport:{width:1440,height:1000}});
       const page=await clientContext.newPage(),ap=await adminContext.newPage(),errors:string[]=[];
+      page.setDefaultTimeout(7000);ap.setDefaultTimeout(7000);
       page.on('pageerror',e=>errors.push(e.message));ap.on('pageerror',e=>errors.push(e.message));
       await page.goto(origin+'/signup');await page.locator('.language-select').selectOption('ar');await page.getByLabel('اسمك').waitFor();
       await page.locator('.language-select').selectOption('fr');await page.getByLabel('Votre nom').waitFor();
-      await page.locator('.language-select').selectOption('en');await page.getByLabel('Your name').fill('Atlas Boutique');await page.getByLabel('Choose a plan').selectOption({label:'Commerce Demo'});
+      await page.locator('.language-select').selectOption('en');await page.getByLabel('Your name').fill('Atlas Boutique');
+      expect(await page.getByLabel('Choose a plan').count()).toBe(0);
       await page.getByLabel('Email address').fill('browser-client@portal.test');await page.getByLabel('Password',{exact:true}).fill(password);
       await page.getByRole('button',{name:'Show password'}).click();expect(await page.locator('#password').getAttribute('type')).toBe('text');
       await page.getByRole('button',{name:'Hide password'}).click();expect(await page.locator('#password').getAttribute('type')).toBe('password');
@@ -52,6 +55,11 @@ describe('portal browser flow',()=>{
       expect(await page.locator('.dashboard-metric').count()).toBe(4);
       expect(await page.getByRole('heading',{name:'Monthly allowance'}).count()).toBe(0);
       await page.getByRole('heading',{name:'Launch checklist'}).waitFor();await page.getByRole('heading',{name:'Message activity'}).waitFor();
+      const createdUser=await store.userByEmail('browser-client@portal.test');
+      const createdAccount=(await store.memberships(createdUser!.id))[0];
+      const unassigned=await store.profile(createdAccount.accountId);
+      const publishedPlan=(await store.plans(true))[0];
+      await store.updateAccount(adminId,createdAccount.accountId,unassigned.revision,{planId:publishedPlan.id});
       mkdirSync(resolve('output/portal-verification'),{recursive:true});await page.screenshot({path:resolve('output/portal-verification/client-setup-dashboard.png'),fullPage:true});
       await page.locator('.language-select').selectOption('fr');await page.getByRole('link',{name:'Données de l’entreprise'}).waitFor();
       await page.getByRole('link',{name:'Offres',exact:true}).click();await page.getByRole('heading',{name:'Choisir une offre'}).waitFor();
@@ -60,6 +68,9 @@ describe('portal browser flow',()=>{
       await page.locator('.language-select').selectOption('en');
       await page.getByRole('link',{name:'Business data',exact:true}).click();await page.getByLabel('What does your business offer?').fill('Chaussures et vêtements au Maroc');
       await page.getByRole('tab',{name:'Products',exact:true}).click();await page.getByRole('button',{name:'Add product',exact:true}).click();await page.getByLabel('SKU',{exact:true}).fill('SHOE-01');await page.getByLabel('Product name').fill('Babouches artisanales');await page.getByLabel('Price',{exact:true}).first().fill('199.5');
+      await page.locator('.product-photo-editor input[type=file]').setInputFiles({name:'shoe.png',mimeType:'image/png',buffer:await sharp({create:{width:40,height:40,channels:3,background:'#f00000'}}).png().toBuffer()});
+      await page.locator('.product-photo-grid img').waitFor();
+      expect(await page.locator('.product-photo-grid img').evaluate((image:HTMLImageElement)=>image.complete&&image.naturalWidth>0)).toBe(true);
       await page.getByRole('button',{name:'Add variant'}).click();await page.getByLabel('Variant SKU').fill('SHOE-42');await page.getByLabel('Size',{exact:true}).fill('42');await page.getByLabel('Color').fill('Noir');
       await page.getByRole('tab',{name:'FAQs',exact:true}).click();await page.getByRole('button',{name:'Add FAQ',exact:true}).click();await page.getByLabel('Question',{exact:true}).fill('ch7al livraison?');await page.getByLabel('Answer',{exact:true}).fill('Livraison f 48 sa3a.');await page.getByLabel('Language: en, fr, ar or darija').fill('darija');
       await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.getByText('All changes saved',{exact:true}).waitFor();
@@ -70,7 +81,9 @@ describe('portal browser flow',()=>{
       await ap.getByRole('heading',{name:'Needs attention'}).waitFor();await ap.screenshot({path:resolve('output/portal-verification/admin-dashboard.png'),fullPage:true});
       await ap.setViewportSize({width:390,height:844});expect(await ap.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
       await ap.screenshot({path:resolve('output/portal-verification/admin-dashboard-mobile.png'),fullPage:true});await ap.setViewportSize({width:1440,height:1000});
-      await ap.getByRole('link',{name:'Clients',exact:true}).click();await ap.getByRole('link',{name:'Open ›',exact:true}).click();
+      await ap.getByRole('link',{name:'Clients',exact:true}).click();
+      await ap.getByText('Atlas Boutique',{exact:true}).first().waitFor();
+      await ap.goto(origin+'/admin/client/'+createdAccount.accountId);
       await ap.locator('#aplan').selectOption({label:'Commerce Demo'});await ap.getByRole('tab',{name:'Chatbot & limits',exact:true}).click();await ap.locator('#control-behavior-allowHumanHandoff').check();await ap.getByRole('button',{name:'Save controls'}).click();await ap.getByText('Admin controls saved.',{exact:true}).waitFor();
       expect(await ap.locator('#control-behavior-allowHumanHandoff').isChecked()).toBe(true);
       await ap.locator('#account-unlimited-messages').check();await ap.getByRole('button',{name:'Save controls'}).click();await ap.getByText('Admin controls saved.',{exact:true}).waitFor();

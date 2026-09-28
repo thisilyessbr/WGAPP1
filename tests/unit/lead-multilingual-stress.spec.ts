@@ -1,3 +1,4 @@
+import { transactionalLeadMock } from '../helpers/transactional-lead-mock';
 import { describe, expect, it, vi } from 'vitest';
 import { EcommerceIntentParser } from '../../src/domain/ecommerce/EcommerceIntent';
 import { TurnDecisionResolver } from '../../src/domain/conversation/TurnDecision';
@@ -107,13 +108,13 @@ describe('lead detection multilingual stress matrix', () => {
     ['combien coûte le cours?',false]
   ])('normal chatbot lead signal: %s → %s', async (message, expected) => {
     const upsert = vi.fn(async () => ({ id: 'lead-1' }));
-    const crm = new CRMService({ lead: { upsert } } as any);
+      const crm = new CRMService(transactionalLeadMock({ lead: { upsert } }) as any);
     const lead = await crm.processTurnSignal({tenantId:'tenant',accountId:'account',customerId:'customer',userMessage:message});
     expect(Boolean(lead)).toBe(expected);
   });
   it.each(cases)('%s: %s → lead=%s', async (language, message, expected) => {
     const upsert = vi.fn(async () => ({ id: 'lead-1' }));
-    const crm = new CRMService({ lead: { upsert } } as any);
+      const crm = new CRMService(transactionalLeadMock({ lead: { upsert } }) as any);
     const parsed = EcommerceIntentParser.parse(message, productContext, language === 'French' ? 'fr' : 'ar');
     const decision = TurnDecisionResolver.resolve({
       text: message,
@@ -139,7 +140,7 @@ describe('lead detection multilingual stress matrix', () => {
     ['COMMERCE', 'L9lawi a zb', false]
   ] as const)('separates %s inquiry intent for %s', async (leadMode, userMessage, expected) => {
     const upsert = vi.fn(async () => ({ id: 'lead-1' }));
-    const crm = new CRMService({ lead: { upsert } } as any);
+      const crm = new CRMService(transactionalLeadMock({ lead: { upsert } }) as any);
     const lead = await crm.processTurnSignal({ tenantId: 'tenant', accountId: 'account', customerId: 'customer', leadMode, userMessage });
     expect(Boolean(lead)).toBe(expected);
   });

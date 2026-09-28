@@ -6,6 +6,7 @@ import { portalDatabase } from '../helpers/portal-db';
 import { PortalStore } from '../../src/portal/PortalStore';
 import { PortalAuth, hashToken } from '../../src/portal/PortalAuth';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
+import { validatePlan } from '../../src/portal/validation';
 
 describe('client lead workspace under realistic account data', () => {
   let database: Awaited<ReturnType<typeof portalDatabase>>;
@@ -47,6 +48,11 @@ describe('client lead workspace under realistic account data', () => {
     store = new PortalStore(database.db);
     first = await store.register(`${randomUUID()}@example.test`, 'First', 'test-hash', null);
     second = await store.register(`${randomUUID()}@example.test`, 'Second', 'test-hash', null);
+    const plan = await store.savePlan(first.userId, validatePlan({ name: 'Service requests', modules: ['services'], limits: {} }));
+    for (const account of [first, second]) {
+      const profile = await store.profile(account.accountId);
+      await store.updateAccount(first.userId, account.accountId, profile.revision, { planId: plan.id });
+    }
     await store.db.$executeRaw`UPDATE "PortalUser" SET "verifiedAt"=NOW() WHERE id IN (${first.userId},${second.userId})`;
     firstHeaders = await headers(first.userId);
     secondHeaders = await headers(second.userId);
@@ -74,7 +80,7 @@ describe('client lead workspace under realistic account data', () => {
     expect(list.body.leads.map((item: any) => item.id)).not.toContain(bLead);
     expect(list.body.leads.map((item: any) => item.id)).not.toContain(previewLead);
     const found = list.body.leads.find((item: any) => item.id === aLead);
-    expect(found).toMatchObject({ customerPhone: '212600100001', interest: 'Bghit nchri', conversationId: newConversation, lastCustomerMessage: 'Bghit nchri' });
+    expect(found).toMatchObject({ customerPhone: '212600100001', interest: 'Bghit nchri', conversationId: oldConversation, lastCustomerMessage: 'Bghit nchri' });
     expect(found.customerMetadata.name).toBe('Amina');
     expect((await request(app).get(`/api/client/leads/${aLead}`).set(secondHeaders)).status).toBe(404);
     expect((await request(app).patch(`/api/client/leads/${aLead}`).set(secondHeaders).send({ status: 'WON' })).status).toBe(404);

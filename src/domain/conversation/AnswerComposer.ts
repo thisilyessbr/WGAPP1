@@ -633,7 +633,7 @@ export class AnswerComposer {
       }
 
       // 3. Fallback to attribute family patterns if still unconfirmed
-      if (!hasEvidence && family) {
+      if (!hasEvidence && family && (!kw || /^(material|matière|matiere|composition|fabric|fit|weight|dimensions|features?)$/i.test(kw))) {
         if (family === 'PERFORMANCE') {
           hasEvidence = /(?:waterproof|water-resistant|rainproof|warm|breathable|windproof|imperm[ée]able|chaud|respirant|مقاوم|ضد الما|ضد الماء|سخون|دافئ)/iu.test(descLower);
         } else if (family === 'MATERIAL') {

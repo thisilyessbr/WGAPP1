@@ -6,7 +6,7 @@ export type LeadStage = typeof LEAD_STAGES[number];
 export const LEAD_VIEWS = ['ALL', 'ACTION', 'LATER', 'DONE'] as const;
 export type LeadView = typeof LEAD_VIEWS[number];
 
-/** Client-facing, tenant-scoped lead operations. One lead per customer/account. */
+/** Client-facing, tenant-scoped requests with separate history for returning customers. */
 export class PortalLeads {
   constructor(private store: PortalStore) {}
 
@@ -16,7 +16,8 @@ export class PortalLeads {
     const rows = await this.store.db.$queryRaw<any[]>`
       SELECT l.id,l.status,l.interest,l."signalReason",l.note,l.details,l."followUpAt",l."contactedAt",l."closedAt",l."createdAt",l."updatedAt",
         cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
-        COALESCE(c.id,l."sourceConversationId") AS "conversationId",c."updatedAt" AS "conversationUpdatedAt",
+        COALESCE(l."sourceConversationId",c.id) AS "conversationId",c."updatedAt" AS "conversationUpdatedAt",
+        ws."collectedData" AS "orderDetails",
         (SELECT m.content FROM "Message" m
           WHERE m."conversationId"=COALESCE(l."sourceConversationId",c.id) AND m."tenantId"=l."tenantId"
             AND m.role='USER' AND m."createdAt"<=l."createdAt"
@@ -29,6 +30,12 @@ export class PortalLeads {
         WHERE "tenantId"=l."tenantId" AND "accountId"=l."accountId" AND "customerId"=l."customerId"
         ORDER BY "updatedAt" DESC LIMIT 1
       ) c ON TRUE
+      LEFT JOIN "WorkflowSession" ws ON ws.id=l."sourceWorkflowSessionId"
+        AND ws."tenantId"=l."tenantId" AND ws."conversationId"=COALESCE(l."sourceConversationId",c.id)
+        AND ws.status='COMPLETED'
+        AND (ws."workflowId" !~* '(checkout|cash_on_delivery|cod_order)'
+          OR ws."collectedData"->>'_confirmed'='true'
+          OR (ws."collectedData"->>'_confirmed' IS NULL AND ws."stateId"='done'))
       WHERE l."tenantId"=${tenantId} AND l."accountId"=${accountId}
         AND (${status}='ALL' OR l.status=${status})
         AND (${view}='ALL'
@@ -54,7 +61,7 @@ export class PortalLeads {
   async get(tenantId: string, accountId: string, id: string) {
     const rows = await this.store.db.$queryRaw<any[]>`
       SELECT l.*,cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
-        COALESCE(c.id,l."sourceConversationId") AS "conversationId",ws."collectedData" AS "workflowDetails",ws."workflowId",ws.status AS "workflowStatus",
+        COALESCE(l."sourceConversationId",c.id) AS "conversationId",ws."collectedData" AS "workflowDetails",ws."workflowId",ws.status AS "workflowStatus",
         (SELECT m.content FROM "Message" m
           WHERE m."conversationId"=COALESCE(l."sourceConversationId",c.id) AND m."tenantId"=l."tenantId"
             AND m.role='USER' AND m."createdAt"<=l."createdAt"
@@ -65,11 +72,12 @@ export class PortalLeads {
         SELECT id FROM "Conversation" WHERE "tenantId"=l."tenantId" AND "accountId"=l."accountId" AND "customerId"=l."customerId"
         ORDER BY "updatedAt" DESC LIMIT 1
       ) c ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT "collectedData","workflowId",status FROM "WorkflowSession"
-        WHERE "tenantId"=l."tenantId" AND "conversationId"=COALESCE(c.id,l."sourceConversationId")
-        ORDER BY "updatedAt" DESC LIMIT 1
-      ) ws ON TRUE
+      LEFT JOIN "WorkflowSession" ws ON ws.id=l."sourceWorkflowSessionId"
+        AND ws."tenantId"=l."tenantId" AND ws."conversationId"=COALESCE(l."sourceConversationId",c.id)
+        AND ws.status='COMPLETED'
+        AND (ws."workflowId" !~* '(checkout|cash_on_delivery|cod_order)'
+          OR ws."collectedData"->>'_confirmed'='true'
+          OR (ws."collectedData"->>'_confirmed' IS NULL AND ws."stateId"='done'))
       WHERE l.id=${id} AND l."tenantId"=${tenantId} AND l."accountId"=${accountId}
         AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%') LIMIT 1`;
     if (!rows[0]) throw new PortalError(404, 'LEAD_NOT_FOUND');

@@ -303,23 +303,23 @@ describe('Phase 26E: AnswerComposer Integration Tests', () => {
 
     // English
     expect(await AnswerComposer.compose({ turnDecision, responseLanguage: 'en', responseScript: 'latin' }))
-      .toBe('A human agent has been notified and will assist you shortly.');
+      .toBe('Your request for human support has been recorded.');
 
     // French
     expect(await AnswerComposer.compose({ turnDecision, responseLanguage: 'fr', responseScript: 'latin' }))
-      .toBe('Un conseiller humain a été prévenu et va prendre le relais sous peu.');
+      .toBe('Votre demande d’assistance humaine a été enregistrée.');
 
     // Arabic
     expect(await AnswerComposer.compose({ turnDecision, responseLanguage: 'ar', responseScript: 'arabic' }))
-      .toBe('تم إخطار أحد موظفي خدمة العملاء وسيقوم بمساعدتك قريباً.');
+      .toBe('تم تسجيل طلبك للتواصل مع أحد موظفي الدعم.');
 
     // Darija Arabic script
     expect(await AnswerComposer.compose({ turnDecision, responseLanguage: 'darija', responseScript: 'arabic' }))
-      .toBe('علمنا فريق الدعم وغادي يجاوبك واحد من الموظفين قريبا.');
+      .toBe('تسجل الطلب ديالك باش تهضر مع شي واحد من الفريق.');
 
     // Darija Arabizi
     expect(await AnswerComposer.compose({ turnDecision, responseLanguage: 'darija', responseScript: 'arabizi' }))
-      .toBe("3lemna l'equipe d support w ghadi yjawbek chi wahed 9riban.");
+      .toBe('Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq.');
   });
 
   it('14. raw RAG chunk does not leak in wrong language', async () => {

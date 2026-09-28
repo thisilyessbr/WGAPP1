@@ -32,6 +32,11 @@ export function list(value: unknown, max: number): any[] {
   return value;
 }
 function unique(values: string[]) { if (values.some(v => !v) || new Set(values).size !== values.length) throw new PortalError(400, 'DUPLICATE_OR_EMPTY_ID'); }
+export function imageId(value: unknown): string {
+  const id = text(value, 36);
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id)) throw new PortalError(400, 'INVALID_IMAGE_ID');
+  return id;
+}
 export function validateBusiness(input: unknown, plan?: PortalPlan | null, previous?: BusinessData, lockedFields: string[] = []): BusinessData {
   const data = object(input); allowed(data, Object.keys(EMPTY_BUSINESS));
   if (JSON.stringify(data).length > 400000) throw new PortalError(413, 'DATA_TOO_LARGE');
@@ -55,13 +60,15 @@ export function validateBusiness(input: unknown, plan?: PortalPlan | null, previ
   if (result.faqs.some(f => !f.question || !f.answer)) throw new PortalError(400, 'INCOMPLETE_FAQ');
   unique(result.faqs.map(f => f.id));
   result.products = list(data.products || [], plan?.limits.products ?? 100).map(raw => {
-    const p = object(raw); allowed(p, ['sku', 'name', 'description', 'price', 'stock', 'category', 'variants']);
+    const p = object(raw); allowed(p, ['sku', 'name', 'description', 'price', 'stock', 'category', 'variants', 'imageIds']);
+    const imageIds = list(p.imageIds || [], 10).map(imageId); unique(imageIds);
     const variants = list(p.variants || [], 100).map(rawVariant => {
-      const v = object(rawVariant); allowed(v, ['sku', 'size', 'color', 'stock', 'price']);
-      return { sku: text(v.sku, 100), size: text(v.size, 50), color: text(v.color, 50), stock: integer(v.stock ?? 0), price: v.price == null ? null : money(v.price) };
+      const v = object(rawVariant); allowed(v, ['sku', 'size', 'color', 'stock', 'price', 'imageId']);
+      return { sku: text(v.sku, 100), size: text(v.size, 50), color: text(v.color, 50), stock: integer(v.stock ?? 0), price: v.price == null ? null : money(v.price), ...(v.imageId ? { imageId: imageId(v.imageId) } : {}) };
     });
     unique(variants.map(v => v.sku));
-    return { sku: text(p.sku, 100), name: text(p.name, 250), description: text(p.description, 6000), price: money(p.price), stock: integer(p.stock ?? 0), category: text(p.category, 100), variants };
+    if (variants.some(v => v.imageId && !imageIds.includes(v.imageId))) throw new PortalError(400, 'VARIANT_IMAGE_NOT_IN_GALLERY');
+    return { sku: text(p.sku, 100), name: text(p.name, 250), description: text(p.description, 6000), price: money(p.price), stock: integer(p.stock ?? 0), category: text(p.category, 100), variants, ...(imageIds.length ? { imageIds } : {}) };
   });
   unique(result.products.map(p => p.sku));
   if (result.products.some(p => !p.name)) throw new PortalError(400, 'PRODUCT_NAME_REQUIRED');
