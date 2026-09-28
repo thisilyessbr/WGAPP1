@@ -150,15 +150,31 @@ export class InstagramService {
     url.searchParams.set('access_token', current);
     const refreshed = await this.json(url.toString(), { method: 'GET' }) as Token;
     if (!refreshed.access_token) throw new Error('INSTAGRAM_TOKEN_REFRESH_FAILED');
-    await this.db.instagramConnection.update({ where: { instagramUserId: connection.instagramUserId }, data: {
+    const saved = await this.db.instagramConnection.updateMany({ where: { instagramUserId: connection.instagramUserId,
+      tenantId: connection.tenantId, accountId: connection.accountId, enabled: true, status: 'CONNECTED', encryptedToken: connection.encryptedToken }, data: {
       encryptedToken: this.box.encrypt(refreshed.access_token), tokenExpiresAt: new Date(Date.now() + (Number(refreshed.expires_in) || 3600) * 1000)
     } });
+    if (saved.count !== 1) throw new Error('INSTAGRAM_CONNECTION_CHANGED');
     return refreshed.access_token;
   }
 
-  async sendText(connection: Connection, recipientId: string, text: string): Promise<string> {
+  async sendText(connection: Connection, recipientId: string, text: string, automated = false): Promise<string> {
     if (!connection.enabled || connection.status !== 'CONNECTED' || !/^\d{5,30}$/.test(recipientId)) throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
     const token = await this.token(connection);
+    const [current, profile] = await Promise.all([
+      this.db.instagramConnection.findUnique({ where: { instagramUserId: connection.instagramUserId } }),
+      this.db.portalProfile.findUnique({ where: { accountId: connection.accountId } })
+    ]);
+    if (!current?.enabled || current.status !== 'CONNECTED' || current.accountId !== connection.accountId || current.tenantId !== connection.tenantId
+      || profile?.accountId !== connection.accountId || profile.tenantId !== connection.tenantId || profile.status !== 'ACTIVE' || !instagramEntitled(profile)) {
+      throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
+    }
+    if (automated) {
+      if (!this.engine) throw new Error('INSTAGRAM_AUTOMATION_UNAVAILABLE');
+      const conversation = await this.engine.getConversationService().getLatestConversation(connection.tenantId,
+        instagramCustomerId(connection.instagramUserId, recipientId), connection.accountId);
+      if (conversation?.status === 'HUMAN_ACTIVE') throw new Error('INSTAGRAM_HUMAN_TAKEOVER');
+    }
     const response = await this.json(`https://graph.instagram.com/${this.graphVersion()}/${connection.instagramUserId}/messages`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ recipient: { id: recipientId }, message: { text } })
@@ -169,7 +185,7 @@ export class InstagramService {
 
   async sendManual(accountId: string, tenantId: string, externalId: string, text: string): Promise<string> {
     const profile = await this.db.portalProfile.findUnique({ where: { accountId } });
-    if (!profile || profile.tenantId !== tenantId || !instagramEntitled(profile)) throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
+    if (!profile || profile.status !== 'ACTIVE' || profile.tenantId !== tenantId || !instagramEntitled(profile)) throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
     const connection = await this.db.instagramConnection.findFirst({ where: { accountId, tenantId, enabled: true, status: 'CONNECTED' } });
     if (!connection || !externalId.startsWith(`instagram:${connection.instagramUserId}:`)) throw new Error('INSTAGRAM_CONNECTION_UNAVAILABLE');
     return this.sendText(connection, externalId.slice(`instagram:${connection.instagramUserId}:`.length), text);
@@ -193,19 +209,50 @@ export class InstagramService {
       const jobs = await this.db.$queryRaw<any[]>`
         UPDATE "InstagramInboundJob" SET status='PROCESSING', attempts=attempts+1,
           "leaseUntil"=NOW()+INTERVAL '90 seconds', "updatedAt"=NOW()
-        WHERE id=(SELECT id FROM "InstagramInboundJob"
-          WHERE ((status='PENDING' AND "nextAttemptAt"<=NOW()) OR (status='PROCESSING' AND "leaseUntil"<NOW()))
-            AND attempts<8 ORDER BY "createdAt" LIMIT 1 FOR UPDATE SKIP LOCKED)
+        WHERE id=(SELECT candidate.id FROM "InstagramInboundJob" candidate
+          WHERE ((candidate.status='PENDING' AND candidate."nextAttemptAt"<=NOW()) OR (candidate.status='PROCESSING' AND candidate."leaseUntil"<NOW()))
+            AND candidate.attempts<8
+            AND NOT EXISTS (SELECT 1 FROM "InstagramInboundJob" running
+              WHERE running.id<>candidate.id AND running."tenantId"=candidate."tenantId" AND running."accountId"=candidate."accountId"
+              AND running."instagramUserId"=candidate."instagramUserId" AND running."senderId"=candidate."senderId"
+              AND running.status IN ('PROCESSING','SENDING') AND running."leaseUntil">NOW())
+            AND NOT EXISTS (SELECT 1 FROM "InstagramInboundJob" earlier
+              WHERE earlier."tenantId"=candidate."tenantId" AND earlier."accountId"=candidate."accountId"
+              AND earlier."instagramUserId"=candidate."instagramUserId" AND earlier."senderId"=candidate."senderId"
+              AND earlier.status IN ('PENDING','PROCESSING','SENDING')
+              AND (earlier."createdAt",earlier.id)<(candidate."createdAt",candidate.id))
+            ORDER BY candidate."createdAt" LIMIT 1 FOR UPDATE SKIP LOCKED)
         RETURNING *`;
       const job = jobs[0];
       if (!job) return;
       let sendStarted = false;
+      let leaseLost = false, renewing = false;
+      // attempts is a fencing token: an expired worker cannot update or send a
+      // job after a replacement worker has claimed it, even if generation resumes.
+      const updateOwned = async (data: any, status: string | string[] = 'PROCESSING') => {
+        if (leaseLost) return false;
+        const result = await this.db.instagramInboundJob.updateMany({
+          where: { id: job.id, attempts: Number(job.attempts), status: Array.isArray(status) ? { in: status } : status, leaseUntil: { gt: new Date() } }, data
+        });
+        if (result.count !== 1) leaseLost = true;
+        return !leaseLost;
+      };
+      const heartbeat = setInterval(() => {
+        if (renewing || leaseLost) return;
+        renewing = true;
+        void updateOwned({ leaseUntil: new Date(Date.now() + 90000) }, ['PROCESSING','SENDING'])
+          .catch(() => { leaseLost = true; }).finally(() => { renewing = false; });
+      }, 20000);
+      heartbeat.unref?.();
+      const scoped = (connection: Connection | null, profile: any) => connection?.enabled && connection.status === 'CONNECTED'
+        && connection.instagramUserId === job.instagramUserId && connection.accountId === job.accountId && connection.tenantId === job.tenantId
+        && profile?.accountId === job.accountId && profile.tenantId === job.tenantId && profile.status === 'ACTIVE' && instagramEntitled(profile);
       try {
         const connection = await this.db.instagramConnection.findFirst({ where: { instagramUserId: job.instagramUserId,
           accountId: job.accountId, tenantId: job.tenantId, enabled: true, status: 'CONNECTED' } });
         const profile = await this.db.portalProfile.findUnique({ where: { accountId: job.accountId } });
-        if (!connection || !profile || profile.status !== 'ACTIVE' || !instagramEntitled(profile)) {
-          await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'SKIPPED', leaseUntil: null } });
+        if (!scoped(connection, profile)) {
+          await updateOwned({ status: 'SKIPPED', leaseUntil: null });
           return;
         }
         const customer = instagramCustomerId(job.instagramUserId, job.senderId);
@@ -219,31 +266,32 @@ export class InstagramService {
           } else {
             responseText = await this.engine.handleMessage(job.tenantId, customer, job.text, job.accountId, { externalMessageId: external });
           }
-          await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { responseText } });
+          if (!await updateOwned({ responseText })) return;
         }
         if (responseText) {
-          const [currentConnection, currentProfile] = await Promise.all([
+          const [currentConnection, currentProfile, currentConversation] = await Promise.all([
             this.db.instagramConnection.findUnique({ where: { instagramUserId: job.instagramUserId } }),
-            this.db.portalProfile.findUnique({ where: { accountId: job.accountId } })
+            this.db.portalProfile.findUnique({ where: { accountId: job.accountId } }),
+            this.engine.getConversationService().getLatestConversation(job.tenantId, customer, job.accountId)
           ]);
-          if (!currentConnection?.enabled || !currentProfile || !instagramEntitled(currentProfile)) {
-            await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'SKIPPED', leaseUntil: null } });
+          if (!scoped(currentConnection, currentProfile) || currentConversation?.status === 'HUMAN_ACTIVE') {
+            await updateOwned({ status: 'SKIPPED', leaseUntil: null });
             return;
           }
-          await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'SENDING', leaseUntil: new Date(Date.now() + 90000) } });
+          if (!await updateOwned({ status: 'SENDING', leaseUntil: new Date(Date.now() + 90000) })) return;
           sendStarted = true;
-          const providerId = await this.sendText(connection, job.senderId, responseText);
+          const providerId = await this.sendText(currentConnection!, job.senderId, responseText, true);
           await this.engine.recordOutboundAssistantMessage(job.tenantId, external, providerId);
         }
-        await this.db.instagramInboundJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', leaseUntil: null, lastError: null } });
+        await updateOwned({ status: 'COMPLETED', leaseUntil: null, lastError: null }, sendStarted ? 'SENDING' : 'PROCESSING');
       } catch (error) {
         const attempts = Number(job.attempts);
-        await this.db.instagramInboundJob.update({ where: { id: job.id }, data: {
+        await updateOwned({
           status: sendStarted || attempts >= 8 ? 'FAILED' : 'PENDING', leaseUntil: null,
           nextAttemptAt: new Date(Date.now() + Math.min(300000, 3000 * 2 ** attempts)),
           lastError: sendStarted ? 'INSTAGRAM_SEND_OUTCOME_UNKNOWN' : error instanceof Error ? error.message.slice(0, 200) : 'INSTAGRAM_PROCESSING_FAILED'
-        } });
-      }
+        }, sendStarted ? 'SENDING' : 'PROCESSING');
+      } finally { clearInterval(heartbeat); }
     } finally { this.busy = false; }
   }
 }

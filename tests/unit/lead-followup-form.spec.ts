@@ -83,7 +83,7 @@ describe('lead follow-up form', () => {
     expect(root.textContent).toContain('No notification or WhatsApp message is sent automatically.');
     expect(root.textContent).toContain('Return to Needs reply on');
     expect(root.textContent).not.toContain('Confirmed');
-    (root.querySelector('#service-reminder') as HTMLInputElement).value = '2026-09-28T11:00';
+    (root.querySelector('#service-reminder') as HTMLInputElement).value = (dom.window as any).RelayqoLeads.toLocalDateTimeValue(new Date(Date.now()+86400000).toISOString());
     await (root.querySelector('#service-request-form') as any).onsubmit({ preventDefault() {} });
     expect(changes[0].status).toBeUndefined();
     expect(changes[0].followUpAt).toBeTruthy();

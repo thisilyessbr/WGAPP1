@@ -37,6 +37,8 @@ export class WhatsAppWorker {
     private voiceNotes?: {
       enabled: (tenantId: string, accountId: string) => Promise<VoiceProvider | null>;
       transcriber: Pick<VoiceNoteTranscriber, 'transcribe'>;
+      process?: (tenantId: string, accountId: string, wamid: string, provider: VoiceProvider, hint: string | undefined,
+        load: () => Promise<{ bytes: Buffer; mimeType: string }>) => ReturnType<VoiceNoteTranscriber['transcribe']>;
       languageHint?: (tenantId: string, accountId: string, customerExternalId: string) => Promise<string | undefined>;
       recordUsage?: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider, languageHint?: string) => Promise<void>;
     }
@@ -152,14 +154,10 @@ export class WhatsAppWorker {
       } else if (job.rawType === 'audio' && media.mediaId && this.voiceNotes) {
         try {
           const provider = await this.voiceNotes.enabled(job.tenantId, job.accountId);
-          if (provider) {
-            const audio = await this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId);
+          if (provider && this.voiceNotes.process) {
             const hint = await this.voiceNotes.languageHint?.(job.tenantId, job.accountId, job.waId);
-            const transcript = hint
-              ? await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType, provider, hint)
-              : await this.voiceNotes.transcriber.transcribe(audio.bytes, audio.mimeType, provider);
-            if (hint) await this.voiceNotes.recordUsage?.(job.tenantId, job.accountId, job.wamid, transcript.durationSeconds, provider, hint);
-            else await this.voiceNotes.recordUsage?.(job.tenantId, job.accountId, job.wamid, transcript.durationSeconds, provider);
+            const transcript = await this.voiceNotes.process(job.tenantId, job.accountId, job.wamid, provider, hint,
+              () => this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId!));
             if (transcript.understood !== false) contentInput = transcript.text;
           }
         } catch {
