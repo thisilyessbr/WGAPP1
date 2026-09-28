@@ -1,6 +1,7 @@
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../domain/tenant/BusinessConfig';
 import { BusinessData, DEFAULT_PLAN_LIMITS, EMPTY_BUSINESS, PlanLimits, PortalError, PortalPlan } from './types';
 import { resolveDeepSeekModel } from '../core/llm/DeepSeekProvider';
+import { safeFieldPattern } from '../core/engine/SafeFieldPattern';
 
 export function object(value: unknown): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PortalError(400, 'INVALID_OBJECT');
@@ -156,6 +157,12 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     for (const workflow of Object.values(config.workflows) as any[]) {
       if (!workflow.initialState || !workflow.states?.[workflow.initialState]) throw new PortalError(400, 'INVALID_WORKFLOW');
       for (const state of Object.values(workflow.states) as any[]) {
+        for (const pattern of [state.field?.pattern, state.field?.validationRegex]) {
+          if (pattern !== undefined) {
+            try { safeFieldPattern(pattern); }
+            catch { throw new PortalError(400, 'INVALID_WORKFLOW_PATTERN', 'Use a supported RE2 field pattern without lookarounds or backreferences (maximum 1024 characters).'); }
+          }
+        }
         if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
         const targets = [...(state.transitions || []).map((t: any) => t.target), ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
         if (targets.some(target => !workflow.states[target])) throw new PortalError(400, 'INVALID_WORKFLOW_TARGET');

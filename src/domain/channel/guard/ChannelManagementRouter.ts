@@ -48,27 +48,7 @@ export function createChannelManagementRouter(
   // --- Channel Connections Management ---
 
   router.post('/channel-connections/qr', async (req: Request, res: Response) => {
-    try {
-      if (!qrSessionManager) return res.status(503).json({ error: 'QR session manager is unavailable' });
-      const tenantId = resolveTenantId(req);
-      const { accountId, label } = req.body;
-      if (!accountId) return res.status(400).json({ error: 'accountId is required' });
-      const result = await qrSessionManager.createConnection(tenantId, String(accountId), label);
-      await safetyGuard.recordAuditEvent({
-        tenantId,
-        accountId: String(accountId),
-        connectionId: result.connection.id,
-        phoneNumberId: result.phoneNumberId,
-        actorId: (req as any).principal?.id,
-        action: 'QR_CONNECTION_CREATED'
-      });
-      return res.status(201).json({
-        connection: { ...result.connection, encryptedCredentials: undefined },
-        phoneNumberId: result.phoneNumberId
-      });
-    } catch (err: any) {
-      return res.status(400).json({ error: err.message || String(err) });
-    }
+    return res.status(409).json({ error: 'QR_PORTAL_ONBOARDING_REQUIRED', message: 'Use the client WhatsApp page to accept the QR limitations and respect the account number allowance.' });
   });
 
   router.get('/channel-connections/:id/qr', async (req: Request, res: Response) => {
@@ -78,7 +58,7 @@ export function createChannelManagementRouter(
       const id = String(req.params.id);
       const connection = await numberService.getConnection(id, tenantId);
       if (!connection || connection.provider !== 'QR_WEB') return res.status(404).json({ error: 'QR connection not found' });
-      const qr = qrSessionManager.getQr(id);
+      const qr = await qrSessionManager.getQr(id);
       if (!qr) return res.status(404).json({ error: 'QR code is not currently available; retry shortly' });
       res.setHeader('Cache-Control', 'no-store');
       return res.json(qr);

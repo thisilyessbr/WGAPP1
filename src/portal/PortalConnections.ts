@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { ChatbotDependencies } from '../bootstrap';
 import { PortalStore } from './PortalStore';
 import { PortalError, PortalPrincipal } from './types';
+import { qrEntitled, QR_CONSENT_VERSION } from '../domain/channel/routing/QrPolicy';
 
 export class PortalConnections {
   constructor(private store: PortalStore, private deps: Pick<ChatbotDependencies, 'whatsAppOnboardingService' | 'qrSessionManager' | 'whatsAppNumberService' | 'prisma'>) {}
@@ -91,29 +92,33 @@ export class PortalConnections {
     if (!connection) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
     await this.store.audit(principal.user.id, principal.accountId!, 'WHATSAPP_RECONNECTION_REQUESTED', { connectionId });
     if (connection.provider === 'META_CLOUD') return this.begin(principal, connectionId);
-    if (!principal.accountId || !(await this.store.profile(principal.accountId)).planSnapshot?.modules.includes('qr')) throw new PortalError(403, 'QR_NOT_INCLUDED');
-    if (!connection.enabled) throw new PortalError(403, 'CONNECTION_PAUSED');
+    if (!principal.accountId || !qrEntitled(await this.store.profile(principal.accountId,principal.tenantId))) throw new PortalError(403, 'QR_NOT_INCLUDED');
+    if (!connection.enabled && connection.status!=='DISCONNECTED') throw new PortalError(403, 'CONNECTION_PAUSED','Ask your administrator to review this QR connection.');
+    if(connection.status==='DISCONNECTED')await this.deps.prisma.channelConnection.update({where:{id:connectionId},data:{enabled:true,status:'PENDING'}});
     await this.deps.qrSessionManager?.start(connectionId);
-    return { connectionId, qr: this.deps.qrSessionManager?.getQr(connectionId) || null };
+    return { connectionId, qr: await this.deps.qrSessionManager?.getQr(connectionId) || null };
   }
-  async startQr(principal: PortalPrincipal) {
+  async startQr(principal: PortalPrincipal, riskAccepted=false) {
     if (!this.deps.qrSessionManager?.isEnabled()) throw new PortalError(503, 'QR_NOT_CONFIGURED');
+    if(riskAccepted!==true)throw new PortalError(400,'QR_ACCEPTANCE_REQUIRED','Read and accept the QR connection limitations first.');
     const attemptId = await this.store.transaction(async s => {
       const p = await s.lockProfile(principal.accountId!);
-      if (p.tenantId !== principal.tenantId || p.status === 'SUSPENDED' || !p.planSnapshot?.modules.includes('qr')) throw new PortalError(403, 'QR_NOT_INCLUDED');
+      if (p.tenantId !== principal.tenantId || !p.qrAllowed || !['APPROVED','ACTIVE'].includes(p.status) || !p.planSnapshot?.modules.includes('qr')) throw new PortalError(403, 'QR_NOT_INCLUDED');
       const existing = await s.connections(p.accountId, p.tenantId);
       const processing = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalConnectionAttempt" WHERE "accountId"=${p.accountId}
         AND "reconnectId" IS NULL AND status='PROCESSING'`;
       if (existing.filter(c => c.numberRecordId).length + processing[0].n >= p.planSnapshot.limits.numbers) throw new PortalError(409, 'NUMBER_ALLOWANCE_REACHED');
       const id = randomUUID();
       await s.db.$executeRaw`INSERT INTO "PortalConnectionAttempt"(id,"userId","accountId","stateToken",status,"expiresAt") VALUES (${id},${principal.user.id},${p.accountId},'QR','PROCESSING',NOW()+INTERVAL '10 minutes')`;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrConsentAt"=NOW() WHERE "accountId"=${p.accountId}`;
+      await s.audit(principal.user.id,p.accountId,'QR_LIMITATIONS_ACCEPTED',{version:QR_CONSENT_VERSION});
       return id;
     });
     try {
       const result = await this.deps.qrSessionManager.createConnection(principal.tenantId!, principal.accountId!);
       await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='COMPLETED' WHERE id=${attemptId}`;
       await this.store.audit(principal.user.id, principal.accountId!, 'QR_LINK_STARTED', { connectionId: result.connection.id });
-      return { connectionId: result.connection.id, qr: this.deps.qrSessionManager.getQr(result.connection.id) };
+      return { connectionId: result.connection.id, qr: await this.deps.qrSessionManager.getQr(result.connection.id) };
     } catch (error) {
       await this.store.db.$executeRaw`UPDATE "PortalConnectionAttempt" SET status='FAILED' WHERE id=${attemptId}`;
       throw error;
@@ -121,9 +126,19 @@ export class PortalConnections {
   }
   async qr(principal: PortalPrincipal, connectionId: string) {
     const profile = await this.store.profile(principal.accountId!, principal.tenantId!);
-    if (profile.status === 'SUSPENDED' || !profile.planSnapshot?.modules.includes('qr')) throw new PortalError(403, 'QR_NOT_INCLUDED');
+    if (!qrEntitled(profile)) throw new PortalError(403, 'QR_NOT_INCLUDED');
     const rows = await this.store.connections(principal.accountId!, principal.tenantId!);
     if (!rows.some(c => c.id === connectionId && c.enabled && c.provider === 'QR_WEB')) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
-    return { qr: this.deps.qrSessionManager?.getQr(connectionId) || null, connections: rows };
+    return { qr: await this.deps.qrSessionManager?.getQr(connectionId) || null, connections: rows };
+  }
+  async disconnectQr(principal:PortalPrincipal,connectionId:string) {
+    const rows=await this.store.connections(principal.accountId!,principal.tenantId!);
+    const row=rows.find(c=>c.id===connectionId&&c.provider==='QR_WEB');
+    if(!row)throw new PortalError(404,'CONNECTION_NOT_FOUND');
+    const connection=await this.deps.prisma.channelConnection.findUnique({where:{id:connectionId}});
+    if(!connection || connection.accountId!==principal.accountId || connection.tenantId!==principal.tenantId)throw new PortalError(404,'CONNECTION_NOT_FOUND');
+    if(!this.deps.qrSessionManager)throw new PortalError(503,'QR_NOT_CONFIGURED');
+    await this.deps.qrSessionManager.disconnect(connection);
+    await this.store.audit(principal.user.id,principal.accountId!,'QR_CONNECTION_DISCONNECTED',{connectionId});
   }
 }

@@ -7,13 +7,15 @@ import { ImageCapabilityGateway } from '../core/gateway/ImageCapabilityGateway';
 import { telemetry } from '../core/telemetry/TelemetryClient';
 import { PortalStore } from './PortalStore';
 import { PortalError, PortalProfile } from './types';
+import { VoiceProvider, VoiceTranscript, VoiceNoteTranscriber, effectiveVoiceProvider } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
+import { voiceNoteChargeMicros } from './VoiceNoteUsage';
 
 interface UsageContext { profile: PortalProfile; key: string; sequence: number; llm: number; embedding: number; image: number; events: Record<string, unknown>; allowInactive: boolean; preview?: boolean; }
 export class PortalBudget {
   private context = new AsyncLocalStorage<UsageContext>();
   private unsubscribe: () => void;
-  constructor(private store: PortalStore) {
-    this.unsubscribe = telemetry.onEvent(event => {
+  constructor(private store: PortalStore, observeTelemetry = true) {
+    this.unsubscribe = observeTelemetry ? telemetry.onEvent(event => {
       const ctx = this.context.getStore();
       if (!ctx || event.tenantId !== ctx.profile.tenantId) return;
       if (event.eventType === 'response_completed') {
@@ -21,11 +23,67 @@ export class PortalBudget {
         ctx.events = { ...ctx.events, source: meta?.responseSource || meta?.source, language: meta?.turnDecision?.responseLanguage,
           script: meta?.turnDecision?.responseScript, intent: meta?.turnDecision?.intent, latencyMs: event.latencyMs };
       }
-    });
+    }) : () => {};
   }
   dispose() { this.unsubscribe(); }
   async getPreviewProfile(tenantId: string, accountId: string): Promise<PortalProfile> {
     return this.store.profile(accountId, tenantId);
+  }
+  /** A durable, account-scoped reservation precedes download and paid transcription.
+   * Completed transcripts are reused; uncertain provider calls are never replayed. */
+  async transcribeVoice(tenantId: string, accountId: string, wamid: string, provider: VoiceProvider, hint: string | undefined,
+    load: () => Promise<{ bytes: Buffer; mimeType: string }>, transcriber: Pick<VoiceNoteTranscriber, 'transcribe'>,
+    durationReader?: (bytes: Buffer, mimeType: string) => Promise<number>): Promise<VoiceTranscript> {
+    const p = await this.store.profile(accountId, tenantId);
+    if (p.status !== 'ACTIVE' || !p.voiceNotesAllowed || !p.voiceNotesEnabled || !p.planSnapshot) throw new PortalError(402, 'VOICE_NOTES_NOT_ALLOWED');
+    const selected = effectiveVoiceProvider(provider);
+    if (selected !== effectiveVoiceProvider(p.voiceTranscriptionProvider as VoiceProvider)) throw new PortalError(403, 'VOICE_PROVIDER_CHANGED');
+    const messageKey = 'message:' + createHash('sha256').update(wamid).digest('hex');
+    const audioKey = messageKey + ':audio';
+    const prior = (await this.store.db.$queryRaw<any[]>`SELECT id,status,metadata,"createdAt" FROM "PortalUsageEntry" WHERE "accountId"=${accountId} AND "dedupeKey"=${audioKey}`)[0];
+    if (prior) {
+      if (['COMPLETED','UNKNOWN'].includes(prior.status) && prior.metadata?.transcript) return prior.metadata.transcript as VoiceTranscript;
+      // A crashed operation may already have reached the provider. Settle its
+      // ceiling as an estimate rather than releasing it and paying twice.
+      if (prior.status === 'RESERVED' && new Date(prior.createdAt).getTime() < Date.now() - 180000) {
+        await this.finish(prior.id, null, { provider: selected, interrupted: true });
+      }
+      throw new PortalError(402, 'VOICE_OPERATION_ALREADY_RESERVED');
+    }
+    const blocked: VoiceTranscript = { text: '', durationSeconds: null, understood: false };
+    return this.runTurn(tenantId, accountId, wamid, async () => {
+      // Five minutes maximum; use the higher Deepgram rate regardless of hint.
+      const ceiling = voiceNoteChargeMicros(300, selected, 'en');
+      const reservation = await this.reserve('audio', ceiling, audioKey);
+      let providerStarted = false;
+      try {
+        const audio = await load();
+        if (!audio.bytes.length || audio.bytes.length > 5 * 1024 * 1024) throw new Error('INVALID_VOICE_NOTE_SIZE');
+        const duration = durationReader ? await durationReader(audio.bytes, audio.mimeType)
+          : (await (await import('music-metadata')).parseBuffer(audio.bytes, { mimeType: audio.mimeType }, { duration: true })).format.duration;
+        if (!duration || !Number.isFinite(duration) || duration <= 0 || duration > 300) throw new Error('INVALID_VOICE_NOTE_DURATION');
+        await this.store.transaction(async s => {
+          const fresh = await s.lockProfile(accountId);
+          if (fresh.tenantId !== tenantId || fresh.status !== 'ACTIVE' || !fresh.voiceNotesAllowed || !fresh.voiceNotesEnabled
+            || effectiveVoiceProvider(fresh.voiceTranscriptionProvider as VoiceProvider) !== selected || !fresh.planSnapshot) throw new Error('VOICE_NOTES_NOT_ALLOWED');
+          const entries = await s.db.$queryRaw<any[]>`SELECT e.status,b."spentMicros",b."reservedMicros" FROM "PortalUsageEntry" e
+            JOIN "PortalUsageBucket" b ON b."accountId"=e."accountId" AND b.period=e.period WHERE e.id=${reservation} FOR UPDATE OF e,b`;
+          const entry = entries[0];
+          if (entry?.status !== 'RESERVED' || Number(entry.spentMicros) + Number(entry.reservedMicros) > Math.floor(fresh.planSnapshot.limits.monthlyUsd * 1000000)) throw new Error('VOICE_ALLOWANCE_EXHAUSTED');
+        });
+        providerStarted = true;
+        const transcript = await transcriber.transcribe(audio.bytes, audio.mimeType, selected, hint);
+        // A missing or implausible receipt retains the whole ceiling as UNKNOWN.
+        const receipt = transcript.durationSeconds;
+        const charge = receipt !== null && receipt > 0 && receipt <= 300
+          ? voiceNoteChargeMicros(Math.max(duration, receipt), selected, 'en') : null;
+        await this.finish(reservation, charge, { provider: selected, transcript, durationSeconds: duration });
+        return transcript;
+      } catch (error) {
+        await this.finish(reservation, providerStarted ? null : 0, { provider: selected, failed: true });
+        throw error;
+      }
+    }, blocked);
   }
   async runTurn<T>(tenantId: string, accountId: string | null | undefined, externalId: string | null | undefined, run: () => Promise<T>, blocked: T): Promise<T> {
     const profiles = await this.store.db.$queryRaw<PortalProfile[]>`SELECT * FROM "PortalProfile" WHERE "tenantId"=${tenantId} AND (${accountId || null}::text IS NULL OR "accountId"=${accountId || null}) LIMIT 2`;
@@ -57,7 +115,7 @@ export class PortalBudget {
   async runPreview<T>(profile: PortalProfile, run: () => Promise<T>): Promise<T> {
     return this.context.run({ profile, key: 'admin-preview:' + randomUUID(), sequence: 0, llm: 0, embedding: 0, image: 0, events: {}, allowInactive: true, preview: true }, run);
   }
-  private async reserve(kind: 'message' | 'llm' | 'image' | 'embedding', reservedMicros: number, key?: string, allowCompleted = false): Promise<string> {
+  private async reserve(kind: 'message' | 'llm' | 'image' | 'embedding' | 'audio', reservedMicros: number, key?: string, allowCompleted = false): Promise<string> {
     const ctx = this.context.getStore();
     if (!ctx) return '';
     if (ctx.preview) return '';
@@ -65,6 +123,8 @@ export class PortalBudget {
     return this.store.transaction(async s => {
       const p = await s.lockProfile(ctx.profile.accountId);
       if (!p.planSnapshot || (!ctx.allowInactive && p.status !== 'ACTIVE') || p.status === 'SUSPENDED') throw new PortalError(402, 'ACCOUNT_NOT_ACTIVE');
+      if (p.tenantId !== ctx.profile.tenantId) throw new PortalError(403, 'ACCOUNT_SCOPE_CHANGED');
+      if (kind === 'audio' && (!p.voiceNotesAllowed || !p.voiceNotesEnabled)) throw new PortalError(402, 'VOICE_NOTES_NOT_ALLOWED');
       const prior = (await s.db.$queryRaw<any[]>`SELECT id,status FROM "PortalUsageEntry" WHERE "accountId"=${p.accountId} AND "dedupeKey"=${dedupeKey}`)[0];
       if (prior) {
         if (allowCompleted && prior.status === 'COMPLETED') return prior.id;
@@ -75,7 +135,7 @@ export class PortalBudget {
       const bucket = (await s.db.$queryRaw<any[]>`SELECT * FROM "PortalUsageBucket" WHERE "accountId"=${p.accountId} AND period=${period} FOR UPDATE`)[0];
       const field = kind === 'message' ? 'messages' : kind === 'llm' ? 'llmCalls' : kind === 'image' ? 'images' : 'embeddings';
       const limits = p.planSnapshot.limits;
-      if ((!(kind === 'message' && limits.messages === -1) && Number(bucket[field]) >= limits[field]) || Number(bucket.spentMicros) + Number(bucket.reservedMicros) + reservedMicros > Math.floor(limits.monthlyUsd * 1000000)) {
+      if ((kind !== 'audio' && !(kind === 'message' && limits.messages === -1) && Number(bucket[field]) >= limits[field]) || Number(bucket.spentMicros) + Number(bucket.reservedMicros) + reservedMicros > Math.floor(limits.monthlyUsd * 1000000)) {
         throw new PortalError(402, 'ALLOWANCE_EXHAUSTED', 'The account allowance has been reached. Contact the administrator.');
       }
       const id = randomUUID();

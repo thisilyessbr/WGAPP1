@@ -21,7 +21,14 @@ function worker(enabled: boolean, transcribe = vi.fn(async () => ({ text: 'Bghit
     { handleMessage } as any,
     { downloadInboundAudio } as any,
     undefined, undefined, undefined, undefined,
-    { enabled: vi.fn(async () => enabled ? provider : null), transcriber: { transcribe }, recordUsage }
+    { enabled: vi.fn(async () => enabled ? provider : null), transcriber: { transcribe }, recordUsage,
+      process: async (tenant,account,wamid,selected,hint,load) => {
+        const audio=await load();
+        const result=hint ? await transcribe(audio.bytes,audio.mimeType,selected,hint) : await transcribe(audio.bytes,audio.mimeType,selected);
+        await recordUsage(tenant,account,wamid,result.durationSeconds,selected);
+        return result;
+      }
+    }
   );
   return { instance, handleMessage, downloadInboundAudio, transcribe, recordUsage };
 }
