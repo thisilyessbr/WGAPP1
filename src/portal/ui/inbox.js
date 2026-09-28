@@ -394,9 +394,9 @@
               <div class="inbox-msg-meta">
                 <span>${esc(timeStr)}</span>
                 ${deliveryHtml}
-                ${isAi ? `<button class="answer-flag-toggle" type="button" data-flag-answer="${esc(m.id)}" aria-label="Report a wrong chatbot answer">Report answer</button>` : ''}
+                ${isAi && m.feedbackStatus ? `<span class="answer-report-status">${m.feedbackStatus === 'RESOLVED' ? 'Problem resolved' : 'Reported · Under review'}</span>` : isAi ? `<button class="answer-flag-toggle" type="button" data-flag-answer="${esc(m.id)}" aria-label="Report a problem">Report a problem</button>` : ''}
               </div>
-              ${isAi ? `<form class="answer-flag-form" data-flag-form="${esc(m.id)}" hidden><label>What was wrong with this answer?<textarea maxlength="1000" rows="2" required placeholder="Wrong fact, missed question, wrong language…"></textarea></label><button class="btn secondary" type="submit">Send for review</button></form>` : ''}
+              ${isAi && !m.feedbackStatus ? `<form class="answer-flag-form" data-flag-form="${esc(m.id)}" hidden><label>What was wrong with this answer?<textarea maxlength="1000" rows="2" required placeholder="Wrong fact, missed question, wrong language…"></textarea></label><button class="btn secondary" type="submit">Report a problem</button></form>` : ''}
             </div>
           `;
         })
@@ -562,12 +562,17 @@
         const currentForm=()=>activeConversationId===conversationId ? container.querySelector(`[data-flag-form="${messageId}"]`) : null;
         const button = form.querySelector('button'); button.disabled = true;
         try {
-          await ctx.api('/client/conversations/' + encodeURIComponent(conversationId) + '/answer-feedback', {
+          const result = await ctx.api('/client/conversations/' + encodeURIComponent(conversationId) + '/answer-feedback', {
             method: 'POST', body: JSON.stringify({ messageId, note: form.querySelector('textarea').value.trim() })
           });
+          if (activeConversationId === conversationId) {
+            const message = activeMessages.find(item => item.id === messageId);
+            if (message) message.feedbackStatus = result.feedback?.status || 'OPEN';
+            renderDetail(true);
+          }
           const visibleForm=currentForm();
           if (visibleForm) {visibleForm.hidden=true;visibleForm.querySelector('textarea').value='';}
-          ctx.toast('Answer sent for review.');
+          ctx.toast('Problem reported to your administrator.');
         } catch (error) { ctx.toast(error.message || 'Could not report answer', true); }
         finally { button.disabled = false; const visibleForm=currentForm(); if (visibleForm) visibleForm.querySelector('button').disabled=false; }
       };

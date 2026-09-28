@@ -12,7 +12,7 @@ export class PortalStaffActions {
   constructor(private store: PortalStore, private deliver: (alert: Alert, url: string) => Promise<void> = PortalStaffActions.sendEmail) {}
 
   async queue(tenantId: string, accountId: string) {
-    const [handoffs, requests, feedback] = await Promise.all([
+    const [handoffs, requests] = await Promise.all([
       this.store.db.$queryRaw<any[]>`SELECT c.id,c."updatedAt" AS at,cu."externalId" AS customer,
         c."contextData"->'_portalHandoff'->>'ownerId' AS "ownerId"
         FROM "Conversation" c JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
@@ -27,15 +27,11 @@ export class PortalStaffActions {
         WHERE l."tenantId"=${tenantId} AND l."accountId"=${accountId}
           AND l.status IN ('NEW','CONTACTED','QUALIFIED') AND (l."followUpAt" IS NULL OR l."followUpAt"<=NOW())
           AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
-        ORDER BY l."followUpAt" ASC NULLS LAST,l."updatedAt" DESC LIMIT 25`,
-      this.store.db.$queryRaw<any[]>`SELECT id,"createdAt" AS at FROM "PortalAnswerFeedback"
-        WHERE "tenantId"=${tenantId} AND "accountId"=${accountId} AND status='OPEN'
-        ORDER BY "createdAt" DESC LIMIT 25`
+        ORDER BY l."followUpAt" ASC NULLS LAST,l."updatedAt" DESC LIMIT 25`
     ]);
     return {
       handoffs: handoffs.map(row => ({ ...row, url: `/app/inbox/${encodeURIComponent(row.id)}` })),
-      requests: requests.map(row => ({ ...row, url: `/app/leads/${encodeURIComponent(row.id)}` })),
-      feedback: feedback.map(row => ({ ...row, url: '/app/answer-reviews' }))
+      requests: requests.map(row => ({ ...row, url: `/app/leads/${encodeURIComponent(row.id)}` }))
     };
   }
 
@@ -57,7 +53,7 @@ export class PortalStaffActions {
         (id,"tenantId","accountId","conversationId","messageId","reportedById",question,answer,note)
         VALUES (${id},${tenantId},${accountId},${conversationId},${messageId},${actorId},${String(row.question || '').slice(0,4000)},${String(row.content).slice(0,4000)},${note.trim()})
         ON CONFLICT ("accountId","messageId") DO NOTHING`;
-      const saved = (await tx.db.$queryRaw<any[]>`SELECT id FROM "PortalAnswerFeedback" WHERE "accountId"=${accountId} AND "messageId"=${messageId}`)[0];
+      const saved = (await tx.db.$queryRaw<any[]>`SELECT id,status FROM "PortalAnswerFeedback" WHERE "accountId"=${accountId} AND "messageId"=${messageId}`)[0];
       if (saved.id === id) await tx.audit(actorId, accountId, 'AI_ANSWER_FLAGGED', { feedbackId: id, messageId });
       return saved;
     });

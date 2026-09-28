@@ -14,8 +14,8 @@ describe('staff action screens',()=>{
       if(req.path==='/auth/session')return res.json({user:{id:'owner',name:'Owner',role:'CLIENT'},csrf:'test',accounts:[]});
       if(req.path==='/client/profile')return res.json({profile:{plan:{modules:['services']}}});
       if(req.path==='/client/conversations')return res.json({conversations:['chat-a','chat-b'].map(id=>({...conversation(id),customerPhone:id,lastMessage:{content:'Newest WhatsApp reply',createdAt:recent.createdAt}})),pagination:{total:2,hasMore:false}});
-      if(req.path==='/client/conversations/chat-a'){detailLoads++;return res.json({conversation:conversation('chat-a'),messages:req.query.before?[old]:[recent],hasOlderMessages:!req.query.before,nextBefore:req.query.before?null:'recent'});}
-      if(req.path==='/client/conversations/chat-a/answer-feedback'){report=req.body;return res.json({success:true});}
+      if(req.path==='/client/conversations/chat-a'){detailLoads++;return res.json({conversation:conversation('chat-a'),messages:req.query.before?[old]:[{...recent,feedbackStatus:report?'OPEN':null}],hasOlderMessages:!req.query.before,nextBefore:req.query.before?null:'recent'});}
+      if(req.path==='/client/conversations/chat-a/answer-feedback'){report=req.body;return res.json({feedback:{status:'OPEN'}});}
       if(req.path==='/client/conversations/chat-b')return res.json({conversation:conversation('chat-b'),messages:[{...recent,id:'other',content:'Other customer reply'}],hasOlderMessages:false});
       return res.status(404).json({error:'NOT_FOUND'});
     });
@@ -32,7 +32,7 @@ describe('staff action screens',()=>{
       await log.getByText('Older customer message',{exact:true}).waitFor();
       expect(await log.getByText('Newest WhatsApp reply',{exact:true}).count()).toBe(1);
       expect(await page.getByRole('button',{name:'Load older messages',exact:true}).count()).toBe(0);
-      await page.getByRole('button',{name:'Report a wrong chatbot answer',exact:true}).click();
+      await page.getByRole('button',{name:'Report a problem',exact:true}).click();
       const note=page.getByPlaceholder('Wrong fact, missed question, wrong language…');
       await note.fill('The requested service was changed without confirmation.');
       const loadsBefore=detailLoads;
@@ -41,10 +41,14 @@ describe('staff action screens',()=>{
       expect(detailLoads).toBeGreaterThan(loadsBefore);
       expect(await note.isVisible()).toBe(true);
       expect(await note.inputValue()).toBe('The requested service was changed without confirmation.');
-      await page.getByRole('button',{name:'Send for review',exact:true}).click();
-      await page.getByRole('status').filter({hasText:'Answer sent for review.'}).waitFor();
+      await page.locator('[data-flag-form]').getByRole('button',{name:'Report a problem',exact:true}).click();
+      await page.getByRole('status').filter({hasText:'Problem reported to your administrator.'}).waitFor();
       expect(report).toEqual({messageId:'recent',note:'The requested service was changed without confirmation.'});
       expect(await note.isVisible()).toBe(false);
+      await log.getByText('Reported · Under review',{exact:true}).waitFor();
+      await page.reload();
+      await page.getByRole('log').getByText('Reported · Under review',{exact:true}).waitFor();
+      expect(await page.locator('.sidebar').getByText('Answer reviews',{exact:true}).count()).toBe(0);
       await page.getByRole('navigation',{name:'Conversations list'}).getByRole('button').filter({hasText:'chat-b'}).click();
       await log.getByText('Other customer reply',{exact:true}).waitFor();
       expect(await log.getByText('Older customer message',{exact:true}).count()).toBe(0);
@@ -75,6 +79,8 @@ describe('staff action screens',()=>{
       await page.goto(origin+'/app/today');
       await page.getByRole('heading',{name:'Today',exact:true}).waitFor();
       expect(await page.getByText('Amina',{exact:true}).count()).toBe(1);
+      expect(await page.getByText('Chatbot answers to improve',{exact:true}).count()).toBe(0);
+      expect(await page.locator('.sidebar').getByText('Answer reviews',{exact:true}).count()).toBe(0);
       expect(await page.getByText('New request · Salma',{exact:true}).count()).toBe(1);
       await page.locator('.language-select').selectOption('ar');
       await page.getByRole('heading',{name:'اليوم',exact:true}).waitFor();
@@ -93,4 +99,51 @@ describe('staff action screens',()=>{
       expect(resolved).toBe(true);expect(errors).toEqual([]);
     }finally{await browser.close();await new Promise<void>(r=>server.close(()=>r()));}
   });
+  it.each([false,true])('simplifies follow-ups and preserves details for commerce=%s in three languages',async(commerce)=>{
+    const app=express();app.use(express.json());
+    let lead:any={id:'one',status:'NEW',sourceRequest:'I would like more information',conversationId:'chat-1',customerPhone:'212600000000',details:{},workflowDetails:{product:'Shoes',quantity:'2',city:'Rabat'},createdAt:new Date().toISOString()};
+    const updates:any[]=[];
+    app.use('/api',(req,res)=>{
+      if(req.path==='/auth/session')return res.json({user:{id:'owner',name:'Owner',role:'CLIENT'},csrf:'test',accounts:[]});
+      if(req.path==='/client/profile')return res.json({profile:{commerceActive:commerce,plan:{modules:[commerce?'commerce':'services']}}});
+      if(req.path==='/client/team')return res.json({members:[]});
+      if(req.path==='/client/leads/one'){
+        if(req.method==='PATCH'){updates.push(req.body);lead={...lead,...req.body};}
+        return res.json({lead});
+      }
+      return res.status(404).json({error:'NOT_FOUND'});
+    });
+    app.use('/portal-assets',express.static(resolve('src/portal/ui'),{dotfiles:'allow'}));
+    app.use((_req,res)=>res.sendFile(resolve('src/portal/ui/index.html'),{dotfiles:'allow'}));
+    const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.once('listening',r));
+    const browser=await chromium.launch({headless:true});
+    try{
+      const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+      await page.goto('http://127.0.0.1:'+(server.address() as any).port+'/app/leads/one');
+      await page.getByRole('heading',{name:'Customer request',exact:true}).waitFor();
+      expect(await page.getByRole('link',{name:'Reply',exact:true}).getAttribute('href')).toBe('/app/inbox/chat-1');
+      expect(await page.getByText('Qualified',{exact:true}).isVisible()).toBe(false);
+      expect(await page.getByLabel('Sales stage').isVisible()).toBe(false);
+      await page.getByRole('button',{name:'Remind me later',exact:true}).click();
+      await page.getByLabel('Remind me on',{exact:true}).fill('2030-01-02T09:00');
+      await page.getByRole('button',{name:'Save changes',exact:true}).click();
+      await page.getByText('Later',{exact:true}).waitFor();
+      expect(updates[0].followUpAt).toBeTruthy();
+      expect(updates[0].status).toBe(commerce?'NEW':undefined);
+      if(commerce){expect(updates[0].details).toMatchObject({product:'Shoes',quantity:'2',city:'Rabat'});}
+      await page.getByRole('button',{name:'Done',exact:true}).click();
+      await page.getByRole('button',{name:'Reopen',exact:true}).waitFor();
+      expect(updates[1].status).toBe('DONE');expect(updates[1].followUpAt).toBeNull();
+      expect(updates.some(update=>update.status==='WON')).toBe(false);
+      await page.locator('.language-select').selectOption('fr');
+      await page.getByRole('button',{name:'Me rappeler plus tard',exact:true}).waitFor();
+      await page.locator('.language-select').selectOption('ar');
+      await page.getByRole('button',{name:'ذكّرني لاحقًا',exact:true}).waitFor();
+      expect(await page.locator('html').getAttribute('dir')).toBe('rtl');
+      await page.setViewportSize({width:390,height:844});
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      expect(errors).toEqual([]);
+    }finally{await browser.close();await new Promise<void>(r=>server.close(()=>r()));}
+  });
+
 });
