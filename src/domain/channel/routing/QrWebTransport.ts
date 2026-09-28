@@ -19,7 +19,7 @@ export class QrWebTransport implements ChannelTransport {
       const sent = await this.sessions.send(params.connection.id, params.to, params.text);
       return { success: true, providerMessageId: sent.id, sentAt: Date.now() };
     } catch (error: any) {
-      return { success: false, error: error.message || String(error), isRetryable: true };
+      return { success: false, error: error.message || String(error), isRetryable: error.message === 'QR_RATE_LIMIT' || error.message === 'QR session is not active on this worker' };
     }
   }
 

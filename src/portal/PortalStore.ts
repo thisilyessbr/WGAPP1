@@ -122,6 +122,20 @@ export class PortalStore {
       return s.profile(accountId);
     });
   }
+  async setQrAllowed(actorId:string,accountId:string,allowed:boolean) {
+    return this.transaction(async s=>{
+      const p=await s.lockProfile(accountId);
+      if(allowed&&!p.planSnapshot?.modules.includes('qr'))throw new PortalError(409,'QR_PLAN_REQUIRED','Assign a QR pilot plan first.');
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrAllowed"=${allowed},
+        revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      if(!allowed) {
+        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
+        await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND transport='QR_WEB'`;
+        await s.db.$executeRaw`DELETE FROM "QrSessionLease" WHERE "connectionId" IN (SELECT id FROM "ChannelConnection" WHERE "accountId"=${accountId} AND provider='QR_WEB')`;
+      }
+      await s.audit(actorId,accountId,allowed?'QR_ACCESS_ALLOWED':'QR_ACCESS_REVOKED');return s.profile(accountId);
+    });
+  }
   async setVoiceTranscriptionProvider(actorId: string, accountId: string, provider: 'groq' | 'deepgram') {
     return this.transaction(async s => {
       const profile = await s.lockProfile(accountId);
@@ -196,6 +210,12 @@ export class PortalStore {
       if (changes.lockedFields !== undefined) profile.lockedFields = changes.lockedFields;
       if (changes.adminConfig !== undefined) profile.adminConfig = changes.adminConfig;
       const instagramRemoved = Boolean(profile.instagramAllowed && !profile.planSnapshot?.modules.includes('instagram'));
+      if(profile.qrAllowed&&!profile.planSnapshot?.modules.includes('qr')) {
+        await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrAllowed"=false WHERE "accountId"=${accountId}`;
+        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
+        await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND transport='QR_WEB'`;
+        await s.audit(actorId,accountId,'QR_ACCESS_REVOKED',{reason:'PLAN_CHANGED'});
+      }
       if (profile.status === 'ACTIVE' && (!profile.planSnapshot || !profile.published)) throw new PortalError(400, 'ACTIVATION_NOT_READY', 'Assign a plan and publish the business data before activation.');
       if (profile.status === 'ACTIVE') {
         const users = await s.db.$queryRaw<any[]>`SELECT u.id FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id WHERE m."accountId"=${accountId} AND (u."verifiedAt" IS NOT NULL OR ${localEmailBypass()}) AND u.disabled=false`;

@@ -338,6 +338,9 @@ model ChannelConnection {
   account  Account                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   numbers  WhatsAppBusinessNumber[]
   sessionSecrets ChannelSessionSecret[]
+  qrLease QrSessionLease?
+  qrPhoneClaim QrPhoneClaim?
+  qrContactWindows QrContactWindow[]
 
   @@unique([tenantId, accountId, provider, connectionKey])
   @@index([tenantId, accountId])
@@ -463,6 +466,8 @@ model PortalProfile {
   voiceNotesEnabled Boolean @default(false)
   voiceNotesAllowed Boolean @default(false)
   instagramAllowed Boolean @default(false)
+  qrAllowed Boolean @default(false)
+  qrConsentAt DateTime? @db.Timestamptz(6)
   voiceTranscriptionProvider String @default("groq")
   adminConfig Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
@@ -592,6 +597,29 @@ model ChannelSessionSecret {
 
   @@unique([connectionId, category, secretKey])
   @@index([connectionId])
+}
+
+model QrSessionLease {
+  connectionId String @id
+  owner String
+  expiresAt DateTime @db.Timestamptz(6)
+  encryptedQr String?
+  qrExpiresAt DateTime? @db.Timestamptz(6)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model QrPhoneClaim {
+  phone String @id
+  connectionId String @unique
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model QrContactWindow {
+  connectionId String
+  recipient String
+  lastInboundAt DateTime @db.Timestamptz(6)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@id([connectionId, recipient])
 }
 
 model ConversationAutomationState {

@@ -36,6 +36,7 @@ const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p
   commerceActive: Boolean(p.planSnapshot?.modules.includes('commerce')) && p.adminConfig?.capabilities?.ecommerceEnabled !== false,
   reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
   voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
+  qrAllowed:p.qrAllowed,qrConsentAt:p.qrConsentAt,
   voiceNotesAvailable: p.voiceNotesAllowed && voiceTranscriptionAvailable(p.voiceTranscriptionProvider) });
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
@@ -286,7 +287,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, {
       connections: accountConnections,
       canAddNumber: numberLimit === -1 || connectedNumberCount < numberLimit,
-      qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()),
+      qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()) && profile.qrAllowed && Boolean(profile.planSnapshot?.modules.includes('qr')) && ['APPROVED','ACTIVE'].includes(profile.status),
       metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID)
         && (process.env.NODE_ENV !== 'production' || process.env.META_EMBEDDED_SIGNUP_ENABLED === 'true')
     });
@@ -298,7 +299,11 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (!input.attemptId || !input.stateToken || !input.code) throw new PortalError(400, 'MISSING_META_CODE');
     send(res, await connections.discover(req.portal, input as { attemptId: string; stateToken: string; code: string }));
   }));
-  client.post('/whatsapp/qr', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.startQr(req.portal)); }));
+  client.post('/whatsapp/qr', route(async (req, res) => {
+    const body=object(req.body);allowed(body,['riskAccepted']);
+    await store.throttle('wa-start:' + req.portal.accountId!, 5, 900);send(res,await connections.startQr(req.portal,body.riskAccepted));
+  }));
+  client.post('/whatsapp/:id/qr-disconnect',route(async(req,res)=>{await connections.disconnectQr(req.portal,String(req.params.id));send(res,{success:true});}));
   client.get('/whatsapp/:id/qr', route(async (req, res) => send(res, await connections.qr(req.portal, String(req.params.id)))));
   client.post('/whatsapp/complete', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['attemptId', 'stateToken', 'code', 'wabaId', 'phoneNumberId', 'displayPhoneNumber', 'pin']);
@@ -962,6 +967,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (body.allowed && !voiceTranscriptionAvailable((await store.profile(String(req.params.id))).voiceTranscriptionProvider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure the transcription provider before allowing voice notes.');
     send(res, { profile: await store.setVoiceNotesAllowed(req.portal.user.id, String(req.params.id), body.allowed) });
   }));
+  admin.patch('/accounts/:id/qr-access',route(async(req,res)=>{
+    const body=object(req.body);allowed(body,['allowed']);if(typeof body.allowed!=='boolean')throw new PortalError(400,'INVALID_SETTING');
+    send(res,{profile:await store.setQrAllowed(req.portal.user.id,String(req.params.id),body.allowed)});
+  }));
   admin.patch('/accounts/:id/voice-provider', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['provider']);
     if (body.provider !== 'groq' && body.provider !== 'deepgram') throw new PortalError(400, 'INVALID_VOICE_PROVIDER');
@@ -996,6 +1005,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.patch('/accounts/:id/connections/:connectionId', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
     if (typeof req.body?.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    const scopedConnection = await deps.prisma.channelConnection.findUnique({ where: { id: String(req.params.connectionId) } });
+    if (!scopedConnection || scopedConnection.tenantId!==p.tenantId || scopedConnection.accountId!==p.accountId) throw new PortalError(404,'CONNECTION_NOT_FOUND');
+    const isQr=scopedConnection.provider==='QR_WEB';
+    if(isQr && req.body.enabled && (!p.qrAllowed || !p.qrConsentAt || !p.planSnapshot?.modules.includes('qr') || !['APPROVED','ACTIVE'].includes(p.status) || !deps.qrSessionManager?.isEnabled())) throw new PortalError(403,'QR_NOT_INCLUDED');
     if (req.body.enabled) {
       const connection = await deps.prisma.channelConnection.findUnique({ where: { id: String(req.params.connectionId) } });
       if (connection?.connectionKey?.startsWith('CLIENT_OWNED:') && connection.status !== 'CONNECTED') {
@@ -1005,9 +1018,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     await store.transaction(async s => {
       const n = await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
       if (!n) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
-      await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE "connectionId"=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
+      if(isQr) await s.db.$executeRaw`UPDATE "ChannelConnection" SET status=${req.body.enabled?'PENDING':'PAUSED'} WHERE id=${scopedConnection.id}`;
+      await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=${isQr?false:req.body.enabled},"updatedAt"=NOW() WHERE "connectionId"=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
       await s.audit(req.portal.user.id, p.accountId, 'CONNECTION_TOGGLED', { enabled: req.body.enabled });
-    }); send(res, { success: true });
+    });
+    if(isQr && req.body.enabled) await deps.qrSessionManager!.start(scopedConnection.id);
+    send(res, { success: true });
   }));
   admin.get('/accounts/:id/conversations', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));

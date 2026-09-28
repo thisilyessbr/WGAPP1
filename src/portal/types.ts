@@ -40,6 +40,7 @@ export interface PortalProfile {
   revision: number; publishedRevision: number; planId: string | null; planSnapshot: PortalPlan | null;
   requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[]; editingFrozen: boolean; voiceNotesEnabled: boolean; voiceNotesAllowed: boolean; instagramAllowed: boolean; voiceTranscriptionProvider: 'groq' | 'deepgram';
   adminConfig: Record<string, any>; createdAt: Date; updatedAt: Date;
+  qrAllowed: boolean; qrConsentAt: Date | null;
 }
 export const EMPTY_BUSINESS: BusinessData = {
   name: '', email: '', phone: '', website: '', description: '', address: '', hours: '', currency: 'MAD',
