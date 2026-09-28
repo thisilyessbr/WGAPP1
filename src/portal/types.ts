@@ -31,7 +31,8 @@ export interface BusinessData {
   policies: { shipping: string; returns: string; payment: string; privacy: string };
   faqs: { id: string; question: string; answer: string; language: string; category: string }[];
   products: { sku: string; name: string; description: string; price: number; stock: number; category: string;
-    variants: { sku: string; size: string; color: string; stock: number; price: number | null }[] }[];
+    imageIds?: string[];
+    variants: { sku: string; size: string; color: string; stock: number; price: number | null; imageId?: string | null }[] }[];
   services: { name: string; description: string; price: string; availability: string }[];
 }
 export interface PortalProfile {
@@ -39,6 +40,7 @@ export interface PortalProfile {
   revision: number; publishedRevision: number; planId: string | null; planSnapshot: PortalPlan | null;
   requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[]; editingFrozen: boolean; voiceNotesEnabled: boolean; voiceNotesAllowed: boolean; instagramAllowed: boolean; voiceTranscriptionProvider: 'groq' | 'deepgram';
   adminConfig: Record<string, any>; createdAt: Date; updatedAt: Date;
+  qrAllowed: boolean; qrConsentAt: Date | null;
 }
 export const EMPTY_BUSINESS: BusinessData = {
   name: '', email: '', phone: '', website: '', description: '', address: '', hours: '', currency: 'MAD',

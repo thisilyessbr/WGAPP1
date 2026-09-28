@@ -23,7 +23,8 @@ import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJ
 import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
 import { WhatsAppWorker } from './domain/channel/whatsapp/WhatsAppWorker';
 import { VoiceNoteTranscriber, VoiceProvider, voiceTranscriptionAvailable } from './domain/channel/whatsapp/VoiceNoteTranscriber';
-import { recordVoiceNoteUsage } from './portal/VoiceNoteUsage';
+import { PortalBudget } from './portal/PortalBudget';
+import { PortalStore } from './portal/PortalStore';
 import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
 import { WhatsAppOnboardingService } from './domain/channel/whatsapp/WhatsAppOnboardingService';
@@ -135,18 +136,30 @@ export interface WorkerBootstrapOptions {
 }
 
 function voiceNoteOptions(prisma: PrismaClient) {
+  const budget = new PortalBudget(new PortalStore(prisma), false);
+  const transcriber = new VoiceNoteTranscriber();
   return {
     enabled: async (tenantId: string, accountId: string) => {
       const profile = await prisma.portalProfile.findUnique({
-        where: { accountId }, select: { tenantId: true, voiceNotesEnabled: true, voiceNotesAllowed: true, voiceTranscriptionProvider: true }
+        where: { accountId }, select: { tenantId: true, status: true, voiceNotesEnabled: true, voiceNotesAllowed: true, voiceTranscriptionProvider: true }
       });
-      if (profile?.tenantId !== tenantId || !profile.voiceNotesAllowed || !profile.voiceNotesEnabled) return null;
+      if (profile?.tenantId !== tenantId || profile.status !== 'ACTIVE' || !profile.voiceNotesAllowed || !profile.voiceNotesEnabled) return null;
       const selected = profile.voiceTranscriptionProvider as VoiceProvider;
       return voiceTranscriptionAvailable(selected) ? selected : null;
     },
-    transcriber: new VoiceNoteTranscriber(),
-    recordUsage: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider) =>
-      recordVoiceNoteUsage(prisma, tenantId, accountId, wamid, durationSeconds, provider)
+    transcriber,
+    process: (tenantId: string, accountId: string, wamid: string, provider: VoiceProvider, hint: string | undefined, load: () => Promise<{bytes: Buffer; mimeType: string}>) =>
+      budget.transcribeVoice(tenantId, accountId, wamid, provider, hint, load, transcriber),
+    languageHint: async (tenantId: string, accountId: string, customerExternalId: string) => {
+      const conversation = await prisma.conversation.findFirst({
+        where: { tenantId, accountId, customer: { externalId: customerExternalId, tenantId } },
+        orderBy: { updatedAt: 'desc' }, select: { contextData: true }
+      });
+      const previous = (conversation?.contextData as any)?._lang;
+      if (['en', 'fr', 'ar', 'darija'].includes(previous)) return previous;
+      const profile = await prisma.portalProfile.findUnique({ where: { accountId }, select: { tenantId: true, adminConfig: true } });
+      return profile?.tenantId === tenantId ? (profile.adminConfig as any)?.identity?.language : undefined;
+    }
   };
 }
 

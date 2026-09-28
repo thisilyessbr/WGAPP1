@@ -209,7 +209,7 @@ describe('Phase 29E: Cost Analytics & Budget Monitoring', () => {
     const mockLlm = new LLMMockProvider();
     const engine = new ConversationEngine(
       {
-        getOrCreateConversation: async () => ({
+        getMessageCount: async () => 0, getOrCreateConversation: async () => ({
           id: 'conv-test-1',
           tenantId: 'animeverse',
           accountId: null,

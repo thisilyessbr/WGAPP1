@@ -496,7 +496,7 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
 
     expect(response).toContain('Thank you John Doe! Your consultation for Muscle gain is booked.');
     expect(leadSpy).toHaveBeenCalledTimes(1);
-    expect(leadSpy).toHaveBeenCalledWith(tenantId, accountId, customerId, 'NEW');
+    expect(leadSpy).toHaveBeenCalledWith(tenantId, accountId, customerId, 'NEW', expect.objectContaining({ reason: 'COMPLETED_SALES_WORKFLOW', workflowSessionId: expect.any(String) }));
   });
 
   it('8. Operational workflow completion produces ZERO CRM leads', async () => {

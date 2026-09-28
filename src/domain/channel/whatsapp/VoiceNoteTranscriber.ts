@@ -21,16 +21,19 @@ export class VoiceNoteTranscriber {
     private readonly groqApiKey: string | undefined = process.env.GROQ_API_KEY
   ) {}
 
-  async transcribe(audio: Buffer, mimeType: string, selected: VoiceProvider): Promise<VoiceTranscript> {
+  async transcribe(audio: Buffer, mimeType: string, selected: VoiceProvider, languageHint?: string): Promise<VoiceTranscript> {
     if (!audio.length || audio.length > 5 * 1024 * 1024) throw new Error('INVALID_VOICE_NOTE_SIZE');
     return effectiveVoiceProvider(selected) === 'deepgram'
-      ? this.transcribeDeepgram(audio, mimeType)
+      ? this.transcribeDeepgram(audio, mimeType, languageHint)
       : this.transcribeGroq(audio, mimeType);
   }
 
-  private async transcribeDeepgram(audio: Buffer, mimeType: string): Promise<VoiceTranscript> {
+  private async transcribeDeepgram(audio: Buffer, mimeType: string, languageHint?: string): Promise<VoiceTranscript> {
     if (!this.deepgramApiKey) throw new Error('VOICE_NOTES_UNAVAILABLE');
-    const response = await this.fetchFn('https://api.deepgram.com/v1/listen?model=nova-3&language=ar-MA&smart_format=true', {
+    // Arabic is a separate model; Nova-3 multilingual supports French/English, not Arabic.
+    // Use the scoped conversation/account language without making a second paid call.
+    const language = languageHint === 'en' || languageHint === 'fr' ? 'multi' : 'ar-MA';
+    const response = await this.fetchFn('https://api.deepgram.com/v1/listen?model=nova-3&language=' + language + '&smart_format=true', {
       method: 'POST', headers: { Authorization: `Token ${this.deepgramApiKey}`, 'Content-Type': mimeType },
       body: new Uint8Array(audio), signal: AbortSignal.timeout(25_000)
     });

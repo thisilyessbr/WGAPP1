@@ -22,6 +22,8 @@ export class PortalDocuments {
       const existing = (await s.db.$queryRaw<any[]>`SELECT id FROM "PortalDocument" WHERE "accountId"=${accountId} AND hash=${hash}`)[0];
       if (existing) return { id: existing.id, reused: true };
       const usage = (await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS count,COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalDocument" WHERE "accountId"=${accountId}`)[0];
+      const photos = (await s.db.$queryRaw<any[]>`SELECT COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalProductImage" WHERE "accountId"=${accountId}`)[0];
+      usage.bytes = Number(usage.bytes) + Number(photos.bytes);
       if (usage.count >= plan.limits.documents || Number(usage.bytes) + buffer.length > plan.limits.storageMb * 1048576) throw new PortalError(402, 'DOCUMENT_ALLOWANCE_REACHED');
       const id = randomUUID();
       await s.db.$executeRaw`INSERT INTO "PortalDocument"(id,"accountId",filename,hash,bytes,size) VALUES (${id},${accountId},${name},${hash},${buffer},${buffer.length})`;

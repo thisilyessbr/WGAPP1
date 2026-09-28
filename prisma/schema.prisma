@@ -52,6 +52,7 @@ model Account {
   portalUsageEntries PortalUsageEntry[]
   portalConnectionAttempts PortalConnectionAttempt[]
   portalDocuments PortalDocument[]
+  portalProductImages PortalProductImage[]
   id               String              @id @default(uuid())
   tenantId         String
   name             String
@@ -275,6 +276,7 @@ model Lead {
   interest   String?
   signalReason String?
   sourceConversationId String?
+  sourceWorkflowSessionId String?
   note       String?
   details    Json     @default("{}")
   followUpAt DateTime? @db.Timestamptz(3)
@@ -287,7 +289,7 @@ model Lead {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, accountId, customerId])
+  @@index([tenantId, accountId, customerId, createdAt(sort: Desc)], map: "Lead_customer_history_idx")
   @@index([tenantId, accountId, status])
   @@index([tenantId, accountId, followUpAt])
 }
@@ -336,6 +338,9 @@ model ChannelConnection {
   account  Account                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   numbers  WhatsAppBusinessNumber[]
   sessionSecrets ChannelSessionSecret[]
+  qrLease QrSessionLease?
+  qrPhoneClaim QrPhoneClaim?
+  qrContactWindows QrContactWindow[]
 
   @@unique([tenantId, accountId, provider, connectionKey])
   @@index([tenantId, accountId])
@@ -461,6 +466,8 @@ model PortalProfile {
   voiceNotesEnabled Boolean @default(false)
   voiceNotesAllowed Boolean @default(false)
   instagramAllowed Boolean @default(false)
+  qrAllowed Boolean @default(false)
+  qrConsentAt DateTime? @db.Timestamptz(6)
   voiceTranscriptionProvider String @default("groq")
   adminConfig Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
@@ -555,6 +562,22 @@ model PortalDocument {
   @@index([status, createdAt], map: "PortalDocument_jobs_idx")
 }
 
+model PortalProductImage {
+  id String @id
+  accountId String
+  filename String
+  hash String
+  bytes Bytes
+  size Int
+  width Int
+  height Int
+  published Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@unique([accountId, hash])
+  @@index([accountId], map: "PortalProductImage_account_idx")
+}
+
 model PortalThrottle {
   key String @id
   count Int
@@ -574,6 +597,29 @@ model ChannelSessionSecret {
 
   @@unique([connectionId, category, secretKey])
   @@index([connectionId])
+}
+
+model QrSessionLease {
+  connectionId String @id
+  owner String
+  expiresAt DateTime @db.Timestamptz(6)
+  encryptedQr String?
+  qrExpiresAt DateTime? @db.Timestamptz(6)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model QrPhoneClaim {
+  phone String @id
+  connectionId String @unique
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model QrContactWindow {
+  connectionId String
+  recipient String
+  lastInboundAt DateTime @db.Timestamptz(6)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@id([connectionId, recipient])
 }
 
 model ConversationAutomationState {

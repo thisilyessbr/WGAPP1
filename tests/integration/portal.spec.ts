@@ -11,6 +11,7 @@ import { PortalConnections } from '../../src/portal/PortalConnections';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
 import { validateAdminConfig, validatePlan } from '../../src/portal/validation';
 import { portalBusinessEvidence } from '../../src/portal/BusinessFacts';
+import sharp from 'sharp';
 
 describe('portal PostgreSQL and HTTP boundaries', () => {
   let database: Awaited<ReturnType<typeof portalDatabase>>, store: PortalStore, budget: PortalBudget, auth: PortalAuth, docs: PortalDocuments, connections: PortalConnections, app: express.Express;
@@ -31,9 +32,13 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     plan = await store.savePlan(id, validatePlan({ name: 'Test plan', published: true, modules: ['commerce','knowledge','services'], limits: { monthlyUsd: 1, messages: 2, llmCalls: 2, numbers: 1, documents: 1 } }));
   }, 60000);
   afterAll(async () => { budget?.dispose(); await database?.pg.close(); });
-  async function client() {
+  async function client(assignPlan = false) {
     const result = await store.register(randomUUID()+'@portal.test', 'Test business', passwordHash, plan.id);
     await store.db.$executeRaw`UPDATE "PortalUser" SET "verifiedAt"=NOW() WHERE id=${result.userId}`;
+    if (assignPlan) {
+      const p = await store.profile(result.accountId);
+      await store.updateAccount(admin.id, result.accountId, p.revision, { planId: plan.id });
+    }
     return { ...result, user: await store.userById(result.userId) };
   }
   async function cookie(user: any) {
@@ -67,8 +72,30 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
       vi.unstubAllEnvs();
     }
   });
+  it('authenticates photo uploads and rejects cross-account reads and frozen writes',async()=>{
+    const owner=await client(true), stranger=await client(true);
+    const bytes=await sharp({create:{width:20,height:20,channels:3,background:'#0000ff'}}).png().toBuffer();
+    expect((await request(app).post('/api/client/product-images').attach('file',bytes,'test.png')).status).toBe(401);
+    const headers=await cookie(owner.user);
+    expect((await request(app).post('/api/client/product-images').set('Cookie',headers.Cookie).attach('file',bytes,'test.png')).status).toBe(403);
+    const upload=await request(app).post('/api/client/product-images').set(headers).attach('file',bytes,'test.png');
+    expect(upload.status).toBe(201);
+    expect((await request(app).get('/api/client/product-images/'+upload.body.id).set(headers)).headers['content-type']).toContain('image/jpeg');
+    expect((await request(app).get('/api/client/product-images/'+upload.body.id).set(await cookie(stranger.user))).status).toBe(404);
+    expect((await request(app).get('/api/product-images/'+upload.body.id)).status).toBe(404);
+    await store.setEditingFrozen(admin.id,owner.accountId,true);
+    expect((await request(app).post('/api/client/product-images').set(headers).attach('file',bytes,'test.png')).status).toBe(403);
+  });
+  it('denies request management when the assigned plan has no service or commerce module',async()=>{
+    const owner=await client();
+    const headers=await cookie(owner.user);
+    for(const path of ['/api/client/leads','/api/client/leads/export.csv']){
+      const response=await request(app).get(path).set(headers);
+      expect(response.status).toBe(403);expect(response.body.error).toBe('REQUESTS_NOT_INCLUDED');
+    }
+  });
   it('keeps lead management and CSV export inside the client account', async () => {
-    const owner = await client(), stranger = await client();
+    const owner = await client(true), stranger = await client(true);
     const customerId = randomUUID(), leadId = randomUUID(), conversationId = randomUUID();
     await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
       VALUES (${customerId},${owner.tenantId},${'=447700900123'},NOW())`;
@@ -76,8 +103,10 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
       VALUES (${leadId},${owner.tenantId},${owner.accountId},${customerId},'NEW',NOW())`;
     await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
       VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
+    const workflowSessionId = randomUUID();
     await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
-      VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_test','done','COMPLETED',${JSON.stringify({city:'Rabat',address:'Rue 12',product:'Sneakers',quantity:'2'})}::jsonb,NOW())`;
+      VALUES (${workflowSessionId},${owner.tenantId},${conversationId},'checkout_test','done','COMPLETED',${JSON.stringify({city:'Rabat',address:'Rue 12',product:'Sneakers',quantity:'2'})}::jsonb,NOW())`;
+    await store.db.$executeRaw`UPDATE "Lead" SET "sourceWorkflowSessionId"=${workflowSessionId},"sourceConversationId"=${conversationId} WHERE id=${leadId}`;
     const cancelledCustomerId = randomUUID(), cancelledConversationId = randomUUID(), cancelledLeadId = randomUUID();
     await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
       VALUES (${cancelledCustomerId},${owner.tenantId},${'cancelled-cod'},NOW())`;
@@ -108,7 +137,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect((await request(app).get('/api/client/leads/export.csv').set(strangerHeaders)).text).not.toContain('447700900123');
   });
   it('exports more than one batch with Arabic, French, quotes and spreadsheet-safe cells', async () => {
-    const owner = await client(), stranger = await client();
+    const owner = await client(true), stranger = await client(true);
     await database.pg.query(`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
       SELECT gen_random_uuid()::text,$1,'csv-stress:' || n,NOW() FROM generate_series(1,1002) AS n`,[owner.tenantId]);
     await database.pg.query(`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
@@ -123,6 +152,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
       VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
     await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
       VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_stress','done','COMPLETED',${JSON.stringify({city:'الدار البيضاء',address:'12, Rue "Atlas"',product:'=SUM(1,1)',quantity:'2',payment:'Paiement à la livraison'})}::jsonb,NOW())`;
+    await store.db.$executeRaw`UPDATE "Lead" SET "sourceConversationId"=${conversationId},"sourceWorkflowSessionId"=(SELECT id FROM "WorkflowSession" WHERE "conversationId"=${conversationId} LIMIT 1) WHERE "customerId"=${customerId}`;
     const response = await request(app).get('/api/client/leads/export.csv').set(await cookie(owner.user));
     expect(response.status).toBe(200);
     expect(response.text.startsWith('\uFEFF"Contact","Status"')).toBe(true);
@@ -446,6 +476,8 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(()=>validateAdminConfig({workflows:{a:{initialState:'a',states:{a:{type:'message',next:'missing'}}}}})).toThrow();
   });
   it('serves portal pages and APIs through the main server alongside existing channel routes', async () => {
+      vi.stubEnv('ENCRYPTION_KEY', '12345678901234567890123456789012');
+      vi.stubEnv('CORS_ORIGINS', 'https://app.relayqo.test');
     const { createApp } = await import('../../src/app');
     const main = await createApp({ prisma: database.db, portalService: { store, auth, documents: docs, connections },
       conversationEngine: {}, whatsAppNumberService: {}, whatsAppOnboardingService: onboarding, clientSafetyGuard: {} } as any);
@@ -454,6 +486,11 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
       expect(r.headers['content-security-policy']).toContain("default-src 'self'");
     }
     expect((await request(main).get('/portal-assets/portal.js')).status).toBe(200);
+      const allowedOrigin = await request(main).get('/health').set('Origin','https://app.relayqo.test');
+      expect(allowedOrigin.headers['access-control-allow-origin']).toBe('https://app.relayqo.test');
+      expect(allowedOrigin.headers['access-control-allow-credentials']).toBe('true');
+      const deniedOrigin = await request(main).get('/health').set('Origin','https://unrelated.test');
+      expect(deniedOrigin.headers['access-control-allow-origin']).toBeUndefined();
     expect((await request(main).get('/api/portal/plans')).status).toBe(200);
     expect((await request(main).get('/api/auth/session')).status).toBe(401);
     expect((await request(main).get('/api/admin/accounts').set(await cookie(admin))).status).toBe(200);

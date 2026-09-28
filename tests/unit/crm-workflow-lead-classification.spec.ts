@@ -1,3 +1,4 @@
+import { transactionalLeadMock } from '../helpers/transactional-lead-mock';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CRMService } from '../../src/domain/crm/CRMService';
 
@@ -25,7 +26,7 @@ describe('Phase CRM-WORKFLOW-FIX-04 — CRM Workflow Lead Classification Unit Te
         update: vi.fn()
       }
     };
-    crmService = new CRMService(mockPrisma);
+    crmService = new CRMService(transactionalLeadMock(mockPrisma));
   });
   it('creates a lead only after the cash-on-delivery checkout workflow completes', async () => {
     const params = { tenantId, accountId, customerId, workflowId:'checkout_test', workflowConfig:{id:'checkout_test',states:{confirm:{type:'confirm'},done:{type:'end'}}}, terminalStateId:'done' };

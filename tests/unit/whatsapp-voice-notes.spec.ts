@@ -21,7 +21,14 @@ function worker(enabled: boolean, transcribe = vi.fn(async () => ({ text: 'Bghit
     { handleMessage } as any,
     { downloadInboundAudio } as any,
     undefined, undefined, undefined, undefined,
-    { enabled: vi.fn(async () => enabled ? provider : null), transcriber: { transcribe }, recordUsage }
+    { enabled: vi.fn(async () => enabled ? provider : null), transcriber: { transcribe }, recordUsage,
+      process: async (tenant,account,wamid,selected,hint,load) => {
+        const audio=await load();
+        const result=hint ? await transcribe(audio.bytes,audio.mimeType,selected,hint) : await transcribe(audio.bytes,audio.mimeType,selected);
+        await recordUsage(tenant,account,wamid,result.durationSeconds,selected);
+        return result;
+      }
+    }
   );
   return { instance, handleMessage, downloadInboundAudio, transcribe, recordUsage };
 }
@@ -122,6 +129,16 @@ describe('opt-in WhatsApp voice notes', () => {
     expect(await transcriber.transcribe(Buffer.from([1, 2]), 'audio/ogg', 'deepgram')).toEqual({ text: '', durationSeconds: 20, understood: false });
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(voiceNoteChargeMicros(20, 'deepgram')).toBe(1434);
+  });
+
+  it.each(['en', 'fr'])('uses one multilingual Deepgram call for a %s conversation', async language => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      metadata: { duration: 8 }, results: { channels: [{ alternatives: [{ transcript: 'Bonjour hello', confidence: 0.9 }] }] }
+    })));
+    await new VoiceNoteTranscriber(fetchFn, 'test-key').transcribe(Buffer.from([1]), 'audio/ogg', 'deepgram', language);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0][0]).toContain('language=multi');
+    expect(voiceNoteChargeMicros(60,'deepgram',language)).toBe(5200);
   });
 
   it('routes another account to Groq and can force a global rollback', async () => {

@@ -41,7 +41,7 @@ describe('Phase 30B: P0 Safety & Variant Contracts', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-injection-1',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -86,7 +86,7 @@ describe('Phase 30B: P0 Safety & Variant Contracts', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-injection-2',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',
@@ -125,7 +125,7 @@ describe('Phase 30B: P0 Safety & Variant Contracts', () => {
       const mockLlm = new LLMMockProvider();
       const engine = new ConversationEngine(
         {
-          getOrCreateConversation: async () => ({
+          getMessageCount: async () => 0, getOrCreateConversation: async () => ({
             id: 'conv-injection-3',
             tenantId: 'animeverse',
             accountId: 'animeverse-store',

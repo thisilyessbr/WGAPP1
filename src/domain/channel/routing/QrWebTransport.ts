@@ -16,10 +16,12 @@ export class QrWebTransport implements ChannelTransport {
       return { success: false, error: 'Templates are supported only by the official Meta transport', isRetryable: false };
     }
     try {
-      const sent = await this.sessions.send(params.connection.id, params.to, params.text);
+      const sent = await this.sessions.send(params.connection.id, params.to, params.text, {
+        tenantId: params.tenantId, accountId: params.accountId, phoneNumberId: params.number.phoneNumberId
+      });
       return { success: true, providerMessageId: sent.id, sentAt: Date.now() };
     } catch (error: any) {
-      return { success: false, error: error.message || String(error), isRetryable: true };
+      return { success: false, error: error.message || String(error), isRetryable: error.message === 'QR_RATE_LIMIT' || error.message === 'QR session is not active on this worker' };
     }
   }
 

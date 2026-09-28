@@ -93,7 +93,7 @@ describe('Phase 26D: Authoritative Turn Decision for Knowledge / RAG Tests', () 
     };
 
     const mockConversationService: any = {
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'c1', tenantId: 't1', accountId: 'acc1', contextData: {}
       }),
       getActiveSession: vi.fn().mockResolvedValue(null),
@@ -188,7 +188,7 @@ describe('Phase 26D: Authoritative Turn Decision for Knowledge / RAG Tests', () 
     };
 
     const mockConversationService: any = {
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'c1', tenantId: 't1', accountId: 'acc1', contextData: {}
       }),
       getActiveSession: vi.fn().mockResolvedValue(null),
@@ -266,7 +266,7 @@ describe('Phase 26D: Authoritative Turn Decision for Knowledge / RAG Tests', () 
     };
 
     const mockConversationService: any = {
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'c1', tenantId: 't1', accountId: 'acc1', contextData: {}
       }),
       getActiveSession: vi.fn().mockResolvedValue(null),

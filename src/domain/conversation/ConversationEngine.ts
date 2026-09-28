@@ -2614,6 +2614,7 @@ ${content}
           turnDecision,
           isWorkflowCompleted,
           workflowId: isWorkflowCompleted ? completedWorkflowId : null,
+          workflowSessionId: isWorkflowCompleted ? sessionUpdatePayload?.sessionId : null,
           workflowConfig: isWorkflowCompleted ? completedWorkflowConfig : null,
           terminalStateId: isWorkflowCompleted ? completedTerminalStateId : null,
           workflowIntents: isWorkflowCompleted ? completedWorkflowIntents : null,

@@ -23,7 +23,7 @@ describe('WhatsApp signup browser fallback', () => {
       ] });
     });
     app.post('/api/client/whatsapp/complete', (req, res) => { completion = req.body; connected = true; res.json({ success: true }); });
-    app.use('/portal-assets', express.static(resolve('src/portal/ui')));
+    app.use('/portal-assets', express.static(resolve('src/portal/ui'), {dotfiles:'allow'}));
     app.use((_req, res) => res.type('html').send('<div id="root"></div><div id="toast"></div><script src="/portal-assets/portal.js"></script>'));
     const server = app.listen(0, '127.0.0.1'); await new Promise<void>(r => server.once('listening', r));
     const browser = await chromium.launch({ headless: true });

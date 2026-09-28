@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { existsSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -28,7 +29,16 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
     next();
   });
 
-  app.use(cors());
+  const allowedOrigins = new Set((process.env.CORS_ORIGINS || '')
+    .split(',').map(value => value.trim()).filter(Boolean));
+  app.use(cors({
+    credentials: true,
+    origin(origin, callback) {
+      // Requests from Meta and other server-side callers have no Origin header.
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      return callback(null, false);
+    }
+  }));
   app.use(express.json({
     limit: '15mb',
     verify: (req, _res, buf) => {
@@ -103,14 +113,17 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
       : null;
     if (instagram) app.use('/api/instagram', instagram.router);
     app.use('/api', createPortalRouter((deps as any).portalService, { ...deps, instagramService: instagram?.service } as any));
-    app.use('/portal-assets', express.static(path.join(__dirname, 'portal/ui')));
+    const bundledPortal = path.join(__dirname, 'portal/ui');
+    const portalDirectory = existsSync(bundledPortal) ? bundledPortal : path.resolve('src/portal/ui');
+    // Managed checkouts live beneath .codex. The static root is restricted to UI assets.
+    app.use('/portal-assets', express.static(portalDirectory, { dotfiles: 'allow' }));
     app.use(['/signup', '/login', '/forgot-password', '/reset-password', '/verify-email', '/admin-confirm', '/app', '/admin'], (req, res) => {
       if (process.env.NODE_ENV === 'production' && req.hostname === 'relayqo-backend.onrender.com') {
         res.redirect(302, new URL(req.originalUrl, process.env.PORTAL_PUBLIC_URL).toString());
         return;
       }
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.facebook.com https://graph.facebook.com; frame-src https://www.facebook.com; base-uri 'none'; form-action 'self'");
-      res.sendFile(path.join(__dirname, 'portal/ui/index.html'));
+      res.sendFile(path.join(portalDirectory, 'index.html'), { dotfiles: 'allow' });
     });
   }
 

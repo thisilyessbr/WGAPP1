@@ -1,3 +1,4 @@
+import { transactionalLeadMock } from '../helpers/transactional-lead-mock';
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -19,7 +20,7 @@ describe('cash-on-delivery checkout in three languages', () => {
   ])('%s/%s collects a complete ticket and creates a lead only after confirmation', async (lang, script, yes, confirmationPattern, labelPattern) => {
     const engine = new WorkflowEngine(new WorkflowStateEvaluator());
     const upsert = vi.fn(async () => ({id:'lead-1'}));
-    const crm = new CRMService({lead:{upsert}} as any);
+    const crm = new CRMService(transactionalLeadMock({lead:{upsert}}) as any);
     const session: any = {
       id:'session',tenantId:'tenant',conversationId:'conversation',workflowId:workflow.id,
       stateId:'start',status:'ACTIVE',contextData:{_started:true,_lang:lang},
@@ -53,7 +54,7 @@ describe('cash-on-delivery checkout in three languages', () => {
   it.each(['la','non','لا'])('does not turn a cancelled checkout into a lead: %s', async no => {
     const engine = new WorkflowEngine(new WorkflowStateEvaluator());
     const upsert = vi.fn();
-    const crm = new CRMService({lead:{upsert}} as any);
+    const crm = new CRMService(transactionalLeadMock({lead:{upsert}}) as any);
     const session: any = {id:'session',tenantId:'tenant',conversationId:'conversation',workflowId:workflow.id,
       stateId:'confirm',status:'ACTIVE',contextData:{_started:true,_lang:'darija'},collectedData:{product:'Shoes'},stateHistory:[],createdAt:new Date(),updatedAt:new Date()};
     const cancelled = await engine.process(session,no,workflow,DEFAULT_BUSINESS_CONFIG);
