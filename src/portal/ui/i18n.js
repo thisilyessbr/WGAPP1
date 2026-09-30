@@ -1,5 +1,17 @@
 (() => {
   const translations = new Map([
+    ['Keep your catalog in one place. Open a product to edit its details, photos and options.','Gérez votre catalogue au même endroit. Ouvrez un produit pour modifier ses détails, photos et options.','أدر كتالوجك في مكان واحد. افتح المنتج لتعديل تفاصيله وصوره وخياراته.'],
+    ['No products yet. Add your first product to start your catalog.','Aucun produit pour le moment. Ajoutez votre premier produit.','لا توجد منتجات بعد. أضف أول منتج لبدء الكتالوج.'],
+    ['PRODUCT DETAILS','DÉTAILS DU PRODUIT','تفاصيل المنتج'],['Back to products','Retour aux produits','العودة إلى المنتجات'],['Remove product','Supprimer le produit','حذف المنتج'],
+    ['Basic information','Informations principales','المعلومات الأساسية'],['What customers see and what you charge.','Ce que voient les clients et le prix demandé.','ما يراه العملاء والسعر الذي تحدده.'],
+    ['Photos','Photos','الصور'],['The first photo is shown as the main product image.','La première photo est l’image principale du produit.','تظهر الصورة الأولى بوصفها الصورة الرئيسية للمنتج.'],
+    ['Only add options if this product comes in different sizes or colors.','Ajoutez des options seulement si le produit existe en plusieurs tailles ou couleurs.','أضف الخيارات فقط إذا كان المنتج متاحًا بمقاسات أو ألوان مختلفة.'],
+    ['No options added. This product has one price and stock count.','Aucune option. Ce produit a un seul prix et stock.','لا توجد خيارات. لهذا المنتج سعر واحد وكمية مخزون واحدة.'],
+    ['Add size or color','Ajouter une taille ou une couleur','إضافة مقاس أو لون'],['No SKU','Sans référence','بدون رمز منتج'],['in stock','en stock','في المخزون'],['Edit ›','Modifier ›','تعديل ›'],
+    ['Main photo','Photo principale','الصورة الرئيسية'],['Remove photo','Supprimer la photo','حذف الصورة'],['Add photos','Ajouter des photos','إضافة صور'],
+    ['Up to 10 JPEG, PNG or WebP photos, 5 MB each.','Jusqu’à 10 photos JPEG, PNG ou WebP de 5 Mo chacune.','حتى 10 صور JPEG أو PNG أو WebP، بحجم 5 ميغابايت للصورة.'],
+    ['Photo for this option','Photo de cette option','صورة هذا الخيار'],['Use main product photo','Utiliser la photo principale','استخدام الصورة الرئيسية للمنتج'],
+    ['Stock (when no options)','Stock (sans options)','المخزون (عند عدم وجود خيارات)'],
     ["Follow-ups", "Suivis clients", "متابعة العملاء"],
     ["Open follow-ups", "Ouvrir les suivis", "فتح متابعة العملاء"],
     ["Later", "Plus tard", "لاحقًا"],
