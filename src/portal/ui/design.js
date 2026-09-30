@@ -73,15 +73,16 @@
     const clientMeta = document.querySelector('#client-owned-meta');
     const groups = [
       { name: 'Overview', nodes: [overview, editing] },
-      { name: 'Chatbot & limits', nodes: [settings] },
-      { name: 'Permissions & advanced', nodes: [technical, clientMeta] },
-      { name: 'Workflows & intents', nodes: [document.querySelector('#workflow-editor')] },
+      { name: 'Chatbot & limits', nodes: [settings, document.querySelector('#workflow-editor'), document.querySelector('#preview-form')?.closest('article')] },
+      { name: 'Channels', nodes: [document.querySelector('#admin-qr-connection'), document.querySelector('#admin-voice-notes-card'), document.querySelector('#admin-instagram-card'), clientMeta] },
+      { name: 'Permissions & advanced', nodes: [technical] },
       { name: 'Statistics', nodes: [document.querySelector('#usage')] },
       { name: 'Documents', nodes: [document.querySelector('#documents-list')?.closest('article')] },
-      { name: 'Conversations', nodes: [document.querySelector('#conversation-list')?.closest('article'), document.querySelector('#preview-form')?.closest('article')] },
+      { name: 'Conversations', nodes: [document.querySelector('#conversation-list')?.closest('article')] },
       { name: 'History', nodes: [document.querySelector('#history')] }
     ].map(g => ({ ...g, nodes: g.nodes.filter(Boolean) })).filter(g => g.nodes.length);
     tabs(content, groups, 'account', oldTabs || overview); oldTabs?.remove();
+    content.classList.add('admin-account-page');
   }
   function decorate() {
     document.querySelectorAll('.brand').forEach(el => {

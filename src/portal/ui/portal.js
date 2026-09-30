@@ -376,12 +376,13 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     const anchor=document.querySelector('#technical');
     if(!anchor)return;
     const card=document.createElement('article');
-    card.className='card';
+    card.className='card';card.id='admin-instagram-card';
     card.innerHTML='<h2>Instagram DMs</h2><p class="small muted">An Instagram plan and your approval are both required before the client can connect. You can pause replies after connection.</p><div id="admin-instagram-connection">Loading…</div>';
     anchor.before(card);
     try {
       const result=await api('/instagram/admin/accounts/'+encodeURIComponent(id));
       const connection=result.connection;
+      if(!result.planIncluded&&!result.allowed&&!connection){card.remove();return;}
       const container=card.querySelector('#admin-instagram-connection');
       container.innerHTML=`<div class="connection-card"><div><strong>Client access</strong><p class="small muted">${result.planIncluded?'Instagram is in the assigned plan.':'Assign an Instagram plan first.'} ${result.allowed?'Access allowed.':'Access blocked.'}</p></div><button class="btn secondary" id="ig-admin-access" type="button" ${!result.planIncluded&&!result.allowed?'disabled':''}>${result.allowed?'Revoke access':'Allow access'}</button></div>`+
         (connection?`<div class="connection-card"><div><strong>@${escape(connection.username||connection.instagramUserId)}</strong><p class="small muted">${connection.enabled?'Chatbot replies enabled':'Chatbot replies paused'} · ${escape(connection.status)}</p></div><button class="btn secondary" id="ig-admin-replies" type="button" ${!result.planIncluded||!result.allowed?'disabled':''}>${connection.enabled?'Pause replies':'Enable replies'}</button></div>`:'<p class="small muted">No Instagram account connected yet.</p>');
@@ -401,12 +402,12 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     document.querySelector('.page-heading .actions')?.insertAdjacentHTML('afterbegin',`<a class="btn secondary" href="/admin/client/${encodeURIComponent(id)}/answer-reviews" data-route>Answer reviews</a>`);
     const owner=members[0],heading=document.querySelector('.page-heading p');
     if(owner&&heading)heading.textContent=`${owner.name} · ${owner.email} · ${p.status}`;
-    const qrCard=document.createElement('article');qrCard.className='card qr-pilot-card';
+    const qrCard=document.createElement('article');qrCard.className='card qr-pilot-card';qrCard.id='admin-qr-connection';
     const qrInPlan=p.planSnapshot?.modules.includes('qr');
     qrCard.innerHTML=`<div class="card-title"><div><h2>Optional QR connection</h2><p>The official API remains the default. Allow QR only for a pilot account whose plan includes it.</p></div><button type="button" class="btn secondary" ${!qrInPlan&&!p.qrAllowed?'disabled':''}>${p.qrAllowed?'Disable QR':'Allow QR'}</button></div><p class="small muted">${qrInPlan?'QR included in this plan.':'Assign a QR pilot plan to enable this option.'}</p><p class="small muted">${p.qrConsentAt?'Client accepted the QR limitations.':'The client must accept the QR limitations before scanning.'}</p>`;
-    document.querySelector('#technical').before(qrCard);
+    if(qrInPlan||p.qrAllowed)document.querySelector('#technical').before(qrCard);
     qrCard.querySelector('button').onclick=async()=>{const button=qrCard.querySelector('button');button.disabled=true;try{await api('/admin/accounts/'+id+'/qr-access',{method:'PATCH',body:JSON.stringify({allowed:!p.qrAllowed})});clientAdmin(id);}catch(e){button.disabled=false;toast(e.message,true);}};
-    const voiceCard=document.createElement('article');voiceCard.className='card';
+    const voiceCard=document.createElement('article');voiceCard.className='card';voiceCard.id='admin-voice-notes-card';
     voiceCard.innerHTML=`<div class="card-title"><div><h2>Voice notes</h2><p>Choose one transcription provider for this account. Deepgram targets Moroccan Arabic; Groq handles several languages. The client can only turn voice notes on after you allow them.</p></div><button type="button" class="btn ${p.voiceNotesAllowed?'secondary':''}" id="admin-voice-notes">${p.voiceNotesAllowed?'Revoke voice notes':'Allow voice notes'}</button></div><div class="field"><label for="admin-voice-provider">Transcription model</label><select id="admin-voice-provider"><option value="groq" ${p.voiceTranscriptionProvider==='groq'?'selected':''} ${p.availableVoiceProviders?.groq?'':'disabled'}>Groq · multilingual</option><option value="deepgram" ${p.voiceTranscriptionProvider==='deepgram'?'selected':''} ${p.availableVoiceProviders?.deepgram?'':'disabled'}>Deepgram · Moroccan Arabic</option></select><p class="small muted">${p.voiceNotesAvailable?'Provider ready':'The selected provider needs an API key.'} · Client switch: ${p.voiceNotesEnabled?'On':'Off'}</p><button type="button" class="btn secondary" id="save-voice-provider">Save voice model</button></div>`;document.querySelector('#technical').before(voiceCard);
     voiceCard.querySelector('button').onclick=async()=>{const button=voiceCard.querySelector('button');button.disabled=true;try{await api('/admin/accounts/'+id+'/voice-notes',{method:'PATCH',body:JSON.stringify({allowed:!p.voiceNotesAllowed})});toast(p.voiceNotesAllowed?'Voice-note permission revoked.':'Voice-note permission granted. The client can now turn it on.');clientAdmin(id);}catch(e){button.disabled=false;toast(e.message,true);}};
     voiceCard.querySelector('#save-voice-provider').onclick=async()=>{const button=voiceCard.querySelector('#save-voice-provider'),provider=voiceCard.querySelector('#admin-voice-provider').value;button.disabled=true;try{await api('/admin/accounts/'+id+'/voice-provider',{method:'PATCH',body:JSON.stringify({provider})});toast('Voice model saved for this account.');clientAdmin(id);}catch(e){button.disabled=false;toast(e.message,true);}};
