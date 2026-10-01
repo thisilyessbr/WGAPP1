@@ -57,10 +57,14 @@ export class PortalBudget {
       const reservation = await this.reserve('audio', ceiling, audioKey);
       let providerStarted = false;
       try {
+        const downloadStarted = Date.now();
         const audio = await load();
+        const downloadLatencyMs = Date.now() - downloadStarted;
         if (!audio.bytes.length || audio.bytes.length > 5 * 1024 * 1024) throw new Error('INVALID_VOICE_NOTE_SIZE');
+        const durationStarted = Date.now();
         const duration = durationReader ? await durationReader(audio.bytes, audio.mimeType)
           : (await (await import('music-metadata')).parseBuffer(audio.bytes, { mimeType: audio.mimeType }, { duration: true })).format.duration;
+        const durationParseLatencyMs = Date.now() - durationStarted;
         if (!duration || !Number.isFinite(duration) || duration <= 0 || duration > 300) throw new Error('INVALID_VOICE_NOTE_DURATION');
         await this.store.transaction(async s => {
           const fresh = await s.lockProfile(accountId);
@@ -72,12 +76,17 @@ export class PortalBudget {
           if (entry?.status !== 'RESERVED' || Number(entry.spentMicros) + Number(entry.reservedMicros) > Math.floor(fresh.planSnapshot.limits.monthlyUsd * 1000000)) throw new Error('VOICE_ALLOWANCE_EXHAUSTED');
         });
         providerStarted = true;
+        const transcriptionStarted = Date.now();
         const transcript = await transcriber.transcribe(audio.bytes, audio.mimeType, selected, hint);
+        const transcriptionLatencyMs = Date.now() - transcriptionStarted;
         // A missing or implausible receipt retains the whole ceiling as UNKNOWN.
         const receipt = transcript.durationSeconds;
         const charge = receipt !== null && receipt > 0 && receipt <= 300
           ? voiceNoteChargeMicros(Math.max(duration, receipt), selected, 'en') : null;
-        await this.finish(reservation, charge, { provider: selected, transcript, durationSeconds: duration });
+        await this.finish(reservation, charge, {
+          provider: selected, transcript, durationSeconds: duration,
+          downloadLatencyMs, durationParseLatencyMs, transcriptionLatencyMs
+        });
         return transcript;
       } catch (error) {
         await this.finish(reservation, providerStarted ? null : 0, { provider: selected, failed: true });
@@ -160,7 +169,7 @@ export class PortalBudget {
     });
   }
   wrapLLM(inner: LLMProvider, defaults: { provider: string; model: string }): LLMProvider {
-    const execute = async <T>(prompt: string, input: string, options: LLMRequestOptions | undefined, call: (options: LLMRequestOptions) => Promise<T>) => {
+    const execute = async <T>(prompt: string, input: string, options: LLMRequestOptions | undefined, purpose: string, call: (options: LLMRequestOptions) => Promise<T>) => {
       const ctx = this.context.getStore();
       if (!ctx) return call(options || {});
       if (++ctx.llm > 4) throw new LLMProviderError({ provider: defaults.provider, type: 'rate_limit', message: 'Per-turn AI allowance reached' });
@@ -175,19 +184,20 @@ export class PortalBudget {
       try { id = await this.reserve('llm', reserve); }
       catch (error: any) { throw new LLMProviderError({ provider: defaults.provider, type: 'rate_limit', message: error.message }); }
       let usage: LLMUsage | undefined;
+      const providerStarted = Date.now();
       try {
         return await call({ ...options, onUsage: value => { usage = value; options?.onUsage?.(value); } });
       } finally {
         const actual = usage?.attempts === 0 || defaults.provider === 'mock' ? 0 : usage?.tokenSource === 'provider'
           ? Math.ceil(Math.max(0, usage.inputTokens! - (usage.cacheHitTokens || 0)) * rates.input + (usage.cacheHitTokens || 0) * rates.cached + usage.outputTokens! * rates.output) : null;
         // A preceding failed attempt can have unknown billing even when the retry succeeded.
-        await this.finish(id, usage && usage.attempts > 1 ? null : actual, { ...usage, model, priceBasis: 'USD peak rates 2026-09-13', knownEstimateMicros: actual });
+        await this.finish(id, usage && usage.attempts > 1 ? null : actual, { ...usage, model, purpose: options?.purpose || purpose, providerLatencyMs: Date.now() - providerStarted, priceBasis: 'USD peak rates 2026-09-13', knownEstimateMicros: actual });
       }
     };
     return {
-      classifyIntent: (prompt, message, allowed, options) => !allowed.length ? Promise.resolve(null) : execute(prompt, message, options, opt => inner.classifyIntent(prompt, message, allowed, opt)),
-      extractField: (prompt, message, type, options) => execute(prompt, message, options, opt => inner.extractField(prompt, message, type, opt)),
-      generateResponse: (prompt, history, options) => execute(prompt, history.map(h => h.content).join('\n'), options, opt => inner.generateResponse(prompt, history, opt))
+      classifyIntent: (prompt, message, allowed, options) => !allowed.length ? Promise.resolve(null) : execute(prompt, message, options, 'intent_classification', opt => inner.classifyIntent(prompt, message, allowed, opt)),
+      extractField: (prompt, message, type, options) => execute(prompt, message, options, 'field_extraction', opt => inner.extractField(prompt, message, type, opt)),
+      generateResponse: (prompt, history, options) => execute(prompt, history.map(h => h.content).join('\n'), options, 'generation', opt => inner.generateResponse(prompt, history, opt))
     };
   }
   wrapEmbeddings(inner: EmbeddingProvider): EmbeddingProvider {

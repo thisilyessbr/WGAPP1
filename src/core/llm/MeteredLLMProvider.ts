@@ -41,7 +41,7 @@ export class MeteredLLMProvider implements LLMProvider {
       return result;
     } finally {
       try {
-        this.record({ ...usage, purpose, success, latencyMs: Date.now() - started, retryAttempts: Math.max(0, usage.attempts - 1) });
+        this.record({ ...usage, purpose: options?.purpose || purpose, success, latencyMs: Date.now() - started, retryAttempts: Math.max(0, usage.attempts - 1) });
       } catch { /* Telemetry cannot change customer processing. */ }
     }
   }

@@ -1193,6 +1193,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
               const rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
+                purpose: 'grounded_answer',
                 temperature: config.llm?.temperature ?? 0.2,
                 maxTokens: config.llm?.maxTokens ?? 500,
                 timeoutMs
@@ -2371,6 +2372,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
               const rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
+                purpose: 'grounded_answer',
                 temperature: config.llm?.temperature ?? 0.2,
                 maxTokens: turnDecision?.isMultiPolicy ? 800 : (config.llm?.maxTokens ?? 500),
                 timeoutMs

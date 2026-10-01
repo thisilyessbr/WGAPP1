@@ -8,14 +8,26 @@ export class QuestionReformulator {
   private static readonly REFERENCE_PATTERNS = [
     // English
     /\b(it|that|this|they|them|those|these|its|their|theirs)\b/i,
-    /\b(how much|how long|what about|and what|why that|which one|how do i get one|what about size|what about color)\b/i,
+    /\b(what about|and what|why that|which one|how do i get one|what about size|what about color)\b/i,
     // French
     /\b(il|elle|ils|elles|ça|cela|ceci|celui-ci|celle-ci|ceux-ci|celles-ci)\b/i,
-    /\b(combien|et pour|qu'en est-il|et concernant|c'est combien|et pour la taille|et pour la couleur)\b/i,
+    /\b(et pour|qu'en est-il|et concernant|c'est combien|et pour la taille|et pour la couleur)\b/i,
     // Arabic
-    /(هذا|هذه|ذلك|تلك|هؤلاء|كم|بكم|ماذا عن|وكيف|وهل|ماهو سعره|ماهي تكلفته|وماذا عن)/i,
+    /(هذا|هذه|ذلك|تلك|هؤلاء|ماذا عن|ماهو سعره|ماهي تكلفته|وماذا عن)/i,
     // Darija / Arabizi
-    /\b(hada|hadi|hadik|hadou|hadok|bch7al|bchal|wchno|w chhal|ch7al|kifach|w bnesba)\b/i
+    /\b(hada|hadi|hadik|hadou|hadok|w bnesba)\b/i
+  ];
+
+  // A question word alone can refer to the previous turn. In a longer question it
+  // often has its own subject, so it must not trigger a paid reformulation call.
+  private static readonly REFERENCE_ONLY_QUERY = /^(?:how much|how long|combien|bch7al|bchal|ch7al|chhal|kifach|wchno|w chhal|كم|بكم|وكيف|وهل)[؟?]?\s*$/iu;
+  // Preserve the released classifier until the faster rule is validated on real
+  // conversations. This flag is intentionally off unless explicitly enabled.
+  private static readonly LEGACY_BROAD_PATTERNS = [
+    /\b(how much|how long)\b/i,
+    /\bcombien\b/i,
+    /(كم|بكم|وكيف|وهل)/i,
+    /\b(bch7al|bchal|wchno|w chhal|ch7al|kifach)\b/i
   ];
 
   /**
@@ -36,10 +48,19 @@ export class QuestionReformulator {
         return true;
       }
     }
+    if (process.env.CHATBOT_FAST_REFORMULATION === 'true') {
+      if (this.REFERENCE_ONLY_QUERY.test(trimmed)) return true;
+      // JavaScript's ASCII word boundary misses the accented first letter in "ça".
+      if (/(?:^|\s)ça(?=\s|[?.!,]|$)/iu.test(trimmed)) return true;
+    } else if (this.LEGACY_BROAD_PATTERNS.some(pattern => pattern.test(trimmed))) {
+      return true;
+    }
 
-    // 2. Short follow-up queries (<= 3 words and ends with '?')
+    // 2. Short follow-ups. With the opt-in rule, three-word questions can
+    // already name their subject ("Ch7al taman reparation?").
     const wordCount = trimmed.split(/\s+/).length;
-    if (wordCount <= 3 && trimmed.includes('?')) {
+    const shortLimit = process.env.CHATBOT_FAST_REFORMULATION === 'true' ? 2 : 3;
+    if (wordCount <= shortLimit && trimmed.includes('?')) {
       return true;
     }
 
@@ -96,6 +117,7 @@ Standalone Search Query:`;
         systemPrompt,
         [{ role: 'user', content: userPrompt }],
         {
+          purpose: 'query_reformulation',
           temperature: options?.temperature ?? 0.0,
           maxTokens: 50,
           timeoutMs
