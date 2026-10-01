@@ -365,6 +365,14 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
     if (result.count !== 1) throw new Error('LEASE_LOST');
   }
 
+  /** Spread retries over the customer-service window instead of exhausting them during an outage. */
+  private retryDelaySeconds(attempt: number, providerDelay?: number): number {
+    const exponential = Math.min(3600, 5 * 3 ** Math.min(Math.max(attempt - 1, 0), 8));
+    const requested = typeof providerDelay === 'number' && Number.isFinite(providerDelay)
+      ? Math.max(1, Math.min(3600, Math.ceil(providerDelay))) : 0;
+    return Math.max(exponential, requested);
+  }
+
   startWorker(): void {
     if (this.disableWorker) {
       logger.warn('PostgresMessageQueue: Worker is disabled in producer-only mode');
@@ -442,9 +450,7 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
             where: { id: job.id, lockedBy: this.workerId, attempts: job.leaseAttempt, status: 'PROCESSING' },
             data: { outboundStatus: 'FAILED' }
           });
-          const requestedDelay = result.outboundResult.retryAfterSeconds;
-          const retryDelay = typeof requestedDelay === 'number' && Number.isFinite(requestedDelay)
-            ? Math.max(1, Math.min(3600, Math.ceil(requestedDelay))) : 5;
+          const retryDelay = this.retryDelaySeconds(job.leaseAttempt ?? 1, result.outboundResult.retryAfterSeconds);
           await this.failJob(job.id, outboundError || 'Retryable outbound delivery failure', retryDelay, job.leaseAttempt);
           continue;
         }
@@ -458,7 +464,7 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
         });
       } catch (err: any) {
         logger.error(`PostgresMessageQueue: Error processing job [${job.wamid}]: ${err.message || err}`);
-        await this.failJob(job.id, err, 5, job.leaseAttempt);
+        await this.failJob(job.id, err, this.retryDelaySeconds(job.leaseAttempt ?? 1), job.leaseAttempt);
       } finally {
         clearInterval(heartbeat);
         if (renewal) await renewal;

@@ -749,7 +749,7 @@ model WhatsAppMessageJob {
   rawType       String    @default("text")
   status        String    @default("PENDING")
   attempts      Int       @default(0)
-  maxAttempts   Int       @default(3)
+  maxAttempts   Int       @default(32)
   lastError         String?
   response          String?
   outboundStatus    String?   @default("PENDING")

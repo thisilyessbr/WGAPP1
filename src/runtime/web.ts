@@ -69,7 +69,9 @@ export async function startWebServer(): Promise<WebRuntimeInstance> {
     logger.info('[WEB] Web runtime shutdown complete.');
   };
 
-  setupSignalHandlers('WEB', shutdown, 15000);
+  // Render allows 120 seconds for shutdown. Give in-flight answers time to finish
+  // before the host stops us, while leaving a margin for database disconnect.
+  setupSignalHandlers('WEB', shutdown, 105000);
 
   return { app, server, deps, workerDeps, shutdown };
 }
