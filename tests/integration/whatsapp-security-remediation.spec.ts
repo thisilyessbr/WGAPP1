@@ -490,6 +490,8 @@ describe('Security Remediation Verification: P0, P1 & NEW Findings', () => {
       // Must FAIL CLOSED: Do NOT send using EAAG_PLATFORM_MASTER_TOKEN_NEVER_USE_FOR_CLIENT
       expect(sendResult.success).toBe(false);
       expect(sendResult.error).toContain('WHATSAPP_ACCESS_TOKEN is not configured');
+      expect(sendResult.isRetryable).toBe(true);
+      expect(sendResult.retryAfterSeconds).toBe(300);
       expect(fetchSpy).not.toHaveBeenCalled();
     });
   });

@@ -247,7 +247,10 @@ export class WhatsAppOutboundAdapter {
         success: false,
         error: 'WHATSAPP_ACCESS_TOKEN is not configured',
         errorCode: 190,
-        isRetryable: false
+        // No provider request was made. A repaired client connection can safely
+        // resume this queued answer without risking duplicate delivery.
+        isRetryable: true,
+        retryAfterSeconds: 300
       };
     }
 
@@ -363,7 +366,7 @@ export class WhatsAppOutboundAdapter {
 
     const token = await this.resolveToken(phoneNumberId, accessToken);
     if (!token) {
-      return { success: false, error: 'WHATSAPP_ACCESS_TOKEN is not configured', errorCode: 190, isRetryable: false };
+      return { success: false, error: 'WHATSAPP_ACCESS_TOKEN is not configured', errorCode: 190, isRetryable: true, retryAfterSeconds: 300 };
     }
 
     const url = `${this.baseUrl}/${this.version}/${phoneNumberId.trim()}/messages`;
