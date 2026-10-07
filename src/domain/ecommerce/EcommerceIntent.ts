@@ -2,6 +2,7 @@ import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductContext } from '../conversation/ConversationContext';
 import { HandoffService } from '../conversation/HandoffService';
 import { isActionNegated, matchesPolicyPhrase, normalizeIntentText } from '../conversation/IntentLanguage';
+import { IntentTriggerLibrary } from '../conversation/IntentTriggerLibrary';
 
 export type AttributeFamily =
   | 'MATERIAL'
@@ -933,7 +934,9 @@ export class EcommerceIntentParser {
     const BUY_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:i\s+want\s+to\s+(?:buy|order|purchase|take|get|checkout)|want\s+to\s+(?:buy|order|purchase|take|get)|i\s+wanna\s+(?:buy|order|purchase)|i['’]?d\s+like\s+to\s+(?:buy|order|purchase)|can\s+i\s+(?:buy|order|purchase|take|get)|how\s+to\s+(?:buy|order)|place\s+an?\s+order|buy\s+(?:this|it|that|the|a|one)|order\s+(?:this|it|that|the|a|one)|purchase\s+(?:this|it|that|the|a|one)|je\s+veux\s+(?:acheter|commander|prendre|nchri|nechri|ncommandi)|j['’]aimerais\s+(?:acheter|commander)|comment\s+(?:acheter|commander)|passer\s+commande|(?:bghit|bghina|baghi|baghya|ana\s+bghit)\s+(?:nchri|nechri|nshri|chri|ncommandi|ncommander|commandi|nkomandi|nkomander|komandi|nkhod|nakhod|khod|acheter|commander|buy|order|take|get)(?:h|ha)?|(?:wach\s+)?(?:n9der|nqder|ne9der)\s+(?:nchri|nechri|nshri|ncommandi|nkomandi|nkhod)(?:h|ha)?|(?:kifash|kifesh)\s+(?:nchri|nechri|ncommandi|ncommander|nkomandi)|(?:nchri|nechri|nshri|ncommandi|nkomandi)\s+(?:hadchi|hada|hadi|had|had\s+lproduit|had\s+l-produit|this|it|that)|(?:أريد|اريد|أود|اود|بغي[ـت]?|باغي|باغية)\s+(?:شراء(?:ه|ها)?|الشراء|[أا]ن\s+[أا]شتري(?:ه|ها)?|[أا]ن\s+[أا]طلب(?:و|ها)?|[أا]شتري(?:ه|ها)?|نشتري(?:ه|ها)?|[أا]طلب(?:و|ها)?|الطلب|طلب(?:و|ها)?|نشري(?:ه|ها)?|نطلب(?:و|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|ناخد(?:و|ها)?|ناخذ(?:و|ها)?|buy|order|take|get|acheter|commander)|(?:س[أا]شتري|ساشتري|س[أا]طلب|ساطلب|سوف\s+[أا]شتري|سوف\s+اشتري|سوف\s+[أا]طلب|سوف\s+اطلب)(?:ه|ها)?|(?:واش\s+)?نقدر\s+(?:نشري(?:ه|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|نطلب(?:و|ها)?|ناخد(?:و|ها)?)|كيفية\s+(?:الشراء|الطلب)|كيفاش\s+(?:نشري(?:ه|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|نطلب(?:و|ها)?)|كيف\s+[أا]شتري|كيف\s+[أا]طلب)(?:$|\s|[.,!?;:()،؟])/iu;
 
     const FRENCH_PURCHASE_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:je\s+(?:voudrais|vais)\s+(?:acheter|commander|prendre)|je\s+passe\s+commande)(?:$|\s|[.,!?;:()،؟])/iu;
-    const isBuyIntent = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && !isActionNegated(trimmed, 'purchase') && (BUY_PATTERNS.test(lower) || FRENCH_PURCHASE_PATTERNS.test(lower));
+    const isBuyIntent = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && !isActionNegated(trimmed, 'purchase') && (
+      IntentTriggerLibrary.has(trimmed, 'PURCHASE') || BUY_PATTERNS.test(lower) || FRENCH_PURCHASE_PATTERNS.test(lower)
+    );
 
     if (isBuyIntent) {
       const cleanedProductName = this.cleanProductName(trimmed, options?.catalogCategories, options?.customCategoryAliases, options?.customAttributeAliases, options?.candidateMetadataKeys);

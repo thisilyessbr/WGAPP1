@@ -141,6 +141,11 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     if (config.capabilities.intents !== undefined) list(config.capabilities.intents, 50).forEach(raw => {
       const intent = object(raw); if (!text(intent.id, 100)) throw new PortalError(400, 'INVALID_INTENT');
       text(intent.description, 2000); if (intent.keywords) list(intent.keywords, 100).forEach(k => text(k, 200));
+      if (intent.useCases) list(intent.useCases, 4).forEach(useCase => {
+        if (!['PURCHASE', 'DEMO', 'BOOKING', 'HUMAN_SUPPORT'].includes(text(useCase, 50))) {
+          throw new PortalError(400, 'INVALID_INTENT_USE_CASE');
+        }
+      });
     });
   }
   if (config.llm) {

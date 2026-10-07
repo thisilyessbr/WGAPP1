@@ -384,6 +384,45 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
     expect(createSpy).toHaveBeenCalledWith(tenantId, 'conv-demo', 'product_demo', 'ask_company');
   });
 
+  it.each(['bghit ncommandi wa7d', 'bghit nchri wa7d chat bot'])(
+    '4b. Service purchase phrase “%s” starts the existing demo workflow before FAQ/LLM', async phrase => {
+      const serviceConfig = structuredClone(multiCapabilityConfig);
+      serviceConfig.capabilities.ecommerceEnabled = false;
+      vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(serviceConfig);
+
+      const mockConv = {
+        id: `conv-service-${phrase.includes('nchri') ? 'nchri' : 'commandi'}`,
+        tenantId,
+        customerId,
+        accountId,
+        status: 'ACTIVE',
+        contextData: {},
+        messageCount: 0,
+        postCompletionQuestionCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      vi.spyOn(conversationService, 'getOrCreateConversation').mockResolvedValue(mockConv as any);
+      vi.spyOn(conversationService, 'getActiveSession').mockResolvedValue(null);
+      vi.spyOn(conversationService, 'getLatestCompletedSession').mockResolvedValue(null);
+      const createSpy = vi.spyOn(conversationService, 'createSession').mockResolvedValue({
+        id: 'sess-service-demo',
+        conversationId: mockConv.id,
+        workflowId: 'product_demo',
+        stateId: 'ask_company',
+        status: 'ACTIVE'
+      } as any);
+      vi.spyOn(conversationService, 'commitConversationTurn').mockResolvedValue(mockConv as any);
+      const classifySpy = vi.spyOn(mockLlm, 'classifyIntent');
+
+      const response = await conversationEngine.handleMessage(tenantId, customerId, phrase, accountId);
+
+      expect(response).toBe('What company are you with?');
+      expect(createSpy).toHaveBeenCalledWith(tenantId, mockConv.id, 'product_demo', 'ask_company');
+      expect(classifySpy).not.toHaveBeenCalled();
+    }
+  );
+
   it('5. Negative routing (questions/inquiries) returns null intent and does NOT start workflow', async () => {
     const negativeQueries = [
       'what do you offer?',
