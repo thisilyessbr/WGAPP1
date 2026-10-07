@@ -539,6 +539,18 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       provider: usage.provider, model: usage.model, metadata: { ...usage }
     }));
 
+    // A workflow handoff may pause automation for a bounded period. Release it
+    // before evaluating ownership so the next inbound turn can resume normally.
+    const releaseExpiredPause = (this.conversationService as Partial<ConversationService>).releaseExpiredWorkflowPause;
+    const expiredWorkflowPauseReleased = typeof releaseExpiredPause === 'function'
+      ? await releaseExpiredPause.call(this.conversationService, tenantId, conversation.id)
+      : false;
+    if (expiredWorkflowPauseReleased) {
+      conversation.status = 'ACTIVE';
+      conversation.humanRequested = false;
+      conversation.humanRequestedAt = null;
+    }
+
     // If conversation is in HUMAN_ACTIVE mode, human agent is handling it -> pause bot automation
     let isHumanHandling = conversation.status === 'HUMAN_ACTIVE' || Boolean(conversation.humanRequested);
     if (!isHumanHandling) {
@@ -728,6 +740,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       humanRequestedAt?: Date | null;
     } | null = null;
     let flagHumanRequested = false;
+    let workflowHandoffPauseUntil: Date | null = null;
+    let conversationStatusOverride: string | undefined;
     let incrementPostCompletionCount = false;
     let setPostCompletionCapped = false;
     let ragResult: any = null;
@@ -739,6 +753,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     let completedWorkflowConfig: any = null;
     let completedTerminalStateId: string | null = null;
     let completedWorkflowIntents: string[] | null = null;
+    const applyWorkflowHandoff = (result: { requestHumanHandoff?: boolean; handoffPauseHours?: number }) => {
+      if (!result.requestHumanHandoff) return;
+      flagHumanRequested = true;
+      conversationStatusOverride = 'HANDOFF_REQUESTED';
+      workflowHandoffPauseUntil = new Date(Date.now() + Math.max(1, result.handoffPauseHours || 24) * 60 * 60 * 1000);
+    };
 
     const content = routed.effectiveContent;
     const normalizedInput = (payload.text || content).trim().toLowerCase();
@@ -773,7 +793,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     });
 
     const effectiveLang = conversationContext.effectiveLanguage;
-    const effectiveScript = conversationContext.effectiveScript || DirectRagGuard.detectScript(content, effectiveLang);
+    const configuredScript = config.behavior?.responseScript;
+    const effectiveScript = configuredScript && configuredScript !== 'auto'
+      ? configuredScript
+      : conversationContext.effectiveScript || DirectRagGuard.detectScript(content, effectiveLang);
     turnDecision = TurnDecisionResolver.resolve({
       text: content,
       language: effectiveLang,
@@ -935,6 +958,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           };
         } else {
           const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+          applyWorkflowHandoff(result);
           const newStatus = result.isComplete ? 'COMPLETED' : 'ACTIVE';
           if (result.isComplete) {
             completedWorkflowId = activeSession.workflowId;
@@ -951,7 +975,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             contextData: result.updatedContext,
             status: newStatus,
             stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : activeSession.stateHistory,
-            collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : (activeSession as any).collectedData
+            collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : (activeSession as any).collectedData,
+            ...(result.requestHumanHandoff ? { humanRequested: true, humanRequestedAt: new Date() } : {})
           };
           response = result.response;
         }
@@ -1033,6 +1058,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
           const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
           const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+          applyWorkflowHandoff(result);
 
           if (result.isComplete) {
             completedWorkflowId = workflowId;
@@ -1050,7 +1076,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             contextData: result.updatedContext,
             status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
             stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : session.stateHistory,
-            collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {}
+            collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {},
+            ...(result.requestHumanHandoff ? { humanRequested: true, humanRequestedAt: new Date() } : {})
           };
           response = result.response;
         }
@@ -1445,6 +1472,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
             const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
             const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+            applyWorkflowHandoff(result);
 
             if (result.isComplete) {
               completedWorkflowId = workflowId;
@@ -1462,7 +1490,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               contextData: result.updatedContext,
               status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
               stateHistory: result.updatedStateHistory !== undefined ? result.updatedStateHistory : session.stateHistory,
-              collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {}
+              collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {},
+              ...(result.requestHumanHandoff ? { humanRequested: true, humanRequestedAt: new Date() } : {})
             };
             response = result.response;
             answerText = result.response;
@@ -2589,6 +2618,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         contextData: { ...(contextDataUpdate || sessionUpdatePayload?.contextData || conversation.contextData as Record<string, any> || {}), _lang: effectiveLang, _script: effectiveScript },
         sessionUpdate: sessionUpdatePayload,
         flagHumanRequested,
+        newStatus: conversationStatusOverride,
+        pauseBotUntil: workflowHandoffPauseUntil,
+        responseType: flagHumanRequested ? 'HANDOFF' : undefined,
         incrementPostCompletionCount,
         setPostCompletionCapped
       });

@@ -71,6 +71,23 @@ export class ConversationAutomationService {
       return false;
     }
 
+    if (autoState && !autoState.humanTakeover && autoState.pausedUntil && autoState.pausedUntil <= new Date()) {
+      const fullState = await this.prisma.conversationAutomationState.findUnique({ where: { conversationId } });
+      if (fullState?.pauseReason === 'WORKFLOW_HANDOFF') {
+        await this.prisma.$transaction(async tx => {
+          await tx.conversation.updateMany({
+            where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
+            data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
+          });
+          await tx.conversationAutomationState.update({
+            where: { conversationId },
+            data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
+          });
+        });
+        return true;
+      }
+    }
+
     // If human takeover is active, bot must NEVER reply
     if (autoState?.humanTakeover || conv.status === 'HUMAN_ACTIVE') {
       return false;

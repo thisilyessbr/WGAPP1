@@ -64,8 +64,8 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
 };
 
 const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESSAGES, string> = {
-  missingField: 'عفاك عطينا: {{fieldName}}',
-  confirmation: "عفاك أكد هاد المعلومات:\n{{summary}}\n\n(جاوب بواخا باش تأكد، أو لا باش تلغي)",
+  missingField: 'عفاك عطينا {{fieldName}}.',
+  confirmation: "هادو هما المعلومات اللي عطيتينا:\n{{summary}}\n\nواش نسجلو طلب الديمو؟ جاوب بـ «واخا» أو «لا».",
   choice: 'عفاك اختار واحد من هاد الاختيارات:',
   choiceReprompt: 'عفاك اختار واحد من هاد الاختيارات باش نكملو:',
   fallback: 'سمح ليا، ما فهمتش مزيان. عفاك عاود شرح ليا.',
@@ -82,9 +82,22 @@ export function getWorkflowMessage(key: keyof typeof DEFAULT_WORKFLOW_MESSAGES, 
 }
 
 export class ResponseBuilder {
+  private fieldLabel(fieldName: string, state: WorkflowStateConfig | undefined, lang: string, script?: string): string {
+    if (state?.label?.trim()) return state.label.trim();
+    const labels: Record<string, Record<string, string>> = {
+      fullName: { en: 'your full name', fr: 'votre nom complet', ar: 'الاسم الكامل', darija: 'smitk kamla', darija_arabic: 'السمية الكاملة' },
+      businessNeed: { en: 'what you need the chatbot for', fr: 'votre besoin', ar: 'احتياجك', darija: '3lach bghiti chatbot', darija_arabic: 'شنو بغيتي الشات بوت يعاونك فيه' },
+      preferredDemoTime: { en: 'your preferred day and time', fr: 'le jour et l\'heure qui vous conviennent', ar: 'اليوم والوقت المناسبين', darija: 'nhar w lwe9t li ynasbk', darija_arabic: 'النهار والوقت اللي كيناسبوك' },
+      phone: { en: 'your phone number', fr: 'votre numéro de téléphone', ar: 'رقم الهاتف', darija: 'nemra dyal telephone', darija_arabic: 'نمرة التليفون' }
+    };
+    const key = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
+    return labels[fieldName]?.[key] || state?.name?.trim() || fieldName;
+  }
+
   buildMissingFieldResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en', script?: string): string {
     const field = state.field;
-    const fieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
+    const rawFieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
+    const fieldName = this.fieldLabel(rawFieldName, state, lang, script);
     const fieldFallback = getWorkflowMessage('missingField', lang, script).replace('{{fieldName}}', fieldName);
     if (state.prompt) {
       const defaultP = lang === 'darija' && script ? fieldFallback : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
@@ -142,7 +155,7 @@ export class ResponseBuilder {
       fr: { product: 'Produit', quantity: 'Quantité', customer_name: 'Nom', phone: 'Téléphone', city: 'Ville', address: 'Adresse' },
       ar: { product: 'المنتج', quantity: 'الكمية', customer_name: 'الاسم', phone: 'الهاتف', city: 'المدينة', address: 'العنوان' },
       darija: { product: 'Lproduit', quantity: 'L3adad', customer_name: 'Smiya', phone: 'Téléphone', city: 'Lmdina', address: 'L3onwan' },
-      darija_arabic: { product: 'المنتوج', quantity: 'العدد', customer_name: 'السمية', phone: 'النمرة', city: 'المدينة', address: 'العنوان' }
+      darija_arabic: { product: 'المنتوج', quantity: 'العدد', customer_name: 'السمية', fullName: 'السمية', businessNeed: 'الاحتياج', preferredDemoTime: 'الموعد المفضل', phone: 'نمرة التليفون', city: 'المدينة', address: 'العنوان' }
     };
     const labelLanguage = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
     const summary = Object.entries(contextData)

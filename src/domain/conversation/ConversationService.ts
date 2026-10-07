@@ -304,6 +304,23 @@ export class ConversationService {
     }
   }
 
+  async releaseExpiredWorkflowPause(tenantId: string, conversationId: string, now: Date = new Date()): Promise<boolean> {
+    if (!this.prisma.conversationAutomationState?.findUnique) return false;
+    return this.prisma.$transaction(async tx => {
+      const state = await tx.conversationAutomationState.findUnique({ where: { conversationId } });
+      if (!state || state.tenantId !== tenantId || state.humanTakeover || !state.pausedUntil || state.pausedUntil > now || state.pauseReason !== 'WORKFLOW_HANDOFF') return false;
+      await tx.conversation.updateMany({
+        where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
+        data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
+      });
+      await tx.conversationAutomationState.update({
+        where: { conversationId },
+        data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
+      });
+      return true;
+    });
+  }
+
   async incrementMessageCount(tenantId: string, conversationId: string): Promise<Conversation> {
     return this.prisma.conversation.update({
       where: { id: conversationId },
@@ -408,6 +425,7 @@ export class ConversationService {
     newStatus?: string;
     closeConversation?: boolean;
     responseType?: string;
+    pauseBotUntil?: Date | null;
   }): Promise<{
     success: boolean;
     userMessage?: Message;
@@ -460,6 +478,16 @@ export class ConversationService {
             ...(params.sessionUpdate.humanRequested !== undefined ? { humanRequested: params.sessionUpdate.humanRequested } : {}),
             ...(params.sessionUpdate.humanRequestedAt !== undefined ? { humanRequestedAt: params.sessionUpdate.humanRequestedAt } : {})
           }
+        });
+      }
+
+
+      if (params.flagHumanRequested && params.pauseBotUntil) {
+        const conversation = await tx.conversation.findUnique({ where: { id: params.conversationId }, select: { accountId: true } });
+        await tx.conversationAutomationState.upsert({
+          where: { conversationId: params.conversationId },
+          create: { tenantId: params.tenantId, accountId: conversation?.accountId || null, conversationId: params.conversationId, botEnabled: false, humanTakeover: false, pausedUntil: params.pauseBotUntil, pauseReason: 'WORKFLOW_HANDOFF', updatedBy: 'system:workflow' },
+          update: { botEnabled: false, humanTakeover: false, pausedUntil: params.pauseBotUntil, pauseReason: 'WORKFLOW_HANDOFF', updatedBy: 'system:workflow' }
         });
       }
 
