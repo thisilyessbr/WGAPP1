@@ -426,6 +426,14 @@ export class ConversationService {
     closeConversation?: boolean;
     responseType?: string;
     pauseBotUntil?: Date | null;
+    leadRequest?: {
+      accountId: string;
+      customerId: string;
+      workflowSessionId: string;
+      interest?: string | null;
+      reason?: string;
+      details?: Record<string, any>;
+    } | null;
   }): Promise<{
     success: boolean;
     userMessage?: Message;
@@ -489,6 +497,42 @@ export class ConversationService {
           create: { tenantId: params.tenantId, accountId: conversation?.accountId || null, conversationId: params.conversationId, botEnabled: false, humanTakeover: false, pausedUntil: params.pauseBotUntil, pauseReason: 'WORKFLOW_HANDOFF', updatedBy: 'system:workflow' },
           update: { botEnabled: false, humanTakeover: false, pausedUntil: params.pauseBotUntil, pauseReason: 'WORKFLOW_HANDOFF', updatedBy: 'system:workflow' }
         });
+      }
+
+      // The completed request and its workflow data are committed in the same
+      // transaction. A saved conversation can therefore never be missing from CRM.
+      if (params.leadRequest) {
+        const request = params.leadRequest;
+        const ownership = await tx.customer.findFirst({
+          where: { id: request.customerId, tenantId: params.tenantId },
+          select: { id: true }
+        });
+        const account = await tx.account.findFirst({
+          where: { id: request.accountId, tenantId: params.tenantId },
+          select: { id: true }
+        });
+        if (!ownership || !account) throw new Error('CRM_ACCOUNT_CUSTOMER_MISMATCH');
+        const existingLead = await tx.lead.findFirst({
+          where: {
+            tenantId: params.tenantId,
+            accountId: request.accountId,
+            customerId: request.customerId,
+            sourceWorkflowSessionId: request.workflowSessionId
+          }
+        });
+        if (!existingLead) {
+          await tx.lead.create({ data: {
+            tenantId: params.tenantId,
+            accountId: request.accountId,
+            customerId: request.customerId,
+            status: 'NEW',
+            interest: request.interest?.slice(0, 280) || null,
+            signalReason: request.reason || 'COMPLETED_WORKFLOW',
+            sourceConversationId: params.conversationId,
+            sourceWorkflowSessionId: request.workflowSessionId,
+            details: request.details || {}
+          } });
+        }
       }
 
       // 4. Persist ASSISTANT message if provided

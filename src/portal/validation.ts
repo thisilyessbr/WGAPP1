@@ -157,6 +157,9 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
   if (config.workflows) {
     for (const workflow of Object.values(config.workflows) as any[]) {
       if (!workflow.initialState || !workflow.states?.[workflow.initialState]) throw new PortalError(400, 'INVALID_WORKFLOW');
+      if (workflow.outcome?.pauseBotHours !== undefined) integer(workflow.outcome.pauseBotHours, 1, 720);
+      if (workflow.outcome?.createLead !== undefined && typeof workflow.outcome.createLead !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (workflow.outcome?.requestHumanHandoff !== undefined && typeof workflow.outcome.requestHumanHandoff !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
       for (const state of Object.values(workflow.states) as any[]) {
         for (const pattern of [state.field?.pattern, state.field?.validationRegex]) {
           if (pattern !== undefined) {

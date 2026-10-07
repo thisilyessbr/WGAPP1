@@ -753,7 +753,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     let completedWorkflowConfig: any = null;
     let completedTerminalStateId: string | null = null;
     let completedWorkflowIntents: string[] | null = null;
-    const applyWorkflowHandoff = (result: { requestHumanHandoff?: boolean; handoffPauseHours?: number }) => {
+    let createWorkflowLead = false;
+    const applyWorkflowHandoff = (result: { requestHumanHandoff?: boolean; handoffPauseHours?: number; createLead?: boolean }) => {
+      if (result.createLead) createWorkflowLead = true;
       if (!result.requestHumanHandoff) return;
       flagHumanRequested = true;
       conversationStatusOverride = 'HANDOFF_REQUESTED';
@@ -2622,7 +2624,17 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         pauseBotUntil: workflowHandoffPauseUntil,
         responseType: flagHumanRequested ? 'HANDOFF' : undefined,
         incrementPostCompletionCount,
-        setPostCompletionCapped
+        setPostCompletionCapped,
+        leadRequest: createWorkflowLead && effectiveAccountId && sessionUpdatePayload?.status === 'COMPLETED'
+          ? {
+              accountId: effectiveAccountId,
+              customerId: conversation.customerId,
+              workflowSessionId: sessionUpdatePayload.sessionId,
+              interest: String(sessionUpdatePayload.collectedData?.businessNeed || sessionUpdatePayload.collectedData?.need || routed.userDisplayContent || ''),
+              reason: 'COMPLETED_CONFIGURED_WORKFLOW',
+              details: sessionUpdatePayload.collectedData || {}
+            }
+          : null
       });
     } catch (commitErr: any) {
       if (externalMessageId) {

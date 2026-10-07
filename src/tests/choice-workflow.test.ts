@@ -159,4 +159,57 @@ describe('Minimal Choice-Based Workflow Engine', () => {
     expect(res.nextStateId).toBeNull();
     expect(res.response).toContain('Workflow cancelled.');
   });
+
+  it.each(['Wakha', 'Ui baghi', 'Ih bghit nconfirme', 'Ah bghit', 'اه بغيت'])(
+    'accepts Moroccan confirmation variant %s without looping',
+    async confirmation => {
+      const session = createMockSession('confirm_choice', {
+        _started: true,
+        _lang: 'darija',
+        choice_category: 'Sales',
+        choice_sales: 'Starter Plan'
+      });
+      const res = await workflowEngine.process(session, confirmation, testWorkflow, DEFAULT_BUSINESS_CONFIG);
+      expect(res.isComplete).toBe(true);
+      expect(res.nextStateId).toBe('end_state');
+      expect(res.updatedCollectedData?._confirmed).toBe(true);
+    }
+  );
+
+  it('does not count confirmation retries as workflow steps or lose collected data', async () => {
+    const session = createMockSession('confirm_choice', {
+      _started: true,
+      _stepCount: 999,
+      fullName: 'Ilyes',
+      businessNeed: 'Ecommerce'
+    });
+    session.collectedData = { fullName: 'Ilyes', businessNeed: 'Ecommerce' } as any;
+    const limitedConfig = { ...DEFAULT_BUSINESS_CONFIG, limits: { ...DEFAULT_BUSINESS_CONFIG.limits, maxWorkflowSteps: 1 } };
+
+    const res = await workflowEngine.process(session, 'maybe', testWorkflow, limitedConfig);
+
+    expect(res.isComplete).toBe(false);
+    expect(res.nextStateId).toBe('confirm_choice');
+    expect(res.updatedCollectedData).toMatchObject({ fullName: 'Ilyes', businessNeed: 'Ecommerce' });
+    expect(res.updatedContext._stepCount).toBe(0);
+  });
+
+  it('applies configured durable lead and handoff outcome at completion', async () => {
+    const workflow: WorkflowConfig = {
+      ...testWorkflow,
+      outcome: { createLead: true, requestHumanHandoff: true, pauseBotHours: 24 }
+    };
+    const session = createMockSession('confirm_choice', {
+      _started: true,
+      fullName: 'Ilyes',
+      businessNeed: 'Ecommerce'
+    });
+
+    const res = await workflowEngine.process(session, 'واخا', workflow, DEFAULT_BUSINESS_CONFIG);
+
+    expect(res.isComplete).toBe(true);
+    expect(res.createLead).toBe(true);
+    expect(res.requestHumanHandoff).toBe(true);
+    expect(res.handoffPauseHours).toBe(24);
+  });
 });
