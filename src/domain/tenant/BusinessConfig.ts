@@ -117,6 +117,15 @@ export const DEFAULT_EXECUTION_LIMIT_MESSAGES = {
   darija: "rak kmmelti had t-talab mn 9bel."
 };
 
+export const DEFAULT_OPEN_REQUEST_MESSAGES = {
+  en: "You have already filled in this form. Your request is registered and our team will contact you.",
+  fr: "Vous avez déjà rempli ce formulaire. Votre demande est enregistrée et notre équipe vous contactera.",
+  ar: "لقد سبق أن ملأت هذا النموذج. تم تسجيل طلبك وسيتواصل معك فريقنا.",
+  darija: "Rah deja 3emmerti had formulaire. Talab dyalek tsjjel, w l-fariq dyalna ghadi y-ttasel bik.",
+  darija_arabic: "راه سبق ليك عمرتي هاد الفورم. طلبك تسجّل، والفريق ديالنا غادي يتاصل بك.",
+  darija_arabizi: "Rah deja 3emmerti had formulaire. Talab dyalek tsjjel, w l-fariq dyalna ghadi y-ttasel bik."
+};
+
 export interface PromptsConfig {
   system: string;
   knowledge: string;
@@ -204,6 +213,9 @@ export interface WorkflowConfig {
     createLead?: boolean;
     requestHumanHandoff?: boolean;
     pauseBotHours?: number;
+    /** Prevent a second form run while the first CRM request is still open. */
+    allowConcurrentOpenRequests?: boolean;
+    openRequestMessage?: LocalizedPrompt;
   };
 }
 

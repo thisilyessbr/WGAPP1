@@ -160,6 +160,11 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
       if (workflow.outcome?.pauseBotHours !== undefined) integer(workflow.outcome.pauseBotHours, 1, 720);
       if (workflow.outcome?.createLead !== undefined && typeof workflow.outcome.createLead !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
       if (workflow.outcome?.requestHumanHandoff !== undefined && typeof workflow.outcome.requestHumanHandoff !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (workflow.outcome?.allowConcurrentOpenRequests !== undefined && typeof workflow.outcome.allowConcurrentOpenRequests !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (workflow.outcome?.openRequestMessage !== undefined) {
+        if (typeof workflow.outcome.openRequestMessage === 'object') stringMap(workflow.outcome.openRequestMessage);
+        else text(workflow.outcome.openRequestMessage, 20000);
+      }
       for (const state of Object.values(workflow.states) as any[]) {
         for (const pattern of [state.field?.pattern, state.field?.validationRegex]) {
           if (pattern !== undefined) {
