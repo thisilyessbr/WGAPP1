@@ -321,6 +321,54 @@ export class ConversationService {
     });
   }
 
+  /**
+   * Returns true when this customer already has an unfinished CRM request created
+   * by the same workflow. This survives bot pause/reopen and process restarts.
+   */
+  async hasOpenWorkflowRequest(
+    tenantId: string,
+    customerId: string,
+    workflowId: string,
+    accountId?: string | null
+  ): Promise<boolean> {
+    if (!tenantId || !customerId || !workflowId || !accountId?.trim()) return false;
+
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        tenantId,
+        OR: [{ externalId: customerId }, { id: customerId }]
+      },
+      select: { id: true }
+    });
+    if (!customer) return false;
+
+    const openRequests = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        accountId: accountId.trim(),
+        customerId: customer.id,
+        status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] },
+        sourceWorkflowSessionId: { not: null }
+      },
+      select: { sourceWorkflowSessionId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    });
+    const sessionIds = openRequests
+      .map(request => request.sourceWorkflowSessionId)
+      .filter((id): id is string => Boolean(id));
+    if (!sessionIds.length) return false;
+
+    return (await this.prisma.workflowSession.count({
+      where: {
+        id: { in: sessionIds },
+        tenantId,
+        workflowId,
+        status: 'COMPLETED'
+      }
+    })) > 0;
+  }
+
   async incrementMessageCount(tenantId: string, conversationId: string): Promise<Conversation> {
     return this.prisma.conversation.update({
       where: { id: conversationId },

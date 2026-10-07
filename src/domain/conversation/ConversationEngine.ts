@@ -14,7 +14,7 @@ import { PolicyEvidenceReuse, CANONICAL_POLICY_INTENTS } from '../rag/PolicyEvid
 import { ChunkClassifier } from '../rag/ChunkQuality';
 import { ContentSafetyGuard } from '../safety/ContentSafetyGuard';
 import { FaqMatcher, LanguageDetector } from '../faq/FaqMatcher';
-import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES } from '../tenant/BusinessConfig';
+import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES, DEFAULT_OPEN_REQUEST_MESSAGES } from '../tenant/BusinessConfig';
 import { AccountConfigService } from '../tenant/AccountConfigService';
 import { GreetingRouter } from './GreetingRouter';
 import { ImageCapabilityGateway } from '../../core/gateway/ImageCapabilityGateway';
@@ -1056,7 +1056,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           workflowId,
           workflowConfig,
           effectiveAccountId,
-          effectiveLang
+          effectiveLang,
+          effectiveScript
         );
 
         if (!limitCheck.allowed) {
@@ -1468,7 +1469,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             workflowId,
             workflowConfig,
             effectiveAccountId,
-            effectiveLang
+            effectiveLang,
+            effectiveScript
           );
 
           if (!limitCheck.allowed) {
@@ -2942,8 +2944,27 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     workflowId: string,
     workflowConfig: WorkflowConfig,
     accountId?: string | null,
-    effectiveLang: string = 'en'
+    effectiveLang: string = 'en',
+    effectiveScript: string = 'auto'
   ): Promise<{ allowed: boolean; limitMessage?: string }> {
+    if (workflowConfig.outcome?.createLead === true && workflowConfig.outcome.allowConcurrentOpenRequests !== true) {
+      const hasOpenRequest = await this.conversationService.hasOpenWorkflowRequest(
+        tenantId,
+        customerId,
+        workflowId,
+        accountId
+      );
+      if (hasOpenRequest) {
+        const defaultMsg = effectiveLang === 'darija'
+          ? (effectiveScript === 'arabic' ? DEFAULT_OPEN_REQUEST_MESSAGES.darija_arabic : DEFAULT_OPEN_REQUEST_MESSAGES.darija_arabizi)
+          : DEFAULT_OPEN_REQUEST_MESSAGES[effectiveLang as keyof typeof DEFAULT_OPEN_REQUEST_MESSAGES] || DEFAULT_OPEN_REQUEST_MESSAGES.en;
+        const message = workflowConfig.outcome.openRequestMessage
+          ? resolveLocalizedPrompt(workflowConfig.outcome.openRequestMessage, effectiveLang, defaultMsg, effectiveScript)
+          : defaultMsg;
+        return { allowed: false, limitMessage: message };
+      }
+    }
+
     const limitConfig = workflowConfig.executionLimit;
     if (!limitConfig || limitConfig.mode === 'unlimited') {
       return { allowed: true };

@@ -750,4 +750,98 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
     const turn4 = await conversationEngine.handleMessage(tenantId, 'c18', 'I want to book a session', accountId);
     expect(turn4).toBe('You have already completed this request.');
   });
+
+  it('19. blocks a second CRM form while the previous workflow request is open', async () => {
+    const guardedConfig: BusinessConfig = {
+      ...baseConfig,
+      workflows: {
+        fitness_consultation: {
+          ...baseConfig.workflows.fitness_consultation,
+          outcome: { createLead: true },
+          executionLimit: { mode: 'unlimited' }
+        }
+      }
+    };
+    vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(guardedConfig);
+    vi.spyOn(conversationService, 'hasOpenWorkflowRequest').mockResolvedValue(true);
+
+    const response = await conversationEngine.handleMessage(tenantId, 'c19', 'I want to book a session', accountId);
+
+    expect(response).toBe('You have already filled in this form. Your request is registered and our team will contact you.');
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('20. lets an account explicitly allow concurrent open workflow requests', async () => {
+    const concurrentConfig: BusinessConfig = {
+      ...baseConfig,
+      workflows: {
+        fitness_consultation: {
+          ...baseConfig.workflows.fitness_consultation,
+          outcome: { createLead: true, allowConcurrentOpenRequests: true },
+          executionLimit: { mode: 'unlimited' }
+        }
+      }
+    };
+    vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(concurrentConfig);
+    const openRequestSpy = vi.spyOn(conversationService, 'hasOpenWorkflowRequest').mockResolvedValue(true);
+
+    const response = await conversationEngine.handleMessage(tenantId, 'c20', 'I want to book a session', accountId);
+
+    expect(response).toBe('What is your full name?');
+    expect(openRequestSpy).not.toHaveBeenCalled();
+  });
+
+  it('21. answers duplicate Darija forms naturally in Arabic script', async () => {
+    const guardedConfig: BusinessConfig = {
+      ...baseConfig,
+      behavior: { ...baseConfig.behavior, responseScript: 'arabic' },
+      workflows: {
+        fitness_consultation: {
+          ...baseConfig.workflows.fitness_consultation,
+          outcome: { createLead: true },
+          executionLimit: { mode: 'unlimited' }
+        }
+      }
+    };
+    vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(guardedConfig);
+    vi.spyOn(conversationService, 'hasOpenWorkflowRequest').mockResolvedValue(true);
+
+    const response = await conversationEngine.handleMessage(tenantId, 'c21', 'بغيت ندير ديمو', accountId);
+
+    expect(response).toBe('راه سبق ليك عمرتي هاد الفورم. طلبك تسجّل، والفريق ديالنا غادي يتاصل بك.');
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('22. finds an open CRM request durably and with account scoping', async () => {
+    const customerFindFirst = vi.fn().mockResolvedValue({ id: 'customer-db-id' });
+    const leadFindMany = vi.fn().mockResolvedValue([{ sourceWorkflowSessionId: 'completed-session-id' }]);
+    const workflowSessionCount = vi.fn().mockResolvedValue(1);
+    const service = new ConversationService({
+      customer: { findFirst: customerFindFirst },
+      lead: { findMany: leadFindMany },
+      workflowSession: { count: workflowSessionCount }
+    } as any);
+
+    await expect(service.hasOpenWorkflowRequest(tenantId, 'external-customer-id', 'fitness_consultation', accountId)).resolves.toBe(true);
+    expect(customerFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId })
+    }));
+    expect(leadFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId,
+        accountId,
+        customerId: 'customer-db-id',
+        status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] },
+        sourceWorkflowSessionId: { not: null }
+      })
+    }));
+    expect(workflowSessionCount).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['completed-session-id'] },
+        tenantId,
+        workflowId: 'fitness_consultation',
+        status: 'COMPLETED'
+      }
+    });
+  });
 });
