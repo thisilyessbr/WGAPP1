@@ -57,6 +57,20 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId",status,"updatedAt") VALUES (${randomUUID()},${c.tenantId},${c.accountId},${randomUUID()},'CONNECTED',NOW())`;
     return store.updateAccount(admin.id,c.accountId,p.revision,{status:'ACTIVE'});
   }
+  it('lets an administrator rename a client user without changing access or email', async () => {
+    const owner = await client();
+    const endpoint = '/api/admin/users/' + owner.userId + '/name';
+    expect((await request(app).patch(endpoint).set(await cookie(owner.user)).send({ name: 'Relayqo' })).status).toBe(403);
+    expect((await request(app).patch(endpoint).set(await cookie(admin)).send({ name: '   ' })).status).toBe(400);
+    const renamed = await request(app).patch(endpoint).set(await cookie(admin)).send({ name: '  Relayqo  ' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.user).toEqual({ id: owner.userId, name: 'Relayqo' });
+    const saved = await store.userById(owner.userId);
+    expect(saved.name).toBe('Relayqo');
+    expect(saved.email).toBe(owner.user.email);
+    expect(saved.disabled).toBe(false);
+    expect((await request(app).patch('/api/admin/users/' + admin.id + '/name').set(await cookie(admin)).send({ name: 'Changed' })).status).toBe(403);
+  });
   it('keeps the voice transcription provider scoped to each client account', async () => {
     const moroccan = await client(), international = await client();
     expect((await store.profile(moroccan.accountId)).voiceTranscriptionProvider).toBe('groq');

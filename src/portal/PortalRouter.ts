@@ -1207,6 +1207,20 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   }));
   admin.put('/plans/:id', route(async (req, res) => send(res, { plan: await store.savePlan(req.portal.user.id, validatePlan(req.body), String(req.params.id), integer(req.body?.revision, 1)) })));
   admin.get('/users', route(async (_req, res) => send(res, { users: await store.db.$queryRaw<any[]>`SELECT id,email,name,role,"verifiedAt",disabled,"createdAt" FROM "PortalUser" ORDER BY "createdAt" DESC LIMIT 100` })));
+  admin.patch('/users/:id/name', route(async (req, res) => {
+    const input = object(req.body); allowed(input, ['name']);
+    const name = text(input.name, 100).trim();
+    if (!name) throw new PortalError(400, 'INVALID_USER_NAME', 'Enter a client name.');
+    const user = await store.transaction(async s => {
+      const target = await s.userById(String(req.params.id));
+      if (!target) throw new PortalError(404, 'USER_NOT_FOUND');
+      if (target.role !== 'CLIENT') throw new PortalError(403, 'ADMIN_ACCOUNT_PROTECTED');
+      await s.db.$executeRaw`UPDATE "PortalUser" SET name=${name} WHERE id=${target.id}`;
+      await s.audit(req.portal.user.id, null, 'USER_NAME_UPDATED', { userId: target.id, oldName: target.name, name });
+      return { id: target.id, name };
+    });
+    send(res, { user });
+  }));
   admin.patch('/users/:id', route(async (req, res) => {
     if (typeof req.body?.disabled !== 'boolean' || String(req.params.id) === req.portal.user.id) throw new PortalError(400, 'INVALID_USER_CHANGE');
     await store.transaction(async s => {
