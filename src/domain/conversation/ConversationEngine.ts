@@ -959,7 +959,16 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             status: 'ERROR'
           };
         } else {
-          const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+          // A name, phone number, or date is not a language change. Once a workflow
+          // starts, keep the language/script chosen on its first turn until it ends.
+          const activeWorkflowContext = activeSession.contextData as Record<string, any> | null;
+          const workflowLang = typeof activeWorkflowContext?._lang === 'string'
+            ? activeWorkflowContext._lang
+            : effectiveLang;
+          const workflowScript = config.behavior?.responseScript && config.behavior.responseScript !== 'auto'
+            ? config.behavior.responseScript
+            : (typeof activeWorkflowContext?._script === 'string' ? activeWorkflowContext._script : effectiveScript);
+          const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, workflowLang, workflowScript);
           applyWorkflowHandoff(result);
           const newStatus = result.isComplete ? 'COMPLETED' : 'ACTIVE';
           if (result.isComplete) {
