@@ -33,6 +33,7 @@ import { telemetry, TelemetryClient } from '../../core/telemetry/TelemetryClient
 import { PortalBudget } from '../../portal/PortalBudget';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 import { resolveGroundedAnswer } from './GroundedAnswer';
+import { IntentTriggerLibrary, TriggerUseCase } from './IntentTriggerLibrary';
 
 export class ConversationEngine {
   private llmFactory?: LLMFactory;
@@ -1408,8 +1409,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           });
         }
 
-        // Step 1.5: Deterministic FAQ match check before workflow trigger
-        if (!answered && config.capabilities?.faq && config.capabilities.faq.length > 0) {
+        // Resolve conversion intent before FAQ matching. A message such as
+        // "bghit nchri wa7d chatbot" is an action request, not a generic FAQ.
+        let triggeredWorkflow = !answered ? this.resolveWorkflowTrigger(content, config, turnDecision) : null;
+
+        // Step 1.5: Deterministic FAQ match for messages that are not actions.
+        if (!answered && !triggeredWorkflow && config.capabilities?.faq && config.capabilities.faq.length > 0) {
           const faqMatch = this.matchSafeFaq(content, config, effectiveLang, turnDecision);
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             answered = true;
@@ -1425,8 +1430,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           }
         }
 
-        // Step 1.8: Check explicit workflow trigger (intents[].workflowId or activation config)
-        let triggeredWorkflow = !answered ? this.resolveWorkflowTrigger(content, config, turnDecision) : null;
+        // Step 1.8: Continue with the already-resolved explicit/use-case workflow.
         const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
 
         // If not deterministically triggered and not an explicit BUY_INTENT purchase, check declared intents mapped to workflows via LLM classification
@@ -2778,6 +2782,77 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     return false;
   }
 
+  private resolveUseCaseWorkflow(
+    content: string,
+    config: BusinessConfig
+  ): { workflowId: string; workflowConfig: WorkflowConfig } | null {
+    const matches = IntentTriggerLibrary.match(content);
+    if (matches.length === 0 || !config.workflows) return null;
+
+    const intents = config.capabilities?.intents || [];
+    const workflowForIntent = (intent: (typeof intents)[number]): string | null => {
+      if (intent.workflowId && config.workflows?.[intent.workflowId]) return intent.workflowId;
+      for (const [workflowId, workflow] of Object.entries(config.workflows || {})) {
+        if (workflow.activation?.intents?.includes(intent.id)) return workflowId;
+      }
+      return null;
+    };
+
+    const aliases: Record<TriggerUseCase, string[]> = {
+      PURCHASE: ['purchase', 'buy', 'order', 'commande', 'achat', 'sales', 'sale', 'vente', 'quote', 'devis', 'demo', 'lead', 'contact', 'booking', 'consultation'],
+      DEMO: ['demo', 'demonstration', 'trial', 'essai'],
+      BOOKING: ['booking', 'book', 'reservation', 'appointment', 'rendez vous', 'rdv', 'session', 'consultation'],
+      HUMAN_SUPPORT: ['human', 'agent', 'handoff', 'support', 'advisor', 'conseiller', 'contact']
+    };
+
+    for (const { useCase } of matches) {
+      // Tenant-owned explicit mapping always wins and is the recommended setup.
+      for (const intent of intents) {
+        if (intent.useCases?.includes(useCase)) {
+          const workflowId = workflowForIntent(intent);
+          if (workflowId) return { workflowId, workflowConfig: config.workflows[workflowId] };
+        }
+      }
+
+      // Stores keep purchase language in the ecommerce engine unless the tenant
+      // explicitly mapped PURCHASE to a workflow above.
+      if (useCase === 'PURCHASE' && config.capabilities?.ecommerceEnabled) continue;
+
+      // Backward-compatible inference is intentionally limited to PURCHASE,
+      // because that is the legacy gap this library closes. Other use cases
+      // require an explicit mapping and therefore cannot silently change an
+      // existing tenant's routing behavior.
+      if (useCase !== 'PURCHASE') continue;
+
+      let bestMatch: { workflowId: string; workflowConfig: WorkflowConfig; score: number } | null = null;
+      for (const intent of intents) {
+        const workflowId = workflowForIntent(intent);
+        if (!workflowId) continue;
+        const workflow = config.workflows[workflowId];
+        const searchable = this.normalizeForPhraseMatching([
+          intent.id,
+          intent.description,
+          workflowId,
+          workflow.name,
+          workflow.description
+        ].filter(Boolean).join(' '));
+        const matchedIndex = aliases[useCase].findIndex(alias => {
+          const normalizedAlias = this.normalizeForPhraseMatching(alias);
+          return searchable.split(' ').includes(normalizedAlias) || searchable.includes(normalizedAlias);
+        });
+        if (matchedIndex >= 0) {
+          const score = aliases[useCase].length - matchedIndex;
+          if (!bestMatch || score > bestMatch.score) {
+            bestMatch = { workflowId, workflowConfig: workflow, score };
+          }
+        }
+      }
+      if (bestMatch) return { workflowId: bestMatch.workflowId, workflowConfig: bestMatch.workflowConfig };
+    }
+
+    return null;
+  }
+
   private resolveWorkflowTrigger(
     content: string,
     config: BusinessConfig,
@@ -2821,7 +2896,11 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
     const declaredIntents = config.capabilities?.intents || [];
 
-    // 3. Explicit configured intent match (turnDecision or literal intent ID)
+    // 3. Shared multilingual phrase library mapped to tenant use cases.
+    const useCaseWorkflow = this.resolveUseCaseWorkflow(content, config);
+    if (useCaseWorkflow) return useCaseWorkflow;
+
+    // 4. Explicit configured intent match (turnDecision or literal intent ID)
     for (const [wfId, wf] of Object.entries(config.workflows)) {
       const linkedIntentIds = new Set<string>();
 
@@ -2855,7 +2934,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       }
     }
 
-    // 4. Configured intent keywords (capabilities.intents[].keywords)
+    // 5. Configured intent keywords (capabilities.intents[].keywords)
     for (const [wfId, wf] of Object.entries(config.workflows)) {
       const linkedIntents = declaredIntents.filter(i => {
         if (i.workflowId === wfId) return true;
@@ -2874,7 +2953,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       }
     }
 
-    // 5. Workflow activation keywords (workflow.activation.keywords)
+    // 6. Workflow activation keywords (workflow.activation.keywords)
     for (const [wfId, wf] of Object.entries(config.workflows)) {
       const activationKeywords = [
         ...(wf.activation?.keywords && Array.isArray(wf.activation.keywords) ? wf.activation.keywords : []),

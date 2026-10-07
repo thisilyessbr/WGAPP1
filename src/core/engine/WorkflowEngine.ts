@@ -128,6 +128,20 @@ export class WorkflowCancellationDetector {
       return true;
     }
 
+    // Natural "I do not want to continue/complete" forms. Keep this bounded to
+    // workflow-control verbs so a sentence such as "I don't want product A"
+    // does not accidentally cancel the whole workflow.
+    const naturalCancellationPatterns = [
+      /^(?:i\s+)?(?:do\s+not|don't|dont)\s+want\s+to\s+(?:continue|complete|finish|proceed)$/u,
+      /^je\s+ne\s+veux\s+pas\s+(?:continuer|terminer|poursuivre)$/u,
+      /^(?:ma\s*|m)?(?:bghit|baghit|baghi)\s*ch\s+(?:nkemmel|nkmel|nkml|ntabe3|ntaba3)$/u,
+      /^(?:mabghitch|ma\s+bghitch|ma\s+baghitch)\s+(?:nkemmel|nkmel|nkml|ntabe3|ntaba3)$/u,
+      /^(?:ما\s*بغيتش|مابغيتش|ما\s*باغيش)\s+(?:نكمل|نتابع|نتمم)$/u
+    ];
+    if (naturalCancellationPatterns.some(pattern => pattern.test(normalized))) {
+      return true;
+    }
+
     return false;
   }
 }
@@ -316,14 +330,15 @@ export class WorkflowEngine {
           });
         }
 
-        const configuredHandoff = workflowConfig.outcome?.requestHumanHandoff === true && result.isComplete;
+        const workflowAccepted = result.updatedCollectedData?._confirmed !== false;
+        const configuredHandoff = workflowConfig.outcome?.requestHumanHandoff === true && result.isComplete && workflowAccepted;
         return {
           ...result,
           ...((requestHumanHandoff || configuredHandoff) ? {
             requestHumanHandoff: true,
             handoffPauseHours: handoffPauseHours ?? workflowConfig.outcome?.pauseBotHours ?? 24
           } : {}),
-          ...(result.isComplete && workflowConfig.outcome?.createLead === true ? { createLead: true } : {})
+          ...(result.isComplete && workflowAccepted && workflowConfig.outcome?.createLead === true ? { createLead: true } : {})
         };
       };
 
@@ -461,6 +476,22 @@ export class WorkflowEngine {
 
       // 0. Process Choice State
       if (stateConfig.type === 'choice') {
+        if (WorkflowCancellationDetector.isCancellation(message)) {
+          collectedData['_confirmed'] = false;
+          const defaultCancelled = getWorkflowMessage('workflowCancelled', lang, script);
+          const promptToUse = businessConfig.prompts?.workflowCancelled;
+          const cancelledResponse = promptToUse && (typeof promptToUse === 'object' || !Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled).includes(promptToUse))
+            ? resolveLocalizedPrompt(promptToUse, lang, defaultCancelled, script)
+            : defaultCancelled;
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: null,
+            response: cancelledResponse,
+            isComplete: true,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
         const matchedOption = this.matchChoiceOption(message, stateConfig.options || []);
 
         if (matchedOption) {
@@ -607,6 +638,7 @@ export class WorkflowEngine {
         // 2. Cancellation check
         if (WorkflowCancellationDetector.isCancellation(trimmedMsg)) {
           isComplete = true;
+          collectedData['_confirmed'] = false;
           const defaultCancel = getWorkflowMessage('workflowCancelled', lang, script);
           const promptToUse = businessConfig.prompts?.workflowCancelled;
           const rawCancelMsg = promptToUse && (typeof promptToUse === 'object' || !Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled).includes(promptToUse))
@@ -632,12 +664,7 @@ export class WorkflowEngine {
             for (const kw of intent.keywords) {
               const kwLower = kw.toLowerCase().trim();
               const kwNorm = GreetingRouter.normalize(kwLower);
-              if (kwLower && (lowerMsg === kwLower || normMsg === kwNorm || lowerMsg.includes(kwLower) || normMsg.includes(kwNorm))) {
-                isIntentInterruption = true;
-                break;
-              }
-              const kwWords = kwLower.split(/\s+/).filter(Boolean);
-              if (kwWords.length > 1 && kwWords.every(w => lowerMsg.includes(w) || normMsg.includes(w))) {
+              if (kwLower && (lowerMsg === kwLower || normMsg === kwNorm)) {
                 isIntentInterruption = true;
                 break;
               }
@@ -701,7 +728,18 @@ export class WorkflowEngine {
         }
 
         // 6. Question indicator detection & Field validation check
-        const isQuestion = GreetingRouter.hasQuestionIndicator(trimmedMsg, normMsg);
+        // During a free-text collection step, topic nouns such as "support" or
+        // "assistance" are legitimate answers. Only explicit punctuation or an
+        // interrogative opening should divert the message into the FAQ side-path.
+        const normalizedWords = normMsg.split(/\s+/).filter(Boolean);
+        const startsWithQuestionWord = normalizedWords.length > 0 && [
+          'what', 'when', 'where', 'which', 'who', 'why', 'how', 'can', 'could', 'do', 'does', 'is', 'are',
+          'quoi', 'quand', 'ou', 'qui', 'pourquoi', 'comment', 'combien', 'quel', 'quelle',
+          'ما', 'ماذا', 'متى', 'اين', 'من', 'لماذا', 'كيف', 'كم', 'هل',
+          'chhal', 'ch7al', 'shhal', 'sh7al', 'chno', 'ashno', 'achno', 'fayn', 'fin', 'kifach', 'kifash',
+          '3lach', '3lash', 'wach', 'wesh', 'imta', 'emta', 'chkoun', 'chkon'
+        ].includes(normalizedWords[0]);
+        const isQuestion = /[?؟]/u.test(trimmedMsg) || startsWithQuestionWord;
         let fieldValidationErr: string | null = null;
         if (stateConfig.field && typeof stateConfig.field === 'object') {
           fieldValidationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);
@@ -810,7 +848,7 @@ export class WorkflowEngine {
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: `${fieldValidationErr}\n\n${currentCollectPrompt}`,
+            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script)}\n\n${currentCollectPrompt}`,
             isComplete: false,
             updatedStateHistory: history,
             updatedCollectedData: collectedData

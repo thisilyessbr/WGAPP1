@@ -272,7 +272,14 @@ export interface ShippingScopeConfig {
 }
 
 export interface CapabilitiesConfig {
-  intents: { id: string; description: string; workflowId?: string; keywords?: string[] }[];
+  intents: {
+    id: string;
+    description: string;
+    workflowId?: string;
+    keywords?: string[];
+    /** Canonical intents backed by the shared multilingual trigger library. */
+    useCases?: import('../conversation/IntentTriggerLibrary').TriggerUseCase[];
+  }[];
   faq?: FaqEntry[];
   imageEnabled?: boolean;
   ecommerceEnabled?: boolean;

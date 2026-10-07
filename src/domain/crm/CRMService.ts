@@ -2,6 +2,7 @@ import { PrismaClient, Lead, Customer } from '@prisma/client';
 import { TurnDecision } from '../conversation/TurnDecision';
 import { logger } from '../../utils/logger';
 import { isActionNegated, normalizeIntentText } from '../conversation/IntentLanguage';
+import { IntentTriggerLibrary } from '../conversation/IntentTriggerLibrary';
 
 export const VALID_LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'] as const;
 export type LeadStatus = typeof VALID_LEAD_STATUSES[number];
@@ -272,16 +273,7 @@ export class CRMService {
     // 3. User message keywords check for explicit buy/order phrases in Arabic/Darija/French/English
     if (!isStrongSignal && userMessage) {
       const lower = normalizeIntentText(userMessage).toLowerCase().trim();
-      const buyPhrases = [
-        'i want to buy', 'i want to order', 'how to buy', 'place order',
-        'bghit nchri', 'bghit ncommandi', 'bghit nkomandi', 'baghi nchri', 'baghya nchri',
-        'kifash nchri', 'kifesh nechri',
-        'je veux acheter', 'je veux commander', 'je voudrais acheter', 'je voudrais commander',
-        'je vais acheter', 'je vais commander', 'je passe commande', 'comment acheter', 'passer commande',
-        'أريد الشراء', 'أريد شراء', 'أريد الطلب', 'أود شراء', 'اود شراء', 'سأشتري', 'سوف أشتري',
-        'كيفية الشراء', 'بغيت نشري', 'بغيت نكوموندي', 'باغي نشري', 'باغية نشري'
-      ];
-      if (leadMode !== 'SERVICE' && buyPhrases.some(phrase => lower.includes(phrase))) {
+      if (leadMode !== 'SERVICE' && IntentTriggerLibrary.has(userMessage, 'PURCHASE')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_PURCHASE_MESSAGE';
       }
@@ -294,7 +286,7 @@ export class CRMService {
         /\b(?:bghit|baghi|baghya)\s+(?:n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel)\b/u,
         /(?:بغيت|باغي|باغية|اريد|أريد|اود|أود)\s+(?:ان\s+|أن\s+)?(?:نحجز|احجز|أحجز|نسجل|أسجل|التسجيل|حجز|الحجز)/u
       ];
-      if (leadMode !== 'COMMERCE' && !isStrongSignal && bookingPatterns.some(pattern => pattern.test(lower)) && !isActionNegated(lower, 'booking')) {
+      if (leadMode !== 'COMMERCE' && !isStrongSignal && (IntentTriggerLibrary.has(userMessage, 'BOOKING') || bookingPatterns.some(pattern => pattern.test(lower))) && !isActionNegated(lower, 'booking')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_BOOKING_OR_QUOTE';
       }
