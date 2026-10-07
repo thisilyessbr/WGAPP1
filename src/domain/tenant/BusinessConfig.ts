@@ -21,6 +21,7 @@ export interface IdentityConfig {
 export interface BehaviorConfig {
   tone: string;
   verbosity: 'short' | 'medium' | 'long';
+  responseScript?: 'auto' | 'arabic' | 'arabizi';
   stayOnTopic: boolean;
   answerOnlyFromKnowledge: boolean;
   allowSmallTalk: boolean;
@@ -166,6 +167,8 @@ export interface WorkflowStateConfig {
   confirmKeywords?: string[]; // e.g. ['yes', 'confirm', 'oui', 'si']
   cancelKeywords?: string[];  // e.g. ['no', 'cancel', 'non', 'annuler']
   cancellationPrompt?: string | LocalizedPrompt;
+  /** For workflow handoff steps, pause automated replies for this many hours. */
+  pauseBotHours?: number;
   transitions?: {
     condition?: string; // generic condition evaluation
     intent?: string;
@@ -292,6 +295,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
   behavior: {
     tone: 'professional',
     verbosity: 'medium',
+    responseScript: 'auto',
     stayOnTopic: true,
     answerOnlyFromKnowledge: false,
     allowSmallTalk: true,

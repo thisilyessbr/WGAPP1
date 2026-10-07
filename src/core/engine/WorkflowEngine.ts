@@ -18,6 +18,8 @@ export interface WorkflowResult {
   isComplete: boolean;
   updatedStateHistory?: string[];
   updatedCollectedData?: Record<string, any>;
+  requestHumanHandoff?: boolean;
+  handoffPauseHours?: number;
 }
 
 export class WorkflowCancellationDetector {
@@ -183,6 +185,20 @@ export class WorkflowEngine {
     return null;
   }
 
+  private isConfirmation(message: string, configured: string[] = []): boolean {
+    const normalized = WorkflowCancellationDetector.normalize(message);
+    if (!normalized || WorkflowCancellationDetector.isCancellation(message)) return false;
+    if (/(^|\s)(but|however|walakin|ولكن|غير|illa|إلا)(\s|$)/u.test(normalized) || /nconfirmech|n2ekkedch|نأكدش|ناكدش/u.test(normalized)) return false;
+    const exact = [...configured, 'yes', 'confirm', 'confirmed', 'oui', 'ui', 'ok', 'okay', 'نعم', 'موافق', 'واخا', 'ايه', 'اه', 'iyih', 'iyeh', 'ih', 'wah', 'wakha']
+      .map(value => WorkflowCancellationDetector.normalize(value));
+    if (exact.includes(normalized)) return true;
+    const words = new Set(normalized.split(/\s+/).filter(Boolean));
+    const affirmative = ['yes', 'confirm', 'confirmed', 'oui', 'ui', 'ok', 'okay', 'wakha', 'ih', 'iyeh', 'iyih', 'واخا', 'ايه', 'نعم', 'موافق'];
+    const confirmPhrases = ['je confirme', 'i confirm', 'bghit nconfirme', 'baghi nconfirme', 'بغيت ناكد', 'بغيت نأكد', 'كناكد', 'كنأكد'];
+    return affirmative.some(token => words.has(WorkflowCancellationDetector.normalize(token))) ||
+      confirmPhrases.some(phrase => normalized.includes(WorkflowCancellationDetector.normalize(phrase)));
+  }
+
   async process(
     session: WorkflowSession,
     message: string,
@@ -226,6 +242,8 @@ export class WorkflowEngine {
       let response = '';
       let isComplete = false;
       let validationError: string | null = null;
+      let requestHumanHandoff = false;
+      let handoffPauseHours: number | undefined;
       const history = [...(session.stateHistory || [])];
 
       // Detect / resolve session language (reusing canonical effectiveLang if supplied)
@@ -297,8 +315,18 @@ export class WorkflowEngine {
           });
         }
 
-        return result;
+        return { ...result, ...(requestHumanHandoff ? { requestHumanHandoff: true, handoffPauseHours } : {}) };
       };
+
+      if (stateConfig.type === 'handoff') {
+        requestHumanHandoff = true;
+        handoffPauseHours = stateConfig.pauseBotHours ?? 24;
+        const defaultMessage = lang === 'darija' && script === 'arabic'
+          ? 'شكرا، تسجل طلبك ✅ شي واحد من الفريق غادي يتواصل معاك باش يأكد موعد الديمو.'
+          : getWorkflowMessage('completion', lang, script);
+        const response = resolveLocalizedPrompt(stateConfig.prompt, lang, defaultMessage, script);
+        return finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId, response, isComplete: true, updatedStateHistory: history, updatedCollectedData: collectedData });
+      }
 
       // Monotonic step limit enforcement (NEW-06)
       const rawMaxSteps = businessConfig.limits?.maxWorkflowSteps;
@@ -796,11 +824,10 @@ export class WorkflowEngine {
         }
 
         const lowerMsg = WorkflowCancellationDetector.normalize(message);
-        const confirmKeywords = (stateConfig.confirmKeywords || ['yes', 'confirm', 'oui', 'نعم', 'واخا', 'إيه', 'ايه', 'آه', 'اه', 'iyih', 'iyeh', 'ih', 'wah', 'wakha', 'ok']).map(k => WorkflowCancellationDetector.normalize(k));
         const cancelKeywords = (stateConfig.cancelKeywords || ['no', 'cancel', 'non', 'لا', 'la', 'lla', 'annuler', 'stop']).map(k => WorkflowCancellationDetector.normalize(k));
         const isConfirmCancel = cancelKeywords.includes(lowerMsg) || WorkflowCancellationDetector.isCancellation(message);
 
-        if (confirmKeywords.includes(lowerMsg)) {
+        if (this.isConfirmation(message, stateConfig.confirmKeywords || [])) {
           // Confirmation confirmed -> proceed to next state transition
           collectedData['_confirmed'] = true;
           nextStateId = stateConfig.next || (stateConfig.transitions && stateConfig.transitions[0] ? stateConfig.transitions[0].target : null);
@@ -853,6 +880,14 @@ export class WorkflowEngine {
             ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
             : defaultCompletion;
           response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
+        } else if (nextStateConfig.type === 'handoff') {
+          isComplete = true;
+          requestHumanHandoff = true;
+          handoffPauseHours = nextStateConfig.pauseBotHours ?? 24;
+          const defaultHandoff = lang === 'darija' && script === 'arabic'
+            ? 'شكرا، تسجل طلبك ✅ شي واحد من الفريق غادي يتواصل معاك باش يأكد موعد الديمو.'
+            : getWorkflowMessage('completion', lang, script);
+          response = resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultHandoff, script);
         } else if (nextStateConfig.type === 'choice') {
           response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
         } else if (nextStateConfig.type === 'collect' && nextStateConfig.field) {

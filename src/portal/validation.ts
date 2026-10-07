@@ -108,6 +108,7 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     for (const [key, value] of Object.entries(config.behavior)) {
       if (key === 'tone') text(value, 200);
       else if (key === 'verbosity') { if (!['short', 'medium', 'long'].includes(String(value))) throw new PortalError(400, 'INVALID_VERBOSITY'); }
+      else if (key === 'responseScript') { if (!['auto', 'arabic', 'arabizi'].includes(String(value))) throw new PortalError(400, 'INVALID_RESPONSE_SCRIPT'); }
       else if (typeof value !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
     }
   }
@@ -164,6 +165,7 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
           }
         }
         if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
+        if (state.pauseBotHours !== undefined) integer(state.pauseBotHours, 1, 720);
         const targets = [...(state.transitions || []).map((t: any) => t.target), ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
         if (targets.some(target => !workflow.states[target])) throw new PortalError(400, 'INVALID_WORKFLOW_TARGET');
       }

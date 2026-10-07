@@ -164,7 +164,7 @@ describe('Darija full engine regression', () => {
 describe('Darija workflow confirmations and prompts', () => {
   const workflow: any = { id: 'w', initialState: 'confirm', states: { confirm: { type: 'confirm', next: 'done' }, done: { type: 'end' } } };
   const session: any = { id: 's', tenantId: 't', conversationId: 'v', stateId: 'confirm', workflowId: 'w', contextData: { _started: true, name: 'Ilyes' }, collectedData: { name: 'Ilyes' }, stateHistory: [] };
-  it.each(['ih', 'iyeh', 'wakha!', 'واخا!', 'إيه', 'اه'])('accepts an explicit confirmation: %s', async text => {
+  it.each(['ih', 'iyeh', 'wakha!', 'واخا!', 'إيه', 'اه', 'Ui baghi', 'Ih bghit nconfirme', 'je confirme'])('accepts an explicit confirmation: %s', async text => {
     const script = /[\u0600-\u06ff]/.test(text) ? 'arabic' : 'arabizi';
     const result = await new WorkflowEngine({ evaluateNextState: async () => null } as any).process(structuredClone(session), text, workflow, structuredClone(DEFAULT_BUSINESS_CONFIG), undefined, undefined, undefined, undefined, 'darija', script);
     expect(result.isComplete).toBe(true);
@@ -194,6 +194,23 @@ describe('Darija workflow confirmations and prompts', () => {
     const state: any = { type: 'collect', field: { name: 'name', type: 'string' }, prompt: { darija_arabic: 'عفاك عطيني سميتك', darija_arabizi: '3afak 3tini smitek' } };
     expect(builder.buildMissingFieldResponse(state, config, 'darija', 'arabic')).toBe(state.prompt.darija_arabic);
     expect(builder.buildMissingFieldResponse(state, config, 'darija', 'arabizi')).toBe(state.prompt.darija_arabizi);
+  });
+  it('never exposes technical lead field names in Arabic-script Darija', () => {
+    const builder = new ResponseBuilder(); const config = structuredClone(DEFAULT_BUSINESS_CONFIG);
+    const prompt = builder.buildMissingFieldResponse({ type: 'collect', field: 'businessNeed' } as any, config, 'darija', 'arabic');
+    expect(prompt).toContain('شنو بغيتي الشات بوت يعاونك فيه');
+    expect(prompt).not.toContain('businessNeed');
+  });
+  it('confirms once and turns a workflow handoff into a bounded 24-hour pause', async () => {
+    const handoffWorkflow: any = { id: 'demo', initialState: 'confirm', states: {
+      confirm: { type: 'confirm', next: 'team' },
+      team: { type: 'handoff', pauseBotHours: 24, prompt: { darija_arabic: 'شكرا، تسجل طلب الديمو ديالك.' } }
+    } };
+    const result = await new WorkflowEngine({ evaluateNextState: async () => null } as any).process(structuredClone(session), 'إيه بغيت نأكد', handoffWorkflow, structuredClone(DEFAULT_BUSINESS_CONFIG), undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.isComplete).toBe(true);
+    expect(result.requestHumanHandoff).toBe(true);
+    expect(result.handoffPauseHours).toBe(24);
+    expect(result.response).toContain('تسجل طلب الديمو');
   });
 });
 
