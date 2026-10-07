@@ -429,7 +429,29 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     const show=s=>{setup.innerHTML=`<p><strong>Status:</strong> ${escape(s.status)}</p><div class="field"><label>Meta webhook callback URL</label><input readonly value="${escape(s.callbackUrl)}"></div><div class="field"><label>Meta webhook verify token</label><input readonly value="${escape(s.verifyToken)}"></div><p>In the client’s Meta app, set this callback URL and verify token for the WhatsApp webhook and subscribe to the messages field. When Meta verifies the webhook, click Activate.</p><button type="button" class="btn secondary" id="activate-client-owned" ${s.status==='PENDING'?'disabled':''}>Activate after Meta verification</button>`;document.querySelector('#activate-client-owned').onclick=async()=>{try{await api('/admin/accounts/'+id+'/whatsapp/client-owned/'+s.connectionId+'/activate',{method:'POST'});toast('Meta subscription activated. Send a test message to verify live delivery.');clientAdmin(id);}catch(e){toast(e.message,true);}};};
     document.querySelector('#client-owned-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button[type=submit]');button.disabled=true;try{const value=k=>document.querySelector('#meta-'+k).value.trim();const s=await api('/admin/accounts/'+id+'/whatsapp/client-owned',{method:'POST',body:JSON.stringify({appId:value('app-id'),appSecret:value('app-secret'),wabaId:value('waba-id'),phoneNumberId:value('phone-id'),accessToken:value('access-token')})});document.querySelector('#meta-app-secret').value='';document.querySelector('#meta-access-token').value='';show(s);toast('Client-owned Meta connection prepared. Configure the webhook in Meta.');}catch(err){toast(err.message,true);}finally{button.disabled=false;}};
   }
-  async function usersAdmin(){const d=await api('/admin/users');root.innerHTML=shell(header('User access','Manage client access. Administrator accounts are protected.')+`<article class="card table-card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Verification</th><th>Access</th></tr></thead><tbody>${d.users.map(u=>`<tr><td>${escape(u.name)}</td><td>${escape(u.email)}</td><td>${u.verifiedAt?'Verified':'Pending'}</td><td>${u.role==='CLIENT'?`<button class="btn secondary" data-user="${u.id}" data-disabled="${u.disabled}">${u.disabled?'Restore access':'Disable access'}</button>`:'Administrator'}</td></tr>`).join('')}</tbody></table></div></article>`,true,'Users');document.querySelectorAll('[data-user]').forEach(b=>b.onclick=async()=>{try{await api('/admin/users/'+b.dataset.user,{method:'PATCH',body:JSON.stringify({disabled:b.dataset.disabled!=='true'})});usersAdmin();}catch(e){toast(e.message,true);}});bind();}
+  async function usersAdmin(){
+    const d=await api('/admin/users');
+    root.innerHTML=shell(header('User access','Manage client access. Administrator accounts are protected.')+`<article class="card table-card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Verification</th><th>Access</th></tr></thead><tbody>${d.users.map(u=>`<tr><td>${escape(u.name)}</td><td>${escape(u.email)}</td><td>${u.verifiedAt?'Verified':'Pending'}</td><td>${u.role==='CLIENT'?`<button class="btn secondary" data-rename-user="${u.id}" type="button">Change name</button> <button class="btn secondary" data-user="${u.id}" data-disabled="${u.disabled}">${u.disabled?'Restore access':'Disable access'}</button>`:'Administrator'}</td></tr>`).join('')}</tbody></table></div></article>`,true,'Users');
+    document.querySelectorAll('[data-rename-user]').forEach(b=>b.onclick=()=>{
+      const user=d.users.find(u=>u.id===b.dataset.renameUser),cell=b.closest('tr').querySelector('td');
+      if(!user||!cell)return;
+      cell.replaceChildren();
+      const input=document.createElement('input');input.type='text';input.value=user.name;input.maxLength=100;input.setAttribute('aria-label','Client name');
+      const save=document.createElement('button');save.className='btn';save.type='button';save.textContent='Save name';
+      const cancel=document.createElement('button');cancel.className='btn secondary';cancel.type='button';cancel.textContent='Cancel';
+      cell.append(input,save,cancel);input.focus();input.select();
+      cancel.onclick=()=>usersAdmin();
+      save.onclick=async()=>{
+        const name=input.value.trim();if(!name){toast('Enter a client name.',true);return;}
+        save.disabled=true;
+        try{await api('/admin/users/'+user.id+'/name',{method:'PATCH',body:JSON.stringify({name})});toast('Client name updated.');usersAdmin();}
+        catch(e){save.disabled=false;toast(e.message,true);}
+      };
+      input.onkeydown=e=>{if(e.key==='Enter')save.click();if(e.key==='Escape')cancel.click();};
+    });
+    document.querySelectorAll('[data-user]').forEach(b=>b.onclick=async()=>{try{await api('/admin/users/'+b.dataset.user,{method:'PATCH',body:JSON.stringify({disabled:b.dataset.disabled!=='true'})});usersAdmin();}catch(e){toast(e.message,true);}});
+    bind();
+  }
   async function usageAdmin(){const d=await api('/admin/usage');root.innerHTML=shell(header('Usage & costs','Monthly allowances and conservative cost estimates for every account.')+`<article class="card table-card"><div class="table-wrap"><table><thead><tr><th>Business</th><th>Messages</th><th>AI calls</th><th>Images</th><th>Estimated spend</th><th>Reserved</th><th>Monthly cap</th></tr></thead><tbody>${d.accounts.map(x=>`<tr><td><a class="row-link" href="/admin/client/${x.accountId}" data-route>${escape(x.name)}</a></td><td>${x.messages||0}</td><td>${x.llmCalls||0}</td><td>${x.images||0}</td><td>$${(Number(x.spentMicros||0)/1e6).toFixed(4)}</td><td>$${(Number(x.reservedMicros||0)/1e6).toFixed(4)}</td><td>$${escape(x.monthlyUsd||0)}</td></tr>`).join('')||'<tr><td colspan="7">No accounts yet.</td></tr>'}</tbody></table></div></article><p class="small muted">Estimates exclude WhatsApp, hosting, taxes and payment fees. Unknown provider outcomes keep their reservation.</p>`,true,'Usage & costs');bind();}
 
 
