@@ -199,6 +199,12 @@ export interface WorkflowConfig {
   allowInterruption?: boolean;
   activation?: WorkflowActivationConfig;
   executionLimit?: WorkflowExecutionLimitConfig;
+  /** Durable actions performed when the workflow reaches a successful terminal state. */
+  outcome?: {
+    createLead?: boolean;
+    requestHumanHandoff?: boolean;
+    pauseBotHours?: number;
+  };
 }
 
 export interface KnowledgeConfig {

@@ -20,6 +20,7 @@ export interface WorkflowResult {
   updatedCollectedData?: Record<string, any>;
   requestHumanHandoff?: boolean;
   handoffPauseHours?: number;
+  createLead?: boolean;
 }
 
 export class WorkflowCancellationDetector {
@@ -189,12 +190,12 @@ export class WorkflowEngine {
     const normalized = WorkflowCancellationDetector.normalize(message);
     if (!normalized || WorkflowCancellationDetector.isCancellation(message)) return false;
     if (/(^|\s)(but|however|walakin|ولكن|غير|illa|إلا)(\s|$)/u.test(normalized) || /nconfirmech|n2ekkedch|نأكدش|ناكدش/u.test(normalized)) return false;
-    const exact = [...configured, 'yes', 'confirm', 'confirmed', 'oui', 'ui', 'ok', 'okay', 'نعم', 'موافق', 'واخا', 'ايه', 'اه', 'iyih', 'iyeh', 'ih', 'wah', 'wakha']
+    const exact = [...configured, 'yes', 'confirm', 'confirmed', 'oui', 'ui', 'ok', 'okay', 'نعم', 'موافق', 'واخا', 'ايه', 'اه', 'آه', 'iyih', 'iyeh', 'ih', 'wah', 'wakha', 'ah']
       .map(value => WorkflowCancellationDetector.normalize(value));
     if (exact.includes(normalized)) return true;
     const words = new Set(normalized.split(/\s+/).filter(Boolean));
-    const affirmative = ['yes', 'confirm', 'confirmed', 'oui', 'ui', 'ok', 'okay', 'wakha', 'ih', 'iyeh', 'iyih', 'واخا', 'ايه', 'نعم', 'موافق'];
-    const confirmPhrases = ['je confirme', 'i confirm', 'bghit nconfirme', 'baghi nconfirme', 'بغيت ناكد', 'بغيت نأكد', 'كناكد', 'كنأكد'];
+    const affirmative = ['yes', 'confirm', 'confirmed', 'oui', 'ui', 'ok', 'okay', 'wakha', 'ih', 'iyeh', 'iyih', 'ah', 'واخا', 'ايه', 'اه', 'نعم', 'موافق'];
+    const confirmPhrases = ['je confirme', 'i confirm', 'bghit nconfirme', 'baghi nconfirme', 'ah bghit', 'ah wakha', 'بغيت ناكد', 'بغيت نأكد', 'اه بغيت', 'آه بغيت', 'كناكد', 'كنأكد'];
     return affirmative.some(token => words.has(WorkflowCancellationDetector.normalize(token))) ||
       confirmPhrases.some(phrase => normalized.includes(WorkflowCancellationDetector.normalize(phrase)));
   }
@@ -315,7 +316,15 @@ export class WorkflowEngine {
           });
         }
 
-        return { ...result, ...(requestHumanHandoff ? { requestHumanHandoff: true, handoffPauseHours } : {}) };
+        const configuredHandoff = workflowConfig.outcome?.requestHumanHandoff === true && result.isComplete;
+        return {
+          ...result,
+          ...((requestHumanHandoff || configuredHandoff) ? {
+            requestHumanHandoff: true,
+            handoffPauseHours: handoffPauseHours ?? workflowConfig.outcome?.pauseBotHours ?? 24
+          } : {}),
+          ...(result.isComplete && workflowConfig.outcome?.createLead === true ? { createLead: true } : {})
+        };
       };
 
       if (stateConfig.type === 'handoff') {
@@ -336,12 +345,12 @@ export class WorkflowEngine {
             ? Math.floor(Number(rawMaxSteps))
             : 10);
 
-      const currentStepCount = (typeof currentContext['_stepCount'] === 'number') ? currentContext['_stepCount'] : 0;
-      if (!isInitialEntry) {
-        const nextStepCount = currentStepCount + 1;
-        currentContext['_stepCount'] = nextStepCount;
-        if (nextStepCount > maxSteps) {
-          logger.warn(`WorkflowEngine: Session [${session.id}] exceeded maxWorkflowSteps limit (${nextStepCount} > ${maxSteps}). Terminating workflow.`);
+      // Count actual state transitions, never customer retries. Reprompts must not
+      // exhaust the workflow and discard already collected data.
+      const transitionCount = history.length;
+      currentContext['_stepCount'] = transitionCount;
+      if (!isInitialEntry && transitionCount > maxSteps) {
+          logger.warn(`WorkflowEngine: Session [${session.id}] exceeded maxWorkflowSteps transition limit (${transitionCount} > ${maxSteps}). Escalating with collected data preserved.`);
           const defaultMsg = DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES[lang as keyof typeof DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES] || DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES.en;
           const promptToUse = (businessConfig.prompts as any)?.workflowStepLimitExceeded;
           const defaultVals = Object.values(DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES);
@@ -349,19 +358,20 @@ export class WorkflowEngine {
             ? resolveLocalizedPrompt(promptToUse, lang, defaultMsg, script)
             : defaultMsg;
 
+          requestHumanHandoff = true;
+          handoffPauseHours = workflowConfig.outcome?.pauseBotHours ?? 24;
+          const safeResponse = lang === 'darija' && script === 'arabic'
+            ? 'المعلومات اللي عطيتينا محفوظة ✅ واحد من الفريق غادي يكمل معاك.'
+            : limitResponse;
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: limitResponse,
+            response: safeResponse,
             isComplete: true,
             updatedStateHistory: history,
-            updatedCollectedData: collectedData
+            updatedCollectedData: collectedData,
+            createLead: workflowConfig.outcome?.createLead === true
           });
-        }
-      } else {
-        if (currentContext['_stepCount'] === undefined) {
-          currentContext['_stepCount'] = 0;
-        }
       }
 
       if (isInitialEntry) {

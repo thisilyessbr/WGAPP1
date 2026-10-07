@@ -65,7 +65,7 @@ export class CRMService {
     const hasExplicitOperationalIntent = normalizedIntents.some(i => OPERATIONAL_INTENTS.includes(i) || OPERATIONAL_INTENTS.some(op => i.includes(op)));
 
     // 2. Explicit Sales / Booking Intent Linkage (STRONG)
-    const SALES_INTENTS = ['booking', 'book_consultation', 'consultation_booking', 'consultation', 'fitness_consultation', 'interior_consultation', 'lead', 'quote', 'appointment', 'service_selector', 'tutor_session', 'order', 'checkout', 'pricing'];
+    const SALES_INTENTS = ['booking', 'book_consultation', 'consultation_booking', 'consultation', 'fitness_consultation', 'interior_consultation', 'lead', 'quote', 'appointment', 'service_selector', 'tutor_session', 'demo', 'product_demo', 'request_demo', 'order', 'checkout', 'pricing'];
     const hasExplicitSalesIntent = normalizedIntents.some(i => SALES_INTENTS.includes(i) || SALES_INTENTS.some(s => i.includes(s)));
 
     if (hasExplicitSalesIntent && !hasExplicitOperationalIntent) {
@@ -93,7 +93,7 @@ export class CRMService {
     }
 
     // 4. Workflow ID Semantic Conventions (Secondary Support)
-    const SALES_WF_PATTERNS = /(?:consultation|booking|lead_capture|leadcapture|quote|appointment|service_selector|tutor_session|checkout|cash_on_delivery|cod_order)/i;
+    const SALES_WF_PATTERNS = /(?:consultation|booking|lead_capture|leadcapture|quote|appointment|service_selector|tutor_session|demo|product_demo|request_demo|checkout|cash_on_delivery|cod_order)/i;
     const OPERATIONAL_WF_PATTERNS = /(?:support|tracking|return|feedback|survey|issue|ticket|help)/i;
 
     if (SALES_WF_PATTERNS.test(normalizedWfId) && !OPERATIONAL_WF_PATTERNS.test(normalizedWfId)) {
