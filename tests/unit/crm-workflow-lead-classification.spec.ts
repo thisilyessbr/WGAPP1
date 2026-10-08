@@ -28,6 +28,13 @@ describe('Phase CRM-WORKFLOW-FIX-04 — CRM Workflow Lead Classification Unit Te
     };
     crmService = new CRMService(transactionalLeadMock(mockPrisma));
   });
+  it('uses explicit lead outcome instead of guessing from the workflow name', async () => {
+    const params = { tenantId, accountId, customerId, isWorkflowCompleted: true, terminalStateId: 'done' };
+    await crmService.processTurnSignal({ ...params, workflowId: 'demo_sales', workflowConfig: { outcome: { createLead: false } }, userMessage: 'bghit nchri', turnDecision: { intent: 'BUY_INTENT' } as any });
+    expect(mockPrisma.lead.upsert).not.toHaveBeenCalled();
+    await crmService.processTurnSignal({ ...params, workflowId: 'opaque_case_17', workflowConfig: { outcome: { createLead: true } } });
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledTimes(1);
+  });
   it('creates a lead only after the cash-on-delivery checkout workflow completes', async () => {
     const params = { tenantId, accountId, customerId, workflowId:'checkout_test', workflowConfig:{id:'checkout_test',states:{confirm:{type:'confirm'},done:{type:'end'}}}, terminalStateId:'done' };
     await crmService.processTurnSignal({...params,isWorkflowCompleted:false});

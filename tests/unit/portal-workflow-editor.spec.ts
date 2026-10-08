@@ -28,6 +28,17 @@ describe('portal visual workflows',()=>{
     expect(diagnostics({test:workflow},[]).errors).toEqual([]);
     expect(()=>validateAdminConfig({workflows:{test:workflow}})).not.toThrow();
   });
+  it('requires one explicit workflow per shared customer use case',()=>{
+    const demo=template('lead','demo');
+    const support=template('lead','support');
+    const config:any={workflows:{demo,support},capabilities:{intents:[{id:'DEMO',workflowId:'demo',useCases:['PURCHASE']}]}};
+    expect(()=>validateAdminConfig(config)).not.toThrow();
+    config.capabilities.intents[0].workflowId='missing';
+    expect(()=>validateAdminConfig(config)).toThrow('Link each shared use case');
+    config.capabilities.intents[0].workflowId='demo';
+    config.capabilities.intents.push({id:'SUPPORT',workflowId:'support',useCases:['PURCHASE']});
+    expect(()=>validateAdminConfig(config)).toThrow('One shared use case');
+  });
   it('captures the fields needed for a cash-on-delivery ticket before confirmation',()=>{
     const workflow=template('cod','checkout_test');
     expect(orderedSteps(workflow)).toEqual(['start','quantity','customer_name','phone','city','address','confirm','done']);
