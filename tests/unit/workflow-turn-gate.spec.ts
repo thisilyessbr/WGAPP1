@@ -17,10 +17,11 @@ describe('workflow turn gate', () => {
       .toBe('CUSTOMER_QUESTION');
   });
 
-  it('fails closed on an unclassified long reply instead of corrupting a name', async () => {
+  it('recognizes a one-character typo in a question opener without relying on AI', async () => {
     const llm = new LLMMockProvider();
     expect(await WorkflowTurnGate.classify('wqch chatbit likatbi3o mzyan', 'fullName', nameField, prompt, llm))
-      .toBe('UNCLEAR');
+      .toBe('CUSTOMER_QUESTION');
+    expect(llm.callCount).toBe(0);
   });
 
   it('accepts an ordinary name without requiring AI availability', async () => {
@@ -39,7 +40,7 @@ describe('workflow turn gate', () => {
   it('does not save ambiguous free text when the classifier cannot decide', async () => {
     const llm = new LLMMockProvider();
     const field = { name: 'businessNeed', type: 'string' as const, required: true, semanticType: 'free_text' as const };
-    expect(await WorkflowTurnGate.classify('wqch chatbit likatbi3o mzyan', 'businessNeed', field,
+    expect(await WorkflowTurnGate.classify('no idea about this', 'businessNeed', field,
       'شنو بغيتي تحسن؟', llm)).toBe('UNCLEAR');
     llm.intentMock = 'FIELD_ANSWER';
     expect(await WorkflowTurnGate.classify('For ecommerce diali', 'businessNeed', field,
@@ -77,5 +78,36 @@ describe('workflow turn gate', () => {
       'Ilyes Saber', workflow, config, llm, undefined, undefined, undefined, 'darija', 'arabic');
     expect(resumed.nextStateId).toBe('need');
     expect(resumed.updatedCollectedData).toEqual({ source: 'WhatsApp', fullName: 'Ilyes Saber' });
+  });
+
+  it('answers an interrupted question from approved business facts, then asks for the pending name', async () => {
+    const llm = new LLMMockProvider();
+    llm.generatedResponseMock = 'Relayqo كيجاوب زبناء نشاطك وكيجمع الطلبات؛ فالديمو تقدر تشوف واش مناسب ليك.';
+    const workflow: WorkflowConfig = {
+      id: 'demo', name: 'Demo', description: 'Demo request', initialState: 'name',
+      states: {
+        name: { type: 'collect', prompt, field: nameField, next: 'need' },
+        need: { type: 'collect', prompt: 'شنو النشاط ديالك؟', field: { name: 'businessNeed', type: 'string', required: true }, next: 'done' },
+        done: { type: 'end', prompt: 'Thanks' }
+      }
+    };
+    const session = {
+      id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo',
+      stateId: 'name', stateHistory: [], status: 'ACTIVE',
+      contextData: { _started: true }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date()
+    } as WorkflowSession;
+    const config = {
+      ...DEFAULT_BUSINESS_CONFIG,
+      portalFacts: { description: 'Relayqo answers customer questions from approved business information and collects enquiries. A demo shows how it works.' },
+      workflows: { demo: workflow }
+    };
+    const result = await new WorkflowEngine(new WorkflowStateEvaluator()).process(
+      session, 'wqch chatbit likatbi3o mzyan', workflow, config, llm,
+      undefined, undefined, undefined, 'darija', 'arabic'
+    );
+    expect(result.response).toBe(`${llm.generatedResponseMock}\n\n${prompt}`);
+    expect(result.nextStateId).toBe('name');
+    expect(result.updatedCollectedData).toEqual({});
   });
 });
