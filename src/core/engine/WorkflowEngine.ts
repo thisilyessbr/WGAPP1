@@ -831,6 +831,27 @@ export class WorkflowEngine {
           // Answer from owner-approved business facts, then resume the exact pending
           // form question. The customer question is never persisted as a field value.
           const ownerEvidence = portalBusinessEvidence(businessConfig, trimmedMsg);
+          const ownerDescription = typeof businessConfig.portalFacts?.description === 'string'
+            ? businessConfig.portalFacts.description.trim() : '';
+          const asksWhetherSuitable = /\b(?:mzyan|mezyan|good|bon|suitable|fit)\b|مزيان|مناسب|يناسب/iu.test(trimmedMsg);
+          const descriptionUsesArabic = /[\u0600-\u06FF]/u.test(ownerDescription);
+          const sameScript = descriptionUsesArabic === (script === 'arabic');
+          if (allowsInterruption && asksWhetherSuitable && ownerDescription && sameScript && !DirectRagGuard.hasInternalArtifacts(ownerDescription)) {
+            const summary = ownerDescription.split(/(?<=[.!؟])\s+/u).slice(0, 2).join(' ').slice(0, 320).trim();
+            const fitNote = lang === 'fr' ? 'La démo vous aidera à voir si cela convient à votre activité.'
+              : lang === 'en' ? 'The demo will help you see whether it fits your business.'
+              : script === 'arabizi' ? 'F demo t9der tchouf wach kaynasb nchat dyalek.'
+              : 'فالديمو تقدر تشوف واش مناسب لنشاطك.';
+            response = `${summary}\n${fitNote}\n\n${currentCollectPrompt}`;
+            return finishAndReturn({
+              updatedContext: currentContext,
+              nextStateId: currentStateId,
+              response,
+              isComplete: false,
+              updatedStateHistory: history,
+              updatedCollectedData: collectedData
+            });
+          }
           if (allowsInterruption && ownerEvidence && llm) {
             try {
               const answer = (await llm.generateResponse(
