@@ -7,7 +7,8 @@ import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
-import { FaqMatcher, LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { FaqAnswerPolicy } from '../../domain/faq/FaqAnswerPolicy';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
@@ -546,7 +547,8 @@ export class WorkflowEngine {
             
             // Layer 2: High-confidence FAQ match check (cheap-first in-memory, 0 LLM calls, 0 network API calls)
             if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-              const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq);
+              const faqMatch = FaqAnswerPolicy.match(message, businessConfig, lang as any,
+                { responseLanguage: lang as any, responseScript: script as any });
               if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
                 matchedAnswer = faqMatch.answer;
                 logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] (${faqMatch.matchType} confidence: ${faqMatch.confidence}) in state [${currentStateId}]`);
@@ -700,15 +702,33 @@ export class WorkflowEngine {
           });
         }
 
+        // First decide whether this turn answers the pending field. A statement
+        // about the customer's own business may lexically resemble a FAQ.
+        const turnKind = await WorkflowTurnGate.classify(
+          trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
+        );
+        const isQuestion = turnKind === 'CUSTOMER_QUESTION';
+        if (turnKind === 'UNCLEAR') {
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: currentCollectPrompt,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
+
         // 5. Off-script FAQ / PDF / RAG check side-path
         const consecutive = currentContext['_consecutiveUnmatched'] || 0;
         let matchedFaqAnswer: string | null = null;
         const allowsInterruption = workflowConfig.allowInterruption !== false;
 
         // Layer 1: Fast deterministic FAQ check (in-memory, 0 AI)
-        if (allowsInterruption && consecutive < 2) {
+        if (isQuestion && allowsInterruption && consecutive < 2) {
           if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-            const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq, lang as any);
+            const faqMatch = FaqAnswerPolicy.match(message, businessConfig, lang as any,
+              { responseLanguage: lang as any, responseScript: script as any });
             if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
               matchedFaqAnswer = faqMatch.answer;
               logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] during collect step [${currentStateId}]`);
@@ -729,21 +749,6 @@ export class WorkflowEngine {
           });
         }
 
-        // Classify the answer before any field or CRM state is mutated.
-        const turnKind = await WorkflowTurnGate.classify(
-          trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
-        );
-        const isQuestion = turnKind === 'CUSTOMER_QUESTION';
-        if (turnKind === 'UNCLEAR') {
-          return finishAndReturn({
-            updatedContext: currentContext,
-            nextStateId: currentStateId,
-            response: currentCollectPrompt,
-            isComplete: false,
-            updatedStateHistory: history,
-            updatedCollectedData: collectedData
-          });
-        }
         let fieldValidationErr: string | null = null;
         if (stateConfig.field && typeof stateConfig.field === 'object') {
           fieldValidationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);

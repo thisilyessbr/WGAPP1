@@ -13,7 +13,8 @@ import { PolicyEvidence } from '../rag/PolicyEvidence';
 import { PolicyEvidenceReuse, CANONICAL_POLICY_INTENTS } from '../rag/PolicyEvidenceReuse';
 import { ChunkClassifier } from '../rag/ChunkQuality';
 import { ContentSafetyGuard } from '../safety/ContentSafetyGuard';
-import { FaqMatcher, LanguageDetector } from '../faq/FaqMatcher';
+import { LanguageDetector } from '../faq/FaqMatcher';
+import { FaqAnswerPolicy } from '../faq/FaqAnswerPolicy';
 import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES, DEFAULT_OPEN_REQUEST_MESSAGES } from '../tenant/BusinessConfig';
 import { AccountConfigService } from '../tenant/AccountConfigService';
 import { GreetingRouter } from './GreetingRouter';
@@ -134,57 +135,12 @@ export class ConversationEngine {
       : undefined);
   }
 
-  /**
-   * Phase 38C: Checks whether a FAQ entry's category is semantically compatible
-   * with the TurnDecision intent. Domain-agnostic, multi-chatbot safe.
-   */
   private isFaqCategoryCompatible(intent: string, faqCategory: string): boolean {
-    if (!intent || !faqCategory) return true;
-
-    // Normalize both to uppercase for comparison
-    const normIntent = intent.toUpperCase();
-    const normCat = faqCategory.toUpperCase();
-
-    // Generic non-conflicting categories that can apply to any policy or general FAQ
-    if (normCat === 'POLICY' || normCat === 'GENERAL' || normCat === 'FAQ' || normCat === 'ALL') return true;
-
-    // Direct match (e.g. SHIPPING ↔ SHIPPING, RETURNS ↔ RETURNS)
-    if (normIntent === normCat) return true;
-
-    // Compatibility map: intent → set of compatible FAQ categories
-    const compatMap: Record<string, Set<string>> = {
-      'STORE_INFO':   new Set(['HOURS', 'STORE_INFO', 'LOCATION', 'BUSINESS_HOURS']),
-      'SHIPPING':     new Set(['SHIPPING', 'DELIVERY', 'LOGISTICS', 'SHIPPING_POLICY']),
-      'RETURNS':      new Set(['RETURNS', 'EXCHANGE', 'REFUND', 'RETURN', 'POLICY', 'RETURN_POLICY']),
-      'TRACKING':     new Set(['TRACKING', 'ORDER_STATUS', 'SHIPPING']),
-      'PAYMENT':      new Set(['PAYMENT', 'COD', 'BILLING', 'PAYMENT_POLICY']),
-      'SUPPORT':      new Set(['SUPPORT', 'CONTACT', 'CUSTOMER_SERVICE']),
-      'CARE':         new Set(['CARE', 'MAINTENANCE', 'WASHING']),
-      'WARRANTY':     new Set(['WARRANTY', 'GUARANTEE']),
-      'SIZE_GUIDE':   new Set(['SIZE_GUIDE', 'SIZING', 'SIZE']),
-    };
-
-    const compatSet = compatMap[normIntent];
-    if (compatSet && compatSet.has(normCat)) return true;
-
-    // Reverse lookup: if the FAQ category has a compatibility set, check if intent is in it
-    const reverseCat = compatMap[normCat];
-    if (reverseCat && reverseCat.has(normIntent)) return true;
-
-    return false;
+    return FaqAnswerPolicy.isCategoryCompatible(intent, faqCategory);
   }
 
   private matchSafeFaq(content: string, config: BusinessConfig, language: any, decision: TurnDecision) {
-    const match = FaqMatcher.match(content, config.capabilities?.faq, language);
-    if (!match?.answer || (match.confidence !== undefined && match.confidence < 0.75)) return null;
-    const policies = TurnDecisionResolver.detectPolicySignals(content);
-    if (policies.isMultiPolicy || decision.isMultiPolicy || decision.source === 'HYBRID') return null;
-    if (decision.domain === 'ECOMMERCE') return null;
-    if (policies.isPolicy && match.entry.category && !this.isFaqCategoryCompatible(policies.intent, match.entry.category)) return null;
-    if (decision.responseScript === 'arabizi' && /[\u0600-\u06FF]/.test(match.answer)) return null;
-    if (decision.responseLanguage === 'darija' && decision.responseScript === 'arabic' && !/[\u0621-\u064A]/.test(match.answer) && /[a-z]{3}/i.test(match.answer)) return null;
-    if (policies.intent === 'SHIPPING' && !PolicyEvidenceReuse.isSufficient('SHIPPING', content, [{ factualContent: match.answer } as any], config).isSufficient) return null;
-    return match;
+    return FaqAnswerPolicy.match(content, config, language, decision);
   }
 
   private buildGroundedSystemPrompt(config: BusinessConfig, detectedLang: string, responseScript?: SupportedScript): string {
@@ -2519,7 +2475,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
 
     // 5. Apply central final response boundary enforcing content trust, script invariants, and limits
-    response = AnswerComposer.finalizeResponse(response, turnDecision, config);
+    response = AnswerComposer.finalizeResponse(response, turnDecision, config,
+      { preserveTrailingWorkflowPrompt: responseSource === 'WORKFLOW' });
 
     const totalTurnLatencyMs = Date.now() - turnStartTime;
 

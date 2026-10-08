@@ -35,7 +35,7 @@ export class GreetingRouter {
     'cost', 'how much', 'plans', 'hours', 'refund', 'support', 'tell me', 'explain', 'info',
 
     // French
-    'quoi', 'quand', 'ou', 'qui', 'pourquoi', 'comment', 'combien', 'quel', 'quelle',
+    'quoi', 'quand', 'qui', 'pourquoi', 'comment', 'combien', 'quel', 'quelle',
     'quels', 'quelles', 'est-ce que', 'est ce que', 'prix', 'cout', 'tarif', 'tarifs',
     'horaires', 'remboursement', 'aide', 'assistance', 'pouvez vous', 'peux tu',
 

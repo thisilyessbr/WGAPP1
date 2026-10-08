@@ -60,8 +60,10 @@ export class WorkflowTurnGate {
           `Route one customer message during a business form. Pending question: ${prompt}. ` +
           `Requested field: ${semanticType === 'person_name' ? 'PERSON NAME' : semanticType} (${fieldName}). ` +
           'The customer may use Moroccan Darija, typo-heavy Arabizi, French, Arabic, or English. ' +
-          'CUSTOMER_QUESTION means they ask about the business or product, even without punctuation. ' +
-          'FIELD_ANSWER means they actually provide the requested field. UNCLEAR means uncertain. ' +
+          'CUSTOMER_QUESTION means they ask about the provider business or product, even without punctuation. ' +
+          'FIELD_ANSWER means they describe their own activity, products, need, or other requested field, ' +
+          'even if product words match a FAQ. Judge against the pending question, not product keywords. ' +
+          'UNCLEAR means uncertain. ' +
           'Return exactly one label.',
           message,
           ['FIELD_ANSWER', 'CUSTOMER_QUESTION', 'UNCLEAR'],
