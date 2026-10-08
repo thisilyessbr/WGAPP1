@@ -5,6 +5,7 @@ import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { FieldValidator } from './FieldValidator';
+import { WorkflowTurnGate } from './WorkflowTurnGate';
 import { FaqMatcher, LanguageDetector } from '../../domain/faq/FaqMatcher';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
@@ -727,19 +728,21 @@ export class WorkflowEngine {
           });
         }
 
-        // 6. Question indicator detection & Field validation check
-        // During a free-text collection step, topic nouns such as "support" or
-        // "assistance" are legitimate answers. Only explicit punctuation or an
-        // interrogative opening should divert the message into the FAQ side-path.
-        const normalizedWords = normMsg.split(/\s+/).filter(Boolean);
-        const startsWithQuestionWord = normalizedWords.length > 0 && [
-          'what', 'when', 'where', 'which', 'who', 'why', 'how', 'can', 'could', 'do', 'does', 'is', 'are',
-          'quoi', 'quand', 'ou', 'qui', 'pourquoi', 'comment', 'combien', 'quel', 'quelle',
-          'ما', 'ماذا', 'متى', 'اين', 'من', 'لماذا', 'كيف', 'كم', 'هل',
-          'chhal', 'ch7al', 'shhal', 'sh7al', 'chno', 'ashno', 'achno', 'fayn', 'fin', 'kifach', 'kifash',
-          '3lach', '3lash', 'wach', 'wesh', 'imta', 'emta', 'chkoun', 'chkon'
-        ].includes(normalizedWords[0]);
-        const isQuestion = /[?؟]/u.test(trimmedMsg) || startsWithQuestionWord;
+        // Classify the answer before any field or CRM state is mutated.
+        const turnKind = await WorkflowTurnGate.classify(
+          trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
+        );
+        const isQuestion = turnKind === 'CUSTOMER_QUESTION';
+        if (turnKind === 'UNCLEAR') {
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: currentCollectPrompt,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData
+          });
+        }
         let fieldValidationErr: string | null = null;
         if (stateConfig.field && typeof stateConfig.field === 'object') {
           fieldValidationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);

@@ -1,0 +1,61 @@
+import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
+import { WorkflowFieldConfig } from '../../domain/tenant/BusinessConfig';
+import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
+
+export type WorkflowTurnKind = 'FIELD_ANSWER' | 'CUSTOMER_QUESTION' | 'UNCLEAR';
+
+/** Classify a turn before a collect step can persist the customer's answer. */
+export class WorkflowTurnGate {
+  static async classify(
+    message: string,
+    fieldName: string,
+    field: string | WorkflowFieldConfig | undefined,
+    prompt: string,
+    llm?: LLMProvider,
+    options?: LLMRequestOptions
+  ): Promise<WorkflowTurnKind> {
+    const normalized = GreetingRouter.normalize(message);
+    if (GreetingRouter.hasQuestionIndicator(message, normalized)) return 'CUSTOMER_QUESTION';
+
+    const config = typeof field === 'object' ? field : undefined;
+    const type = config?.type || 'string';
+    const semanticType = type === 'string'
+      ? (config?.semanticType || (/^(?:fullname|name|customername|contactname)$/i.test(fieldName)
+        ? 'person_name' : 'free_text'))
+      : type;
+    const words = normalized.split(/\s+/u).filter(Boolean);
+    const nameShape = words.length >= 1 && words.length <= 3
+      && words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word));
+
+    if (llm && (type === 'string' || words.length > 1)) {
+      try {
+        const decision = await llm.classifyIntent(
+          `Route one customer message during a business form. Pending question: ${prompt}. ` +
+          `Requested field: ${semanticType === 'person_name' ? 'PERSON NAME' : semanticType} (${fieldName}). ` +
+          'The customer may use Moroccan Darija, typo-heavy Arabizi, French, Arabic, or English. ' +
+          'CUSTOMER_QUESTION means they ask about the business or product, even without punctuation. ' +
+          'FIELD_ANSWER means they actually provide the requested field. UNCLEAR means uncertain. ' +
+          'Return exactly one label.',
+          message,
+          ['FIELD_ANSWER', 'CUSTOMER_QUESTION', 'UNCLEAR'],
+          { ...options, temperature: 0, maxTokens: 24, timeoutMs: Math.min(options?.timeoutMs || 4000, 4000) }
+        );
+        if (decision === 'CUSTOMER_QUESTION' || decision === 'UNCLEAR') return decision;
+        if (decision === 'FIELD_ANSWER') {
+          return semanticType === 'person_name' && !nameShape ? 'UNCLEAR' : decision;
+        }
+      } catch {
+        // Failure must not persist an unrelated message as a person name.
+      }
+      // Configured classification failed or returned an invalid label: ask again
+      // instead of guessing and corrupting a customer's record.
+      return 'UNCLEAR';
+    }
+
+    if (type !== 'string') return 'FIELD_ANSWER';
+    if (semanticType === 'person_name') {
+      return nameShape && words.length <= 2 ? 'FIELD_ANSWER' : 'UNCLEAR';
+    }
+    return 'FIELD_ANSWER';
+  }
+}

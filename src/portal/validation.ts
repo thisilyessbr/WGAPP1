@@ -171,6 +171,11 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
         else text(workflow.outcome.openRequestMessage, 20000);
       }
       for (const state of Object.values(workflow.states) as any[]) {
+        if (state.type === 'collect' && state.field && typeof state.field === 'object' &&
+          state.field.semanticType !== undefined &&
+          (state.field.type !== 'string' || !['person_name', 'free_text'].includes(String(state.field.semanticType)))) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_FIELD_SEMANTIC_TYPE');
+        }
         for (const pattern of [state.field?.pattern, state.field?.validationRegex]) {
           if (pattern !== undefined) {
             try { safeFieldPattern(pattern); }
