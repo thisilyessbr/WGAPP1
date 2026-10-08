@@ -148,6 +148,8 @@ export interface PromptsConfig {
 export interface WorkflowFieldConfig {
   name: string;
   type: 'string' | 'email' | 'phone' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
+  /** Legacy name fields infer person_name when this is absent. */
+  semanticType?: 'person_name' | 'free_text';
   required: boolean;
   options?: string[]; // for enum
   extractionPrompt?: string;
