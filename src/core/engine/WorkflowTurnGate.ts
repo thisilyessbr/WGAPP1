@@ -4,6 +4,28 @@ import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 
 export type WorkflowTurnKind = 'FIELD_ANSWER' | 'CUSTOMER_QUESTION' | 'UNCLEAR';
 
+// A question opener can have a one-character mobile typo. This is deliberately
+// limited to the first word, so arbitrary field answers are not keyword-scanned.
+const QUESTION_OPENERS = ['wach', 'wash', 'wesh', 'chhal', 'ch7al', 'kifach', 'what', 'where', 'when', 'which', 'comment', 'combien'];
+
+function isOneEditAway(value: string, candidate: string): boolean {
+  if (Math.abs(value.length - candidate.length) > 1) return false;
+  let edits = 0;
+  let i = 0;
+  let j = 0;
+  while (i < value.length && j < candidate.length) {
+    if (value[i] === candidate[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (value.length >= candidate.length) i++;
+    if (value.length <= candidate.length) j++;
+  }
+  return edits + (value.length - i) + (candidate.length - j) <= 1;
+}
+
 /** Classify a turn before a collect step can persist the customer's answer. */
 export class WorkflowTurnGate {
   static async classify(
@@ -16,6 +38,11 @@ export class WorkflowTurnGate {
   ): Promise<WorkflowTurnKind> {
     const normalized = GreetingRouter.normalize(message);
     if (GreetingRouter.hasQuestionIndicator(message, normalized)) return 'CUSTOMER_QUESTION';
+
+    const firstWord = normalized.split(/\s+/u)[0] || '';
+    if (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word))) {
+      return 'CUSTOMER_QUESTION';
+    }
 
     const config = typeof field === 'object' ? field : undefined;
     const type = config?.type || 'string';
