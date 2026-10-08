@@ -99,14 +99,16 @@ describe('workflow turn gate', () => {
     } as WorkflowSession;
     const config = {
       ...DEFAULT_BUSINESS_CONFIG,
-      portalFacts: { description: 'Relayqo answers customer questions from approved business information and collects enquiries. A demo shows how it works.' },
+      portalFacts: { description: 'Relayqo كيجاوب الزبناء من معلومات النشاط المعتمدة. كيجمع الطلبات باش يتابعها الفريق.' },
       workflows: { demo: workflow }
     };
     const result = await new WorkflowEngine(new WorkflowStateEvaluator()).process(
       session, 'wqch chatbit likatbi3o mzyan', workflow, config, llm,
       undefined, undefined, undefined, 'darija', 'arabic'
     );
-    expect(result.response).toBe(`${llm.generatedResponseMock}\n\n${prompt}`);
+    expect(result.response).toContain(config.portalFacts.description);
+    expect(result.response).toContain('فالديمو تقدر تشوف واش مناسب لنشاطك.');
+    expect(result.response).toContain(prompt);
     expect(result.nextStateId).toBe('name');
     expect(result.updatedCollectedData).toEqual({});
   });
