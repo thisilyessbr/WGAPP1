@@ -61,10 +61,10 @@ const PATTERNS: Record<TriggerUseCase, RegExp[]> = {
     /(?:^|\s)(?:i\s+want|i\s+would\s+like)\s+(?:a\s+)?demo(?:\s|$)/u
   ],
   BOOKING: [
-    /(?:^|\s)(?:bghit|baghi|baghya)\s+(?:n7jez|nhjez|nreserve|rendez\s+vous|rdv|session|seance)(?:\s|$)/u,
-    /(?:^|\s)(?:بغيت|باغي|باغيه)\s+(?:نحجز|موعد|جلسه|سيانس)(?:\s|$)/u,
-    /(?:^|\s)(?:je\s+veux|je\s+voudrais)\s+(?:reserver|prendre\s+rendez\s+vous)(?:\s|$)/u,
-    /(?:^|\s)(?:i\s+want\s+to|i\s+would\s+like\s+to)\s+(?:book|schedule)(?:\s|$)/u
+    /(?:^|\s)(?:bghit|baghi|baghya)\s+(?:n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel|nreserve|rendez\s+vous|rdv|session|seance)(?:\s|$)/u,
+    /(?:^|\s)(?:بغيت|باغي|باغيه|اريد|اود)\s+(?:ان\s+)?(?:نحجز|احجز|نسجل|اسجل|حجز|الحجز|التسجيل|موعد|جلسه|سيانس)(?:\s|$)/u,
+    /(?:^|\s)(?:je\s+veux|je\s+voudrais|je\s+souhaite|j\s+aimerais)\s+(?:reserver|m\s+inscrire|prendre\s+(?:un\s+)?rendez\s+vous)(?:\s|$)/u,
+    /(?:^|\s)(?:i\s+want\s+to|i\s+need\s+to|i\s+would\s+like\s+to)\s+(?:book|reserve|schedule)(?:\s|$)/u
   ],
   HUMAN_SUPPORT: [
     /(?:^|\s)(?:bghit|baghi|baghya)\s+(?:nhder|ntklem)\s+m3a\s+(?:chi\s+)?(?:wa7d|insan|responsable)(?:\s|$)/u,

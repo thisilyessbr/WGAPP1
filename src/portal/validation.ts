@@ -184,6 +184,25 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
       }
     }
   }
+  // A canonical customer request must have one unambiguous destination. The
+  // editor may show several intents, but they cannot send the same use case to
+  // different workflows or leave it without a workflow.
+  const useCaseRoutes = new Map<string, Set<string>>();
+  for (const intent of config.capabilities?.intents || []) {
+    if (!intent.useCases?.length) continue;
+    const linked = new Set<string>();
+    if (intent.workflowId && config.workflows?.[intent.workflowId]) linked.add(intent.workflowId);
+    for (const [workflowId, workflow] of Object.entries(config.workflows || {}) as [string, any][]) {
+      if (workflow.activation?.intents?.includes(intent.id)) linked.add(workflowId);
+    }
+    if (linked.size !== 1) throw new PortalError(400, 'INVALID_INTENT_USE_CASE_ROUTE', 'Link each shared use case to exactly one workflow.');
+    for (const useCase of intent.useCases) {
+      const group = useCaseRoutes.get(useCase) || new Set<string>();
+      for (const workflowId of linked) group.add(workflowId);
+      useCaseRoutes.set(useCase, group);
+      if (group.size > 1) throw new PortalError(400, 'CONFLICTING_INTENT_USE_CASE_ROUTE', 'One shared use case cannot start two different workflows.');
+    }
+  }
   return structuredClone(config);
 }
 

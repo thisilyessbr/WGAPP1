@@ -388,6 +388,9 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
     '4b. Service purchase phrase “%s” starts the existing demo workflow before FAQ/LLM', async phrase => {
       const serviceConfig = structuredClone(multiCapabilityConfig);
       serviceConfig.capabilities.ecommerceEnabled = false;
+      const demoIntent = serviceConfig.capabilities.intents.find(intent => intent.id === 'demo_request');
+      if (!demoIntent) throw new Error('Expected demo_request intent');
+      demoIntent.useCases = ['PURCHASE'];
       vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(serviceConfig);
 
       const mockConv = {

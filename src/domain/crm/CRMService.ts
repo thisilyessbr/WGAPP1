@@ -1,8 +1,8 @@
 import { PrismaClient, Lead, Customer } from '@prisma/client';
 import { TurnDecision } from '../conversation/TurnDecision';
 import { logger } from '../../utils/logger';
-import { isActionNegated, normalizeIntentText } from '../conversation/IntentLanguage';
-import { IntentTriggerLibrary } from '../conversation/IntentTriggerLibrary';
+import { isActionNegated } from '../conversation/IntentLanguage';
+import { IntentTriggerLibrary, TriggerUseCase } from '../conversation/IntentTriggerLibrary';
 
 export const VALID_LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'] as const;
 export type LeadStatus = typeof VALID_LEAD_STATUSES[number];
@@ -24,6 +24,8 @@ export interface TurnSignalParams {
   terminalStateId?: string | null;
   workflowIntents?: string[] | null;
   userMessage?: string;
+  /** Use the conversation router's interpretation instead of parsing the text again. */
+  recognizedUseCases?: TriggerUseCase[];
   leadMode?: 'NONE' | 'SERVICE' | 'COMMERCE' | 'BOTH';
 }
 
@@ -48,6 +50,12 @@ export class CRMService {
     // A cancelled COD confirmation also ends the workflow. Only the actual end step is a lead.
     if (/(?:checkout|cash_on_delivery|cod_order)/i.test(normalizedWfId)
       && (!terminalStateId || workflowConfig?.states?.[terminalStateId]?.type !== 'end')) return false;
+
+    // Published workflow outcomes are authoritative. Legacy name-based
+    // classification remains only for older configurations without this field.
+    if (typeof workflowConfig?.outcome?.createLead === 'boolean') {
+      return workflowConfig.outcome.createLead;
+    }
 
     // Collect all associated intent identifiers
     const intents: string[] = [];
@@ -238,11 +246,18 @@ export class CRMService {
       terminalStateId,
       workflowIntents,
       userMessage,
+      recognizedUseCases,
       workflowSessionId,
       leadMode = 'BOTH'
     } = params;
 
     if (!tenantId || !accountId || !customerId || leadMode === 'NONE') {
+      return null;
+    }
+
+    // A completed workflow with an explicit no-lead outcome must not be
+    // reclassified by generic turn keywords on that same customer message.
+    if (isWorkflowCompleted && workflowConfig?.outcome?.createLead === false) {
       return null;
     }
 
@@ -272,21 +287,14 @@ export class CRMService {
 
     // 3. User message keywords check for explicit buy/order phrases in Arabic/Darija/French/English
     if (!isStrongSignal && userMessage) {
-      const lower = normalizeIntentText(userMessage).toLowerCase().trim();
-      if (leadMode !== 'SERVICE' && IntentTriggerLibrary.has(userMessage, 'PURCHASE')) {
+      const useCases = recognizedUseCases || IntentTriggerLibrary.match(userMessage).map(match => match.useCase);
+      if (leadMode !== 'SERVICE' && useCases.includes('PURCHASE')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_PURCHASE_MESSAGE';
       }
-      // Service businesses also need leads for explicit booking requests, even when
-      // no booking workflow is configured. Questions about availability alone are not leads.
-      const bookingPatterns = [
-        /\bi\s+(?:want|need|would\s+like)\s+to\s+(?:book|reserve|schedule)\b/u,
-        /\bje\s+(?:veux|voudrais|souhaite)\s+(?:r[eé]server|m['’]inscrire|prendre\s+(?:un\s+)?rendez-vous)\b/u,
-        /\bj['’]aimerais\s+(?:r[eé]server|m['’]inscrire|prendre\s+(?:un\s+)?rendez-vous)\b/u,
-        /\b(?:bghit|baghi|baghya)\s+(?:n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel)\b/u,
-        /(?:بغيت|باغي|باغية|اريد|أريد|اود|أود)\s+(?:ان\s+|أن\s+)?(?:نحجز|احجز|أحجز|نسجل|أسجل|التسجيل|حجز|الحجز)/u
-      ];
-      if (leadMode !== 'COMMERCE' && !isStrongSignal && (IntentTriggerLibrary.has(userMessage, 'BOOKING') || bookingPatterns.some(pattern => pattern.test(lower))) && !isActionNegated(lower, 'booking')) {
+      // Booking without a configured workflow can still enter CRM, but uses the
+      // same recognized use case as the conversation router.
+      if (leadMode !== 'COMMERCE' && !isStrongSignal && useCases.includes('BOOKING') && !isActionNegated(userMessage, 'booking')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_BOOKING_OR_QUOTE';
       }

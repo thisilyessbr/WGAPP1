@@ -34,6 +34,7 @@ import { PortalBudget } from '../../portal/PortalBudget';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 import { resolveGroundedAnswer } from './GroundedAnswer';
 import { IntentTriggerLibrary, TriggerUseCase } from './IntentTriggerLibrary';
+import { WorkflowRouteDecision, WorkflowRoutingPolicy } from './WorkflowRoutingPolicy';
 
 export class ConversationEngine {
   private llmFactory?: LLMFactory;
@@ -764,6 +765,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     };
 
     const content = routed.effectiveContent;
+    const recognizedUseCases = IntentTriggerLibrary.match(content).map(match => match.useCase);
+    let resolvedWorkflowRoute: WorkflowRouteDecision = { kind: 'NONE' };
     const normalizedInput = (payload.text || content).trim().toLowerCase();
 
     // 3.5 Content Safety Guard: Check before GreetingRouter, FAQ, Workflow, RAG, and LLM
@@ -1000,7 +1003,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         : null;
 
       // Evaluate whether the current message explicitly triggers a new workflow (e.g. re-booking or new workflow)
-      let postCompletionWorkflowTrigger = null;
+      let postCompletionWorkflowTrigger: WorkflowRouteDecision = { kind: 'NONE' };
       if (previousCompletedSession && hasWorkflowsConfigured) {
         turnDecision = TurnDecisionResolver.resolve({
           text: content,
@@ -1015,41 +1018,15 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         });
         const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
 
-        postCompletionWorkflowTrigger = this.resolveWorkflowTrigger(content, config, turnDecision);
+        postCompletionWorkflowTrigger = this.resolveWorkflowTrigger(content, config, turnDecision, recognizedUseCases);
 
-        if (!postCompletionWorkflowTrigger && !isDeterministicEcommercePurchase && config.capabilities?.intents && config.capabilities.intents.length > 0 && config.workflows && Object.keys(config.workflows).length > 0) {
-          const intentWfMap = new Map<string, string>();
-          for (const item of config.capabilities.intents) {
-            if (item.workflowId && config.workflows[item.workflowId]) {
-              intentWfMap.set(item.id, item.workflowId);
-            }
-          }
-          for (const [wfId, wf] of Object.entries(config.workflows)) {
-            if (wf.activation?.intents && Array.isArray(wf.activation.intents)) {
-              for (const intentId of wf.activation.intents) {
-                if (intentId) intentWfMap.set(intentId, wfId);
-              }
-            }
-          }
-
-          if (intentWfMap.size > 0) {
-            const allowedIntents = Array.from(intentWfMap.keys());
-            const intentPrompt = this.buildWorkflowIntentClassificationPrompt(config, allowedIntents, intentWfMap);
-
-            try {
-              const classifiedIntent = await llm.classifyIntent(intentPrompt, content, allowedIntents, llmOptions);
-              if (classifiedIntent && intentWfMap.has(classifiedIntent)) {
-                const targetWfId = intentWfMap.get(classifiedIntent)!;
-                postCompletionWorkflowTrigger = { workflowId: targetWfId, workflowConfig: config.workflows[targetWfId] };
-              }
-            } catch (e: any) {
-              logger.warn(`ConversationEngine: Post-completion workflow intent classification failed: ${e.message || e}`);
-            }
-          }
+        if (postCompletionWorkflowTrigger.kind === 'NONE' && !isDeterministicEcommercePurchase) {
+          postCompletionWorkflowTrigger = await this.classifyWorkflowTrigger(content, config, llm, llmOptions);
         }
       }
 
-      if (postCompletionWorkflowTrigger) {
+      resolvedWorkflowRoute = postCompletionWorkflowTrigger;
+      if (postCompletionWorkflowTrigger.kind === 'WORKFLOW') {
         const { workflowId, workflowConfig } = postCompletionWorkflowTrigger;
         const limitCheck = await this.checkWorkflowExecutionLimit(
           tenantId,
@@ -1094,6 +1071,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           };
           response = result.response;
         }
+      } else if (postCompletionWorkflowTrigger.kind === 'UNMAPPED_PURCHASE' || postCompletionWorkflowTrigger.kind === 'AMBIGUOUS') {
+        response = this.buildUnmappedPurchaseResponse(effectiveLang, effectiveScript);
+        responseSource = 'FALLBACK';
       } else if (previousCompletedSession) {
         // P0.1 / P0.2 §7: Post-completion mode — FAQ -> PDF/RAG -> static canned fallback. 0 LLM calls.
         logger.info(`ConversationEngine: Conversation [${conversation.id}] in post-completion mode (questions answered: ${conversation.postCompletionQuestionCount}/10)`);
@@ -1411,10 +1391,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
         // Resolve conversion intent before FAQ matching. A message such as
         // "bghit nchri wa7d chatbot" is an action request, not a generic FAQ.
-        let triggeredWorkflow = !answered ? this.resolveWorkflowTrigger(content, config, turnDecision) : null;
+        let triggeredWorkflow: WorkflowRouteDecision = !answered
+          ? this.resolveWorkflowTrigger(content, config, turnDecision, recognizedUseCases)
+          : { kind: 'NONE' };
 
         // Step 1.5: Deterministic FAQ match for messages that are not actions.
-        if (!answered && !triggeredWorkflow && config.capabilities?.faq && config.capabilities.faq.length > 0) {
+        if (!answered && triggeredWorkflow.kind === 'NONE' && config.capabilities?.faq && config.capabilities.faq.length > 0) {
           const faqMatch = this.matchSafeFaq(content, config, effectiveLang, turnDecision);
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             answered = true;
@@ -1434,38 +1416,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
 
         // If not deterministically triggered and not an explicit BUY_INTENT purchase, check declared intents mapped to workflows via LLM classification
-        if (!answered && !triggeredWorkflow && !isDeterministicEcommercePurchase && config.capabilities?.intents && config.capabilities.intents.length > 0 && config.workflows && Object.keys(config.workflows).length > 0) {
-          const intentWfMap = new Map<string, string>();
-          for (const item of config.capabilities.intents) {
-            if (item.workflowId && config.workflows[item.workflowId]) {
-              intentWfMap.set(item.id, item.workflowId);
-            }
-          }
-          for (const [wfId, wf] of Object.entries(config.workflows)) {
-            if (wf.activation?.intents && Array.isArray(wf.activation.intents)) {
-              for (const intentId of wf.activation.intents) {
-                if (intentId) intentWfMap.set(intentId, wfId);
-              }
-            }
-          }
-
-          if (intentWfMap.size > 0) {
-            const allowedIntents = Array.from(intentWfMap.keys());
-            const intentPrompt = this.buildWorkflowIntentClassificationPrompt(config, allowedIntents, intentWfMap);
-
-            try {
-              const classifiedIntent = await llm.classifyIntent(intentPrompt, content, allowedIntents, llmOptions);
-              if (classifiedIntent && intentWfMap.has(classifiedIntent)) {
-                const targetWfId = intentWfMap.get(classifiedIntent)!;
-                triggeredWorkflow = { workflowId: targetWfId, workflowConfig: config.workflows[targetWfId] };
-              }
-            } catch (e: any) {
-              logger.warn(`ConversationEngine: Workflow intent classification failed: ${e.message || e}`);
-            }
-          }
+        if (!answered && triggeredWorkflow.kind === 'NONE' && !isDeterministicEcommercePurchase) {
+          triggeredWorkflow = await this.classifyWorkflowTrigger(content, config, llm, llmOptions);
         }
 
-        if (!answered && triggeredWorkflow) {
+        resolvedWorkflowRoute = triggeredWorkflow;
+        if (!answered && triggeredWorkflow.kind === 'WORKFLOW') {
           const { workflowId, workflowConfig } = triggeredWorkflow;
           const limitCheck = await this.checkWorkflowExecutionLimit(
             tenantId,
@@ -1514,6 +1470,13 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             answerText = result.response;
             answered = true;
           }
+        }
+
+        if (!answered && (triggeredWorkflow.kind === 'UNMAPPED_PURCHASE' || triggeredWorkflow.kind === 'AMBIGUOUS')) {
+          responseSource = 'FALLBACK';
+          response = this.buildUnmappedPurchaseResponse(effectiveLang, effectiveScript);
+          answerText = response;
+          answered = true;
         }
 
         // Step 2.5: Conversational Ecommerce Engine (Strong Domain Execution if ecommerceEnabled and accountId is present)
@@ -2667,7 +2630,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
 
     // 7. Non-blocking CRM lead signal processing (Phase CRM-B & CRM-WORKFLOW-FIX-04)
-    if (this.crmService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:')) {
+    const workflowTurn = Boolean(activeSession || resolvedWorkflowRoute.kind === 'WORKFLOW');
+    const workflowCompleted = sessionUpdatePayload?.status === 'COMPLETED';
+    const crmHandledAtomically = workflowCompleted && completedWorkflowConfig?.outcome?.createLead === true;
+    const skipIndependentCrmSignal = resolvedWorkflowRoute.kind === 'UNMAPPED_PURCHASE' ||
+      resolvedWorkflowRoute.kind === 'AMBIGUOUS' || (workflowTurn && (!workflowCompleted || crmHandledAtomically));
+    if (this.crmService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:') && !skipIndependentCrmSignal) {
       try {
         const isWorkflowCompleted = Boolean(sessionUpdatePayload?.status === 'COMPLETED');
         await this.crmService.processTurnSignal({
@@ -2683,6 +2651,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           terminalStateId: isWorkflowCompleted ? completedTerminalStateId : null,
           workflowIntents: isWorkflowCompleted ? completedWorkflowIntents : null,
           userMessage: routed.userDisplayContent,
+          recognizedUseCases,
           leadMode: config.capabilities?.leadMode
         });
       } catch (crmErr) {
@@ -2744,230 +2713,24 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     });
   }
 
-  private normalizeForPhraseMatching(text: string): string {
-    if (!text) return '';
-    return text
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  private matchesTriggerPhrase(userText: string, phrase: string): boolean {
-    if (!userText || !phrase) return false;
-    const normUser = this.normalizeForPhraseMatching(userText);
-    const normPhrase = this.normalizeForPhraseMatching(phrase);
-    if (!normUser || !normPhrase) return false;
-
-    if (normUser === normPhrase) return true;
-
-    const userTokens = normUser.split(' ');
-    const phraseTokens = normPhrase.split(' ');
-
-    if (phraseTokens.length > userTokens.length) return false;
-
-    for (let i = 0; i <= userTokens.length - phraseTokens.length; i++) {
-      let match = true;
-      for (let j = 0; j < phraseTokens.length; j++) {
-        if (userTokens[i + j] !== phraseTokens[j]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) return true;
-    }
-
-    return false;
-  }
-
-  private resolveUseCaseWorkflow(
-    content: string,
-    config: BusinessConfig
-  ): { workflowId: string; workflowConfig: WorkflowConfig } | null {
-    const matches = IntentTriggerLibrary.match(content);
-    if (matches.length === 0 || !config.workflows) return null;
-
-    const intents = config.capabilities?.intents || [];
-    const workflowForIntent = (intent: (typeof intents)[number]): string | null => {
-      if (intent.workflowId && config.workflows?.[intent.workflowId]) return intent.workflowId;
-      for (const [workflowId, workflow] of Object.entries(config.workflows || {})) {
-        if (workflow.activation?.intents?.includes(intent.id)) return workflowId;
-      }
-      return null;
-    };
-
-    const aliases: Record<TriggerUseCase, string[]> = {
-      PURCHASE: ['purchase', 'buy', 'order', 'commande', 'achat', 'sales', 'sale', 'vente', 'quote', 'devis', 'demo', 'lead', 'contact', 'booking', 'consultation'],
-      DEMO: ['demo', 'demonstration', 'trial', 'essai'],
-      BOOKING: ['booking', 'book', 'reservation', 'appointment', 'rendez vous', 'rdv', 'session', 'consultation'],
-      HUMAN_SUPPORT: ['human', 'agent', 'handoff', 'support', 'advisor', 'conseiller', 'contact']
-    };
-
-    for (const { useCase } of matches) {
-      // Tenant-owned explicit mapping always wins and is the recommended setup.
-      for (const intent of intents) {
-        if (intent.useCases?.includes(useCase)) {
-          const workflowId = workflowForIntent(intent);
-          if (workflowId) return { workflowId, workflowConfig: config.workflows[workflowId] };
-        }
-      }
-
-      // Stores keep purchase language in the ecommerce engine unless the tenant
-      // explicitly mapped PURCHASE to a workflow above.
-      if (useCase === 'PURCHASE' && config.capabilities?.ecommerceEnabled) continue;
-
-      // Backward-compatible inference is intentionally limited to PURCHASE,
-      // because that is the legacy gap this library closes. Other use cases
-      // require an explicit mapping and therefore cannot silently change an
-      // existing tenant's routing behavior.
-      if (useCase !== 'PURCHASE') continue;
-
-      let bestMatch: { workflowId: string; workflowConfig: WorkflowConfig; score: number } | null = null;
-      for (const intent of intents) {
-        const workflowId = workflowForIntent(intent);
-        if (!workflowId) continue;
-        const workflow = config.workflows[workflowId];
-        const searchable = this.normalizeForPhraseMatching([
-          intent.id,
-          intent.description,
-          workflowId,
-          workflow.name,
-          workflow.description
-        ].filter(Boolean).join(' '));
-        const matchedIndex = aliases[useCase].findIndex(alias => {
-          const normalizedAlias = this.normalizeForPhraseMatching(alias);
-          return searchable.split(' ').includes(normalizedAlias) || searchable.includes(normalizedAlias);
-        });
-        if (matchedIndex >= 0) {
-          const score = aliases[useCase].length - matchedIndex;
-          if (!bestMatch || score > bestMatch.score) {
-            bestMatch = { workflowId, workflowConfig: workflow, score };
-          }
-        }
-      }
-      if (bestMatch) return { workflowId: bestMatch.workflowId, workflowConfig: bestMatch.workflowConfig };
-    }
-
-    return null;
-  }
-
   private resolveWorkflowTrigger(
     content: string,
     config: BusinessConfig,
-    turnDecision?: TurnDecision
-  ): { workflowId: string; workflowConfig: any } | null {
-    if (!config.workflows || Object.keys(config.workflows).length === 0) {
-      return null;
+    turnDecision?: TurnDecision,
+    recognizedUseCases?: TriggerUseCase[]
+  ): WorkflowRouteDecision {
+    return WorkflowRoutingPolicy.resolve(content, config, turnDecision, recognizedUseCases);
+  }
+
+  private buildUnmappedPurchaseResponse(lang: string, script?: string): string {
+    if (lang === 'darija') {
+      return script === 'arabic'
+        ? 'مرحبا، نقدر نعاونك فالطلب ديالك. شنو الخدمة أو المنتوج اللي بغيتي بالضبط؟'
+        : 'Marhba, n9der n3awnek f talab dyalek. Chno l-khedma wla l-montoj li bghiti b-dabt?';
     }
-
-    const trimmed = content.trim();
-    const lower = trimmed.toLowerCase();
-    const normalized = GreetingRouter.normalize(content);
-    const normUser = this.normalizeForPhraseMatching(content);
-
-    // 0. Auto-start workflows (if workflow.activation.mode === 'auto_start' or legacy autoStartWorkflow flag or explicit 'start' command)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      if (wf.activation?.mode === 'auto_start' || (config as any).autoStartWorkflow === true) {
-        return { workflowId: wfId, workflowConfig: wf };
-      }
-      if (wf.activation?.allowManualStart !== false && ['start', 'begin', 'commencer', 'demarrer', 'ابدأ'].includes(lower)) {
-        return { workflowId: wfId, workflowConfig: wf };
-      }
-    }
-
-    // 1. Exact workflow ID match (when allowManualStart !== false)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      const allowManual = wf.activation?.allowManualStart !== false;
-      if (allowManual && lower === wfId.toLowerCase()) {
-        return { workflowId: wfId, workflowConfig: wf };
-      }
-    }
-
-    // 2. Normalized workflow ID match (when allowManualStart !== false)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      const allowManual = wf.activation?.allowManualStart !== false;
-      const wfIdNorm = this.normalizeForPhraseMatching(wfId.replace(/_/g, ' '));
-      if (allowManual && (normalized === wfId.toLowerCase().replace(/_/g, ' ') || normUser === wfIdNorm)) {
-        return { workflowId: wfId, workflowConfig: wf };
-      }
-    }
-
-    const declaredIntents = config.capabilities?.intents || [];
-
-    // 3. Shared multilingual phrase library mapped to tenant use cases.
-    const useCaseWorkflow = this.resolveUseCaseWorkflow(content, config);
-    if (useCaseWorkflow) return useCaseWorkflow;
-
-    // 4. Explicit configured intent match (turnDecision or literal intent ID)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      const linkedIntentIds = new Set<string>();
-
-      if (wf.activation?.intents && Array.isArray(wf.activation.intents)) {
-        for (const id of wf.activation.intents) {
-          if (id) linkedIntentIds.add(id);
-        }
-      }
-
-      for (const intent of declaredIntents) {
-        if (intent.workflowId === wfId && intent.id) {
-          linkedIntentIds.add(intent.id);
-        }
-      }
-
-      for (const intentId of linkedIntentIds) {
-        const intentIdLower = intentId.toLowerCase();
-        const intentIdNorm = this.normalizeForPhraseMatching(intentId.replace(/_/g, ' '));
-
-        // A. TurnDecision intent match
-        if (turnDecision?.intent && !['GENERAL_CONVERSATION', 'None', 'null'].includes(turnDecision.intent)) {
-          if (turnDecision.intent.toLowerCase() === intentIdLower) {
-            return { workflowId: wfId, workflowConfig: wf };
-          }
-        }
-
-        // B. Literal match of exact intent ID
-        if (lower === intentIdLower || normUser === intentIdNorm) {
-          return { workflowId: wfId, workflowConfig: wf };
-        }
-      }
-    }
-
-    // 5. Configured intent keywords (capabilities.intents[].keywords)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      const linkedIntents = declaredIntents.filter(i => {
-        if (i.workflowId === wfId) return true;
-        if (wf.activation?.intents && Array.isArray(wf.activation.intents) && wf.activation.intents.includes(i.id)) return true;
-        return false;
-      });
-
-      for (const intentObj of linkedIntents) {
-        if (intentObj.keywords && Array.isArray(intentObj.keywords)) {
-          for (const kw of intentObj.keywords) {
-            if (kw && this.matchesTriggerPhrase(content, kw)) {
-              return { workflowId: wfId, workflowConfig: wf };
-            }
-          }
-        }
-      }
-    }
-
-    // 6. Workflow activation keywords (workflow.activation.keywords)
-    for (const [wfId, wf] of Object.entries(config.workflows)) {
-      const activationKeywords = [
-        ...(wf.activation?.keywords && Array.isArray(wf.activation.keywords) ? wf.activation.keywords : []),
-        ...((wf as any).keywords && Array.isArray((wf as any).keywords) ? (wf as any).keywords : [])
-      ];
-
-      for (const kw of activationKeywords) {
-        if (kw && this.matchesTriggerPhrase(content, kw)) {
-          return { workflowId: wfId, workflowConfig: wf };
-        }
-      }
-    }
-
-    return null;
+    if (lang === 'ar') return 'يسعدني مساعدتك في طلبك. ما الخدمة أو المنتج الذي تريده تحديداً؟';
+    if (lang === 'fr') return 'Je peux vous aider avec votre demande. Quel service ou produit souhaitez-vous exactement ?';
+    return 'I can help with your request. Which service or product would you like exactly?';
   }
 
   private buildWorkflowIntentClassificationPrompt(
@@ -3015,6 +2778,39 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
 
     return intentPrompt;
+  }
+
+  private async classifyWorkflowTrigger(
+    content: string,
+    config: BusinessConfig,
+    llm: LLMProvider,
+    llmOptions?: LLMRequestOptions
+  ): Promise<WorkflowRouteDecision> {
+    const intentWfMap = new Map<string, string>();
+    for (const intent of config.capabilities?.intents || []) {
+      if (intent.workflowId && config.workflows?.[intent.workflowId]) {
+        intentWfMap.set(intent.id, intent.workflowId);
+      }
+    }
+    for (const [workflowId, workflow] of Object.entries(config.workflows || {})) {
+      for (const intentId of workflow.activation?.intents || []) {
+        if (intentId) intentWfMap.set(intentId, workflowId);
+      }
+    }
+    if (!intentWfMap.size) return { kind: 'NONE' };
+
+    const allowedIntents = [...intentWfMap.keys()];
+    const prompt = this.buildWorkflowIntentClassificationPrompt(config, allowedIntents, intentWfMap);
+    try {
+      const intentId = await llm.classifyIntent(prompt, content, allowedIntents, llmOptions);
+      const workflowId = intentId ? intentWfMap.get(intentId) : undefined;
+      if (workflowId && config.workflows[workflowId]) {
+        return { kind: 'WORKFLOW', workflowId, workflowConfig: config.workflows[workflowId], source: 'INTENT' };
+      }
+    } catch (error: any) {
+      logger.warn(`ConversationEngine: Workflow intent classification failed: ${error?.message || error}`);
+    }
+    return { kind: 'NONE' };
   }
 
   private async checkWorkflowExecutionLimit(
