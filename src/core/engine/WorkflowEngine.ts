@@ -714,13 +714,16 @@ export class WorkflowEngine {
         // First decide whether this turn answers the pending field. A statement
         // about the customer's own business may lexically resemble a FAQ.
         const allowsInterruption = workflowConfig.allowInterruption !== false;
-        const mixedTurn = allowsInterruption
+        const deterministicMixedTurn = allowsInterruption
           ? WorkflowTurnGate.splitPersonNameAndQuestion(trimmedMsg, fieldName, stateConfig.field) : null;
-        const questionText = mixedTurn?.question || trimmedMsg;
-        const fieldValue = mixedTurn?.fieldValue || trimmedMsg;
-        const turnKind = mixedTurn ? 'CUSTOMER_QUESTION' : await WorkflowTurnGate.classify(
+        const interpretation = deterministicMixedTurn ? null : await WorkflowTurnGate.interpret(
           trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
         );
+        const mixedTurn = deterministicMixedTurn || (allowsInterruption && interpretation?.fieldValue && interpretation.question
+          ? { fieldValue: interpretation.fieldValue, question: interpretation.question } : null);
+        const questionText = mixedTurn?.question || trimmedMsg;
+        const fieldValue = mixedTurn?.fieldValue || trimmedMsg;
+        const turnKind = mixedTurn ? 'CUSTOMER_QUESTION' : interpretation!.kind;
         const isQuestion = turnKind === 'CUSTOMER_QUESTION';
         if (turnKind === 'UNCLEAR') {
           return finishAndReturn({
