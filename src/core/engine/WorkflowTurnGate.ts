@@ -42,6 +42,36 @@ export class WorkflowTurnGate {
       (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word)));
   }
 
+  private static personNameValue(text: string): string | null {
+    const value = text.trim().replace(/^(?:my name is|i am|je m['’]appelle|je suis|سميتي|اسمي|أنا|انا|smiti)\s+/iu, '').trim();
+    if (value === text.trim()) return null;
+    const words = value.split(/\s+/u);
+    return words.length >= 1 && words.length <= 3 && words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word))
+      ? value : null;
+  }
+
+  /** Split only an explicit answer followed by a separate, clearly marked question. */
+  static splitAnswerAndQuestion(
+    message: string, fieldName: string, field: string | WorkflowFieldConfig | undefined
+  ): { fieldValue: string; question: string } | null {
+    const config = typeof field === 'object' ? field : undefined;
+    const isName = (config?.type || 'string') === 'string' &&
+      (config?.semanticType === 'person_name' || (!config?.semanticType && /^(?:fullname|username|name|customername|contactname)$/i.test(fieldName)));
+    const separators = /[,،;؛.!?؟\n]+\s*/gu;
+    for (const match of [...message.matchAll(separators)].reverse()) {
+      const fieldText = message.slice(0, match.index).trim();
+      const question = message.slice(match.index + match[0].length).trim();
+      if (!fieldText || !question || this.isQuestion(fieldText) || !this.isQuestion(question)) continue;
+      const fieldValue = isName ? (this.personNameValue(fieldText) || fieldText) : fieldText;
+      if (isName) {
+        const words = fieldValue.split(/\s+/u);
+        if (words.length > 3 || !words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word))) continue;
+      }
+      return { fieldValue, question };
+    }
+    return null;
+  }
+
   /** Only split an unambiguous name followed by a separate question. Never guess a name from a free-text need. */
   static splitPersonNameAndQuestion(
     message: string, fieldName: string, field: string | WorkflowFieldConfig | undefined
@@ -98,9 +128,11 @@ export class WorkflowTurnGate {
       && /^[\p{L}\p{M}'-]+$/u.test(words[0])
       && words.every(word => /^(?:[\p{L}\p{M}'-]+|\d{1,2})$/u.test(word));
 
+    const explicitName = semanticType === 'person_name' ? this.personNameValue(message) : null;
+    if (explicitName) return { kind: 'FIELD_ANSWER', fieldValue: explicitName };
     if (semanticType === 'person_name' && nameShape) return { kind: 'FIELD_ANSWER' };
 
-    const embeddedQuestion = /[\s,،;؛—–](?:wach|wash|wesh|wqch|chhal|ch7al|kifach|what|where|when|which|comment|combien|واش|شنو|كيفاش|شحال|هل|كيف|كم)(?=\s|$)/iu.test(message);
+    const embeddedQuestion = /[\s,،;؛—–](?:wach|wash|wesh|wqch|chhal|ch7al|kifach|what|where|when|which|does|do|can|could|is|are|est-ce|vous|comment|combien|واش|شنو|كيفاش|شحال|هل|كيف|كم)(?=\s|$)/iu.test(message);
     const questionOnly = this.isQuestion(message);
     if (questionOnly && !embeddedQuestion) return { kind: 'CUSTOMER_QUESTION' };
 
@@ -130,7 +162,7 @@ export class WorkflowTurnGate {
           const between = message.slice(fieldIndex + fieldValue.length, questionIndex);
           const afterQuestion = message.slice(questionIndex + question.length).trim();
           if (fieldValue && question && fieldIndex >= 0 && questionIndex > fieldIndex + fieldValue.length - 1 &&
-              !beforeField && /^[\s,،;؛—–]+$/u.test(between) && !afterQuestion && this.isQuestion(question) &&
+              !beforeField && /^[\s,،;؛.!?؟—–]+$/u.test(between) && !afterQuestion && this.isQuestion(question) &&
               (semanticType !== 'person_name' ||
                 fieldValue.split(/\s+/u).length <= 3 && fieldValue.split(/\s+/u).every(word => /^[\p{L}\p{M}'-]+$/u.test(word)))) {
             return { kind: 'CUSTOMER_QUESTION', fieldValue, question };
