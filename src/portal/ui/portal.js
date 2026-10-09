@@ -468,22 +468,35 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
       passwordInput.insertAdjacentElement('afterend',visibility);passwordInput.parentElement.classList.add('password-field');
       visibility.onclick=()=>{const visible=passwordInput.type==='password';passwordInput.type=visible?'text':'password';visibility.textContent=visible?'Hide':'Show';visibility.setAttribute('aria-label',visible?'Hide password':'Show password');visibility.setAttribute('aria-pressed',String(visible));passwordInput.focus();};
     }
-    if(login&&authNotice){document.querySelector('#auth-notice').textContent=authNotice;authNotice='';}
+    const notice=document.querySelector('#auth-notice');
+    const setNotice=(message,bad=false)=>{
+      notice.textContent=message;
+      notice.className=message?`auth-feedback ${bad?'auth-feedback-error':'auth-feedback-success'}`:'';
+      notice.setAttribute('role',bad?'alert':'status');
+    };
+    if(login&&authNotice){setNotice(authNotice);authNotice='';}
+    if(login)document.querySelectorAll('#auth-form input').forEach(input=>input.addEventListener('input',()=>{if(notice.classList.contains('auth-feedback-error'))setNotice('');}));
     const show=r=>{const el=document.querySelector('#auth-notice');el.textContent=r.message||'Done.';if(r.developmentLink){const a=document.createElement('a');a.href=r.developmentLink;a.textContent='Open development email link';a.className='link-box';el.append(a);}toast(r.message||'Done.');};
     document.querySelector('#auth-form').onsubmit=async e=>{
       e.preventDefault();const button=e.target.querySelector('button[type="submit"]');button.disabled=true;
+      const buttonLabel=button.textContent;
+      if(login){setNotice('');button.textContent='Signing in…';}
       try{const body={},token=new URLSearchParams(location.hash.slice(1)).get('token');
         if(signup||login||forgot)body.email=document.querySelector('#email').value;
         if(signup||login||reset)body.password=document.querySelector('#password').value;
         if(signup)body.name=document.querySelector('#name').value;
         if(reset||kind==='verify'||kind==='admin')body.token=token;
         const endpoint={signup:'signup',login:'login',forgot:'forgot-password',reset:'reset-password',verify:'verify-email',admin:'admin-confirm'}[kind];
-        const r=await api('/auth/'+endpoint,{method:'POST',body:JSON.stringify(body)});show(r);
+        const r=await api('/auth/'+endpoint,{method:'POST',body:JSON.stringify(body)});
+        if(!login)show(r);
         if(r.csrf)csrf=r.csrf;
         if(r.redirect){if(r.redirect==='/login')authNotice=r.message||'';await go(r.redirect,{replace:true});}else if(reset||kind==='verify'){authNotice=r.message||'';await go('/login',{replace:true});}
-      }catch(error){toast(error.message,true);const el=document.querySelector('#auth-notice');el.textContent=error.message;
+      }catch(error){
+        const message=login?(error.code==='INVALID_CREDENTIALS'?'We couldn’t sign you in. Check your email and password, then try again.':error.code==='EMAIL_NOT_VERIFIED'?'Please verify your email before signing in.':error.status===429?'Too many attempts. Please wait a few minutes and try again.':error.status===undefined?'We couldn’t connect. Check your internet connection and try again.':'We couldn’t sign you in right now. Please try again shortly.'):error.message;
+        if(login)setNotice(message,true);else{toast(message,true);setNotice(message,true);}
+        const el=notice;
         if(error.code==='EMAIL_NOT_VERIFIED'){const resend=document.createElement('button');resend.type='button';resend.className='btn secondary';resend.textContent='Resend verification email';resend.onclick=async()=>{try{show(await api('/auth/resend-verification',{method:'POST',body:JSON.stringify({email:document.querySelector('#email').value})}));}catch(e){toast(e.message,true);}};el.append(resend);}
-      }finally{button.disabled=false;}
+      }finally{button.disabled=false;if(login)button.textContent=buttonLabel;}
     };bind();
   }
   function bind(){
