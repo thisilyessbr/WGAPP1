@@ -189,6 +189,12 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
           }
         }
         if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
+        if (state.type === 'choice' && (!Array.isArray(state.options) || state.options.length === 0)) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_CHOICE', 'A choice step needs at least one selectable option.');
+        }
+        if (state.type === 'choice' && state.options.some((option: any) => typeof option?.label !== 'string' || !option.label.trim())) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_CHOICE', 'Every choice option needs a visible label.');
+        }
         if (state.pauseBotHours !== undefined) integer(state.pauseBotHours, 1, 720);
         const targets = [...(state.transitions || []).map((t: any) => t.target), ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
         if (targets.some(target => !workflow.states[target])) throw new PortalError(400, 'INVALID_WORKFLOW_TARGET');

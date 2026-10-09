@@ -30,6 +30,36 @@ describe('workflow turn gate', () => {
       .toBe('FIELD_ANSWER');
   });
 
+  it('separates a clear name-plus-question turn without guessing names from business needs', () => {
+    expect(WorkflowTurnGate.splitPersonNameAndQuestion('Ilyes Saber, wach kaydwi français?', 'fullName', nameField))
+      .toEqual({ fieldValue: 'Ilyes Saber', question: 'wach kaydwi français?' });
+    expect(WorkflowTurnGate.splitPersonNameAndQuestion('kanbi3 srawl djine, wach mzyan?', 'businessNeed',
+      { name: 'businessNeed', type: 'string', semanticType: 'free_text' })).toBeNull();
+    expect(WorkflowTurnGate.splitPersonNameAndQuestion('wach kaydwi français?', 'fullName', nameField)).toBeNull();
+  });
+
+  it('answers a question attached to a valid name and advances exactly one form step', async () => {
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'name', states: {
+      name: { type: 'collect', prompt, field: nameField, next: 'need' },
+      need: { type: 'collect', prompt: 'شنو النشاط ديالك؟', field: { name: 'businessNeed', type: 'string', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'name',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow }, capabilities: {
+      ...DEFAULT_BUSINESS_CONFIG.capabilities,
+      faq: [{ id: 'language', question: 'wach kaydwi francais', answer: 'إييه، كيجاوب بالفرنسية.', language: 'darija' }]
+    } };
+    const result = await new WorkflowEngine().process(session, 'Ilyes Saber, wach kaydwi francais?', workflow,
+      config, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.nextStateId).toBe('need');
+    expect(result.updatedCollectedData).toEqual({ fullName: 'Ilyes Saber' });
+    expect(result.response).toContain('كيجاوب بالفرنسية');
+    expect(result.response).toContain('شنو النشاط ديالك؟');
+    expect(result.response).not.toContain(prompt);
+  });
+
   it('uses the same gate while collecting a typed field', async () => {
     const llm = new LLMMockProvider();
     llm.intentMock = 'CUSTOMER_QUESTION';

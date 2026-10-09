@@ -120,7 +120,7 @@ export class ConversationAutomationService {
           state.pausedUntil > now || state.pauseReason !== 'WORKFLOW_HANDOFF') return false;
       const changed = await tx.conversation.updateMany({
         where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
-        data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
+        data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null, version: { increment: 1 } }
       });
       if (changed.count !== 1) return false;
       await tx.conversationAutomationState.update({
@@ -161,7 +161,7 @@ export class ConversationAutomationService {
       else delete context._portalHandoff;
       const status = action === 'claim' ? 'HUMAN_ACTIVE' : action === 'release' ? 'HANDOFF_REQUESTED' : 'ACTIVE';
       const humanRequested = action !== 'resolve';
-      await tx.$executeRaw`UPDATE "Conversation" SET status=${status},"humanRequested"=${humanRequested},
+      await tx.$executeRaw`UPDATE "Conversation" SET status=${status},"humanRequested"=${humanRequested},"version"="version"+1,
         "automationCapped"=CASE WHEN ${action === 'resolve'} THEN false ELSE "automationCapped" END,
         "postCompletionCapped"=CASE WHEN ${action === 'resolve'} THEN false ELSE "postCompletionCapped" END,
         "humanRequestedAt"=${humanRequested ? conv.humanRequestedAt : null},"contextData"=${JSON.stringify(context)}::jsonb,"updatedAt"=NOW()
@@ -217,6 +217,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'HANDOFF_REQUESTED',
+          version: { increment: 1 },
           humanRequested: true,
           humanRequestedAt: conv.humanRequestedAt || new Date(),
           updatedAt: new Date()
@@ -293,6 +294,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'HUMAN_ACTIVE',
+          version: { increment: 1 },
           humanRequested: true,
           humanRequestedAt: conv.humanRequestedAt || new Date(),
           contextData: updatedContext,
@@ -361,6 +363,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'RESOLVED',
+          version: { increment: 1 },
           humanRequested: false,
           humanRequestedAt: null,
           contextData: existingContext,
@@ -433,6 +436,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'ACTIVE',
+          version: { increment: 1 },
           humanRequested: false,
           humanRequestedAt: null,
           automationCapped: false,

@@ -35,6 +35,26 @@ function isOneEditAway(value: string, candidate: string): boolean {
 
 /** Classify a turn before a collect step can persist the customer's answer. */
 export class WorkflowTurnGate {
+  /** Only split an unambiguous name followed by a separate question. Never guess a name from a free-text need. */
+  static splitPersonNameAndQuestion(
+    message: string, fieldName: string, field: string | WorkflowFieldConfig | undefined
+  ): { fieldValue: string; question: string } | null {
+    const config = typeof field === 'object' ? field : undefined;
+    const isName = (config?.type || 'string') === 'string' &&
+      (config?.semanticType === 'person_name' || (!config?.semanticType && /^(?:fullname|username|name|customername|contactname)$/i.test(fieldName)));
+    if (!isName) return null;
+    const parts = message.trim().split(/[,،\n]|\s+[—–]\s+/u);
+    if (parts.length !== 2) return null;
+    const [fieldValue, question] = parts.map(part => part.trim());
+    const words = fieldValue.split(/\s+/u);
+    const validName = words.length >= 1 && words.length <= 3 &&
+      words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word));
+    const firstWord = GreetingRouter.normalize(question).split(/\s+/u)[0] || '';
+    const clearQuestion = question.includes('?') || question.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord) ||
+      (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word)));
+    return validName && clearQuestion ? { fieldValue, question } : null;
+  }
+
   static async classify(
     message: string,
     fieldName: string,
