@@ -112,6 +112,13 @@ export class WorkflowCancellationDetector {
       return true;
     }
 
+    // A refusal often precedes the actual command in Darija ("la, bghit nlghi").
+    // Strip only a standalone refusal; do not treat unrelated "la ..." text as cancellation.
+    const refusalThenCommand = normalized.match(/^(?:la|lla|no|non|لا|لّا)[\s,،;؛]+(.+)$/u);
+    if (refusalThenCommand && this.DIRECT_CANCEL_TOKENS.has(this.normalize(refusalThenCommand[1]))) {
+      return true;
+    }
+
     // Check bounded direct cancellation phrases (all in normalized form)
     const directPhrases = [
       'cancel please',

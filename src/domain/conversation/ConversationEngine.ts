@@ -36,6 +36,7 @@ import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 import { resolveGroundedAnswer } from './GroundedAnswer';
 import { IntentTriggerLibrary, TriggerUseCase } from './IntentTriggerLibrary';
 import { WorkflowRouteDecision, WorkflowRoutingPolicy } from './WorkflowRoutingPolicy';
+import { workflowOpeningAnswer } from './WorkflowOpeningAnswer';
 
 export class ConversationEngine {
   private llmFactory?: LLMFactory;
@@ -1425,8 +1426,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               collectedData: result.updatedCollectedData !== undefined ? result.updatedCollectedData : {},
               ...(result.requestHumanHandoff ? { humanRequested: true, humanRequestedAt: new Date() } : {})
             };
-            response = result.response;
-            answerText = result.response;
+            const openingAnswer = workflowOpeningAnswer(content, config, effectiveLang, effectiveScript);
+            response = openingAnswer ? `${openingAnswer}\n\n${result.response}` : result.response;
+            answerText = response;
             answered = true;
           }
         }
