@@ -73,7 +73,7 @@ describe('workflow turn gate', () => {
     const field = { name: 'businessNeed', type: 'string' as const, required: true, semanticType: 'free_text' as const };
     expect(await WorkflowTurnGate.classify('no idea about this', 'businessNeed', field,
       'شنو بغيتي تحسن؟', llm)).toBe('UNCLEAR');
-    llm.intentMock = 'FIELD_ANSWER';
+    llm.generatedResponseMock = '{"kind":"FIELD_ANSWER"}';
     expect(await WorkflowTurnGate.classify('For ecommerce diali', 'businessNeed', field,
       'شنو بغيتي تحسن؟', llm)).toBe('FIELD_ANSWER');
   });
@@ -103,7 +103,7 @@ describe('workflow turn gate', () => {
     expect(result.updatedCollectedData).toEqual({ source: 'WhatsApp' });
     expect(result.response).toContain(prompt);
 
-    llm.intentMock = 'FIELD_ANSWER';
+    llm.generatedResponseMock = '{"kind":"FIELD_ANSWER"}';
     const resumed = await engine.process({ ...session, stateId: result.nextStateId!,
       contextData: result.updatedContext, collectedData: result.updatedCollectedData! },
       'Ilyes Saber', workflow, config, llm, undefined, undefined, undefined, 'darija', 'arabic');
@@ -183,7 +183,7 @@ describe('workflow turn gate', () => {
     expect(interruption.response).toContain('كيجاوب بالفرنسية');
     expect(interruption.response).toContain('شنو كيدير النشاط');
 
-    llm.intentMock = 'FIELD_ANSWER';
+    llm.generatedResponseMock = '{"kind":"FIELD_ANSWER"}';
     const resumed = await engine.process({ ...session, stateId: interruption.nextStateId!,
       contextData: interruption.updatedContext, collectedData: interruption.updatedCollectedData! },
     'kanbi3 srawl djine ou l7wayj', workflow, config,
@@ -192,6 +192,43 @@ describe('workflow turn gate', () => {
     expect(resumed.updatedCollectedData).toEqual({ fullName: 'Ilyes Saber', businessNeed: 'kanbi3 srawl djine ou l7wayj' });
     expect(resumed.response).toContain('شنو النهار');
     expect(resumed.response).not.toContain('مساعد التجارة');
+  });
+
+  it('splits a Darija activity plus question with one structured call and advances only after validation', async () => {
+    const llm = new LLMMockProvider();
+    llm.generatedResponseMock = JSON.stringify({ kind: 'MIXED', fieldValue: 'kanbi3 srawl djine', question: 'wach kaydwi francais?' });
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'need', states: {
+      need: { type: 'collect', prompt: 'شنو كيدير النشاط ديالك؟', field: { name: 'businessNeed', type: 'string', required: true }, next: 'time' },
+      time: { type: 'collect', prompt: 'شنو الوقت اللي يناسبك؟', field: { name: 'preferredDemoTime', type: 'string', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'need',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow }, capabilities: {
+      ...DEFAULT_BUSINESS_CONFIG.capabilities,
+      faq: [{ id: 'language', question: 'wach kaydwi francais', answer: 'إييه، كيجاوب بالفرنسية.', language: 'darija' }]
+    } };
+    const result = await new WorkflowEngine().process(session, 'kanbi3 srawl djine, wach kaydwi francais?', workflow,
+      config, llm, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(llm.callCount).toBe(1);
+    expect(llm.lastOptions?.responseFormat).toBe('json_object');
+    expect(result.updatedCollectedData).toEqual({ businessNeed: 'kanbi3 srawl djine' });
+    expect(result.nextStateId).toBe('time');
+    expect(result.response).toContain('كيجاوب بالفرنسية');
+    expect(result.response).toContain('شنو الوقت');
+  });
+
+  it('rejects invented spans and invalid JSON instead of storing an uncertain form answer', async () => {
+    const llm = new LLMMockProvider();
+    const field = { name: 'businessNeed', type: 'string' as const, required: true, semanticType: 'free_text' as const };
+    llm.generatedResponseMock = JSON.stringify({ kind: 'MIXED', fieldValue: 'I sell phones', question: 'wach kaydwi francais?' });
+    expect(await WorkflowTurnGate.interpret('kanbi3 srawl, wach kaydwi francais?', 'businessNeed', field,
+      'شنو النشاط ديالك؟', llm)).toEqual({ kind: 'UNCLEAR' });
+    llm.generatedResponseMock = 'FIELD_ANSWER';
+    expect(await WorkflowTurnGate.interpret('For ecommerce diali', 'businessNeed', field,
+      'شنو النشاط ديالك؟', llm)).toEqual({ kind: 'UNCLEAR' });
+    expect(llm.callCount).toBe(2);
   });
 
   it('keeps the pending question visible when a side-answer exceeds the reply limit', () => {

@@ -3,6 +3,7 @@ import { WorkflowFieldConfig } from '../../domain/tenant/BusinessConfig';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 
 export type WorkflowTurnKind = 'FIELD_ANSWER' | 'CUSTOMER_QUESTION' | 'UNCLEAR';
+export type WorkflowTurnInterpretation = { kind: WorkflowTurnKind; fieldValue?: string; question?: string };
 
 // A question opener can have a one-character mobile typo. This is deliberately
 // limited to the first word, so arbitrary field answers are not keyword-scanned.
@@ -35,6 +36,12 @@ function isOneEditAway(value: string, candidate: string): boolean {
 
 /** Classify a turn before a collect step can persist the customer's answer. */
 export class WorkflowTurnGate {
+  private static isQuestion(text: string): boolean {
+    const firstWord = GreetingRouter.normalize(text).split(/\s+/u)[0] || '';
+    return text.includes('?') || text.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord) ||
+      (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word)));
+  }
+
   /** Only split an unambiguous name followed by a separate question. Never guess a name from a free-text need. */
   static splitPersonNameAndQuestion(
     message: string, fieldName: string, field: string | WorkflowFieldConfig | undefined
@@ -63,15 +70,22 @@ export class WorkflowTurnGate {
     llm?: LLMProvider,
     options?: LLMRequestOptions
   ): Promise<WorkflowTurnKind> {
+    return (await this.interpret(message, fieldName, field, prompt, llm, options)).kind;
+  }
+
+  /** One bounded structured call only when deterministic routing cannot safely separate the turn. */
+  static async interpret(
+    message: string,
+    fieldName: string,
+    field: string | WorkflowFieldConfig | undefined,
+    prompt: string,
+    llm?: LLMProvider,
+    options?: LLMRequestOptions
+  ): Promise<WorkflowTurnInterpretation> {
     const normalized = GreetingRouter.normalize(message);
-    const firstWord = normalized.split(/\s+/u)[0] || '';
-    // Business topics such as "customer support" are answers to a need field,
-    // not questions merely because they contain an FAQ keyword.
-    if (message.includes('?') || message.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord))
-      return 'CUSTOMER_QUESTION';
-    if (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word))) {
-      return 'CUSTOMER_QUESTION';
-    }
+    // A question at the start is not a form value. A later question may be
+    // attached to a field answer, so let the structured interpreter split it.
+    if (this.isQuestion(message.trim().split(/\s+/u)[0] || '')) return { kind: 'CUSTOMER_QUESTION' };
 
     const config = typeof field === 'object' ? field : undefined;
     const type = config?.type || 'string';
@@ -84,39 +98,59 @@ export class WorkflowTurnGate {
       && /^[\p{L}\p{M}'-]+$/u.test(words[0])
       && words.every(word => /^(?:[\p{L}\p{M}'-]+|\d{1,2})$/u.test(word));
 
-    if (semanticType === 'person_name' && nameShape) return 'FIELD_ANSWER';
+    if (semanticType === 'person_name' && nameShape) return { kind: 'FIELD_ANSWER' };
+
+    const embeddedQuestion = /[\s,،;؛—–](?:wach|wash|wesh|wqch|chhal|ch7al|kifach|what|where|when|which|comment|combien|واش|شنو|كيفاش|شحال|هل|كيف|كم)(?=\s|$)/iu.test(message);
+    const questionOnly = this.isQuestion(message);
+    if (questionOnly && !embeddedQuestion) return { kind: 'CUSTOMER_QUESTION' };
 
     if (llm && (type === 'string' || words.length > 1)) {
       try {
-        const decision = await llm.classifyIntent(
-          `Route one customer message during a business form. Pending question: ${prompt}. ` +
+        const raw = await llm.generateResponse(
+          `Classify ONE customer turn during a form. Pending question: ${prompt}. ` +
           `Requested field: ${semanticType === 'person_name' ? 'PERSON NAME' : semanticType} (${fieldName}). ` +
-          'The customer may use Moroccan Darija, typo-heavy Arabizi, French, Arabic, or English. ' +
-          'CUSTOMER_QUESTION means they ask about the provider business or product, even without punctuation. ' +
-          'FIELD_ANSWER means they describe their own activity, products, need, or other requested field, ' +
-          'even if product words match a FAQ. Judge against the pending question, not product keywords. ' +
-          'UNCLEAR means uncertain. ' +
-          'Return exactly one label.',
-          message,
-          ['FIELD_ANSWER', 'CUSTOMER_QUESTION', 'UNCLEAR'],
-          { ...options, temperature: 0, maxTokens: 24, timeoutMs: Math.min(options?.timeoutMs || 4000, 4000) }
+          'The customer may use Darija, Arabizi, Arabic, French, or English. ' +
+          'Return ONLY a JSON object with kind (FIELD_ANSWER, CUSTOMER_QUESTION, MIXED, or UNCLEAR), ' +
+          'fieldValue and question. For MIXED, copy the field answer and separate business question ' +
+          'verbatim from the customer message; never invent or paraphrase either span. ' +
+          'A statement about the customer business is FIELD_ANSWER, not a product FAQ. ' +
+          'If unsure, use UNCLEAR. Do not answer the question or take any action.',
+          [{ role: 'user', content: message }],
+          { ...options, temperature: 0, maxTokens: 128, timeoutMs: Math.min(options?.timeoutMs || 4000, 4000), responseFormat: 'json_object', purpose: 'structured_turn_interpretation' }
         );
-        if (decision === 'CUSTOMER_QUESTION' || decision === 'UNCLEAR') return decision;
-        if (decision === 'FIELD_ANSWER') {
-          return semanticType === 'person_name' && !nameShape ? 'UNCLEAR' : decision;
+        const decision: unknown = JSON.parse(raw);
+        if (!decision || typeof decision !== 'object' || Array.isArray(decision)) return { kind: 'UNCLEAR' };
+        const result = decision as Record<string, unknown>;
+        if (result.kind === 'MIXED' && typeof result.fieldValue === 'string' && typeof result.question === 'string') {
+          const fieldValue = result.fieldValue.trim();
+          const question = result.question.trim();
+          const fieldIndex = message.indexOf(fieldValue);
+          const questionIndex = message.indexOf(question);
+          const beforeField = message.slice(0, fieldIndex).trim();
+          const between = message.slice(fieldIndex + fieldValue.length, questionIndex);
+          const afterQuestion = message.slice(questionIndex + question.length).trim();
+          if (fieldValue && question && fieldIndex >= 0 && questionIndex > fieldIndex + fieldValue.length - 1 &&
+              !beforeField && /^[\s,،;؛—–]+$/u.test(between) && !afterQuestion && this.isQuestion(question) &&
+              (semanticType !== 'person_name' ||
+                fieldValue.split(/\s+/u).length <= 3 && fieldValue.split(/\s+/u).every(word => /^[\p{L}\p{M}'-]+$/u.test(word)))) {
+            return { kind: 'CUSTOMER_QUESTION', fieldValue, question };
+          }
+        }
+        if (result.kind === 'CUSTOMER_QUESTION') return { kind: 'CUSTOMER_QUESTION' };
+        if (result.kind === 'FIELD_ANSWER' && !questionOnly && !embeddedQuestion) {
+          return semanticType === 'person_name' && !nameShape ? { kind: 'UNCLEAR' } : { kind: 'FIELD_ANSWER' };
         }
       } catch {
-        // Failure must not persist an unrelated message as a person name.
+        // Invalid or unavailable interpretation must not corrupt customer data.
       }
-      // Configured classification failed or returned an invalid label: ask again
-      // instead of guessing and corrupting a customer's record.
-      return 'UNCLEAR';
+      return { kind: 'UNCLEAR' };
     }
 
-    if (type !== 'string') return 'FIELD_ANSWER';
+    if (questionOnly) return { kind: 'CUSTOMER_QUESTION' };
+    if (type !== 'string') return { kind: 'FIELD_ANSWER' };
     if (semanticType === 'person_name') {
-      return nameShape && words.length <= 2 ? 'FIELD_ANSWER' : 'UNCLEAR';
+      return { kind: nameShape && words.length <= 2 ? 'FIELD_ANSWER' : 'UNCLEAR' };
     }
-    return 'FIELD_ANSWER';
+    return { kind: embeddedQuestion ? 'UNCLEAR' : 'FIELD_ANSWER' };
   }
 }

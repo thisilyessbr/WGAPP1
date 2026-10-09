@@ -27,6 +27,13 @@ describe('DeepSeek cost controls (no external requests)', () => {
     expect(await provider.generateResponse('Answer in Darija', [])).toBe('مرحبا! كيفاش نقدر نعاونك؟');
     expect(body()).toMatchObject({ model: 'deepseek-flash', thinking: { type: 'disabled' }, max_tokens: 500 });
   });
+  it('requests JSON mode only for structured turn interpretation', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(success('{"kind":"FIELD_ANSWER"}'));
+    await provider.generateResponse('Return JSON only', [{ role: 'user', content: 'For ecommerce diali' }],
+      { responseFormat: 'json_object', purpose: 'structured_turn_interpretation', maxTokens: 128 });
+    expect(body()).toMatchObject({ response_format: { type: 'json_object' }, temperature: 0.7, max_tokens: 128 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('preserves an explicit tenant model choice', async () => {
     await provider.generateResponse('Test', [], { model: 'deepseek-v4-pro' });
     expect(body().model).toBe('deepseek-v4-pro');
