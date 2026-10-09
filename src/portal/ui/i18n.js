@@ -331,6 +331,14 @@
   translations.set('Show password', { fr: 'Afficher le mot de passe', ar: 'إظهار كلمة المرور' });
   translations.set('Hide password', { fr: 'Masquer le mot de passe', ar: 'إخفاء كلمة المرور' });
   for (const [en, fr, ar] of [
+    ['Signing in…','Connexion en cours…','جارٍ تسجيل الدخول…'],
+    ['We couldn’t sign you in. Check your email and password, then try again.','Connexion impossible. Vérifiez votre adresse e-mail et votre mot de passe, puis réessayez.','ما قدرناش نسجلو دخولك. تأكد من البريد الإلكتروني وكلمة المرور، وعاود حاول.'],
+    ['Please verify your email before signing in.','Confirmez votre adresse e-mail avant de vous connecter.','أكد البريد الإلكتروني ديالك قبل تسجيل الدخول.'],
+    ['Too many attempts. Please wait a few minutes and try again.','Trop de tentatives. Patientez quelques minutes avant de réessayer.','كانت محاولات بزاف. تسنى بضع دقائق وعاود حاول.'],
+    ['We couldn’t connect. Check your internet connection and try again.','Connexion au service impossible. Vérifiez votre connexion Internet et réessayez.','ما قدرناش نتاصلو بالخدمة. تأكد من الإنترنت وعاود حاول.'],
+    ['We couldn’t sign you in right now. Please try again shortly.','Connexion momentanément impossible. Veuillez réessayer dans un instant.','ما قدرناش نسجلو دخولك دابا. عاود حاول من بعد شوية.']
+  ]) translations.set(en, { fr, ar });
+  for (const [en, fr, ar] of [
     ['Permissions & advanced','Autorisations et paramètres avancés','الصلاحيات والإعدادات المتقدمة'],
     ['Identity & voice','Identité et voix','الهوية والأسلوب'],['Answer policy','Règles de réponse','قواعد الرد'],
     ['Knowledge','Connaissances','المعرفة'],['Model & response limits','Modèle et limites de réponse','النموذج وحدود الرد'],

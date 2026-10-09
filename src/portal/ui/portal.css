@@ -151,6 +151,13 @@
 .auth-form .password-field input{padding-inline-end:76px}
 .auth-form .password-visibility{position:absolute;inset-inline-end:10px;top:34px;min-height:36px;padding:0 9px;border:0;background:transparent;color:var(--green);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .auth-form .password-visibility:focus-visible{outline:2px solid var(--green);border-radius:6px}
+.auth-form .auth-feedback{margin-top:16px;padding:13px 15px;border-radius:10px;border:1px solid var(--line);font-size:13px;line-height:1.6}
+.auth-form .auth-feedback-error{background:#ff99860c;border-color:#ff99864d;color:var(--red)}
+.auth-form .auth-feedback-success{background:var(--soft);color:var(--green)}
+#auth-notice.auth-feedback-error{color:var(--red)}
+#auth-notice.auth-feedback-success{color:var(--green)}
+:root[data-theme=light] .auth-form .auth-feedback-error{background:#fff3ef;color:#a53e2e}
+:root[data-theme=light] #auth-notice.auth-feedback-error{color:#a53e2e}
 
 /* Keep dense administrator screens readable in Arabic without changing data values. */
 :root[dir=rtl] .admin-shell th,
