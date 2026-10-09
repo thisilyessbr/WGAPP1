@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WorkflowSession } from '@prisma/client';
 import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
-import { WorkflowEngine } from '../../src/core/engine/WorkflowEngine';
+import { WorkflowEngine, WorkflowCancellationDetector } from '../../src/core/engine/WorkflowEngine';
 import { WorkflowStateEvaluator } from '../../src/core/engine/WorkflowStateEvaluator';
 import { WorkflowTurnGate } from '../../src/core/engine/WorkflowTurnGate';
 import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
@@ -36,6 +36,105 @@ describe('workflow turn gate', () => {
     expect(WorkflowTurnGate.splitPersonNameAndQuestion('kanbi3 srawl djine, wach mzyan?', 'businessNeed',
       { name: 'businessNeed', type: 'string', semanticType: 'free_text' })).toBeNull();
     expect(WorkflowTurnGate.splitPersonNameAndQuestion('wach kaydwi français?', 'fullName', nameField)).toBeNull();
+  });
+
+  it('splits a field answer from a following question across Arabic, English and French punctuation', () => {
+    const timeField = { name: 'preferredDemoTime', type: 'string' as const, required: true };
+    expect(WorkflowTurnGate.splitAnswerAndQuestion('غدا مع 3 العشية. واش كيخدم حتى فـإنستغرام؟', 'preferredDemoTime', timeField))
+      .toEqual({ fieldValue: 'غدا مع 3 العشية', question: 'واش كيخدم حتى فـإنستغرام؟' });
+    expect(WorkflowTurnGate.splitAnswerAndQuestion('Tomorrow at 3 pm. Does it work on Instagram?', 'preferredDemoTime', timeField))
+      .toEqual({ fieldValue: 'Tomorrow at 3 pm', question: 'Does it work on Instagram?' });
+    expect(WorkflowTurnGate.splitAnswerAndQuestion('Je gère un salon, mes clientes demandent les horaires. Vous répondez en français ?',
+      'businessNeed', { name: 'businessNeed', type: 'string', semanticType: 'free_text' }))
+      .toEqual({ fieldValue: 'Je gère un salon, mes clientes demandent les horaires', question: 'Vous répondez en français ?' });
+    expect(WorkflowTurnGate.splitAnswerAndQuestion('11.11.2026', 'preferredDemoTime', timeField)).toBeNull();
+  });
+
+  it('stores only the person name after a clear introduction', async () => {
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'name', states: {
+      name: { type: 'collect', prompt, field: nameField, next: 'need' },
+      need: { type: 'collect', prompt: 'شنو النشاط ديالك؟', field: { name: 'businessNeed', type: 'string', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'name',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const result = await new WorkflowEngine(new WorkflowStateEvaluator()).process(session, 'سميتي أمين', workflow,
+      { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow } }, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.updatedCollectedData).toEqual({ fullName: 'أمين' });
+    expect(result.nextStateId).toBe('need');
+  });
+
+  it('cancels a demo request during collection without storing the refusal as a business need', async () => {
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'need', states: {
+      need: { type: 'collect', prompt: 'شنو النشاط ديالك؟', field: { name: 'businessNeed', type: 'string', required: true }, next: 'time' },
+      time: { type: 'collect', prompt: 'شنو الوقت اللي يناسبك؟', field: { name: 'preferredDemoTime', type: 'string', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'need',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true, fullName: 'مريم' }, collectedData: { fullName: 'مريم' },
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const message = 'لا، بغيت نلغي طلب الديمو';
+    expect(WorkflowCancellationDetector.isCancellation(message)).toBe(true);
+    const result = await new WorkflowEngine(new WorkflowStateEvaluator()).process(session, message, workflow,
+      { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow } }, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.isComplete).toBe(true);
+    expect(result.updatedCollectedData).toEqual({ fullName: 'مريم', _confirmed: false });
+    expect(result.response).not.toContain('شنو الوقت');
+  });
+
+  it('answers an English side-question in English and saves the time only', async () => {
+    const llm = new LLMMockProvider();
+    llm.responseResolver = prompt => prompt.includes('previous attempt')
+      ? 'Instagram DM is available depending on the plan and connected account.'
+      : 'إنستغرام متاح حسب الباقة وربط الحساب.';
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'time', states: {
+      time: { type: 'collect', prompt: 'Which day and time would suit you?', field: { name: 'preferredDemoTime', type: 'string', required: true }, next: 'phone' },
+      phone: { type: 'collect', prompt: 'What is your phone number?', field: { name: 'phone', type: 'phone', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'time',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true, _lang: 'en', _script: 'latin' }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG, portalFacts: { description: 'Instagram DM is available depending on the plan and connected account.' },
+      workflows: { demo: workflow } };
+    const result = await new WorkflowEngine(new WorkflowStateEvaluator()).process(session,
+      'Tomorrow at 3 pm. Does it work on Instagram?', workflow, config, llm, undefined, undefined, undefined, 'en', 'latin');
+    expect(result.nextStateId).toBe('phone');
+    expect(result.updatedCollectedData).toEqual({ preferredDemoTime: 'Tomorrow at 3 pm' });
+    expect(result.response).toContain('Instagram DM is available');
+    expect(result.response).toContain('What is your phone number?');
+    expect(result.response).not.toMatch(/[\u0621-\u064A]/u);
+    expect(llm.callCount).toBe(2);
+
+    llm.responseResolver = () => 'إنستغرام متاح حسب الباقة وربط الحساب.';
+    const unavailableTranslation = await new WorkflowEngine(new WorkflowStateEvaluator()).process(session,
+      'Tomorrow at 3 pm. Does it work on Instagram?', workflow, config, llm, undefined, undefined, undefined, 'en', 'latin');
+    expect(unavailableTranslation.nextStateId).toBe('phone');
+    expect(unavailableTranslation.response).not.toMatch(/[\u0621-\u064A]/u);
+    expect(unavailableTranslation.response).toContain('What is your phone number?');
+    expect(llm.callCount).toBe(4);
+  });
+
+  it('answers a Darija Arabic side-question and advances past the captured time', async () => {
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'time', states: {
+      time: { type: 'collect', prompt: 'شنو النهار والوقت اللي يناسبوك؟', field: { name: 'preferredDemoTime', type: 'string', required: true }, next: 'phone' },
+      phone: { type: 'collect', prompt: 'شنو الرقم ديالك؟', field: { name: 'phone', type: 'phone', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'time',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true, _lang: 'darija', _script: 'arabic' }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow }, capabilities: {
+      ...DEFAULT_BUSINESS_CONFIG.capabilities,
+      faq: [{ id: 'instagram', question: 'واش كيخدم حتى فـإنستغرام؟', answer: 'إييه، إنستغرام متاح حسب الباقة وربط الحساب.', language: 'darija' as const }]
+    } };
+    const result = await new WorkflowEngine(new WorkflowStateEvaluator()).process(session,
+      'غدا مع 3 العشية. واش كيخدم حتى فـإنستغرام؟', workflow, config, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.nextStateId).toBe('phone');
+    expect(result.updatedCollectedData).toEqual({ preferredDemoTime: 'غدا مع 3 العشية' });
+    expect(result.response).toContain('إنستغرام متاح');
+    expect(result.response).toContain('شنو الرقم ديالك؟');
   });
 
   it('answers a question attached to a valid name and advances exactly one form step', async () => {
@@ -194,7 +293,7 @@ describe('workflow turn gate', () => {
     expect(resumed.response).not.toContain('مساعد التجارة');
   });
 
-  it('splits a Darija activity plus question with one structured call and advances only after validation', async () => {
+  it('splits an explicit Darija activity plus question without an AI call and advances only after validation', async () => {
     const llm = new LLMMockProvider();
     llm.generatedResponseMock = JSON.stringify({ kind: 'MIXED', fieldValue: 'kanbi3 srawl djine', question: 'wach kaydwi francais?' });
     const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'need', states: {
@@ -211,8 +310,7 @@ describe('workflow turn gate', () => {
     } };
     const result = await new WorkflowEngine().process(session, 'kanbi3 srawl djine, wach kaydwi francais?', workflow,
       config, llm, undefined, undefined, undefined, 'darija', 'arabic');
-    expect(llm.callCount).toBe(1);
-    expect(llm.lastOptions?.responseFormat).toBe('json_object');
+    expect(llm.callCount).toBe(0);
     expect(result.updatedCollectedData).toEqual({ businessNeed: 'kanbi3 srawl djine' });
     expect(result.nextStateId).toBe('time');
     expect(result.response).toContain('كيجاوب بالفرنسية');
