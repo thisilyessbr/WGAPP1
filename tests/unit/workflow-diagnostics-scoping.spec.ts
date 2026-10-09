@@ -208,7 +208,7 @@ describe('Workflow Diagnostics & Session Scoping (PHASE WORKFLOW-DIAGNOSTICS-AUD
         },
         create: async ({ data }: any) => {
           const sess = {
-            id: `sess-${Date.now()}-${Math.random()}`,
+            id: data.id || `sess-${Date.now()}-${Math.random()}`,
             tenantId: data.tenantId,
             conversationId: data.conversationId,
             workflowId: data.workflowId,

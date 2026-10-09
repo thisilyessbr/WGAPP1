@@ -4,6 +4,7 @@ import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
 import { WorkflowEngine } from '../../src/core/engine/WorkflowEngine';
 import { WorkflowStateEvaluator } from '../../src/core/engine/WorkflowStateEvaluator';
 import { WorkflowTurnGate } from '../../src/core/engine/WorkflowTurnGate';
+import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
 import { DEFAULT_BUSINESS_CONFIG, WorkflowConfig } from '../../src/domain/tenant/BusinessConfig';
 
 const nameField = { name: 'fullName', type: 'string' as const, required: true, semanticType: 'person_name' as const };
@@ -27,6 +28,36 @@ describe('workflow turn gate', () => {
   it('accepts an ordinary name without requiring AI availability', async () => {
     expect(await WorkflowTurnGate.classify('Ilyes Saber', 'fullName', nameField, prompt))
       .toBe('FIELD_ANSWER');
+  });
+
+  it('separates a clear name-plus-question turn without guessing names from business needs', () => {
+    expect(WorkflowTurnGate.splitPersonNameAndQuestion('Ilyes Saber, wach kaydwi français?', 'fullName', nameField))
+      .toEqual({ fieldValue: 'Ilyes Saber', question: 'wach kaydwi français?' });
+    expect(WorkflowTurnGate.splitPersonNameAndQuestion('kanbi3 srawl djine, wach mzyan?', 'businessNeed',
+      { name: 'businessNeed', type: 'string', semanticType: 'free_text' })).toBeNull();
+    expect(WorkflowTurnGate.splitPersonNameAndQuestion('wach kaydwi français?', 'fullName', nameField)).toBeNull();
+  });
+
+  it('answers a question attached to a valid name and advances exactly one form step', async () => {
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'name', states: {
+      name: { type: 'collect', prompt, field: nameField, next: 'need' },
+      need: { type: 'collect', prompt: 'شنو النشاط ديالك؟', field: { name: 'businessNeed', type: 'string', required: true }, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'name',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow }, capabilities: {
+      ...DEFAULT_BUSINESS_CONFIG.capabilities,
+      faq: [{ id: 'language', question: 'wach kaydwi francais', answer: 'إييه، كيجاوب بالفرنسية.', language: 'darija' }]
+    } };
+    const result = await new WorkflowEngine().process(session, 'Ilyes Saber, wach kaydwi francais?', workflow,
+      config, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.nextStateId).toBe('need');
+    expect(result.updatedCollectedData).toEqual({ fullName: 'Ilyes Saber' });
+    expect(result.response).toContain('كيجاوب بالفرنسية');
+    expect(result.response).toContain('شنو النشاط ديالك؟');
+    expect(result.response).not.toContain(prompt);
   });
 
   it('uses the same gate while collecting a typed field', async () => {
@@ -111,5 +142,64 @@ describe('workflow turn gate', () => {
     expect(result.response).toContain(prompt);
     expect(result.nextStateId).toBe('name');
     expect(result.updatedCollectedData).toEqual({});
+  });
+
+  it('resumes demo intake after a language question and saves the clothing activity despite a colliding FAQ', async () => {
+    const llm = new LLMMockProvider();
+    const workflow: WorkflowConfig = {
+      id: 'demo', name: 'Demo', description: 'Demo request', initialState: 'need',
+      states: {
+        need: { type: 'collect', prompt: 'شنو كيدير النشاط ديالك؟',
+          field: { name: 'businessNeed', type: 'string', required: true }, next: 'time' },
+        time: { type: 'collect', prompt: 'شنو النهار اللي يناسبك؟',
+          field: { name: 'preferredDemoTime', type: 'string', required: true }, next: 'done' },
+        done: { type: 'end', prompt: 'Thanks' }
+      }
+    };
+    const session = {
+      id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo',
+      stateId: 'need', stateHistory: ['name'], status: 'ACTIVE',
+      contextData: { fullName: 'Ilyes Saber', _started: true }, collectedData: { fullName: 'Ilyes Saber' },
+      createdAt: new Date(), updatedAt: new Date()
+    } as WorkflowSession;
+    const config = {
+      ...DEFAULT_BUSINESS_CONFIG,
+      workflows: { demo: workflow },
+      capabilities: {
+        ...DEFAULT_BUSINESS_CONFIG.capabilities,
+        faq: [
+          { id: 'language', question: 'wach kaydwi ffrancais',
+            answer: 'إييه، Relayqo كيجاوب بالفرنسية.', language: 'darija' },
+          { id: 'commerce', question: 'kanbi3 srawl djine ou l7wayj',
+            answer: 'مساعد التجارة كيعاون البائعين.', language: 'darija' }
+        ]
+      }
+    };
+    const engine = new WorkflowEngine(new WorkflowStateEvaluator());
+    const interruption = await engine.process(session, 'wach kaydwi ffrancais', workflow, config,
+      llm, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(interruption.nextStateId).toBe('need');
+    expect(interruption.updatedCollectedData).toEqual({ fullName: 'Ilyes Saber' });
+    expect(interruption.response).toContain('كيجاوب بالفرنسية');
+    expect(interruption.response).toContain('شنو كيدير النشاط');
+
+    llm.intentMock = 'FIELD_ANSWER';
+    const resumed = await engine.process({ ...session, stateId: interruption.nextStateId!,
+      contextData: interruption.updatedContext, collectedData: interruption.updatedCollectedData! },
+    'kanbi3 srawl djine ou l7wayj', workflow, config,
+    llm, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(resumed.nextStateId).toBe('time');
+    expect(resumed.updatedCollectedData).toEqual({ fullName: 'Ilyes Saber', businessNeed: 'kanbi3 srawl djine ou l7wayj' });
+    expect(resumed.response).toContain('شنو النهار');
+    expect(resumed.response).not.toContain('مساعد التجارة');
+  });
+
+  it('keeps the pending question visible when a side-answer exceeds the reply limit', () => {
+    const question = 'شنو كيدير النشاط ديالك؟';
+    const answer = 'Relayqo كيجاوب بالدارجة والعربية والفرنسية والإنجليزية. '.repeat(9);
+    const response = AnswerComposer.finalizeResponse(`${answer}\n\n---\n${question}`, null,
+      DEFAULT_BUSINESS_CONFIG, { maxResponseLength: 150, preserveTrailingWorkflowPrompt: true });
+    expect(response).toContain(question);
+    expect(response.length).toBeLessThanOrEqual(150);
   });
 });

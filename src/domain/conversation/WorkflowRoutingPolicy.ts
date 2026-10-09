@@ -6,7 +6,7 @@ import { TurnDecision } from './TurnDecision';
 export type WorkflowRouteDecision =
   | { kind: 'WORKFLOW'; workflowId: string; workflowConfig: WorkflowConfig; source: 'USE_CASE' | 'INTENT' | 'KEYWORD' | 'MANUAL' | 'AUTO'; useCase?: TriggerUseCase }
   | { kind: 'UNMAPPED_PURCHASE'; useCase: 'PURCHASE' }
-  | { kind: 'AMBIGUOUS'; useCase: TriggerUseCase }
+  | { kind: 'AMBIGUOUS'; useCase?: TriggerUseCase }
   | { kind: 'NONE' };
 
 /** The same explicit mapping is used by validation and by runtime routing. */
@@ -66,10 +66,14 @@ export class WorkflowRoutingPolicy {
       return { kind: 'WORKFLOW', workflowId, workflowConfig: workflows[workflowId], source: 'USE_CASE', useCase: matchedUseCase };
     }
 
+    const autoStarted = entries.filter(([, workflow]) =>
+      workflow.activation?.mode === 'auto_start' || (config as any).autoStartWorkflow === true);
+    if (autoStarted.length > 1) return { kind: 'AMBIGUOUS' };
+    if (autoStarted.length === 1) {
+      const [workflowId, workflowConfig] = autoStarted[0];
+      return { kind: 'WORKFLOW', workflowId, workflowConfig, source: 'AUTO' };
+    }
     for (const [workflowId, workflow] of entries) {
-      if (workflow.activation?.mode === 'auto_start' || (config as any).autoStartWorkflow === true) {
-        return { kind: 'WORKFLOW', workflowId, workflowConfig: workflow, source: 'AUTO' };
-      }
       if (workflow.activation?.allowManualStart !== false &&
           (['start', 'begin', 'commencer', 'demarrer', 'ابدأ'].includes(normalized) ||
             normalized === normalizeTriggerText(workflowId.replace(/_/g, ' ')))) {

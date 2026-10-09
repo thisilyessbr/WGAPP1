@@ -137,6 +137,9 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     }
   }
   if (config.capabilities) {
+    if (config.capabilities.leadMode !== undefined && !['NONE', 'SERVICE', 'COMMERCE', 'BOTH'].includes(config.capabilities.leadMode)) {
+      throw new PortalError(400, 'INVALID_LEAD_MODE');
+    }
     for (const key of ['imageEnabled', 'ecommerceEnabled']) if (config.capabilities[key] !== undefined && typeof config.capabilities[key] !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
     if (config.capabilities.intents !== undefined) list(config.capabilities.intents, 50).forEach(raw => {
       const intent = object(raw); if (!text(intent.id, 100)) throw new PortalError(400, 'INVALID_INTENT');
@@ -160,6 +163,9 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
   }
   if (config.limits) for (const n of Object.values(config.limits)) integer(n, 1, 100000);
   if (config.workflows) {
+    const workflows = Object.values(config.workflows) as any[];
+    const autoStarted = workflows.filter(workflow => workflow.activation?.mode === 'auto_start');
+    if (autoStarted.length > 1) throw new PortalError(400, 'CONFLICTING_AUTO_START_WORKFLOWS');
     for (const workflow of Object.values(config.workflows) as any[]) {
       if (!workflow.initialState || !workflow.states?.[workflow.initialState]) throw new PortalError(400, 'INVALID_WORKFLOW');
       if (workflow.outcome?.pauseBotHours !== undefined) integer(workflow.outcome.pauseBotHours, 1, 720);
@@ -183,10 +189,40 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
           }
         }
         if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
+        if (state.type === 'choice' && (!Array.isArray(state.options) || state.options.length === 0)) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_CHOICE', 'A choice step needs at least one selectable option.');
+        }
+        if (state.type === 'choice' && state.options.some((option: any) => typeof option?.label !== 'string' || !option.label.trim())) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_CHOICE', 'Every choice option needs a visible label.');
+        }
         if (state.pauseBotHours !== undefined) integer(state.pauseBotHours, 1, 720);
         const targets = [...(state.transitions || []).map((t: any) => t.target), ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
         if (targets.some(target => !workflow.states[target])) throw new PortalError(400, 'INVALID_WORKFLOW_TARGET');
       }
+      // A closed cycle cannot finish without exhausting the runtime step limit.
+      // A state with no configured next step is terminal in the current engine.
+      const edges = new Map<string, string[]>();
+      const terminal = new Set<string>();
+      for (const [id, state] of Object.entries(workflow.states) as [string, any][]) {
+        const targets = [...(state.transitions || []).map((t: any) => t.target),
+          ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
+        edges.set(id, targets);
+        if (state.type === 'end' || state.type === 'handoff' || targets.length === 0) terminal.add(id);
+      }
+      const reachable = new Set<string>([workflow.initialState]);
+      const pending = [workflow.initialState];
+      while (pending.length) for (const target of edges.get(pending.pop()!) || []) {
+        if (!reachable.has(target)) { reachable.add(target); pending.push(target); }
+      }
+      const canFinish = new Set(terminal);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const [id, targets] of edges) if (!canFinish.has(id) && targets.some(target => canFinish.has(target))) {
+          canFinish.add(id); changed = true;
+        }
+      }
+      if ([...reachable].some(id => !canFinish.has(id))) throw new PortalError(400, 'WORKFLOW_CANNOT_FINISH');
     }
   }
   // A canonical customer request must have one unambiguous destination. The

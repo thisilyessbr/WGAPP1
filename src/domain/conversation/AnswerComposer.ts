@@ -1134,7 +1134,7 @@ ${turnDecision.inputQuery || ''}
     rawResponse: string,
     turnDecision?: TurnDecision | null,
     config?: BusinessConfig,
-    options?: { maxResponseLength?: number }
+    options?: { maxResponseLength?: number; preserveTrailingWorkflowPrompt?: boolean }
   ): string {
     const lang = turnDecision?.responseLanguage || 'en';
     const script = turnDecision?.responseScript || 'latin';
@@ -1223,6 +1223,28 @@ ${turnDecision.inputQuery || ''}
 
     if (cleaned.length <= limit) {
       return cleaned;
+    }
+
+    // A side-answer must not use the space reserved for the pending workflow
+    // question. Otherwise the customer sees the FAQ while the server silently
+    // waits for a field whose prompt was cut from the reply.
+    if (options?.preserveTrailingWorkflowPrompt) {
+      const separator = '\n\n---\n';
+      const splitAt = cleaned.lastIndexOf(separator);
+      if (splitAt >= 0) {
+        const pendingPrompt = cleaned.slice(splitAt + separator.length).trim();
+        const answer = cleaned.slice(0, splitAt).trim();
+        if (pendingPrompt) {
+          const answerBudget = limit - pendingPrompt.length - separator.length;
+          if (answerBudget <= 0) return pendingPrompt;
+          if (answer.length <= answerBudget) return `${answer}${separator}${pendingPrompt}`;
+          const excerpt = answer.slice(0, answerBudget);
+          const lastBoundary = Math.max(excerpt.lastIndexOf('. '), excerpt.lastIndexOf('؟ '), excerpt.lastIndexOf('\n'));
+          const shortened = (lastBoundary >= answerBudget / 2 ? excerpt.slice(0, lastBoundary + 1) : excerpt)
+            .trimEnd();
+          return `${shortened}${separator}${pendingPrompt}`;
+        }
+      }
     }
 
     const candidate = cleaned.slice(0, limit);

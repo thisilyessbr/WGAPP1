@@ -39,6 +39,13 @@ describe('portal visual workflows',()=>{
     config.capabilities.intents.push({id:'SUPPORT',workflowId:'support',useCases:['PURCHASE']});
     expect(()=>validateAdminConfig(config)).toThrow('One shared use case');
   });
+  it('rejects two auto-start workflows rather than depending on JSON order',()=>{
+    const first=template('lead','first');
+    const second=template('lead','second');
+    first.activation.mode='auto_start';
+    second.activation.mode='auto_start';
+    expect(()=>validateAdminConfig({workflows:{first,second}})).toThrow('CONFLICTING_AUTO_START_WORKFLOWS');
+  });
   it('captures the fields needed for a cash-on-delivery ticket before confirmation',()=>{
     const workflow=template('cod','checkout_test');
     expect(orderedSteps(workflow)).toEqual(['start','quantity','customer_name','phone','city','address','confirm','done']);

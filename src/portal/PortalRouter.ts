@@ -9,7 +9,7 @@ import { PortalProductImages } from './PortalProductImages';
 import { EMPTY_BUSINESS, PortalError, PortalPrincipal, PortalProfile, PortalPlan } from './types';
 import { allowed, compileBusiness, email, integer, list, object, text, validateAdminConfig, validatePlan } from './validation';
 import { ConversationEngine } from '../domain/conversation/ConversationEngine';
-import { ConversationAutomationService } from '../domain/conversation/ConversationAutomationService';
+import { AutomationTransitionError, ConversationAutomationService, ownershipStateFromSnapshot } from '../domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
 import { ClientOwnedMetaService } from '../domain/channel/whatsapp/ClientOwnedMetaService';
@@ -353,8 +353,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
           c.status,
           c."contextData",
           c."messageCount",
+          c."automationCapped",
+          c."postCompletionCapped",
           c."humanRequested",
           c."humanRequestedAt",
+          cas."botEnabled" AS "botEnabled",
+          cas."humanTakeover" AS "humanTakeover",
+          cas."pausedUntil" AS "pausedUntil",
           c."lastMerchantViewedAt",
           c."createdAt",
           c."updatedAt",
@@ -394,6 +399,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
             LIMIT 1
           ) AS "lastMessageCreatedAt"
         FROM "Conversation" c
+        LEFT JOIN "ConversationAutomationState" cas ON cas."conversationId"=c.id AND cas."tenantId"=c."tenantId"
         JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
         WHERE c."tenantId" = ${tenantId}
           AND c."accountId" = ${accountId}
@@ -405,14 +411,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     `;
 
     const filtered = rows.filter(r => {
-      let state: 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED' = 'AI_ACTIVE';
-      if (r.status === 'HUMAN_ACTIVE' || r.contextData?._portalHandoff?.ownerId) {
-        state = 'HUMAN_ACTIVE';
-      } else if (r.status === 'HANDOFF_REQUESTED' || r.humanRequested) {
-        state = 'HUMAN_REQUIRED';
-      } else if (r.status === 'RESOLVED') {
-        state = 'RESOLVED';
-      }
+      const state = ownershipStateFromSnapshot(r, r);
 
       if (statusFilter === 'open' && state === 'RESOLVED') return false;
       if (statusFilter === 'needs_human' && state !== 'HUMAN_REQUIRED') return false;
@@ -440,14 +439,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const paginated = filtered.slice(offset, offset + limit);
 
     const conversations = paginated.map(r => {
-      let state: 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED' = 'AI_ACTIVE';
-      if (r.status === 'HUMAN_ACTIVE' || r.contextData?._portalHandoff?.ownerId) {
-        state = 'HUMAN_ACTIVE';
-      } else if (r.status === 'HANDOFF_REQUESTED' || r.humanRequested) {
-        state = 'HUMAN_REQUIRED';
-      } else if (r.status === 'RESOLVED') {
-        state = 'RESOLVED';
-      }
+      const state = ownershipStateFromSnapshot(r, r);
 
       const isUnread = r.lastCustomerMessageAt !== null &&
         (!r.lastMerchantViewedAt || new Date(r.lastCustomerMessageAt) > new Date(r.lastMerchantViewedAt));
@@ -505,8 +497,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const beforeMessageId = typeof req.query.before === 'string' ? req.query.before : null;
 
     const convRows = await store.db.$queryRaw<any[]>`
-      SELECT c.*, cu."externalId" AS "customerPhone", cu.metadata AS "customerMetadata"
+      SELECT c.*, cas."botEnabled" AS "botEnabled",cas."humanTakeover" AS "humanTakeover",cas."pausedUntil" AS "pausedUntil",
+        cu."externalId" AS "customerPhone", cu.metadata AS "customerMetadata"
       FROM "Conversation" c
+      LEFT JOIN "ConversationAutomationState" cas ON cas."conversationId"=c.id AND cas."tenantId"=c."tenantId"
       JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
       WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId} AND c."accountId" = ${accountId}
         AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
@@ -555,14 +549,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       }
     }
 
-    let state: 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED' = 'AI_ACTIVE';
-    if (conv.status === 'HUMAN_ACTIVE' || conv.contextData?._portalHandoff?.ownerId) {
-      state = 'HUMAN_ACTIVE';
-    } else if (conv.status === 'HANDOFF_REQUESTED' || conv.humanRequested) {
-      state = 'HUMAN_REQUIRED';
-    } else if (conv.status === 'RESOLVED') {
-      state = 'RESOLVED';
-    }
+    const state = ownershipStateFromSnapshot(conv, conv);
 
     send(res, {
       conversation: {
@@ -1076,45 +1063,19 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (!['claim','release','resolve'].includes(action)) throw new PortalError(400, 'INVALID_HANDOFF_ACTION');
     const p = await store.profile(String(req.params.id));
     const conversationId = String(req.params.conversationId);
-    const conversation = await store.transaction(async s => {
-      const rows = await s.db.$queryRaw<any[]>`SELECT id,status,"humanRequested","humanRequestedAt","contextData" FROM "Conversation"
-        WHERE id=${conversationId} AND "accountId"=${p.accountId} AND "tenantId"=${p.tenantId}
-          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%') FOR UPDATE`;
-      const c = rows[0];
-      if (!c) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
-      if (!c.humanRequested || !['HANDOFF_REQUESTED','HUMAN_ACTIVE'].includes(c.status)) throw new PortalError(409, 'HANDOFF_NOT_PENDING');
-      const context = c.contextData && typeof c.contextData === 'object' && !Array.isArray(c.contextData) ? c.contextData : {};
-      const ownerId = context._portalHandoff?.ownerId;
-      if (ownerId && ownerId !== req.portal.user.id) throw new PortalError(409, 'HANDOFF_OWNED_BY_ANOTHER_ADMIN');
-      if (action !== 'claim' && ownerId !== req.portal.user.id) throw new PortalError(409, 'CLAIM_HANDOFF_FIRST');
-      const updatedContext = { ...context };
-      if (action === 'claim') updatedContext._portalHandoff = { ownerId: req.portal.user.id, claimedAt: context._portalHandoff?.claimedAt || new Date().toISOString() };
-      else delete updatedContext._portalHandoff;
-      const status = action === 'claim' ? 'HUMAN_ACTIVE' : action === 'release' ? 'HANDOFF_REQUESTED' : 'ACTIVE';
-      await s.db.$executeRaw`UPDATE "Conversation" SET status=${status},"humanRequested"=${action !== 'resolve'},
-        "humanRequestedAt"=${action === 'resolve' ? null : c.humanRequestedAt},"contextData"=${JSON.stringify(updatedContext)}::jsonb,"updatedAt"=NOW()
-        WHERE id=${conversationId} AND "accountId"=${p.accountId} AND "tenantId"=${p.tenantId}`;
-      await (s.db as any).conversationAutomationState.upsert({
-        where: { conversationId },
-        create: {
-          tenantId: p.tenantId,
-          accountId: p.accountId,
-          conversationId,
-          humanTakeover: action === 'claim',
-          botEnabled: action !== 'claim',
-          pauseReason: action === 'release' ? 'HANDOFF_REQUESTED' : null,
-          updatedBy: req.portal.user.id
-        },
-        update: {
-          humanTakeover: action === 'claim',
-          botEnabled: action !== 'claim',
-          pauseReason: action === 'release' ? 'HANDOFF_REQUESTED' : null,
-          updatedBy: req.portal.user.id
-        }
+    let conversation;
+    try {
+      conversation = await automationService.portalTriage({
+        tenantId: p.tenantId, accountId: p.accountId, conversationId,
+        actorId: req.portal.user.id, action: action as 'claim' | 'release' | 'resolve',
+        auditPortal: tx => new PortalStore(tx).audit(req.portal.user.id,p.accountId,'HANDOFF_'+action.toUpperCase(),{ conversationId })
       });
-      await s.audit(req.portal.user.id,p.accountId,'HANDOFF_'+action.toUpperCase(),{ conversationId });
-      return { id: conversationId, status, humanRequested: action !== 'resolve', ownerId: action === 'claim' ? req.portal.user.id : null };
-    });
+    } catch (error) {
+      if (error instanceof AutomationTransitionError) {
+        throw new PortalError(error.code === 'CONVERSATION_NOT_FOUND' ? 404 : 409, error.code);
+      }
+      throw error;
+    }
     send(res, { conversation });
   }));
   admin.get('/accounts/:id/conversations/:conversationId', route(async (req, res) => {

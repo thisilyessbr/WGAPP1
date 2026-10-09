@@ -7,7 +7,8 @@ import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
-import { FaqMatcher, LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { FaqAnswerPolicy } from '../../domain/faq/FaqAnswerPolicy';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
@@ -226,7 +227,8 @@ export class WorkflowEngine {
     ragService?: RAGService,
     correlationId?: string,
     effectiveLang?: string,
-    effectiveScript?: string
+    effectiveScript?: string,
+    accountId?: string | null
   ): Promise<WorkflowResult> {
     const startTime = Date.now();
     const currentStateId = session.stateId;
@@ -546,7 +548,8 @@ export class WorkflowEngine {
             
             // Layer 2: High-confidence FAQ match check (cheap-first in-memory, 0 LLM calls, 0 network API calls)
             if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-              const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq);
+              const faqMatch = FaqAnswerPolicy.match(message, businessConfig, lang as any,
+                { responseLanguage: lang as any, responseScript: script as any });
               if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
                 matchedAnswer = faqMatch.answer;
                 logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] (${faqMatch.matchType} confidence: ${faqMatch.confidence}) in state [${currentStateId}]`);
@@ -557,10 +560,11 @@ export class WorkflowEngine {
             if (!matchedAnswer && businessConfig.knowledge?.enabled && ragService) {
               try {
                 logger.info(`WorkflowEngine: [Cost Guard] Calling RAGService embedding vector search for query: "${message}"`);
-                const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig);
+                const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig, accountId);
                 const topChunk = ragResult.chunks?.[0];
                 const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
-                if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+                if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content &&
+                    DirectRagGuard.evaluate(message, topChunk.content, lang, script).isSafe) {
                   matchedAnswer = topChunk.content.trim();
                   logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) in state [${currentStateId}]`);
                 }
@@ -700,37 +704,14 @@ export class WorkflowEngine {
           });
         }
 
-        // 5. Off-script FAQ / PDF / RAG check side-path
-        const consecutive = currentContext['_consecutiveUnmatched'] || 0;
-        let matchedFaqAnswer: string | null = null;
+        // First decide whether this turn answers the pending field. A statement
+        // about the customer's own business may lexically resemble a FAQ.
         const allowsInterruption = workflowConfig.allowInterruption !== false;
-
-        // Layer 1: Fast deterministic FAQ check (in-memory, 0 AI)
-        if (allowsInterruption && consecutive < 2) {
-          if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-            const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq, lang as any);
-            if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
-              matchedFaqAnswer = faqMatch.answer;
-              logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] during collect step [${currentStateId}]`);
-            }
-          }
-        }
-
-        if (matchedFaqAnswer) {
-          // Answer off-script question, keep stateId and collectedData unchanged, reprompt collect step
-          response = `${matchedFaqAnswer}\n\n---\n${currentCollectPrompt}`;
-          return finishAndReturn({
-            updatedContext: currentContext,
-            nextStateId: currentStateId,
-            response,
-            isComplete: false,
-            updatedStateHistory: history,
-            updatedCollectedData: collectedData
-          });
-        }
-
-        // Classify the answer before any field or CRM state is mutated.
-        const turnKind = await WorkflowTurnGate.classify(
+        const mixedTurn = allowsInterruption
+          ? WorkflowTurnGate.splitPersonNameAndQuestion(trimmedMsg, fieldName, stateConfig.field) : null;
+        const questionText = mixedTurn?.question || trimmedMsg;
+        const fieldValue = mixedTurn?.fieldValue || trimmedMsg;
+        const turnKind = mixedTurn ? 'CUSTOMER_QUESTION' : await WorkflowTurnGate.classify(
           trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
         );
         const isQuestion = turnKind === 'CUSTOMER_QUESTION';
@@ -744,15 +725,31 @@ export class WorkflowEngine {
             updatedCollectedData: collectedData
           });
         }
-        let fieldValidationErr: string | null = null;
-        if (stateConfig.field && typeof stateConfig.field === 'object') {
-          fieldValidationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);
+
+        // 5. Off-script FAQ / PDF / RAG check side-path
+        const consecutive = currentContext['_consecutiveUnmatched'] || 0;
+        let matchedFaqAnswer: string | null = null;
+
+        // Layer 1: Fast deterministic FAQ check (in-memory, 0 AI)
+        if (isQuestion && allowsInterruption && consecutive < 2) {
+          if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
+            const faqMatch = FaqAnswerPolicy.match(questionText, businessConfig, lang as any,
+              { responseLanguage: lang as any, responseScript: script as any });
+            if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
+              matchedFaqAnswer = faqMatch.answer;
+              logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] during collect step [${currentStateId}]`);
+            }
+          }
         }
 
-        // Fast-path: Valid field value and NOT a question -> store text into collectedData immediately (0 RAG, 0 Embedding, 0 LLM)
-        if (!isQuestion && !fieldValidationErr) {
-          collectedData[fieldName] = trimmedMsg;
-          currentContext[fieldName] = trimmedMsg;
+        let fieldValidationErr: string | null = null;
+        if (stateConfig.field && typeof stateConfig.field === 'object') {
+          fieldValidationErr = this.fieldValidator.validate(fieldValue, stateConfig.field);
+        }
+
+        const advanceField = (answer?: string): WorkflowResult => {
+          collectedData[fieldName] = fieldValue;
+          currentContext[fieldName] = fieldValue;
           currentContext['_consecutiveUnmatched'] = 0;
 
           const newHistory = [...history, currentStateId];
@@ -760,14 +757,10 @@ export class WorkflowEngine {
 
           if (!nextStateId) {
             isComplete = true;
-            const defaultCompletion = getWorkflowMessage('completion', lang, script);
-            response = defaultCompletion;
+            response = getWorkflowMessage('completion', lang, script);
           } else {
             const nextStateConfig = workflowConfig.states[nextStateId];
-            if (!nextStateConfig) {
-              throw new Error(`Unauthorized or missing target state: ${nextStateId}`);
-            }
-
+            if (!nextStateConfig) throw new Error(`Unauthorized or missing target state: ${nextStateId}`);
             if (nextStateConfig.type === 'end') {
               isComplete = true;
               const defaultCompletion = getWorkflowMessage('completion', lang, script);
@@ -790,22 +783,39 @@ export class WorkflowEngine {
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId,
-            response,
+            response: answer ? `${answer}\n\n${response}` : response,
             isComplete,
             updatedStateHistory: newHistory,
             updatedCollectedData: collectedData
           });
+        };
+
+        const answerAndContinue = (answer: string, separator = false): WorkflowResult => mixedTurn && !fieldValidationErr
+          ? advanceField(answer)
+          : finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
+              response: `${answer}\n\n${separator ? '---\n' : ''}${currentCollectPrompt}`, isComplete: false,
+              updatedStateHistory: history, updatedCollectedData: collectedData });
+
+        if (matchedFaqAnswer) {
+          // Answer off-script question, keep stateId and collectedData unchanged, reprompt collect step
+          return answerAndContinue(matchedFaqAnswer, true);
+        }
+
+        // Fast-path: Valid field value and NOT a question -> store text into collectedData immediately (0 RAG, 0 Embedding, 0 LLM)
+        if (!isQuestion && !fieldValidationErr) {
+          return advanceField();
         }
 
         // 7. Off-script question handling (only when isQuestion is true)
         let matchedRagAnswer: string | null = null;
         if (isQuestion && allowsInterruption && consecutive < 2 && businessConfig.knowledge?.enabled && ragService) {
           try {
-            logger.info(`WorkflowEngine: Calling RAGService search during collect step for query: "${message}"`);
-            const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig);
+            logger.info(`WorkflowEngine: Calling RAGService search during collect step for query: "${questionText}"`);
+            const ragResult = await ragService.retrieve(session.tenantId, questionText, businessConfig, accountId);
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
-            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content &&
+                DirectRagGuard.evaluate(questionText, topChunk.content, lang, script).isSafe) {
               matchedRagAnswer = topChunk.content.trim();
               logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) during collect step [${currentStateId}]`);
             }
@@ -816,24 +826,16 @@ export class WorkflowEngine {
 
         if (matchedRagAnswer) {
           // Answer off-script question, keep stateId and collectedData unchanged, reprompt collect step
-          response = `${matchedRagAnswer}\n\n---\n${currentCollectPrompt}`;
-          return finishAndReturn({
-            updatedContext: currentContext,
-            nextStateId: currentStateId,
-            response,
-            isComplete: false,
-            updatedStateHistory: history,
-            updatedCollectedData: collectedData
-          });
+          return answerAndContinue(matchedRagAnswer, true);
         }
 
         if (isQuestion) {
           // Answer from owner-approved business facts, then resume the exact pending
           // form question. The customer question is never persisted as a field value.
-          const ownerEvidence = portalBusinessEvidence(businessConfig, trimmedMsg);
+          const ownerEvidence = portalBusinessEvidence(businessConfig, questionText);
           const ownerDescription = typeof businessConfig.portalFacts?.description === 'string'
             ? businessConfig.portalFacts.description.trim() : '';
-          const asksWhetherSuitable = /\b(?:mzyan|mezyan|good|bon|suitable|fit)\b|مزيان|مناسب|يناسب/iu.test(trimmedMsg);
+          const asksWhetherSuitable = /\b(?:mzyan|mezyan|good|bon|suitable|fit)\b|مزيان|مناسب|يناسب/iu.test(questionText);
           const descriptionUsesArabic = /[\u0600-\u06FF]/u.test(ownerDescription);
           const sameScript = descriptionUsesArabic === (script === 'arabic');
           if (allowsInterruption && asksWhetherSuitable && ownerDescription && sameScript && !DirectRagGuard.hasInternalArtifacts(ownerDescription)) {
@@ -842,15 +844,7 @@ export class WorkflowEngine {
               : lang === 'en' ? 'The demo will help you see whether it fits your business.'
               : script === 'arabizi' ? 'F demo t9der tchouf wach kaynasb nchat dyalek.'
               : 'فالديمو تقدر تشوف واش مناسب لنشاطك.';
-            response = `${summary}\n${fitNote}\n\n${currentCollectPrompt}`;
-            return finishAndReturn({
-              updatedContext: currentContext,
-              nextStateId: currentStateId,
-              response,
-              isComplete: false,
-              updatedStateHistory: history,
-              updatedCollectedData: collectedData
-            });
+            return answerAndContinue(`${summary}\n${fitNote}`);
           }
           if (allowsInterruption && ownerEvidence && llm) {
             try {
@@ -861,19 +855,11 @@ export class WorkflowEngine {
                 'Do not invent prices, availability, contact details, bookings, or promises. Do not ask for any form field yourself. ' +
                 `Respond in ${lang === 'darija' ? 'Moroccan Darija' : lang}, using ${script === 'arabic' ? 'Arabic' : 'Latin'} script. ` +
                 'If the evidence cannot answer, output exactly UNANSWERABLE.',
-                [{ role: 'user', content: `<BUSINESS_EVIDENCE>\n${ownerEvidence}\n</BUSINESS_EVIDENCE>\n<CUSTOMER_QUESTION>\n${trimmedMsg}\n</CUSTOMER_QUESTION>` }],
+                [{ role: 'user', content: `<BUSINESS_EVIDENCE>\n${ownerEvidence}\n</BUSINESS_EVIDENCE>\n<CUSTOMER_QUESTION>\n${questionText}\n</CUSTOMER_QUESTION>` }],
                 { ...llmOptions, temperature: 0, maxTokens: Math.min(llmOptions?.maxTokens || 180, 180), timeoutMs: Math.min(llmOptions?.timeoutMs || 5000, 5000) }
               )).trim();
               if (answer && !answer.includes('UNANSWERABLE') && !DirectRagGuard.hasInternalArtifacts(answer)) {
-                response = `${answer}\n\n${currentCollectPrompt}`;
-                return finishAndReturn({
-                  updatedContext: currentContext,
-                  nextStateId: currentStateId,
-                  response,
-                  isComplete: false,
-                  updatedStateHistory: history,
-                  updatedCollectedData: collectedData
-                });
+                return answerAndContinue(answer);
               }
             } catch (err) {
               logger.warn('WorkflowEngine: Mid-form business answer failed', { err });
@@ -888,15 +874,7 @@ export class WorkflowEngine {
           const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
             ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
             : defaultCollectFallback;
-          response = `${fallbackMsg}\n\n${currentCollectPrompt}`;
-          return finishAndReturn({
-            updatedContext: currentContext,
-            nextStateId: currentStateId,
-            response,
-            isComplete: false,
-            updatedStateHistory: history,
-            updatedCollectedData: collectedData
-          });
+          return answerAndContinue(fallbackMsg);
         }
 
         // If not a question and field validation failed, return validation error

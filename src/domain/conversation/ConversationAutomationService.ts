@@ -3,12 +3,31 @@ import { logger } from '../../utils/logger';
 
 export type AutomationOwnershipState = 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED';
 
+export function ownershipStateFromSnapshot(
+  conv: { status: string; humanRequested?: boolean; contextData?: any; automationCapped?: boolean; postCompletionCapped?: boolean },
+  autoState?: { humanTakeover?: boolean; botEnabled?: boolean; pausedUntil?: Date | string | null } | null,
+  now: Date = new Date()
+): AutomationOwnershipState {
+  if (autoState?.humanTakeover || conv.status === 'HUMAN_ACTIVE' || conv.contextData?._portalHandoff?.ownerId) return 'HUMAN_ACTIVE';
+  if (conv.status === 'RESOLVED') return 'RESOLVED';
+  if (conv.status === 'HANDOFF_REQUESTED' || conv.humanRequested || conv.status !== 'ACTIVE' ||
+      conv.automationCapped || conv.postCompletionCapped ||
+      autoState?.botEnabled === false || (autoState?.pausedUntil && new Date(autoState.pausedUntil) > now)) return 'HUMAN_REQUIRED';
+  return 'AI_ACTIVE';
+}
+
 export interface TransitionParams {
   tenantId: string;
   conversationId: string;
   actorId?: string;
   reason?: string;
   accountId?: string;
+}
+
+export class AutomationTransitionError extends Error {
+  constructor(readonly code: 'CONVERSATION_NOT_FOUND' | 'HANDOFF_NOT_PENDING' | 'HANDOFF_OWNED_BY_ANOTHER_ADMIN' | 'CLAIM_HANDOFF_FIRST') {
+    super(code);
+  }
 }
 
 export class ConversationAutomationService {
@@ -36,19 +55,7 @@ export class ConversationAutomationService {
       throw new Error(`Conversation [${conversationId}] not found for tenant [${tenantId}]`);
     }
 
-    if (autoState?.humanTakeover || conv.status === 'HUMAN_ACTIVE') {
-      return 'HUMAN_ACTIVE';
-    }
-
-    if (conv.status === 'HANDOFF_REQUESTED' || conv.humanRequested) {
-      return 'HUMAN_REQUIRED';
-    }
-
-    if (conv.status === 'RESOLVED') {
-      return 'RESOLVED';
-    }
-
-    return 'AI_ACTIVE';
+    return ownershipStateFromSnapshot(conv, autoState);
   }
 
   /**
@@ -72,20 +79,10 @@ export class ConversationAutomationService {
     }
 
     if (autoState && !autoState.humanTakeover && autoState.pausedUntil && autoState.pausedUntil <= new Date()) {
-      const fullState = await this.prisma.conversationAutomationState.findUnique({ where: { conversationId } });
-      if (fullState?.pauseReason === 'WORKFLOW_HANDOFF') {
-        await this.prisma.$transaction(async tx => {
-          await tx.conversation.updateMany({
-            where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
-            data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
-          });
-          await tx.conversationAutomationState.update({
-            where: { conversationId },
-            data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
-          });
-        });
-        return true;
-      }
+      // A concurrent human takeover or resolution must win over timer expiry.
+      // Never enable automation unless both ownership rows transition together.
+      if (await this.releaseExpiredWorkflowPause(tenantId, conversationId)) return true;
+      return false;
     }
 
     // If human takeover is active, bot must NEVER reply
@@ -116,6 +113,82 @@ export class ConversationAutomationService {
     return conv.status === 'ACTIVE';
   }
 
+  async releaseExpiredWorkflowPause(tenantId: string, conversationId: string, now: Date = new Date()): Promise<boolean> {
+    return this.prisma.$transaction(async tx => {
+      const state = await tx.conversationAutomationState.findUnique({ where: { conversationId } });
+      if (!state || state.tenantId !== tenantId || state.humanTakeover || !state.pausedUntil ||
+          state.pausedUntil > now || state.pauseReason !== 'WORKFLOW_HANDOFF') return false;
+      const changed = await tx.conversation.updateMany({
+        where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
+        data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null, version: { increment: 1 } }
+      });
+      if (changed.count !== 1) return false;
+      await tx.conversationAutomationState.update({
+        where: { conversationId },
+        data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
+      });
+      return true;
+    });
+  }
+
+  /** Admin triage uses the same two-row ownership transition as customer-facing controls. */
+  async portalTriage(params: TransitionParams & {
+    accountId: string; actorId: string; action: 'claim' | 'release' | 'resolve';
+    auditPortal?: (tx: any) => Promise<void>;
+  }): Promise<{
+    id: string; status: string; humanRequested: boolean; ownerId: string | null;
+  }> {
+    const { tenantId, accountId, conversationId, actorId, action } = params;
+    return this.prisma.$transaction(async tx => {
+      const rows = await tx.$queryRaw<any[]>`
+        SELECT c.id,c.status,c."humanRequested",c."humanRequestedAt",c."contextData"
+        FROM "Conversation" c
+        WHERE c.id=${conversationId} AND c."tenantId"=${tenantId} AND c."accountId"=${accountId}
+          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
+        FOR UPDATE
+      `;
+      const conv = rows[0];
+      if (!conv) throw new AutomationTransitionError('CONVERSATION_NOT_FOUND');
+      if (!conv.humanRequested || !['HANDOFF_REQUESTED', 'HUMAN_ACTIVE'].includes(conv.status)) {
+        throw new AutomationTransitionError('HANDOFF_NOT_PENDING');
+      }
+      const context = conv.contextData && typeof conv.contextData === 'object' && !Array.isArray(conv.contextData)
+        ? { ...conv.contextData } : {};
+      const ownerId = context._portalHandoff?.ownerId;
+      if (ownerId && ownerId !== actorId) throw new AutomationTransitionError('HANDOFF_OWNED_BY_ANOTHER_ADMIN');
+      if (action !== 'claim' && ownerId !== actorId) throw new AutomationTransitionError('CLAIM_HANDOFF_FIRST');
+      if (action === 'claim') context._portalHandoff = { ownerId: actorId, claimedAt: context._portalHandoff?.claimedAt || new Date().toISOString() };
+      else delete context._portalHandoff;
+      const status = action === 'claim' ? 'HUMAN_ACTIVE' : action === 'release' ? 'HANDOFF_REQUESTED' : 'ACTIVE';
+      const humanRequested = action !== 'resolve';
+      await tx.$executeRaw`UPDATE "Conversation" SET status=${status},"humanRequested"=${humanRequested},"version"="version"+1,
+        "automationCapped"=CASE WHEN ${action === 'resolve'} THEN false ELSE "automationCapped" END,
+        "postCompletionCapped"=CASE WHEN ${action === 'resolve'} THEN false ELSE "postCompletionCapped" END,
+        "humanRequestedAt"=${humanRequested ? conv.humanRequestedAt : null},"contextData"=${JSON.stringify(context)}::jsonb,"updatedAt"=NOW()
+        WHERE id=${conversationId} AND "tenantId"=${tenantId} AND "accountId"=${accountId}`;
+      await tx.conversationAutomationState.upsert({
+        where: { conversationId },
+        create: {
+          tenantId, accountId, conversationId,
+          humanTakeover: action === 'claim', botEnabled: action === 'resolve',
+          pauseReason: action === 'release' ? 'HANDOFF_REQUESTED' : null,
+          pausedUntil: null, updatedBy: actorId
+        },
+        update: {
+          humanTakeover: action === 'claim', botEnabled: action === 'resolve',
+          pauseReason: action === 'release' ? 'HANDOFF_REQUESTED' : null,
+          ...(action === 'resolve' ? { pausedUntil: null } : {}), updatedBy: actorId
+        }
+      });
+      await this.recordAuditEvent(tx, {
+        tenantId, accountId, conversationId, actorId,
+        action: `HANDOFF_${action.toUpperCase()}`
+      });
+      await params.auditPortal?.(tx);
+      return { id: conversationId, status, humanRequested, ownerId: action === 'claim' ? actorId : null };
+    });
+  }
+
   /**
    * Transition: AI_ACTIVE -> HUMAN_REQUIRED
    * Triggered when customer requests a human agent or keyword detection fires.
@@ -144,6 +217,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'HANDOFF_REQUESTED',
+          version: { increment: 1 },
           humanRequested: true,
           humanRequestedAt: conv.humanRequestedAt || new Date(),
           updatedAt: new Date()
@@ -220,6 +294,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'HUMAN_ACTIVE',
+          version: { increment: 1 },
           humanRequested: true,
           humanRequestedAt: conv.humanRequestedAt || new Date(),
           contextData: updatedContext,
@@ -288,6 +363,7 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'RESOLVED',
+          version: { increment: 1 },
           humanRequested: false,
           humanRequestedAt: null,
           contextData: existingContext,
@@ -360,8 +436,11 @@ export class ConversationAutomationService {
         where: { id: conversationId },
         data: {
           status: 'ACTIVE',
+          version: { increment: 1 },
           humanRequested: false,
           humanRequestedAt: null,
+          automationCapped: false,
+          postCompletionCapped: false,
           contextData: existingContext,
           updatedAt: new Date()
         }

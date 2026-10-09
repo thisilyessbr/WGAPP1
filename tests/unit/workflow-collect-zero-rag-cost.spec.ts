@@ -206,6 +206,15 @@ describe('Phase COST-FIX-46C: Zero-RAG Valid Workflow Field Path', () => {
     expect(res.response).toContain('Please provide your phone number:');
   });
 
+  it('scopes an interrupted form question to its business account', async () => {
+    const mockRag = createMockRagService();
+    const session = createSession('collect_phone');
+    await engine.process(session, 'Can you explain the refund policy in detail?', mockWorkflow,
+      testConfig, undefined, undefined, mockRag, undefined, undefined, undefined, 'account-123');
+    expect(mockRag.retrieve).toHaveBeenCalledWith(session.tenantId,
+      'Can you explain the refund policy in detail?', testConfig, 'account-123');
+  });
+
   it('10. Invalid field -> no mutation, no RAG called for non-question syntax errors', async () => {
     const mockRag = createMockRagService();
     const session = createSession('collect_email');

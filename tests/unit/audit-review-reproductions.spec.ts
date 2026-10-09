@@ -86,8 +86,13 @@ it('resumes a HUMAN_ACTIVE conversation atomically', async () => {
     channelAuditEvent: { create: vi.fn().mockResolvedValue({}) }
   };
   db.$transaction = vi.fn(async (fn) => fn(db));
-  const guard = new ClientSafetyGuard(db);
+  const automationService = { mayAutomatedAssistantReply: vi.fn().mockResolvedValue(true), reopen: vi.fn().mockImplementation(async () => {
+    state = { humanTakeover: false, botEnabled: true };
+    conversation.status = 'ACTIVE';
+  }) };
+  const guard = new ClientSafetyGuard(db, undefined, {}, automationService as any);
   await guard.setHumanTakeover('tenant-a', 'conv-a', false);
+  expect(automationService.reopen).toHaveBeenCalledWith({ tenantId: 'tenant-a', conversationId: 'conv-a', actorId: 'human-agent' });
   const result = await guard.evaluateOutbound({ tenantId: 'tenant-a', accountId: 'account-a', phoneNumberId: 'number-a', recipientWaId: 'customer-a', conversationId: 'conv-a' });
   expect(state.botEnabled).toBe(true);
   expect(result.code).toBe('ALLOWED');

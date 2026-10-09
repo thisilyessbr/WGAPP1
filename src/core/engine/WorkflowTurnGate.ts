@@ -7,6 +7,13 @@ export type WorkflowTurnKind = 'FIELD_ANSWER' | 'CUSTOMER_QUESTION' | 'UNCLEAR';
 // A question opener can have a one-character mobile typo. This is deliberately
 // limited to the first word, so arbitrary field answers are not keyword-scanned.
 const QUESTION_OPENERS = ['wach', 'wash', 'wesh', 'chhal', 'ch7al', 'kifach', 'what', 'where', 'when', 'which', 'comment', 'combien'];
+const CLEAR_QUESTION_OPENERS = new Set([
+  'what', 'where', 'when', 'which', 'who', 'why', 'how', 'can', 'could',
+  'do', 'does', 'is', 'are', 'tell', 'explain', 'comment', 'combien',
+  'quel', 'quelle', 'quels', 'quelles', 'wach', 'wash', 'wesh',
+  'chhal', 'ch7al', 'kifach', 'kifash', 'chno', 'ashno', 'fin',
+  'شنو', 'واش', 'كيفاش', 'شحال', 'هل', 'كيف', 'كم', 'متى', 'أين', 'اين'
+]);
 
 function isOneEditAway(value: string, candidate: string): boolean {
   if (Math.abs(value.length - candidate.length) > 1) return false;
@@ -28,6 +35,26 @@ function isOneEditAway(value: string, candidate: string): boolean {
 
 /** Classify a turn before a collect step can persist the customer's answer. */
 export class WorkflowTurnGate {
+  /** Only split an unambiguous name followed by a separate question. Never guess a name from a free-text need. */
+  static splitPersonNameAndQuestion(
+    message: string, fieldName: string, field: string | WorkflowFieldConfig | undefined
+  ): { fieldValue: string; question: string } | null {
+    const config = typeof field === 'object' ? field : undefined;
+    const isName = (config?.type || 'string') === 'string' &&
+      (config?.semanticType === 'person_name' || (!config?.semanticType && /^(?:fullname|username|name|customername|contactname)$/i.test(fieldName)));
+    if (!isName) return null;
+    const parts = message.trim().split(/[,،\n]|\s+[—–]\s+/u);
+    if (parts.length !== 2) return null;
+    const [fieldValue, question] = parts.map(part => part.trim());
+    const words = fieldValue.split(/\s+/u);
+    const validName = words.length >= 1 && words.length <= 3 &&
+      words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word));
+    const firstWord = GreetingRouter.normalize(question).split(/\s+/u)[0] || '';
+    const clearQuestion = question.includes('?') || question.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord) ||
+      (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word)));
+    return validName && clearQuestion ? { fieldValue, question } : null;
+  }
+
   static async classify(
     message: string,
     fieldName: string,
@@ -37,9 +64,11 @@ export class WorkflowTurnGate {
     options?: LLMRequestOptions
   ): Promise<WorkflowTurnKind> {
     const normalized = GreetingRouter.normalize(message);
-    if (GreetingRouter.hasQuestionIndicator(message, normalized)) return 'CUSTOMER_QUESTION';
-
     const firstWord = normalized.split(/\s+/u)[0] || '';
+    // Business topics such as "customer support" are answers to a need field,
+    // not questions merely because they contain an FAQ keyword.
+    if (message.includes('?') || message.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord))
+      return 'CUSTOMER_QUESTION';
     if (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word))) {
       return 'CUSTOMER_QUESTION';
     }
@@ -47,12 +76,15 @@ export class WorkflowTurnGate {
     const config = typeof field === 'object' ? field : undefined;
     const type = config?.type || 'string';
     const semanticType = type === 'string'
-      ? (config?.semanticType || (/^(?:fullname|name|customername|contactname)$/i.test(fieldName)
+      ? (config?.semanticType || (/^(?:fullname|username|name|customername|contactname)$/i.test(fieldName)
         ? 'person_name' : 'free_text'))
       : type;
     const words = normalized.split(/\s+/u).filter(Boolean);
     const nameShape = words.length >= 1 && words.length <= 3
-      && words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word));
+      && /^[\p{L}\p{M}'-]+$/u.test(words[0])
+      && words.every(word => /^(?:[\p{L}\p{M}'-]+|\d{1,2})$/u.test(word));
+
+    if (semanticType === 'person_name' && nameShape) return 'FIELD_ANSWER';
 
     if (llm && (type === 'string' || words.length > 1)) {
       try {
@@ -60,8 +92,10 @@ export class WorkflowTurnGate {
           `Route one customer message during a business form. Pending question: ${prompt}. ` +
           `Requested field: ${semanticType === 'person_name' ? 'PERSON NAME' : semanticType} (${fieldName}). ` +
           'The customer may use Moroccan Darija, typo-heavy Arabizi, French, Arabic, or English. ' +
-          'CUSTOMER_QUESTION means they ask about the business or product, even without punctuation. ' +
-          'FIELD_ANSWER means they actually provide the requested field. UNCLEAR means uncertain. ' +
+          'CUSTOMER_QUESTION means they ask about the provider business or product, even without punctuation. ' +
+          'FIELD_ANSWER means they describe their own activity, products, need, or other requested field, ' +
+          'even if product words match a FAQ. Judge against the pending question, not product keywords. ' +
+          'UNCLEAR means uncertain. ' +
           'Return exactly one label.',
           message,
           ['FIELD_ANSWER', 'CUSTOMER_QUESTION', 'UNCLEAR'],

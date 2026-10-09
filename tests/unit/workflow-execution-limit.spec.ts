@@ -227,7 +227,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
         },
         create: async ({ data }: any) => {
           const sess = {
-            id: `sess-${Date.now()}-${Math.random()}`,
+            id: data.id || `sess-${Date.now()}-${Math.random()}`,
             tenantId: data.tenantId,
             conversationId: data.conversationId,
             workflowId: data.workflowId,
@@ -324,6 +324,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     // Run 1
     await conversationEngine.handleMessage(tenantId, 'c1', 'I want to book a session', accountId);
+    expect(sessions.length).toBe(1);
     await conversationEngine.handleMessage(tenantId, 'c1', 'User A', accountId);
     const end1 = await conversationEngine.handleMessage(tenantId, 'c1', '+212600000001', accountId);
     expect(end1).toContain('Thank you User A! Your session is booked.');
