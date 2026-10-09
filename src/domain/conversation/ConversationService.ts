@@ -130,37 +130,15 @@ export class ConversationService {
   }
 
   async requestHandoff(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'HANDOFF_REQUESTED',
-        humanRequested: true,
-        humanRequestedAt: new Date()
-      }
-    });
+    return new ConversationAutomationService(this.prisma).requestHandoff({ tenantId, conversationId });
   }
 
   async takeOverByHuman(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'HUMAN_ACTIVE',
-        humanRequested: true
-      }
-    });
+    return new ConversationAutomationService(this.prisma).takeover({ tenantId, conversationId });
   }
 
   async resolveHandoff(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'ACTIVE',
-        humanRequested: false,
-        humanRequestedAt: null,
-        automationCapped: false,
-        postCompletionCapped: false
-      }
-    });
+    return new ConversationAutomationService(this.prisma).reopen({ tenantId, conversationId });
   }
 
   async persistMessage(tenantId: string, conversationId: string, role: string, content: string, externalId?: string | null): Promise<Message> {
@@ -279,10 +257,7 @@ export class ConversationService {
   }
 
   async flagHumanRequested(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { humanRequested: true, humanRequestedAt: new Date() }
-    });
+    return new ConversationAutomationService(this.prisma).requestHandoff({ tenantId, conversationId });
   }
 
   async getAutomationState(tenantId: string, conversationId: string): Promise<{

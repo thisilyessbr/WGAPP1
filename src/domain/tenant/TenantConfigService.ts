@@ -177,6 +177,9 @@ export class TenantConfigService {
     
     // Arrays or exact object replacements
     if (overrides.capabilities && typeof overrides.capabilities === 'object') {
+      if (['NONE', 'SERVICE', 'COMMERCE', 'BOTH'].includes(overrides.capabilities.leadMode)) {
+        merged.capabilities.leadMode = overrides.capabilities.leadMode;
+      }
       if (Array.isArray(overrides.capabilities.intents)) {
         merged.capabilities.intents = overrides.capabilities.intents;
       }

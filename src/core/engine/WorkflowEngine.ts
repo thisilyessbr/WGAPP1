@@ -563,7 +563,8 @@ export class WorkflowEngine {
                 const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig, accountId);
                 const topChunk = ragResult.chunks?.[0];
                 const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
-                if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+                if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content &&
+                    DirectRagGuard.evaluate(message, topChunk.content, lang, script).isSafe) {
                   matchedAnswer = topChunk.content.trim();
                   logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) in state [${currentStateId}]`);
                 }
@@ -811,7 +812,8 @@ export class WorkflowEngine {
             const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig, accountId);
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
-            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
+            if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content &&
+                DirectRagGuard.evaluate(message, topChunk.content, lang, script).isSafe) {
               matchedRagAnswer = topChunk.content.trim();
               logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) during collect step [${currentStateId}]`);
             }
