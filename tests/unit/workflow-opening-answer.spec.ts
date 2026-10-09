@@ -38,4 +38,14 @@ describe('a question alongside a workflow request', () => {
     expect(workflowOpeningAnswer('بغيت ديمو، واش خدام ف Instagram?', withFaq, 'darija', 'arabic'))
       .toBe('Instagram DM متاح حسب الباقة وربط الحساب.');
   });
+
+  it('answers a second English sentence before starting the workflow', () => {
+    const withFaq = structuredClone(config);
+    withFaq.capabilities.faq = [{
+      id: 'instagram-en', language: 'en', question: 'Does it work on Instagram?',
+      answer: 'Instagram DM is available depending on the plan and account connection.'
+    }];
+    expect(workflowOpeningAnswer('I want a demo tomorrow at 3 pm. Does it work on Instagram?', withFaq, 'en', 'latin'))
+      .toBe('Instagram DM is available depending on the plan and account connection.');
+  });
 });
