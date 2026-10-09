@@ -118,6 +118,20 @@ function fixture(ecommerce?: any) {
 }
 
 describe('Darija full engine regression', () => {
+  it('answers a separate price question while opening the approved purchase workflow', async () => {
+    const { engine, config, service } = fixture();
+    config.behavior.responseScript = 'arabic';
+    config.portalFacts = { policies: { payment: 'لا نطلب بيانات البطاقة. السعر حسب الباقة والاحتياج؛ يؤكده الفريق.' } };
+    config.capabilities.intents = [{ id: 'demo', description: 'Request a demo', workflowId: 'demo', useCases: ['PURCHASE'] }];
+    config.workflows = { demo: { id: 'demo', initialState: 'name', states: {
+      name: { type: 'collect', field: { name: 'fullName', type: 'string', required: true, semanticType: 'person_name' }, prompt: { darija: 'شنو سميتك؟' } }
+    } } };
+    service.createSession = async () => ({ id: 's', tenantId: 't', conversationId: 'v', workflowId: 'demo', stateId: 'name', contextData: {}, collectedData: {}, stateHistory: [] });
+    const reply = await engine.handleMessage('t', 'c', 'Bghit nchri wa7d chatbot, ch7al taman?', 'a');
+    expect(reply).toContain('السعر حسب الباقة والاحتياج');
+    expect(reply).toContain('شنو سميتك؟');
+    expect(service.commitConversationTurn.mock.calls[0][0].sessionUpdate.status).toBe('ACTIVE');
+  });
   it.each(['salam', 'salaam', 'slm', 'سلام', 'السلام عليكم'])('greets naturally: %s', async text => {
     const { engine } = fixture(); const reply = await engine.handleMessage('t', 'c', text, 'a');
     expect(reply.toLowerCase()).toMatch(/salam|سلام/);
@@ -171,7 +185,7 @@ describe('Darija workflow confirmations and prompts', () => {
     expect(result.nextStateId).toBe('done');
     expect(/[\u0600-\u06ff]/.test(result.response)).toBe(script === 'arabic');
   });
-  it.each(['ma bghitch', 'mabghitch', 'ma bghit ch', 'ما بغيتش', 'مابغيتش'])('cancels a refused active workflow: %s', async text => {
+  it.each(['ma bghitch', 'mabghitch', 'ma bghit ch', 'ما بغيتش', 'مابغيتش', 'la, bghit nlghi', 'لا، بغيت نلغي'])('cancels a refused active workflow: %s', async text => {
     expect(WorkflowCancellationDetector.isCancellation(text)).toBe(true);
     const { engine, config, service } = fixture(); config.workflows = { w: workflow }; service.getActiveSession = async () => structuredClone(session);
     const reply = await engine.handleMessage('t', 'c', text, 'a');
