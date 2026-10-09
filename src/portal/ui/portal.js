@@ -274,7 +274,10 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     const controlField=([section,key,label,fallback,type])=>{
       const id='control-'+section+'-'+key,value=current(section,key,fallback);
       if(type==='checkbox')return `<label class="admin-setting-toggle"><input id="${id}" type="checkbox" ${value?'checked':''}><span><strong>${escape(label)}</strong><small>${escape(toggleHelp[key]||'')}</small></span></label>`;
-      if(type.startsWith('select:'))return `<div class="field"><label for="${id}">${escape(label)}</label><select id="${id}">${type.slice(7).split('|').map(option=>`<option value="${option}" ${value===option?'selected':''}>${escape(option==='en'?'English':option==='fr'?'Français':option==='ar'?'العربية':option==='darija'?'Darija':option)}</option>`).join('')}</select></div>`;
+      if(type.startsWith('select:')){
+        const labels={en:'English',fr:'Français',ar:'العربية',darija:'Darija',auto:'Automatic',arabic:'Arabic script',arabizi:'Latin script (Arabizi)',short:'Short',medium:'Medium',long:'Long'};
+        return `<div class="field"><label for="${id}">${escape(label)}</label><select id="${id}">${type.slice(7).split('|').map(option=>`<option value="${option}" ${value===option?'selected':''}>${escape(labels[option]||option)}</option>`).join('')}</select></div>`;
+      }
       return field(id,label,value,type);
     };
     const limitNames={messages:'Customer messages',llmCalls:'AI calls',monthlyUsd:'Estimated AI spend (USD)',images:'Image analyses',embeddings:'Embeddings',numbers:'WhatsApp numbers',products:'Products',documents:'Documents',storageMb:'Document storage (MB)'};
@@ -401,7 +404,12 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
   async function adminExtras(id,p,members=[],connectionRows=[]){
     document.querySelector('.page-heading .actions')?.insertAdjacentHTML('afterbegin',`<a class="btn secondary" href="/admin/client/${encodeURIComponent(id)}/answer-reviews" data-route>Answer reviews</a>`);
     const owner=members[0],heading=document.querySelector('.page-heading p');
-    if(owner&&heading)heading.textContent=`${owner.name} · ${owner.email} · ${p.status}`;
+    if(owner&&heading)heading.innerHTML=`<span data-no-translate>${escape(owner.name)} · <bdi>${escape(owner.email)}</bdi></span> · ${status(p.status)}`;
+    document.querySelectorAll('.connection-card .small.muted').forEach((label,index)=>{
+      const connection=connectionRows[index];
+      if(!connection)return;
+      label.innerHTML=`<span>${connection.provider==='QR_WEB'?'QR · Experimental':'Official WhatsApp API'}</span> · <span>${escape(String(connection.numberStatus||connection.status||'').replaceAll('_',' '))}</span>`;
+    });
     const qrCard=document.createElement('article');qrCard.className='card qr-pilot-card';qrCard.id='admin-qr-connection';
     const qrInPlan=p.planSnapshot?.modules.includes('qr');
     qrCard.innerHTML=`<div class="card-title"><div><h2>Optional QR connection</h2><p>The official API remains the default. Allow QR only for a pilot account whose plan includes it.</p></div><button type="button" class="btn secondary" ${!qrInPlan&&!p.qrAllowed?'disabled':''}>${p.qrAllowed?'Disable QR':'Allow QR'}</button></div><p class="small muted">${qrInPlan?'QR included in this plan.':'Assign a QR pilot plan to enable this option.'}</p><p class="small muted">${p.qrConsentAt?'Client accepted the QR limitations.':'The client must accept the QR limitations before scanning.'}</p>`;

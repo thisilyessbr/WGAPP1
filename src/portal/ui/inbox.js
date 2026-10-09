@@ -390,7 +390,7 @@
               <div class="inbox-msg-sender">
                 <span>${esc(senderLabel)}</span>
               </div>
-              <div class="inbox-msg-content">${esc(m.content)}</div>
+              <div class="inbox-msg-content" dir="auto" data-no-translate>${esc(m.content)}</div>
               <div class="inbox-msg-meta">
                 <span>${esc(timeStr)}</span>
                 ${deliveryHtml}
