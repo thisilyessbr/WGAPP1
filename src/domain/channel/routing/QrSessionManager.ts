@@ -43,7 +43,7 @@ export class QrSessionManager {
   private async permitted(connection:ChannelConnection, activeOnly=false) {
     const p=await this.prisma.portalProfile.findUnique({where:{accountId:connection.accountId}});
     return connection.enabled && connection.provider==='QR_WEB' && p?.tenantId===connection.tenantId && qrEntitled(p)
-      && (!activeOnly || p?.status==='ACTIVE') && !await this.numberService.isEmergencyQrStopped();
+      && (!activeOnly || (p?.status==='ACTIVE' && connection.botEnabled)) && !await this.numberService.isEmergencyQrStopped();
   }
   private stopLocal(id:string) {
     const timer=this.retryTimers.get(id);if(timer)clearTimeout(timer);this.retryTimers.delete(id);
@@ -64,7 +64,7 @@ export class QrSessionManager {
     phoneNumberId: string;
   }> {
     if (!this.enabled) {
-      throw new Error('QR channels are disabled. Set ENABLE_QR_CHANNELS=true only on the dedicated long-running QR worker.');
+      throw new Error('QR channels are disabled. Use ENABLE_QR_CHANNELS=true only on a supported always-on combined web/worker process.');
     }
     if (await this.numberService.isEmergencyQrStopped()) {
       throw new Error('Emergency QR stop is active. Clear it before starting a QR session.');
@@ -81,7 +81,8 @@ export class QrSessionManager {
       connectionKey: sessionKey,
       sessionKey,
       status: 'PENDING',
-      enabled: true
+      enabled: true,
+      botEnabled: false
     });
     const phoneNumberId = `qr:${sessionKey}`;
     await this.numberService.registerNumber({
@@ -161,10 +162,12 @@ export class QrSessionManager {
           });
           await this.ownership.saveQr(connectionId,null);
           await this.numberService.updateConnectionStatus(connection.id, connection.tenantId, 'CONNECTED');
-          await this.prisma.whatsAppBusinessNumber.updateMany({
-            where: { connectionId: connection.id, tenantId: connection.tenantId },
-            data: { status: 'CONNECTED', enabled: true, displayPhoneNumber: display }
-          });
+          // Read the latest admin switch in SQL, not the pre-handshake snapshot.
+          // A concurrent pause must never be overwritten by a late socket-open event.
+          await this.prisma.$executeRaw`UPDATE "WhatsAppBusinessNumber" n SET status='CONNECTED',
+            enabled=c."botEnabled", "displayPhoneNumber"=${display}, "updatedAt"=NOW()
+            FROM "ChannelConnection" c WHERE n."connectionId"=c.id AND c.id=${connection.id}
+            AND n."tenantId"=c."tenantId" AND n."accountId"=c."accountId"`;
           this.openedAt.set(connectionId,Date.now());
         }
 
@@ -251,6 +254,15 @@ export class QrSessionManager {
     }
   }
 
+  async shutdown(): Promise<void> {
+    for (const connectionId of [...this.sessions.keys()]) {
+      this.stopLocal(connectionId);
+      await this.ownership.release(connectionId);
+    }
+    for (const timer of this.retryTimers.values()) clearTimeout(timer);
+    this.retryTimers.clear();
+  }
+
   async suspendAll(): Promise<void> {
     for (const [connectionId, live] of this.sessions) {
       this.stopLocal(connectionId);await this.ownership.release(connectionId);
@@ -298,6 +310,9 @@ export class QrSessionManager {
 
   async disconnect(connection: ChannelConnection): Promise<void> {
     await this.numberService.disconnectConnection(connection.id, connection.tenantId);
+    // A fresh linked device must be approved again, even if this QR number
+    // previously had chatbot replies enabled.
+    await this.prisma.channelConnection.update({where:{id:connection.id},data:{botEnabled:false}});
     const live = this.sessions.get(connection.id);
     if (live) {
       await live.socket.logout().catch(() => undefined);

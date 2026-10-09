@@ -386,6 +386,7 @@ model ChannelConnection {
   connectionKey        String   @default("default")
   status               String   @default("PENDING")
   enabled              Boolean  @default(true)
+  botEnabled           Boolean  @default(true)
   encryptedCredentials String?
   appId                String?
   wabaId               String?

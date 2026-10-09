@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import express from 'express';
+import request from 'supertest';
 import { portalDatabase } from '../helpers/portal-db';
 import { PortalStore } from '../../src/portal/PortalStore';
 import { PortalConnections } from '../../src/portal/PortalConnections';
+import { PortalAuth, hashToken } from '../../src/portal/PortalAuth';
+import { createPortalRouter } from '../../src/portal/PortalRouter';
+import { validateProcessConfig } from '../../src/runtime/shared';
 import { validatePlan } from '../../src/portal/validation';
 import { QrSessionOwnership } from '../../src/domain/channel/routing/QrSessionOwnership';
 import { QrSessionManager } from '../../src/domain/channel/routing/QrSessionManager';
@@ -98,6 +103,56 @@ describe('optional QR pilot controls and session ownership',()=>{
     await expect(service.qr(other.principal,linked.connectionId)).rejects.toMatchObject({code:'CONNECTION_NOT_FOUND'});
     await expect(service.disconnectQr(other.principal,linked.connectionId)).rejects.toMatchObject({code:'CONNECTION_NOT_FOUND'});
   });
+  it('allows multiple distinct QR numbers only when the admin raises the account allowance',async()=>{
+    const owner=await account();
+    let profile=await store.profile(owner.accountId);
+    profile=await store.updateAccount(owner.userId,owner.accountId,profile.revision,{limitOverrides:{numbers:3}});
+    expect(profile.planSnapshot?.limits.numbers).toBe(3);
+    await store.setQrAllowed(owner.userId,owner.accountId,true);
+    const create=vi.fn(async()=>({connection:{id:await connection(owner)}}));
+    const service=new PortalConnections(store,{qrSessionManager:{isEnabled:()=>true,createConnection:create,getQr:async()=>null},prisma:adapter()} as any);
+    const first=await service.startQr(owner.principal,true);
+    const second=await service.startQr(owner.principal,true);
+    const third=await service.startQr(owner.principal,true);
+    expect(new Set([first.connectionId,second.connectionId,third.connectionId]).size).toBe(3);
+    await expect(service.startQr(owner.principal,true)).rejects.toMatchObject({code:'NUMBER_ALLOWANCE_REACHED'});
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+  it('rejects unsupported split-process QR deployments',()=>{
+    vi.stubEnv('ENABLE_QR_CHANNELS','true');
+    vi.stubEnv('RUN_WORKER_IN_WEB','false');
+    try {
+      expect(()=>validateProcessConfig('web','test')).toThrow('single always-on web process');
+      expect(()=>validateProcessConfig('worker','test')).toThrow('single always-on web process');
+      vi.stubEnv('RUN_WORKER_IN_WEB','true');
+      expect(()=>validateProcessConfig('web','test')).not.toThrow();
+    } finally {vi.unstubAllEnvs();}
+  });
+  it('lets an administrator activate and pause one QR bot without disconnecting its number',async()=>{
+    const owner=await account();await store.setQrAllowed(owner.userId,owner.accountId,true);
+    await store.db.$executeRaw`UPDATE "PortalProfile" SET "qrConsentAt"=NOW() WHERE "accountId"=${owner.accountId}`;
+    const first=await connection(owner),second=await connection(owner);
+    await store.db.$executeRaw`UPDATE "ChannelConnection" SET status='CONNECTED',"botEnabled"=false WHERE id IN (${first},${second})`;
+    await store.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET status='CONNECTED' WHERE "connectionId" IN (${first},${second})`;
+    const adminId=randomUUID();
+    await store.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash",role,"verifiedAt") VALUES (${adminId},${randomUUID()+'@example.test'},'QR Admin','test-hash','ADMIN',NOW())`;
+    const session=randomUUID().replaceAll('-','')+randomUUID().replaceAll('-',''),csrf=randomUUID();
+    await store.newSession(adminId,hashToken(session),csrf,new Date(Date.now()+60000));
+    const manager={isEnabled:()=>true,start:vi.fn(async()=>{})};
+    const app=express();app.use(express.json());
+    app.use('/api',createPortalRouter({store,auth:new PortalAuth(store,{publicUrl:'http://localhost'}),documents:{} as any,connections:{} as any},
+      {prisma:adapter(),qrSessionManager:manager} as any));
+    const headers={Cookie:'relayqo_portal='+session,'X-CSRF-Token':csrf,Origin:'http://localhost'};
+    const url=`/api/admin/accounts/${owner.accountId}/connections/${first}`;
+    expect((await request(app).patch(url).set(headers).send({enabled:true})).status).toBe(200);
+    expect((await store.db.$queryRaw<any[]>`SELECT "botEnabled",enabled FROM "ChannelConnection" WHERE id=${first}`)[0]).toMatchObject({botEnabled:true,enabled:true});
+    expect((await store.db.$queryRaw<any[]>`SELECT enabled FROM "WhatsAppBusinessNumber" WHERE "connectionId"=${first}`)[0].enabled).toBe(true);
+    expect((await request(app).patch(url).set(headers).send({enabled:false})).status).toBe(200);
+    expect((await store.db.$queryRaw<any[]>`SELECT "botEnabled",enabled FROM "ChannelConnection" WHERE id=${first}`)[0]).toMatchObject({botEnabled:false,enabled:true});
+    expect((await store.db.$queryRaw<any[]>`SELECT enabled FROM "WhatsAppBusinessNumber" WHERE "connectionId"=${first}`)[0].enabled).toBe(false);
+    expect((await store.db.$queryRaw<any[]>`SELECT "botEnabled" FROM "ChannelConnection" WHERE id=${second}`)[0].botEnabled).toBe(false);
+    expect(manager.start).not.toHaveBeenCalled();
+  });
   it('revokes QR when the admin removes it from the assigned plan',async()=>{
     const owner=await account();await store.setQrAllowed(owner.userId,owner.accountId,true);const id=await connection(owner);
     const standard=await store.savePlan(owner.userId,validatePlan({name:'API only',modules:['services'],limits:{numbers:2}}));
@@ -127,6 +182,21 @@ describe('optional QR pilot controls and session ownership',()=>{
     await expect(manager.send(id,'212608477191','loop',scope)).rejects.toThrow('QR_RATE_LIMIT');expect(socket.sendMessage).toHaveBeenCalledTimes(4);
     await store.setQrAllowed(owner.userId,owner.accountId,false);
     await expect(manager.send(id,'212608477191','reply',scope)).rejects.toThrow('QR_NOT_ALLOWED');expect(socket.sendMessage).toHaveBeenCalledTimes(4);
+  });
+  it('pauses chatbot replies per QR number without unlinking its live socket',async()=>{
+    const {owner,id,manager,socket,queue}=await running();
+    const scope={tenantId:owner.tenantId,accountId:owner.accountId,phoneNumberId:`qr:${id}`};
+    const message={key:{remoteJid:'212608477191@s.whatsapp.net',id:'paused-message'},message:{conversation:'Salam'},messageTimestamp:Math.floor(Date.now()/1000)};
+    await store.db.$executeRaw`UPDATE "ChannelConnection" SET "botEnabled"=false WHERE id=${id}`;
+    await store.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false WHERE "connectionId"=${id}`;
+    await socket.handlers.get('messages.upsert')({type:'notify',messages:[message]});
+    expect(queue.enqueue).not.toHaveBeenCalled();
+    await expect(manager.send(id,'212608477191','reply',scope)).rejects.toThrow('QR_NOT_ALLOWED');
+    expect(socket.end).not.toHaveBeenCalled();
+    await store.db.$executeRaw`UPDATE "ChannelConnection" SET "botEnabled"=true WHERE id=${id}`;
+    await store.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=true WHERE "connectionId"=${id}`;
+    await socket.handlers.get('messages.upsert')({type:'notify',messages:[message]});
+    expect(queue.enqueue).toHaveBeenCalledTimes(1);
   });
   it('ignores history, groups and unresolved device IDs and namespaces incoming message IDs',async()=>{
     const {id,socket,queue}=await running(),handler=socket.handlers.get('messages.upsert');

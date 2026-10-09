@@ -129,7 +129,7 @@ export class PortalStore {
       await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrAllowed"=${allowed},
         revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
       if(!allowed) {
-        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
+        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,"botEnabled"=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
         await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND transport='QR_WEB'`;
         await s.db.$executeRaw`DELETE FROM "QrSessionLease" WHERE "connectionId" IN (SELECT id FROM "ChannelConnection" WHERE "accountId"=${accountId} AND provider='QR_WEB')`;
       }
@@ -212,7 +212,7 @@ export class PortalStore {
       const instagramRemoved = Boolean(profile.instagramAllowed && !profile.planSnapshot?.modules.includes('instagram'));
       if(profile.qrAllowed&&!profile.planSnapshot?.modules.includes('qr')) {
         await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrAllowed"=false WHERE "accountId"=${accountId}`;
-        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
+        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,"botEnabled"=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
         await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND transport='QR_WEB'`;
         await s.audit(actorId,accountId,'QR_ACCESS_REVOKED',{reason:'PLAN_CHANGED'});
       }
@@ -319,7 +319,7 @@ export class PortalStore {
   }
   async auditHistory(accountId: string | null, offset = 0) { return this.db.$queryRaw<any[]>`SELECT * FROM "PortalAudit" WHERE (${accountId}::text IS NULL OR "accountId"=${accountId}) ORDER BY "createdAt" DESC LIMIT 100 OFFSET ${offset}`; }
   async versions(accountId: string) { return this.db.$queryRaw<any[]>`SELECT id,revision,"actorId","createdAt" FROM "PortalPublication" WHERE "accountId"=${accountId} ORDER BY revision DESC LIMIT 30`; }
-  async connections(accountId: string, tenantId: string) { return this.db.$queryRaw<any[]>`SELECT c.id,c.provider,c.status,c.enabled,c."connectionKey" AS label,c."updatedAt",n.id AS "numberRecordId",n."phoneNumberId",n."displayPhoneNumber",n.status AS "numberStatus"
+  async connections(accountId: string, tenantId: string) { return this.db.$queryRaw<any[]>`SELECT c.id,c.provider,c.status,c.enabled,c."botEnabled",c."connectionKey" AS label,c."updatedAt",n.id AS "numberRecordId",n."phoneNumberId",n."displayPhoneNumber",n.status AS "numberStatus",n.enabled AS "numberEnabled"
     FROM "ChannelConnection" c LEFT JOIN "WhatsAppBusinessNumber" n ON n."connectionId"=c.id AND n."tenantId"=c."tenantId" AND n."accountId"=c."accountId"
     WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId} ORDER BY c."createdAt"`; }
   async usage(accountId: string) {

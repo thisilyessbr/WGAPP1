@@ -24,9 +24,13 @@ export async function startWebServer(): Promise<WebRuntimeInstance> {
     ? bootstrapWorkerDependencies(prisma, {
         workerConcurrency: Number(process.env.WHATSAPP_QUEUE_WORKER_CONCURRENCY || 2),
         autoStartQueue: true,
-        enableDocumentWorker: process.env.PORTAL_DOCUMENT_WORKER === 'true'
+        enableDocumentWorker: process.env.PORTAL_DOCUMENT_WORKER === 'true',
+        qrSessionManager: deps.qrSessionManager
       })
     : undefined;
+  if (workerDeps && deps.qrSessionManager?.isEnabled()) {
+    await deps.qrSessionManager.restoreEnabledSessions();
+  }
   const app = await createApp(deps);
 
   const host = process.env.HOST || '0.0.0.0';
@@ -62,6 +66,8 @@ export async function startWebServer(): Promise<WebRuntimeInstance> {
     if (deps.portalService) {
       deps.portalService.stop();
     }
+
+    await deps.qrSessionManager?.shutdown();
 
     logger.info('[WEB] Disconnecting database pool...');
     await prisma.$disconnect();

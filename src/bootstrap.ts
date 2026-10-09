@@ -133,6 +133,7 @@ export interface WorkerBootstrapOptions {
   autoStartQueue?: boolean;
   enableDocumentWorker?: boolean;
   useMemoryQueue?: boolean;
+  qrSessionManager?: QrSessionManager;
 }
 
 function voiceNoteOptions(prisma: PrismaClient) {
@@ -359,7 +360,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     secretBox
   });
 
-  const qrSessionManager = new QrSessionManager(
+  const qrSessionManager = options.qrSessionManager ?? new QrSessionManager(
     prisma,
     whatsAppNumberService,
     whatsAppMessageQueue,

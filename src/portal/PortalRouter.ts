@@ -1035,13 +1035,17 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       }
     }
     await store.transaction(async s => {
-      const n = await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
+      const n = isQr
+        ? await s.db.$executeRaw`UPDATE "ChannelConnection" SET "botEnabled"=${req.body.enabled},enabled=CASE WHEN ${req.body.enabled} THEN true ELSE enabled END,
+            status=CASE WHEN ${req.body.enabled} AND status IN ('PAUSED','FAILED','DISCONNECTED') THEN 'PENDING' ELSE status END,"updatedAt"=NOW()
+            WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`
+        : await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
       if (!n) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
-      if(isQr) await s.db.$executeRaw`UPDATE "ChannelConnection" SET status=${req.body.enabled?'PENDING':'PAUSED'} WHERE id=${scopedConnection.id}`;
-      await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=${isQr?false:req.body.enabled},"updatedAt"=NOW() WHERE "connectionId"=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
+      await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=${isQr ? req.body.enabled && scopedConnection.enabled && scopedConnection.status === 'CONNECTED' : req.body.enabled},"updatedAt"=NOW()
+        WHERE "connectionId"=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
       await s.audit(req.portal.user.id, p.accountId, 'CONNECTION_TOGGLED', { enabled: req.body.enabled });
     });
-    if(isQr && req.body.enabled) await deps.qrSessionManager!.start(scopedConnection.id);
+    if(isQr && req.body.enabled && (!scopedConnection.enabled || scopedConnection.status !== 'CONNECTED')) await deps.qrSessionManager!.start(scopedConnection.id);
     send(res, { success: true });
   }));
   admin.get('/accounts/:id/conversations', route(async (req, res) => {

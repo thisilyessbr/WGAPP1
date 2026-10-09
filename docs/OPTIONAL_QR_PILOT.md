@@ -10,8 +10,9 @@ official or guarantee that WhatsApp will not disconnect or restrict the number.
    to both transports or transfer another client's number implicitly.
 2. In Admin → Plans, create a draft using **Service Assistant · QR Pilot** or
    **Sales Assistant · QR Pilot**. Review prices and limits before publishing.
-   Both presets allow two numbers total; the official and QR numbers share that
-   allowance. Existing client plan snapshots do not change automatically.
+   Both presets start with two numbers total; the official and QR numbers share
+   that allowance. An administrator can raise the per-account number limit for
+   multiple distinct QR numbers. Existing plan snapshots do not change automatically.
 3. Assign the chosen plan to the client and approve the account.
 4. In the client's admin screen, select **Allow QR**. This alone does not enable
    a disconnected or suspended individual connection.
@@ -19,17 +20,24 @@ official or guarantee that WhatsApp will not disconnect or restrict the number.
    QR notice, checks acceptance, and clicks **Add number with QR**.
 6. On the phone for the additional number: WhatsApp → Linked devices → Link a
    device. Scan only the QR shown in that client's authenticated workspace.
-7. Activate the account after setup and send a text from a separate number.
+7. Each newly scanned QR number starts with chatbot replies paused. In the
+   client's admin screen, activate replies for that specific number after
+   checking its ownership and configuration. Repeat scanning and activation
+   per additional number; never reuse one phone number on two connections.
+   Activate the account after setup and send a text from a separate number.
    Check the reply, inbox, and account usage. A real scan/send test is still
    required; automated tests use a mocked WhatsApp socket.
-8. To stop it, the client selects **Disconnect QR**, or the admin disables QR or
-   the individual connection. To resume an admin-paused connection, the admin
-   must explicitly enable it; the client can then use Reconnect if necessary.
+8. To pause the bot without unlinking the phone, the admin selects **Pause
+   replies** for that number. To unlink it, the client selects **Disconnect QR**.
+   Disabling QR account access pauses all QR replies and connections.
 
 ## Runtime requirements
 
 Use one always-on application process for the initial pilot, running both queue
-consumption and QR sessions. Keep `ENABLE_QR_CHANNELS=false` on sleeping/free web
+consumption and QR sessions (`RUN_WORKER_IN_WEB=true`). The web and worker now
+share one QR session manager; startup restores eligible sessions. Separate QR
+worker processes are rejected because outbound dispatch to a session owner is
+not yet implemented. Keep `ENABLE_QR_CHANNELS=false` on sleeping/free web
 services. The global flag must be explicitly enabled on suitable infrastructure;
 no production service settings are changed by this patch.
 
