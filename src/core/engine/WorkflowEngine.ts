@@ -227,7 +227,8 @@ export class WorkflowEngine {
     ragService?: RAGService,
     correlationId?: string,
     effectiveLang?: string,
-    effectiveScript?: string
+    effectiveScript?: string,
+    accountId?: string | null
   ): Promise<WorkflowResult> {
     const startTime = Date.now();
     const currentStateId = session.stateId;
@@ -559,7 +560,7 @@ export class WorkflowEngine {
             if (!matchedAnswer && businessConfig.knowledge?.enabled && ragService) {
               try {
                 logger.info(`WorkflowEngine: [Cost Guard] Calling RAGService embedding vector search for query: "${message}"`);
-                const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig);
+                const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig, accountId);
                 const topChunk = ragResult.chunks?.[0];
                 const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
                 if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {
@@ -807,7 +808,7 @@ export class WorkflowEngine {
         if (isQuestion && allowsInterruption && consecutive < 2 && businessConfig.knowledge?.enabled && ragService) {
           try {
             logger.info(`WorkflowEngine: Calling RAGService search during collect step for query: "${message}"`);
-            const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig);
+            const ragResult = await ragService.retrieve(session.tenantId, message, businessConfig, accountId);
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
             if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content) {

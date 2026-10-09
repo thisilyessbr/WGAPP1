@@ -160,6 +160,9 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
   }
   if (config.limits) for (const n of Object.values(config.limits)) integer(n, 1, 100000);
   if (config.workflows) {
+    const workflows = Object.values(config.workflows) as any[];
+    const autoStarted = workflows.filter(workflow => workflow.activation?.mode === 'auto_start');
+    if (autoStarted.length > 1) throw new PortalError(400, 'CONFLICTING_AUTO_START_WORKFLOWS');
     for (const workflow of Object.values(config.workflows) as any[]) {
       if (!workflow.initialState || !workflow.states?.[workflow.initialState]) throw new PortalError(400, 'INVALID_WORKFLOW');
       if (workflow.outcome?.pauseBotHours !== undefined) integer(workflow.outcome.pauseBotHours, 1, 720);

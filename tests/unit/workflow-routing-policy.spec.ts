@@ -47,6 +47,13 @@ describe('single workflow-routing policy', () => {
     expect(WorkflowRoutingPolicy.resolve('bghit nchri wa7d', config)).toEqual({ kind: 'AMBIGUOUS', useCase: 'PURCHASE' });
   });
 
+  it('fails closed if a legacy config contains two auto-start workflows', () => {
+    const config = serviceConfig();
+    config.workflows!.demo.activation = { mode: 'auto_start' };
+    config.workflows!.fitness.activation = { mode: 'auto_start' };
+    expect(WorkflowRoutingPolicy.resolve('hello', config)).toEqual({ kind: 'AMBIGUOUS' });
+  });
+
   it('leaves a store purchase to its ecommerce engine when no workflow is mapped', () => {
     const config = serviceConfig();
     config.capabilities.ecommerceEnabled = true;

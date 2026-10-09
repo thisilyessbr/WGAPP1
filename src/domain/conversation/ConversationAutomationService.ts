@@ -72,20 +72,10 @@ export class ConversationAutomationService {
     }
 
     if (autoState && !autoState.humanTakeover && autoState.pausedUntil && autoState.pausedUntil <= new Date()) {
-      const fullState = await this.prisma.conversationAutomationState.findUnique({ where: { conversationId } });
-      if (fullState?.pauseReason === 'WORKFLOW_HANDOFF') {
-        await this.prisma.$transaction(async tx => {
-          await tx.conversation.updateMany({
-            where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
-            data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
-          });
-          await tx.conversationAutomationState.update({
-            where: { conversationId },
-            data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
-          });
-        });
-        return true;
-      }
+      // A concurrent human takeover or resolution must win over timer expiry.
+      // Never enable automation unless both ownership rows transition together.
+      if (await this.releaseExpiredWorkflowPause(tenantId, conversationId)) return true;
+      return false;
     }
 
     // If human takeover is active, bot must NEVER reply
@@ -114,6 +104,24 @@ export class ConversationAutomationService {
     }
 
     return conv.status === 'ACTIVE';
+  }
+
+  async releaseExpiredWorkflowPause(tenantId: string, conversationId: string, now: Date = new Date()): Promise<boolean> {
+    return this.prisma.$transaction(async tx => {
+      const state = await tx.conversationAutomationState.findUnique({ where: { conversationId } });
+      if (!state || state.tenantId !== tenantId || state.humanTakeover || !state.pausedUntil ||
+          state.pausedUntil > now || state.pauseReason !== 'WORKFLOW_HANDOFF') return false;
+      const changed = await tx.conversation.updateMany({
+        where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
+        data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
+      });
+      if (changed.count !== 1) return false;
+      await tx.conversationAutomationState.update({
+        where: { conversationId },
+        data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
+      });
+      return true;
+    });
   }
 
   /**

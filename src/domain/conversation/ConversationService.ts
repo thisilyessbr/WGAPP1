@@ -1,7 +1,9 @@
 import { PrismaClient, Conversation, WorkflowSession, Message } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { ConversationContext, buildConversationContext } from './ConversationContext';
 import { logger } from '../../utils/logger';
 import { WhatsAppDeliveryReceiptProcessor } from '../channel/whatsapp/WhatsAppDeliveryReceiptProcessor';
+import { ConversationAutomationService } from './ConversationAutomationService';
 
 export interface ConversationWithMessages extends Conversation {
   messages: Message[];
@@ -43,7 +45,7 @@ export class ConversationService {
     const baseWhere: any = {
       tenantId,
       customerId: customer.id,
-      ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+      accountId: trimmedAccountId
     };
 
     // 2. Check for active/handoff conversations first
@@ -109,7 +111,7 @@ export class ConversationService {
           customerId: customer.id,
           status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
           automationCapped: false,
-          ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+          accountId: trimmedAccountId
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -236,19 +238,15 @@ export class ConversationService {
   }
 
   async createSession(tenantId: string, conversationId: string, workflowId: string, stateId: string): Promise<WorkflowSession> {
-    return this.prisma.workflowSession.create({
-      data: {
-        tenantId,
-        conversationId,
-        workflowId,
-        stateId,
-        stateHistory: [],
-        collectedData: {},
-        humanRequested: false,
-        status: 'ACTIVE',
-        contextData: {}
-      }
-    });
+    // A new workflow is only made visible when its first conversation turn commits.
+    // Do not write an ACTIVE session before the response and lead are ready.
+    const now = new Date();
+    return {
+      id: randomUUID(), tenantId, conversationId, workflowId, stateId,
+      stateHistory: [], collectedData: {}, humanRequested: false,
+      humanRequestedAt: null, status: 'ACTIVE', contextData: {},
+      createdAt: now, updatedAt: now
+    };
   }
 
   async updateSessionState(
@@ -306,19 +304,7 @@ export class ConversationService {
 
   async releaseExpiredWorkflowPause(tenantId: string, conversationId: string, now: Date = new Date()): Promise<boolean> {
     if (!this.prisma.conversationAutomationState?.findUnique) return false;
-    return this.prisma.$transaction(async tx => {
-      const state = await tx.conversationAutomationState.findUnique({ where: { conversationId } });
-      if (!state || state.tenantId !== tenantId || state.humanTakeover || !state.pausedUntil || state.pausedUntil > now || state.pauseReason !== 'WORKFLOW_HANDOFF') return false;
-      await tx.conversation.updateMany({
-        where: { id: conversationId, tenantId, status: 'HANDOFF_REQUESTED', humanRequested: true },
-        data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null }
-      });
-      await tx.conversationAutomationState.update({
-        where: { conversationId },
-        data: { botEnabled: true, pausedUntil: null, pauseReason: null, updatedBy: 'system:workflow-pause-expired' }
-      });
-      return true;
-    });
+    return new ConversationAutomationService(this.prisma).releaseExpiredWorkflowPause(tenantId, conversationId, now);
   }
 
   /**
@@ -458,6 +444,7 @@ export class ConversationService {
     contextData?: Record<string, any> | null;
     sessionUpdate?: {
       sessionId: string;
+      newWorkflowId?: string;
       stateId: string;
       contextData: Record<string, any>;
       status?: string;
@@ -523,9 +510,7 @@ export class ConversationService {
 
       // 3. Update WorkflowSession if provided
       if (params.sessionUpdate) {
-        await tx.workflowSession.update({
-          where: { id: params.sessionUpdate.sessionId },
-          data: {
+        const sessionData = {
             stateId: params.sessionUpdate.stateId,
             contextData: params.sessionUpdate.contextData,
             status: params.sessionUpdate.status || 'ACTIVE',
@@ -533,8 +518,21 @@ export class ConversationService {
             ...(params.sessionUpdate.collectedData !== undefined ? { collectedData: params.sessionUpdate.collectedData } : {}),
             ...(params.sessionUpdate.humanRequested !== undefined ? { humanRequested: params.sessionUpdate.humanRequested } : {}),
             ...(params.sessionUpdate.humanRequestedAt !== undefined ? { humanRequestedAt: params.sessionUpdate.humanRequestedAt } : {})
-          }
-        });
+        };
+        if (params.sessionUpdate.newWorkflowId) {
+          await tx.workflowSession.create({ data: {
+            id: params.sessionUpdate.sessionId,
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            workflowId: params.sessionUpdate.newWorkflowId,
+            ...sessionData
+          } });
+        } else {
+          await tx.workflowSession.update({
+            where: { id: params.sessionUpdate.sessionId },
+            data: sessionData
+          });
+        }
       }
 
 

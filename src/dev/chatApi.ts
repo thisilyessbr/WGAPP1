@@ -43,6 +43,7 @@ const upload = multer({
 export interface AuthenticatedPrincipal {
   tenantId: string;
   customerId?: string;
+  accountId?: string;
   role?: string;
   id?: string;
   platformAdmin?: boolean;
@@ -51,9 +52,16 @@ export interface AuthenticatedPrincipal {
 export interface TokenPayload {
   tenantId: string;
   customerId?: string;
+  accountId?: string;
   role?: string;
   sub?: string;
   exp?: number;
+}
+
+export function customerMayAccessAccount(principal: AuthenticatedPrincipal, accountId?: string): boolean {
+  if (!principal.customerId || principal.role === 'admin' || principal.platformAdmin) return true;
+  if (!accountId && !principal.accountId) return true;
+  return Boolean(accountId && principal.accountId === accountId);
 }
 
 declare global {
@@ -176,6 +184,7 @@ export function resolvePrincipal(req: Request): AuthenticatedPrincipal | null {
       return {
         tenantId: signedPayload.tenantId,
         customerId: signedPayload.customerId,
+        accountId: signedPayload.accountId,
         role: signedPayload.role,
         id: signedPayload.sub
       };
@@ -1010,6 +1019,12 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
     const tenantId = req.principal!.tenantId;
     const { customerId, message, imageBase64, imageUrl, mimeType } = req.body;
     const accountId = (req.body.accountId as string) || (req.headers['x-account-id'] as string) || undefined;
+
+    // Customer tokens may access only their signed business account. Legacy
+    // unscoped customer tokens remain valid for accountless conversations only.
+    if (!customerMayAccessAccount(req.principal!, accountId)) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Customer account authorization mismatch.' });
+    }
 
     if (req.principal!.customerId && req.principal!.customerId !== customerId) {
       return res.status(403).json({

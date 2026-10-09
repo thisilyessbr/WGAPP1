@@ -689,6 +689,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     let response = '';
     let sessionUpdatePayload: {
       sessionId: string;
+      newWorkflowId?: string;
       stateId: string;
       contextData: Record<string, any>;
       status?: string;
@@ -928,7 +929,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           const workflowScript = config.behavior?.responseScript && config.behavior.responseScript !== 'auto'
             ? config.behavior.responseScript
             : (typeof activeWorkflowContext?._script === 'string' ? activeWorkflowContext._script : effectiveScript);
-          const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, workflowLang, workflowScript);
+          const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, workflowLang, workflowScript, conversation.accountId);
           applyWorkflowHandoff(result);
           const newStatus = result.isComplete ? 'COMPLETED' : 'ACTIVE';
           if (result.isComplete) {
@@ -1003,7 +1004,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           logger.info(`ConversationEngine: Starting workflow [${workflowId}] for conversation [${conversation.id}] (post-completion re-trigger)`);
 
           const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
-          const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+          const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
           applyWorkflowHandoff(result);
 
           if (result.isComplete) {
@@ -1018,6 +1019,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
           sessionUpdatePayload = {
             sessionId: session.id,
+            newWorkflowId: workflowId,
             stateId: result.nextStateId || session.stateId,
             contextData: result.updatedContext,
             status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
@@ -1400,7 +1402,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             logger.info(`ConversationEngine: Starting workflow [${workflowId}] for fresh conversation [${conversation.id}]`);
 
             const session = await this.conversationService.createSession(tenantId, conversation.id, workflowId, workflowConfig.initialState);
-            const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript);
+            const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
             applyWorkflowHandoff(result);
 
             if (result.isComplete) {
@@ -1415,6 +1417,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
             sessionUpdatePayload = {
               sessionId: session.id,
+              newWorkflowId: workflowId,
               stateId: result.nextStateId || session.stateId,
               contextData: result.updatedContext,
               status: result.isComplete ? 'COMPLETED' : 'ACTIVE',

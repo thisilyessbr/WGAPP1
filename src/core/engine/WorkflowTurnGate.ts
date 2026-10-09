@@ -7,6 +7,13 @@ export type WorkflowTurnKind = 'FIELD_ANSWER' | 'CUSTOMER_QUESTION' | 'UNCLEAR';
 // A question opener can have a one-character mobile typo. This is deliberately
 // limited to the first word, so arbitrary field answers are not keyword-scanned.
 const QUESTION_OPENERS = ['wach', 'wash', 'wesh', 'chhal', 'ch7al', 'kifach', 'what', 'where', 'when', 'which', 'comment', 'combien'];
+const CLEAR_QUESTION_OPENERS = new Set([
+  'what', 'where', 'when', 'which', 'who', 'why', 'how', 'can', 'could',
+  'do', 'does', 'is', 'are', 'tell', 'explain', 'comment', 'combien',
+  'quel', 'quelle', 'quels', 'quelles', 'wach', 'wash', 'wesh',
+  'chhal', 'ch7al', 'kifach', 'kifash', 'chno', 'ashno', 'fin',
+  'شنو', 'واش', 'كيفاش', 'شحال', 'هل', 'كيف', 'كم', 'متى', 'أين', 'اين'
+]);
 
 function isOneEditAway(value: string, candidate: string): boolean {
   if (Math.abs(value.length - candidate.length) > 1) return false;
@@ -37,9 +44,11 @@ export class WorkflowTurnGate {
     options?: LLMRequestOptions
   ): Promise<WorkflowTurnKind> {
     const normalized = GreetingRouter.normalize(message);
-    if (GreetingRouter.hasQuestionIndicator(message, normalized)) return 'CUSTOMER_QUESTION';
-
     const firstWord = normalized.split(/\s+/u)[0] || '';
+    // Business topics such as "customer support" are answers to a need field,
+    // not questions merely because they contain an FAQ keyword.
+    if (message.includes('?') || message.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord))
+      return 'CUSTOMER_QUESTION';
     if (firstWord.length >= 4 && QUESTION_OPENERS.some(word => isOneEditAway(firstWord, word))) {
       return 'CUSTOMER_QUESTION';
     }
@@ -47,12 +56,15 @@ export class WorkflowTurnGate {
     const config = typeof field === 'object' ? field : undefined;
     const type = config?.type || 'string';
     const semanticType = type === 'string'
-      ? (config?.semanticType || (/^(?:fullname|name|customername|contactname)$/i.test(fieldName)
+      ? (config?.semanticType || (/^(?:fullname|username|name|customername|contactname)$/i.test(fieldName)
         ? 'person_name' : 'free_text'))
       : type;
     const words = normalized.split(/\s+/u).filter(Boolean);
     const nameShape = words.length >= 1 && words.length <= 3
-      && words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word));
+      && /^[\p{L}\p{M}'-]+$/u.test(words[0])
+      && words.every(word => /^(?:[\p{L}\p{M}'-]+|\d{1,2})$/u.test(word));
+
+    if (semanticType === 'person_name' && nameShape) return 'FIELD_ANSWER';
 
     if (llm && (type === 'string' || words.length > 1)) {
       try {
