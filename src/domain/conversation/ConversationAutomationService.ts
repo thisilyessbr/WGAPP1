@@ -132,7 +132,10 @@ export class ConversationAutomationService {
   }
 
   /** Admin triage uses the same two-row ownership transition as customer-facing controls. */
-  async portalTriage(params: TransitionParams & { accountId: string; actorId: string; action: 'claim' | 'release' | 'resolve' }): Promise<{
+  async portalTriage(params: TransitionParams & {
+    accountId: string; actorId: string; action: 'claim' | 'release' | 'resolve';
+    auditPortal?: (tx: any) => Promise<void>;
+  }): Promise<{
     id: string; status: string; humanRequested: boolean; ownerId: string | null;
   }> {
     const { tenantId, accountId, conversationId, actorId, action } = params;
@@ -181,6 +184,7 @@ export class ConversationAutomationService {
         tenantId, accountId, conversationId, actorId,
         action: `HANDOFF_${action.toUpperCase()}`
       });
+      await params.auditPortal?.(tx);
       return { id: conversationId, status, humanRequested, ownerId: action === 'claim' ? actorId : null };
     });
   }

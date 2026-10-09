@@ -1067,7 +1067,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     try {
       conversation = await automationService.portalTriage({
         tenantId: p.tenantId, accountId: p.accountId, conversationId,
-        actorId: req.portal.user.id, action: action as 'claim' | 'release' | 'resolve'
+        actorId: req.portal.user.id, action: action as 'claim' | 'release' | 'resolve',
+        auditPortal: tx => new PortalStore(tx).audit(req.portal.user.id,p.accountId,'HANDOFF_'+action.toUpperCase(),{ conversationId })
       });
     } catch (error) {
       if (error instanceof AutomationTransitionError) {
@@ -1075,7 +1076,6 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       }
       throw error;
     }
-    await store.audit(req.portal.user.id,p.accountId,'HANDOFF_'+action.toUpperCase(),{ conversationId });
     send(res, { conversation });
   }));
   admin.get('/accounts/:id/conversations/:conversationId', route(async (req, res) => {

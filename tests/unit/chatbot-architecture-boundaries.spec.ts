@@ -24,12 +24,14 @@ describe('chatbot architecture boundaries', () => {
     };
     const prisma = { $transaction: (fn: (transaction: typeof tx) => Promise<unknown>) => fn(tx) };
     const service = new ConversationAutomationService(prisma as any);
+    const auditPortal = vi.fn().mockResolvedValue(undefined);
     const result = await service.portalTriage({ tenantId: 'tenant-1', accountId: 'account-1',
-      conversationId: 'conversation-1', actorId: 'staff-1', action: 'resolve' });
+      conversationId: 'conversation-1', actorId: 'staff-1', action: 'resolve', auditPortal });
     expect(result).toMatchObject({ status: 'ACTIVE', humanRequested: false });
     expect(tx.conversationAutomationState.upsert).toHaveBeenCalledWith(expect.objectContaining({
       update: expect.objectContaining({ botEnabled: true, pausedUntil: null, humanTakeover: false })
     }));
+    expect(auditPortal).toHaveBeenCalledWith(tx);
   });
 
   it('carries the tenant lead mode through effective configuration', async () => {
