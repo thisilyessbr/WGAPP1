@@ -6,6 +6,7 @@ import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, getWorkflowMessage } from '
 import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
+import { OpeningTemporalPreference } from './OpeningTemporalPreference';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 import { LanguageDetector } from '../../domain/faq/FaqMatcher';
 import { FaqAnswerPolicy } from '../../domain/faq/FaqAnswerPolicy';
@@ -300,6 +301,32 @@ export class WorkflowEngine {
 
       const isInitialEntry = !currentContext['_started'];
       currentContext['_started'] = true;
+
+      if (isInitialEntry) {
+        const preference = OpeningTemporalPreference.extract(message);
+        if (preference) {
+          // Look only along the configured linear path. Do not prefill another
+          // branch, the opening field, or an arbitrary free-text field.
+          const visited = new Set<string>([currentStateId]);
+          let cursor = stateConfig.next;
+          while (cursor && !visited.has(cursor)) {
+            visited.add(cursor);
+            const state = workflowConfig.states[cursor];
+            if (!state) break;
+            if (state.type === 'collect' && OpeningTemporalPreference.isField(state.field, cursor)) {
+              const fieldName = typeof state.field === 'string' ? state.field : state.field?.name || cursor;
+              const fieldConfig = typeof state.field === 'object' ? state.field : undefined;
+              const afterTemporal = state.next && workflowConfig.states[state.next];
+              if (afterTemporal && (!fieldConfig || !this.fieldValidator.validate(preference, fieldConfig))) {
+                currentContext['_openingTemporalPreference'] = { fieldName, value: preference, capturedAt: Date.now() };
+              }
+              break;
+            }
+            if (state.type !== 'collect') break;
+            cursor = state.next;
+          }
+        }
+      }
 
       const finishAndReturn = (result: WorkflowResult): WorkflowResult => {
         const latencyMs = Date.now() - startTime;
@@ -781,6 +808,31 @@ export class WorkflowEngine {
 
           const newHistory = [...history, currentStateId];
           nextStateId = stateConfig.next || stateConfig.transitions?.[0]?.target || null;
+
+          const openingPreference = currentContext['_openingTemporalPreference'];
+          if (openingPreference && nextStateId) {
+            const nextState = workflowConfig.states[nextStateId];
+            const nextFieldName = nextState?.type === 'collect'
+              ? (typeof nextState.field === 'string' ? nextState.field : nextState.field?.name || nextStateId)
+              : null;
+            if (nextFieldName && nextFieldName === openingPreference.fieldName) {
+              delete currentContext['_openingTemporalPreference'];
+            }
+            if (nextFieldName && nextFieldName === openingPreference.fieldName &&
+                typeof openingPreference.value === 'string' &&
+                openingPreference.value.length <= 60 &&
+                typeof openingPreference.capturedAt === 'number' &&
+                Date.now() - openingPreference.capturedAt >= 0 &&
+                Date.now() - openingPreference.capturedAt < 60 * 60 * 1000 &&
+                OpeningTemporalPreference.isField(nextState?.field, nextStateId) &&
+                nextState?.next && workflowConfig.states[nextState.next] &&
+                (typeof nextState?.field !== 'object' || !this.fieldValidator.validate(openingPreference.value, nextState.field))) {
+              collectedData[nextFieldName] = openingPreference.value;
+              currentContext[nextFieldName] = openingPreference.value;
+              newHistory.push(nextStateId);
+              nextStateId = nextState?.next || nextState?.transitions?.[0]?.target || null;
+            }
+          }
 
           if (!nextStateId) {
             isComplete = true;
