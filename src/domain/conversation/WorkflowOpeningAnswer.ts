@@ -7,7 +7,10 @@ import { SupportedScript } from '../rag/DirectRagGuard';
 export function workflowOpeningAnswer(
   message: string, config: BusinessConfig, language: SupportedLanguage, script: SupportedScript
 ): string | null {
-  const clauses = message.split(/[,،;؛\n]+/u).map(part => part.trim()).filter(Boolean);
+  // Customers often put the conversion request and a separate question in
+  // two sentences ("I want a demo. Does it work on Instagram?"). Keep each
+  // sentence available for the same approved-FAQ lookup as comma clauses.
+  const clauses = message.split(/[,،;؛\n]+|(?<=[.!؟?])\s+/u).map(part => part.trim()).filter(Boolean);
   if (clauses.length < 2) return null;
   const question = clauses.slice(1).find(part =>
     /[?؟]/u.test(part) || /^(?:ch7al|sh7al|bch7al|wach|wash|شنو|واش|شحال|بشحال|كم|ما|combien|quel(?:le)?|est-ce|how|what|can|does)\b/iu.test(part)
