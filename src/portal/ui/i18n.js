@@ -269,6 +269,17 @@
       const action = translations.get(transitionField[1])?.[locale] || transitionField[1];
       return left + `${action} ${transitionField[2]}${field ? ` · ${field}` : ''}` + right;
     }
+    const workflowMessageField = key.match(/^(Existing open request message|Bot message) · (en|fr|ar|darija)$/);
+    if (workflowMessageField) return left + `${translations.get(workflowMessageField[1])?.[locale] || workflowMessageField[1]} · ${workflowMessageField[2]}` + right;
+    const intentField = key.match(/^Intent (\d+) (ID|description|shared use cases — one per line|custom keywords — one per line|workflow)$/);
+    if (intentField) {
+      const parts = locale === 'fr'
+        ? { ID: 'identifiant', description: 'description', 'shared use cases — one per line': 'cas d’usage communs — un par ligne', 'custom keywords — one per line': 'mots-clés personnalisés — un par ligne', workflow: 'parcours' }
+        : { ID: 'المعرّف', description: 'الوصف', 'shared use cases — one per line': 'حالات الاستخدام المشتركة — واحدة في كل سطر', 'custom keywords — one per line': 'كلمات مخصصة — كلمة في كل سطر', workflow: 'مسار العمل' };
+      return left + (locale === 'fr' ? `Intention ${intentField[1]} · ${parts[intentField[2]]}` : `النية ${intentField[1]} · ${parts[intentField[2]]}`) + right;
+    }
+    const graphEdge = key.match(/^(Next|Continue) → (.+)$/);
+    if (graphEdge) return left + `${translations.get(graphEdge[1])?.[locale] || graphEdge[1]} → ${graphEdge[2]}` + right;
     const inquiryCount = key.match(/^(\d+) (inquiry|inquiries|lead|leads)$/);
     if (inquiryCount) {
       const singular = inquiryCount[2] === 'inquiry' || inquiryCount[2] === 'lead';
@@ -770,6 +781,12 @@
 
   for (const [en, fr, ar] of [
     ['Review','Vérifier','مراجعة'],['Start','Commencer','بدء'],
+    ['Activation','Activation','طريقة التفعيل'],['Unlimited','Illimité','غير محدود'],
+    ['Required','Obligatoire','مطلوب'],['Confirmation','Confirmation','تأكيد'],
+    ['Message','Message','رسالة'],['Choice','Choix','خيار'],
+    ['Default','Par défaut','افتراضي'],['Continue','Continuer','متابعة'],
+    ['Finish','Terminer','إنهاء'],['Next →','Suivant →','التالي ←'],
+    ['Intent','Intention','نية'],
     ['Variant','Variante','خيار'],['Untitled entry','Élément sans titre','عنصر بدون عنوان'],
     ['Setup sent for review.','Configuration envoyée pour validation.','أُرسل الإعداد للمراجعة.'],
     ['Choose a PDF first.','Choisissez d’abord un PDF.','اختر ملف PDF أولًا.'],

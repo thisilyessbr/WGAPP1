@@ -12,6 +12,9 @@ function page(language: 'ar' | 'fr') {
       <p>How the assistant introduces itself and speaks to customers.</p>
       <label>Chatbot name</label>
       <label>Trigger phrases — one per line</label>
+      <label>Bot message · en</label>
+      <label>Intent 1 custom keywords — one per line</label>
+      <span>Next → تأكيد الطلب</span>
       <p>A recent outbound message outcome is unconfirmed. Reconciling delivery status with WhatsApp…</p>
       <select><option value="auto">Automatic</option><option value="arabic">Arabic script</option></select>
       <div class="inbox-msg-content" dir="auto" data-no-translate>Done</div>
@@ -39,6 +42,9 @@ describe('portal translation and conversation content', () => {
     expect(document.documentElement.dir).toBe('rtl');
     expect(document.querySelector('h1')?.textContent).toBe('حساب العميل');
     expect(document.body.textContent).toContain('عبارات التفعيل');
+    expect(document.body.textContent).toContain('رسالة الروبوت · en');
+    expect(document.body.textContent).toContain('النية 1 · كلمات مخصصة');
+    expect(document.body.textContent).toContain('التالي → تأكيد الطلب');
     expect(document.body.textContent).toContain('حالة إرسال رسالة حديثة غير مؤكدة');
     expect(document.querySelector('.inbox-msg-content')?.textContent).toBe('Done');
     expect(document.querySelector('option')?.value).toBe('auto');
