@@ -762,7 +762,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
     const effectiveLang = conversationContext.effectiveLanguage;
     const configuredScript = config.behavior?.responseScript;
-    const effectiveScript = configuredScript && configuredScript !== 'auto'
+    const effectiveScript = effectiveLang === 'en' || effectiveLang === 'fr' ? 'latin'
+      : effectiveLang === 'ar' ? 'arabic'
+      : configuredScript && configuredScript !== 'auto'
       ? configuredScript
       : conversationContext.effectiveScript || DirectRagGuard.detectScript(content, effectiveLang);
     turnDecision = TurnDecisionResolver.resolve({
@@ -933,7 +935,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           const workflowLang = typeof activeWorkflowContext?._lang === 'string'
             ? activeWorkflowContext._lang
             : effectiveLang;
-          const workflowScript = config.behavior?.responseScript && config.behavior.responseScript !== 'auto'
+          const workflowScript = workflowLang === 'en' || workflowLang === 'fr' ? 'latin'
+            : workflowLang === 'ar' ? 'arabic'
+            : config.behavior?.responseScript && config.behavior.responseScript !== 'auto'
             ? config.behavior.responseScript
             : (typeof activeWorkflowContext?._script === 'string' ? activeWorkflowContext._script : effectiveScript);
           const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, workflowLang, workflowScript, conversation.accountId);

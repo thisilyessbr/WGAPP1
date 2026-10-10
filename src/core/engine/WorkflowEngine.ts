@@ -295,7 +295,11 @@ export class WorkflowEngine {
         ? currentContext['_lang']
         : (detectedLang !== 'en' ? detectedLang : (currentContext['_lang'] || businessConfig.identity?.language || 'en')));
       currentContext['_lang'] = lang;
-      const script = effectiveScript || (LanguageDetector.isAmbiguous(message) && currentContext['_script']) || DirectRagGuard.detectScript(message, lang);
+      // The account's Darija script preference cannot override English/French
+      // workflow turns or make the grounded answerer ask for Arabic-script French.
+      const script = lang === 'en' || lang === 'fr' ? 'latin'
+        : lang === 'ar' ? 'arabic'
+        : effectiveScript || (LanguageDetector.isAmbiguous(message) && currentContext['_script']) || DirectRagGuard.detectScript(message, lang);
       currentContext['_script'] = script;
 
       const isInitialEntry = !currentContext['_started'];

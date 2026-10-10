@@ -99,6 +99,30 @@ describe('workflow turn gate', () => {
     expect(result.updatedCollectedData).toEqual({});
   });
 
+  it.each([['fr','Est-ce que cela fonctionne aussi avec Instagram DM ?', 'Oui, Instagram DM est disponible.', 'Quel est votre nom ?'],
+    ['en','Does it understand voice notes?', 'Yes, voice notes can be understood when enabled.', 'What is your name?']])
+  ('keeps %s answers in Latin script even with an Arabic-script Darija account setting', async (lang, question, answer, namePrompt) => {
+    const llm = new LLMMockProvider();
+    llm.responseResolver = async(systemPrompt) => systemPrompt.includes('You answer a customer')
+      ? (systemPrompt.includes('using Latin script') ? answer : 'UNANSWERABLE')
+      : '{"kind":"CUSTOMER_QUESTION"}';
+    const workflow: WorkflowConfig = {id:'demo',name:'Demo',description:'Demo',initialState:'name',states:{
+      name:{type:'collect',prompt:{[lang]:namePrompt},field:nameField,next:'done'},done:{type:'end'}
+    }};
+    const session = {id:'s1',tenantId:'t1',conversationId:'c1',workflowId:'demo',stateId:'name',
+      stateHistory:[],status:'ACTIVE',contextData:{_started:true,_script:'arabic'},collectedData:{},
+      createdAt:new Date(),updatedAt:new Date()} as WorkflowSession;
+    const config = {...DEFAULT_BUSINESS_CONFIG,behavior:{...DEFAULT_BUSINESS_CONFIG.behavior,responseScript:'arabic' as const},
+      portalFacts:{description:'Instagram DM depends on account connection; voice notes are supported when enabled.'},
+      workflows:{demo:workflow}};
+    const result=await new WorkflowEngine(new WorkflowStateEvaluator()).process(session,question,workflow,config,llm,
+      undefined,undefined,undefined,lang,'arabic');
+    expect(result.response).toContain(answer);
+    expect(result.response).toContain(namePrompt);
+    expect(result.updatedContext._script).toBe('latin');
+    expect(result.updatedCollectedData).toEqual({});
+  });
+
   it('separates a clear name-plus-question turn without guessing names from business needs', () => {
     expect(WorkflowTurnGate.splitPersonNameAndQuestion('Ilyes Saber, wach kaydwi français?', 'fullName', nameField))
       .toEqual({ fieldValue: 'Ilyes Saber', question: 'wach kaydwi français?' });
