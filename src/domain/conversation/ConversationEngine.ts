@@ -51,7 +51,9 @@ export class ConversationEngine {
 
   /** Save human-mode input without invoking routing or generation. */
   async recordInboundMessage(tenantId: string, customerId: string, content: string, accountId: string, externalMessageId: string, phoneNumberId?: string): Promise<void> {
-    const conversation = await this.conversationService.getOrCreateConversation(tenantId, customerId, accountId);
+    const conversation = phoneNumberId
+      ? await this.conversationService.getOrCreateConversation(tenantId, customerId, accountId, phoneNumberId)
+      : await this.conversationService.getOrCreateConversation(tenantId, customerId, accountId);
     await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', content, externalMessageId, phoneNumberId);
   }
 
@@ -448,7 +450,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       : (accountId && typeof (accountId as any).accountId === 'string' ? (accountId as any).accountId : null);
 
     // 1. Load conversation session securely via tenant mapping (and accountId if provided)
-    const conversation = await this.conversationService.getOrCreateConversation(tenantId, customerExternalId, resolvedParamAccountId);
+    const conversation = options?.phoneNumberId
+      ? await this.conversationService.getOrCreateConversation(tenantId, customerExternalId, resolvedParamAccountId, options.phoneNumberId)
+      : await this.conversationService.getOrCreateConversation(tenantId, customerExternalId, resolvedParamAccountId);
 
     // 1.1 Channel-neutral turn idempotency check: bypass all expensive processing if external turn was already committed
     const externalMessageId = options?.externalMessageId?.trim() || null;

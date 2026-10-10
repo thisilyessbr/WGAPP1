@@ -5,6 +5,7 @@
   let pagination = { total: 0, limit: 20, offset: 0, hasMore: false };
   let currentFilter = 'all'; // 'all' | 'open' | 'needs_human' | 'human_active' | 'resolved' | 'unread'
   let searchQuery = '';
+  let sourceNumber = '';
   let searchTimer = null;
   let activeConversationId = null;
   let activeConversation = null;
@@ -75,6 +76,7 @@
       if (searchQuery) {
         url += '&search=' + encodeURIComponent(searchQuery);
       }
+      if (sourceNumber) url += '&phoneNumberId=' + encodeURIComponent(sourceNumber);
 
       const res = await ctx.api(url);
       conversations = res.conversations || [];
@@ -107,6 +109,7 @@
       if (searchQuery) {
         url += '&search=' + encodeURIComponent(searchQuery);
       }
+      if (sourceNumber) url += '&phoneNumberId=' + encodeURIComponent(sourceNumber);
 
       const res = await ctx.api(url);
       const newConvs = res.conversations || [];
@@ -216,6 +219,7 @@
               <div class="inbox-item-preview">${esc(preview)}</div>
               <div class="inbox-item-footer">
                 <span class="badge ${c.channel === 'INSTAGRAM' ? 'blue' : ''}">${c.channel === 'INSTAGRAM' ? 'Instagram' : 'WhatsApp'}</span>
+                ${c.sourcePhoneNumberId ? `<span class="badge">To ${esc(c.sourceDisplayPhoneNumber || c.sourcePhoneNumberId)}</span>` : ''}
                 ${getStatusBadge(state)}
               </div>
             </div>
@@ -450,6 +454,7 @@
           <div>
             <strong>${esc(displayName)}</strong>
             ${phone && phone !== displayName ? `<small> · ${esc(phone)}</small>` : ''}
+            ${conv.sourcePhoneNumberId ? `<small> · To ${esc(conv.sourceDisplayPhoneNumber || conv.sourcePhoneNumberId)}</small>` : ''}
           </div>
           ${getStatusBadge(state)}
         </div>
@@ -761,6 +766,7 @@
     hasOlderMessages = false;
     olderPageLoaded = false;
     conversations = [];
+    sourceNumber = '';
   }
 
   async function renderInbox(context) {
@@ -811,6 +817,7 @@
             <div class="inbox-filter-bar" role="tablist" aria-label="Conversation filters">
               ${filtersHtml}
             </div>
+            <select id="inbox-number-filter" aria-label="Filter by WhatsApp number"><option value="">All WhatsApp numbers</option></select>
           </div>
           <div class="inbox-conversations" id="inbox-conversations-list" role="navigation" aria-label="Conversations list">
             <div class="inbox-empty-view"><span class="spinner"></span></div>
@@ -829,6 +836,22 @@
     `;
 
     ctx.root.innerHTML = ctx.shell(contentHtml, false, 'Inbox');
+
+    const numberFilter = document.querySelector('#inbox-number-filter');
+    if (numberFilter) {
+      numberFilter.onchange = () => { sourceNumber = numberFilter.value; loadConversationList(); };
+      try {
+        const dashboard = await ctx.api('/client/dashboard');
+        if (version !== renderVersion || !numberFilter.isConnected) return;
+        (dashboard.metrics?.numbers || []).filter(n => n.phoneNumberId).forEach(n => {
+          const option = document.createElement('option');
+          option.value = n.phoneNumberId;
+          option.textContent = n.displayPhoneNumber || n.phoneNumberId;
+          numberFilter.appendChild(option);
+        });
+        numberFilter.value = sourceNumber;
+      } catch { /* The inbox remains usable when number options cannot load. */ }
+    }
 
     // Wire filters
     document.querySelectorAll('.inbox-filter-btn').forEach((btn) => {

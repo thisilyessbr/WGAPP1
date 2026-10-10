@@ -230,6 +230,7 @@ export class ClientSafetyGuard {
               tenantId,
               customerId: customer.id,
               ...(accountId ? { accountId } : {}),
+              sourcePhoneNumberId: phoneNumberId,
               status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE', 'RESOLVED'] }
             },
             orderBy: { createdAt: 'desc' }
