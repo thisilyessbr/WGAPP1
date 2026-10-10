@@ -1,5 +1,6 @@
 import { DEFAULT_DEEPSEEK_MODEL } from '../../core/llm/DeepSeekProvider';
 import { DEFAULT_GEMINI_MODEL } from '../../core/llm/GeminiLLMProvider';
+import { LanguageDetector } from '../faq/FaqMatcher';
 
 export interface IdentityConfig {
   botName: string;
@@ -63,13 +64,16 @@ export function resolveLocalizedPrompt(
     }
     return prompt;
   }
-  const resolved = prompt[lang] || prompt.en || defaultEn;
+    const resolved = prompt[lang] || prompt.en || defaultEn;
   if (typeof resolved === 'string') {
     const trimmed = resolved.trim();
     if (!trimmed || trimmed === '[object Object]' || trimmed.includes('[object Object]')) {
       return defaultEn;
     }
-    return resolved;
+      // A Darija phrase accidentally entered under the Arabic (MSA) key must
+      // not silently override the customer's requested language.
+      if (lang === 'ar' && prompt.ar === resolved && LanguageDetector.detect(resolved) === 'darija') return defaultEn;
+      return resolved;
   }
   return defaultEn;
 }

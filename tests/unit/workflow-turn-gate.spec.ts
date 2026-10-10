@@ -30,6 +30,48 @@ describe('workflow turn gate', () => {
       .toBe('FIELD_ANSWER');
   });
 
+  it.each([
+    ['My name is Adam Test.', 'Adam Test'],
+    ['اسمي سلمى تجريبية.', 'سلمى تجريبية'],
+    ["Je m’appelle Marie Test.", 'Marie Test']
+  ])('extracts only the name from an introduction: %s', async (message, expected) => {
+    expect(await WorkflowTurnGate.interpret(message, 'fullName', nameField, prompt))
+      .toEqual({ kind: 'FIELD_ANSWER', fieldValue: expected });
+  });
+
+  it.each([
+    'Est-ce que cela fonctionne aussi avec Instagram DM ?',
+    'Does it understand voice notes and answer in French too?',
+    'هل يعمل أيضاً على إنستغرام؟'
+  ])('treats an interrupted name step as a question: %s', async message => {
+    expect(await WorkflowTurnGate.classify(message, 'fullName', nameField, prompt))
+      .toBe('CUSTOMER_QUESTION');
+  });
+
+  it.each([
+    ['en', 'Does it understand voice notes and answer in French too?', 'Yes, it supports voice notes and French.', 'What is your name?'],
+    ['fr', 'Est-ce que cela fonctionne aussi avec Instagram DM ?', 'Oui, Instagram DM est disponible après connexion du compte.', 'Quel est votre nom ?'],
+    ['ar', 'هل يعمل أيضاً على إنستغرام؟', 'نعم، يتوفر Instagram DM بعد ربط الحساب.', 'ما اسمك الكامل؟']
+  ])('answers a %s side-question and preserves the pending name step', async (lang, question, answer, namePrompt) => {
+    const workflow: WorkflowConfig = { id: 'demo', name: 'Demo', description: 'Demo', initialState: 'name', states: {
+      name: { type: 'collect', prompt: { [lang]: namePrompt }, field: nameField, next: 'done' },
+      done: { type: 'end' }
+    } };
+    const session = { id: 's1', tenantId: 't1', conversationId: 'c1', workflowId: 'demo', stateId: 'name',
+      stateHistory: [], status: 'ACTIVE', contextData: { _started: true }, collectedData: {},
+      createdAt: new Date(), updatedAt: new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG, workflows: { demo: workflow }, capabilities: {
+      ...DEFAULT_BUSINESS_CONFIG.capabilities,
+      faq: [{ id: 'feature', question, answer, language: lang as 'en' | 'fr' | 'ar' }]
+    } };
+    const result = await new WorkflowEngine().process(session, question, workflow, config,
+      undefined, undefined, undefined, undefined, lang, lang === 'ar' ? 'arabic' : 'latin');
+    expect(result.nextStateId).toBe('name');
+    expect(result.updatedCollectedData).toEqual({});
+    expect(result.response).toContain(answer);
+    expect(result.response).toContain(namePrompt);
+  });
+
   it('separates a clear name-plus-question turn without guessing names from business needs', () => {
     expect(WorkflowTurnGate.splitPersonNameAndQuestion('Ilyes Saber, wach kaydwi français?', 'fullName', nameField))
       .toEqual({ fieldValue: 'Ilyes Saber', question: 'wach kaydwi français?' });

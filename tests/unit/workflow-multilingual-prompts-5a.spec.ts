@@ -82,6 +82,14 @@ describe('Phase FIX-PROBLEM-5A: Config-Driven Multilingual Workflow Prompts', ()
     expect(missingField).toBe('يرجى تقديم اسمك الكامل:');
   });
 
+  it('falls back to an MSA field prompt when Darija was put under the Arabic key', () => {
+    const state = { ...testWorkflow.states.collect_name, prompt: {
+      en: 'What is your name?', ar: 'شنو سميتك باش نسجلو الطلب؟', darija_arabic: 'شنو سميتك باش نسجلو الطلب؟'
+    } };
+    expect(responseBuilder.buildMissingFieldResponse(state, testConfig, 'ar'))
+      .toBe('يرجى تقديم: الاسم الكامل');
+  });
+
   it('B. Localized prompt + Darija -> Darija prompt returned', () => {
     const res = resolveLocalizedPrompt(localizedPrompt, 'darija', 'default');
     expect(res).toBe('عفاك عطيني سميتك الكاملة:');
