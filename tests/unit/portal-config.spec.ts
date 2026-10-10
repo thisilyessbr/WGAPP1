@@ -21,4 +21,13 @@ describe('managed chatbot configuration',()=>{
     const config=compileBusiness(data,{},{}),evidence=portalBusinessEvidence(config,'shipping');
     expect(config.prompts.system).not.toContain(data.description);expect(evidence).toContain('facts only');expect(evidence).toContain('excerpt');expect(evidence.length).toBeLessThan(12000);expect(config.behavior.answerOnlyFromKnowledge).toBe(true);
   });
+  it('includes bounded cross-language approved FAQs only for workflow questions',()=>{
+    const config=compileBusiness({ ...structuredClone(EMPTY_BUSINESS), name:'Relayqo', description:'Approved account facts',
+      faqs:[{ id:'instagram', question:'واش كيخدم في إنستغرام؟', answer:'Instagram DM requires a linked account and eligible plan', language:'darija', category:'channels' },
+        { id:'voice', question:'Can it understand voice notes?', answer:'Voice notes are supported when enabled for the account', language:'en', category:'audio' }] } as any,{},{});
+    expect(portalBusinessEvidence(config,'Est-ce que cela fonctionne sur Instagram ?')).not.toContain('Approved FAQs');
+    const evidence=portalBusinessEvidence(config,'Est-ce que cela fonctionne sur Instagram ?', { includeFaq:true });
+    expect(evidence).toContain('Instagram DM requires a linked account');
+    expect(evidence).toContain('Voice notes are supported when enabled');
+  });
 });
