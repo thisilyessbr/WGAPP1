@@ -169,7 +169,7 @@ describe('audit: state and delivery',()=>{
     await worker.processJob({...job,wamid:'second',message:'My order is 123'});
     expect(routeOutbound).toHaveBeenCalledTimes(1);
     expect(engine.handleMessage).toHaveBeenCalledTimes(1);
-    expect(engine.recordInboundMessage).toHaveBeenCalledWith('t','customer','My order is 123','a','second');
+    expect(engine.recordInboundMessage).toHaveBeenCalledWith('t','customer','My order is 123','a','second','phone');
   });
   it('converts Meta webhook timestamps from seconds to milliseconds before policy evaluation',async()=>{
     const evaluateOutbound=vi.fn(()=>({action:'SEND_TEXT',text:'Reply',isWithinCustomerServiceWindow:true}));
@@ -288,7 +288,7 @@ describe('audit: WhatsApp attachments',()=>{
     const handleMessage=vi.fn(async()=>'');
     const worker=new WhatsAppWorker({registerHandler:()=>{}} as any,{handleMessage} as any,{downloadInboundImage:async()=>({imageBase64:'AQID',mimeType:'image/png'})} as any);
     await worker.processJob({id:'j',wamid:'i',tenantId:'t',accountId:'a',waId:'456',phoneNumberId:'123',rawType:'image',message:JSON.stringify({mediaId:'789',caption:'Find this'})} as any);
-    expect(handleMessage).toHaveBeenCalledWith('t','456',{imageBase64:'AQID',mimeType:'image/png',text:'Find this'},'a',{externalMessageId:'i'});
+    expect(handleMessage).toHaveBeenCalledWith('t','456',{imageBase64:'AQID',mimeType:'image/png',text:'Find this'},'a',{externalMessageId:'i',phoneNumberId:'123'});
   });
   it('records an unsupported attachment and asks for text without invoking an LLM',async()=>{
     const {engine,svc,llm}=engineFixture();

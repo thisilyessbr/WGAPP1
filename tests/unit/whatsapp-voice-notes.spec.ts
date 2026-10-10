@@ -41,7 +41,7 @@ describe('opt-in WhatsApp voice notes', () => {
     expect(transcribe).not.toHaveBeenCalled();
     expect(recordUsage).not.toHaveBeenCalled();
     expect(handleMessage).toHaveBeenCalledWith('tenant-1', 'customer-1',
-      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1' });
+      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1', phoneNumberId: '123' });
   });
 
   it('passes the transcript into the normal chatbot using the original message ID', async () => {
@@ -51,14 +51,14 @@ describe('opt-in WhatsApp voice notes', () => {
     expect(transcribe).toHaveBeenCalledWith(Buffer.from([1, 2]), 'audio/ogg', 'groq');
     expect(recordUsage).toHaveBeenCalledWith('tenant-1', 'account-1', 'wamid-1', 12, 'groq');
     expect(handleMessage).toHaveBeenCalledWith('tenant-1', 'customer-1',
-      'Bghit n7jez cours anglais', 'account-1', { externalMessageId: 'wamid-1' });
+      'Bghit n7jez cours anglais', 'account-1', { externalMessageId: 'wamid-1', phoneNumberId: '123' });
   });
 
   it('requests text when transcription fails without processing an invented transcript', async () => {
     const { instance, handleMessage } = worker(true, vi.fn(async (): Promise<{ text: string; durationSeconds: number | null }> => { throw new Error('provider unavailable'); }));
     await instance.processJob(job);
     expect(handleMessage).toHaveBeenCalledWith('tenant-1', 'customer-1',
-      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1' });
+      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1', phoneNumberId: '123' });
   });
 
   it('downloads audio only from the trusted Meta CDN with the originating number token', async () => {
@@ -99,7 +99,7 @@ describe('opt-in WhatsApp voice notes', () => {
     await instance.processJob(job);
     expect(recordUsage).toHaveBeenCalledWith('tenant-1', 'account-1', 'wamid-1', 9, 'groq');
     expect(handleMessage).toHaveBeenCalledWith('tenant-1', 'customer-1',
-      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1' });
+      { text: '', unsupportedMediaType: 'audio' }, 'account-1', { externalMessageId: 'wamid-1', phoneNumberId: '123' });
   });
 
   it('uses Groq minimum billing time and an explicit unknown-duration estimate', () => {
