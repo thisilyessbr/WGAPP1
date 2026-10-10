@@ -179,7 +179,8 @@ describe('Phase 3B: Merchant Inbox Backend & Human Takeover Integration Tests', 
     accountId: string,
     customerWaId: string,
     customerName?: string,
-    status = 'ACTIVE'
+    status = 'ACTIVE',
+    sourcePhoneNumberId?: string
   ) {
     const customer = await prisma.customer.create({
       data: {
@@ -194,6 +195,7 @@ describe('Phase 3B: Merchant Inbox Backend & Human Takeover Integration Tests', 
         tenantId,
         accountId,
         customerId: customer.id,
+        sourcePhoneNumberId,
         status,
         humanRequested: status === 'HANDOFF_REQUESTED' || status === 'HUMAN_ACTIVE',
         humanRequestedAt: status === 'HANDOFF_REQUESTED' || status === 'HUMAN_ACTIVE' ? new Date() : null,
@@ -733,13 +735,14 @@ describe('Phase 3B: Merchant Inbox Backend & Human Takeover Integration Tests', 
 
     it('24. rejects manual message with 400 if 24-hour Customer Service Window has expired', async () => {
       const m = await createMerchantFixture('m-csw-expired');
-      const { conversation } = await createConversationWithCustomer(m.tenantId, m.accountId, '212688888888', undefined, 'HUMAN_ACTIVE');
+      const { conversation } = await createConversationWithCustomer(m.tenantId, m.accountId, '212688888888', undefined, 'HUMAN_ACTIVE', m.phoneNumberId);
 
       // User message older than 24 hours
       await prisma.message.create({
         data: {
           tenantId: m.tenantId,
           conversationId: conversation.id,
+          phoneNumberId: m.phoneNumberId,
           role: 'USER',
           content: 'Old message',
           createdAt: new Date(Date.now() - 25 * 3600000)
@@ -757,13 +760,14 @@ describe('Phase 3B: Merchant Inbox Backend & Human Takeover Integration Tests', 
 
     it('25. enqueues outbound message with deduplication, and worker delivers via WhatsApp adapter', async () => {
       const m = await createMerchantFixture('m-send-success');
-      const { conversation } = await createConversationWithCustomer(m.tenantId, m.accountId, '212688888888', undefined, 'HUMAN_ACTIVE');
+      const { conversation } = await createConversationWithCustomer(m.tenantId, m.accountId, '212688888888', undefined, 'HUMAN_ACTIVE', m.phoneNumberId);
 
       // Valid recent user message
       await prisma.message.create({
         data: {
           tenantId: m.tenantId,
           conversationId: conversation.id,
+          phoneNumberId: m.phoneNumberId,
           role: 'USER',
           content: 'Need assistance please',
           createdAt: new Date()

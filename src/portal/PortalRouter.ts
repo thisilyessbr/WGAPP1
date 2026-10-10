@@ -155,8 +155,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     };
     send(res, {
       profile: clientProfile(profile),
-      connections: connections.map(c => ({ id: c.id, provider: c.provider, status: c.status, enabled: c.enabled, displayPhoneNumber: c.displayPhoneNumber, numberStatus: c.numberStatus, updatedAt: c.updatedAt })),
-      metrics: { totals: stats.totals, daily: stats.daily, leads: stats.leads },
+      connections: connections.map(c => ({ id: c.id, phoneNumberId: c.phoneNumberId, provider: c.provider, status: c.status, enabled: c.enabled, displayPhoneNumber: c.displayPhoneNumber, numberStatus: c.numberStatus, updatedAt: c.updatedAt })),
+      metrics: { totals: stats.totals, daily: stats.daily, leads: stats.leads, numbers: stats.numbers },
       leadSummary,
       documents: { total: portalDocuments.length, ready: portalDocuments.filter(d => d.status === 'READY').length, pending: portalDocuments.filter(d => d.status !== 'READY').length },
       recentConversations: recentConversations.map(c => ({ id: c.id, status: c.status, messageCount: c.messageCount, humanRequested: c.humanRequested, updatedAt: c.updatedAt, customerLabel: maskCustomer(c.customerId) }))
@@ -340,6 +340,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const statusFilter = text(req.query.status, 30, 'all').toLowerCase();
     const unreadFilter = req.query.unread === 'true';
     const searchQuery = text(req.query.search, 100);
+    const sourceNumber = text(req.query.phoneNumberId, 100);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
     const offset = Math.max(0, Number(req.query.offset || 0));
 
@@ -350,6 +351,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
           c."tenantId",
           c."accountId",
           c."customerId",
+          c."sourcePhoneNumberId",
+          n."displayPhoneNumber" AS "sourceDisplayPhoneNumber",
           c.status,
           c."contextData",
           c."messageCount",
@@ -399,10 +402,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
             LIMIT 1
           ) AS "lastMessageCreatedAt"
         FROM "Conversation" c
+        LEFT JOIN "WhatsAppBusinessNumber" n ON n."phoneNumberId"=c."sourcePhoneNumberId" AND n."tenantId"=c."tenantId" AND n."accountId"=c."accountId"
         LEFT JOIN "ConversationAutomationState" cas ON cas."conversationId"=c.id AND cas."tenantId"=c."tenantId"
         JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
         WHERE c."tenantId" = ${tenantId}
           AND c."accountId" = ${accountId}
+          AND (${sourceNumber}='' OR c."sourcePhoneNumberId"=${sourceNumber})
           AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
       )
       SELECT *
@@ -446,6 +451,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
 
       return {
         id: r.id,
+        sourcePhoneNumberId: r.sourcePhoneNumberId,
+        sourceDisplayPhoneNumber: r.sourceDisplayPhoneNumber,
         channel: String(r.customerPhone || '').startsWith('instagram:') ? 'INSTAGRAM' : 'WHATSAPP',
         status: state,
         rawStatus: r.status,
@@ -497,9 +504,10 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const beforeMessageId = typeof req.query.before === 'string' ? req.query.before : null;
 
     const convRows = await store.db.$queryRaw<any[]>`
-      SELECT c.*, cas."botEnabled" AS "botEnabled",cas."humanTakeover" AS "humanTakeover",cas."pausedUntil" AS "pausedUntil",
+      SELECT c.*, n."displayPhoneNumber" AS "sourceDisplayPhoneNumber", cas."botEnabled" AS "botEnabled",cas."humanTakeover" AS "humanTakeover",cas."pausedUntil" AS "pausedUntil",
         cu."externalId" AS "customerPhone", cu.metadata AS "customerMetadata"
       FROM "Conversation" c
+      LEFT JOIN "WhatsAppBusinessNumber" n ON n."phoneNumberId"=c."sourcePhoneNumberId" AND n."tenantId"=c."tenantId" AND n."accountId"=c."accountId"
       LEFT JOIN "ConversationAutomationState" cas ON cas."conversationId"=c.id AND cas."tenantId"=c."tenantId"
       JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
       WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId} AND c."accountId" = ${accountId}
@@ -516,7 +524,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     `;
 
     const messageRows = await store.db.$queryRaw<any[]>`
-      SELECT id, role, content, metadata, "externalId", "createdAt",
+      SELECT id, role, content, metadata, "externalId", "phoneNumberId", "createdAt",
         (SELECT f.status FROM "PortalAnswerFeedback" f
           WHERE f."messageId"="Message".id AND f."tenantId"=${tenantId}
             AND f."accountId"=${accountId} AND f."conversationId"=${conversationId}) AS "feedbackStatus"
@@ -533,6 +541,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const pageMessages = messageRows.slice(0, limit).reverse();
     const latestUserMsg = (await store.db.$queryRaw<any[]>`SELECT "createdAt" FROM "Message"
       WHERE "conversationId"=${conversationId} AND "tenantId"=${tenantId} AND role='USER'
+        AND (${String(conv.customerPhone || '').startsWith('instagram:')} OR "phoneNumberId"=${conv.sourcePhoneNumberId})
       ORDER BY "createdAt" DESC,id DESC LIMIT 1`)[0];
     let canSendFreeform = false;
     let windowExpiresAt: Date | null = null;
@@ -554,6 +563,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, {
       conversation: {
         id: conv.id,
+        sourcePhoneNumberId: conv.sourcePhoneNumberId,
+        sourceDisplayPhoneNumber: conv.sourceDisplayPhoneNumber,
         channel: String(conv.customerPhone || '').startsWith('instagram:') ? 'INSTAGRAM' : 'WHATSAPP',
         status: state,
         rawStatus: conv.status,
@@ -587,6 +598,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         role: m.role,
         content: m.content,
         externalId: m.externalId,
+        phoneNumberId: m.phoneNumberId,
         metadata: m.metadata || {},
         feedbackStatus: m.feedbackStatus || null,
         createdAt: m.createdAt
@@ -762,10 +774,15 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     }
 
     // Precondition 2: 24-hour Customer Service Window
+    const isInstagram = String(conv.customerPhone || '').startsWith('instagram:');
+    if (!isInstagram && !conv.sourcePhoneNumberId) {
+      throw new PortalError(409, 'SOURCE_NUMBER_UNKNOWN', 'This older conversation has no verified WhatsApp source number. Choose a conversation with a known receiving number.');
+    }
     const latestUserMsgRows = await store.db.$queryRaw<any[]>`
       SELECT "createdAt"
       FROM "Message"
       WHERE "conversationId" = ${conversationId} AND "tenantId" = ${tenantId} AND role = 'USER'
+        AND (${isInstagram} OR "phoneNumberId"=${conv.sourcePhoneNumberId})
       ORDER BY "createdAt" DESC
       LIMIT 1
     `;
@@ -778,7 +795,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       throw new PortalError(400, 'CUSTOMER_SERVICE_WINDOW_EXPIRED', 'Customer service window has expired (24h). Free-form messages cannot be sent.');
     }
 
-    if (String(conv.customerPhone || '').startsWith('instagram:')) {
+    if (isInstagram) {
       if (!deps.instagramService) throw new PortalError(503, 'INSTAGRAM_UNAVAILABLE');
       const providerId = await deps.instagramService.sendManual(accountId, tenantId, conv.customerPhone, messageText);
       const now = new Date();
@@ -792,12 +809,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       return;
     }
 
-    // Precondition 3: Resolve connected WhatsApp number
+    // Precondition 3: send only from the number that received this conversation.
     const numberRows = await store.db.$queryRaw<any[]>`
-      SELECT "phoneNumberId", status, enabled
-      FROM "WhatsAppBusinessNumber"
-      WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND enabled = true
-      ORDER BY status = 'CONNECTED' DESC, "updatedAt" DESC
+      SELECT n."phoneNumberId", n.status, n.enabled
+      FROM "WhatsAppBusinessNumber" n
+      LEFT JOIN "ChannelConnection" cc ON cc.id=n."connectionId" AND cc."tenantId"=n."tenantId" AND cc."accountId"=n."accountId"
+      WHERE n."tenantId" = ${tenantId} AND n."accountId" = ${accountId}
+        AND n."phoneNumberId"=${conv.sourcePhoneNumberId} AND n.enabled = true AND n.status='CONNECTED'
+        AND (cc.id IS NULL OR (cc.enabled=true AND cc."botEnabled"=true))
       LIMIT 1
     `;
     const connectedNumber = numberRows[0];
@@ -814,13 +833,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const messageId = randomUUID();
     const now = new Date();
     await store.db.$executeRaw`
-      INSERT INTO "Message"(id, "tenantId", "conversationId", role, content, metadata, "createdAt")
+      INSERT INTO "Message"(id, "tenantId", "conversationId", role, content, "phoneNumberId", metadata, "createdAt")
       VALUES (
         ${messageId},
         ${tenantId},
         ${conversationId},
         'ASSISTANT',
         ${messageText},
+        ${connectedNumber.phoneNumberId},
         ${JSON.stringify({
           deliveryStatus: 'PENDING',
           manual: true,
