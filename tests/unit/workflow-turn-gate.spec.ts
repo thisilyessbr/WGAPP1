@@ -72,6 +72,33 @@ describe('workflow turn gate', () => {
     expect(result.response).toContain(namePrompt);
   });
 
+  it('retries a grounded cross-language FAQ answer without losing the pending field', async () => {
+    const llm = new LLMMockProvider();
+    const workflow: WorkflowConfig = { id:'demo', name:'Demo', description:'Demo', initialState:'name', states:{
+      name:{type:'collect', prompt:{fr:'Quel est votre nom ?'}, field:nameField, next:'done'}, done:{type:'end'}
+    }};
+    const session = { id:'s1', tenantId:'t1', conversationId:'c1', workflowId:'demo', stateId:'name',
+      stateHistory:[], status:'ACTIVE', contextData:{_started:true}, collectedData:{},
+      createdAt:new Date(), updatedAt:new Date() } as WorkflowSession;
+    const config = { ...DEFAULT_BUSINESS_CONFIG,
+      portalFacts:{description:'Relayqo supports Instagram DM depending on the plan and linked account.'},
+      capabilities:{...DEFAULT_BUSINESS_CONFIG.capabilities, faq:[{id:'instagram',
+        question:'Does it work on Instagram?', answer:'Instagram DM is available after account connection on eligible plans.', language:'en'}]},
+      workflows:{demo:workflow} };
+    let attempts=0;
+    llm.responseResolver=async(systemPrompt)=> systemPrompt.includes('You answer a customer')
+      ? (++attempts===1?'UNANSWERABLE':'Oui, Instagram DM est disponible selon la formule et après connexion du compte.')
+      : '{"kind":"CUSTOMER_QUESTION"}';
+    const result=await new WorkflowEngine(new WorkflowStateEvaluator()).process(session,
+      'Est-ce que cela fonctionne aussi avec Instagram DM ?', workflow, config, llm,
+      undefined, undefined, undefined, 'fr', 'latin');
+    expect(attempts).toBe(2);
+    expect(result.response).toContain('Instagram DM est disponible');
+    expect(result.response).toContain('Quel est votre nom ?');
+    expect(result.nextStateId).toBe('name');
+    expect(result.updatedCollectedData).toEqual({});
+  });
+
   it('separates a clear name-plus-question turn without guessing names from business needs', () => {
     expect(WorkflowTurnGate.splitPersonNameAndQuestion('Ilyes Saber, wach kaydwi français?', 'fullName', nameField))
       .toEqual({ fieldValue: 'Ilyes Saber', question: 'wach kaydwi français?' });
