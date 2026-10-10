@@ -98,7 +98,7 @@ export class WhatsAppWorker {
 
       if (!safetyCheck.allowed) {
         if (safetyCheck.code === 'HUMAN_TAKEOVER' && this.conversationEngine.recordInboundMessage) {
-          await this.conversationEngine.recordInboundMessage(job.tenantId, job.waId, displayContent, job.accountId, job.wamid);
+          await this.conversationEngine.recordInboundMessage(job.tenantId, job.waId, displayContent, job.accountId, job.wamid, job.phoneNumberId);
         }
         logger.warn(`WhatsAppWorker: Safety guard suppressed processing for job [${job.wamid}]: ${safetyCheck.reason}`);
         return {
@@ -172,7 +172,7 @@ export class WhatsAppWorker {
       job.waId,
       contentInput,
       job.accountId,
-      { externalMessageId: job.wamid }
+      { externalMessageId: job.wamid, phoneNumberId: job.phoneNumberId }
     );
 
     // If response is empty (e.g. human active, automation capped, or suppressed), go silent

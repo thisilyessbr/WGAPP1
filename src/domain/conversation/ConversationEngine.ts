@@ -50,9 +50,9 @@ export class ConversationEngine {
   private readonly conversationTurns = new Map<string, Promise<string>>();
 
   /** Save human-mode input without invoking routing or generation. */
-  async recordInboundMessage(tenantId: string, customerId: string, content: string, accountId: string, externalMessageId: string): Promise<void> {
+  async recordInboundMessage(tenantId: string, customerId: string, content: string, accountId: string, externalMessageId: string, phoneNumberId?: string): Promise<void> {
     const conversation = await this.conversationService.getOrCreateConversation(tenantId, customerId, accountId);
-    await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', content, externalMessageId);
+    await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', content, externalMessageId, phoneNumberId);
   }
 
   getConversationService(): ConversationService {
@@ -371,6 +371,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     accountId?: string | null,
     options?: {
       externalMessageId?: string | null;
+      phoneNumberId?: string | null;
     }
   ): Promise<string> {
     const externalMessageId = options?.externalMessageId?.trim();
@@ -404,7 +405,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
   private async handleManagedMessage(
     tenantId: string, customerExternalId: string, contentInput: string | IncomingMessagePayload,
-    accountId?: string | null, options?: { externalMessageId?: string | null }
+    accountId?: string | null, options?: { externalMessageId?: string | null; phoneNumberId?: string | null }
   ): Promise<string> {
     if (!this.portalBudget) return this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options);
     return this.portalBudget.runTurn(tenantId, accountId, options?.externalMessageId, () => this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options), '');
@@ -417,6 +418,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     accountId?: string | null,
     options?: {
       externalMessageId?: string | null;
+      phoneNumberId?: string | null;
     }
   ): Promise<string> {
     const turnStartTime = Date.now();
@@ -530,7 +532,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
     if (isHumanHandling) {
       logger.info(`ConversationEngine: Conversation [${conversation.id}] is in human takeover or bot automation paused. Pausing bot automation.`);
-      await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', payload.text || 'Image uploaded', externalMessageId);
+      await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', payload.text || 'Image uploaded', externalMessageId, options?.phoneNumberId);
       telemetry.emit({
         eventType: 'response_completed',
         tenantId,
@@ -586,6 +588,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         userMessage: payload.text || 'Image uploaded',
         assistantMessage: capMsg,
         externalMessageId: options?.externalMessageId,
+        phoneNumberId: options?.phoneNumberId,
         setAutomationCapped: true,
         closeConversation: true
       });
@@ -630,7 +633,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       await this.conversationService.commitConversationTurn({
         tenantId, conversationId: conversation.id, expectedVersion: conversation.version,
         userMessage: `[Attachment: ${payload.unsupportedMediaType}] ${payload.text || ''}`.trim(),
-        assistantMessage: fallback, externalMessageId, responseType: 'UNSUPPORTED_MEDIA'
+        assistantMessage: fallback, externalMessageId, phoneNumberId: options?.phoneNumberId, responseType: 'UNSUPPORTED_MEDIA'
       });
       return fallback;
     }
@@ -666,7 +669,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         expectedVersion: conversation.version,
         userMessage: routed.userDisplayContent,
         assistantMessage: fallback,
-        externalMessageId: options?.externalMessageId
+        externalMessageId: options?.externalMessageId,
+        phoneNumberId: options?.phoneNumberId
       });
       telemetry.emit({
         eventType: 'response_completed',
@@ -805,7 +809,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         expectedVersion: conversation.version,
         userMessage: routed.userDisplayContent,
         assistantMessage: safetyRefusal,
-        externalMessageId: options?.externalMessageId
+        externalMessageId: options?.externalMessageId,
+        phoneNumberId: options?.phoneNumberId
       });
       telemetry.emit({
         eventType: 'response_completed',
@@ -865,6 +870,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         userMessage: routed.userDisplayContent,
         assistantMessage: handoffMsg,
         externalMessageId: options?.externalMessageId,
+        phoneNumberId: options?.phoneNumberId,
         flagHumanRequested: true,
         newStatus: 'HANDOFF_REQUESTED',
         responseType: 'HANDOFF',
@@ -2557,6 +2563,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         userMessage: routed.userDisplayContent,
         assistantMessage: response || null,
         externalMessageId: options?.externalMessageId,
+        phoneNumberId: options?.phoneNumberId,
         contextData: { ...(contextDataUpdate || sessionUpdatePayload?.contextData || conversation.contextData as Record<string, any> || {}), _lang: effectiveLang, _script: effectiveScript },
         sessionUpdate: sessionUpdatePayload,
         flagHumanRequested,
@@ -2605,6 +2612,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           accountId: effectiveAccountId,
           customerId: conversation.customerId,
           conversationId: conversation.id,
+          phoneNumberId: options?.phoneNumberId,
           turnDecision,
           isWorkflowCompleted,
           workflowId: isWorkflowCompleted ? completedWorkflowId : null,

@@ -264,6 +264,8 @@
     if (costCeiling) return left + (locale === 'fr' ? `Plafond IA interne : ${costCeiling[1]} $` : `حد تكلفة الذكاء الاصطناعي الداخلي: ${costCeiling[1]} دولار`) + right;
     const recentMessages = key.match(/^Messages · last (\d+) days$/);
     if (recentMessages) return left + (locale === 'fr' ? `Messages · ${recentMessages[1]} derniers jours` : `الرسائل · آخر ${recentMessages[1]} يومًا`) + right;
+    const numberReport = key.match(/^WhatsApp numbers · last (\d+) days$/);
+    if (numberReport) return left + (locale === 'fr' ? `Numéros WhatsApp · ${numberReport[1]} derniers jours` : `أرقام واتساب · آخر ${numberReport[1]} يومًا`) + right;
     const providerSwitch = key.match(/^(Provider ready|The selected provider needs an API key\.) · Client switch: (On|Off)$/);
     if (providerSwitch) return left + `${translations.get(providerSwitch[1])?.[locale] || providerSwitch[1]} · ${translations.get('Client switch:')?.[locale] || 'Client switch:'} ${translations.get(providerSwitch[2])?.[locale] || providerSwitch[2]}` + right;
     const planPrice = key.match(/^MAD \/ month · suggested$/);
@@ -489,6 +491,16 @@
     ['Languages, intents and response sources','Langues, intentions et sources des réponses','اللغات والنوايا ومصادر الردود'],
     ['Lead status','Statut des prospects','حالة العملاء المحتملين'],
     ['WhatsApp delivery and retries','Envois WhatsApp et nouvelles tentatives','إرسال واتساب وإعادة المحاولة'],
+    ['Each number is counted separately. Older activity without a verified source number is excluded.','Chaque numéro est compté séparément. L’activité ancienne sans numéro source vérifié est exclue.','يُحسب كل رقم على حدة. يُستبعد النشاط القديم الذي لم يُتحقق من رقم مصدره.'],
+    ['Connection and replies','Connexion et réponses','الاتصال والردود'],
+    ['Bot responses','Réponses du bot','ردود المساعد'],
+    ['Contacts','Contacts','جهات الاتصال'],
+    ['Conversations','Conversations','المحادثات'],
+    ['Leads','Prospects','العملاء المحتملون'],
+    ['Failures','Échecs','الإخفاقات'],
+    ['Retries','Nouvelles tentatives','إعادة المحاولة'],
+    ['No WhatsApp numbers linked to this client.','Aucun numéro WhatsApp lié à ce client.','لا توجد أرقام واتساب مرتبطة بهذا العميل.'],
+    ['Via WhatsApp','Via WhatsApp','عبر واتساب'],
     ['Connect this client’s Meta app','Connecter l’application Meta de ce client','ربط تطبيق ميتا الخاص بهذا العميل'],
     ['Prepare connection','Préparer la connexion','إعداد الاتصال'],['Show setup','Afficher la configuration','عرض الإعداد'],
     ['Meta webhook callback URL','URL de rappel du webhook Meta','رابط استدعاء ويب هوك ميتا'],

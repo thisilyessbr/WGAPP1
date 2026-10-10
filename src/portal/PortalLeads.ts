@@ -14,7 +14,7 @@ export class PortalLeads {
     if (status !== 'ALL' && !LEAD_STAGES.includes(status as LeadStage)) throw new PortalError(400, 'INVALID_LEAD_STAGE');
     if (!LEAD_VIEWS.includes(view as LeadView)) throw new PortalError(400, 'INVALID_LEAD_VIEW');
     const rows = await this.store.db.$queryRaw<any[]>`
-      SELECT l.id,l.status,l.interest,l."signalReason",l.note,l.details,l."followUpAt",l."assignedToUserId",assignee.name AS "assigneeName",l."contactedAt",l."closedAt",l."createdAt",l."updatedAt",
+      SELECT l.id,l.status,l.interest,l."signalReason",l.note,l.details,l."followUpAt",l."assignedToUserId",assignee.name AS "assigneeName",l."contactedAt",l."closedAt",l."createdAt",l."updatedAt",l."sourcePhoneNumberId",n."displayPhoneNumber" AS "sourceDisplayPhoneNumber",
         cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
         COALESCE(l."sourceConversationId",c.id) AS "conversationId",c."updatedAt" AS "conversationUpdatedAt",
         ws."collectedData" AS "orderDetails",
@@ -25,6 +25,7 @@ export class PortalLeads {
         (SELECT m.content FROM "Message" m WHERE m."conversationId"=c.id AND m."tenantId"=l."tenantId" AND m.role='USER' ORDER BY m."createdAt" DESC LIMIT 1) AS "lastCustomerMessage"
       FROM "Lead" l
       JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
+      LEFT JOIN "WhatsAppBusinessNumber" n ON n."phoneNumberId"=l."sourcePhoneNumberId" AND n."tenantId"=l."tenantId" AND n."accountId"=l."accountId"
       LEFT JOIN "PortalUser" assignee ON assignee.id=l."assignedToUserId"
       LEFT JOIN LATERAL (
         SELECT id,"updatedAt" FROM "Conversation"
@@ -61,7 +62,7 @@ export class PortalLeads {
 
   async get(tenantId: string, accountId: string, id: string) {
     const rows = await this.store.db.$queryRaw<any[]>`
-      SELECT l.*,assignee.name AS "assigneeName",cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
+      SELECT l.*,n."displayPhoneNumber" AS "sourceDisplayPhoneNumber",assignee.name AS "assigneeName",cu."externalId" AS "customerPhone",cu.metadata AS "customerMetadata",
         COALESCE(l."sourceConversationId",c.id) AS "conversationId",ws."collectedData" AS "workflowDetails",ws."workflowId",ws.status AS "workflowStatus",
         (SELECT m.content FROM "Message" m
           WHERE m."conversationId"=COALESCE(l."sourceConversationId",c.id) AND m."tenantId"=l."tenantId"
@@ -69,6 +70,7 @@ export class PortalLeads {
           ORDER BY m."createdAt" DESC LIMIT 1) AS "sourceRequest"
       FROM "Lead" l
       JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
+      LEFT JOIN "WhatsAppBusinessNumber" n ON n."phoneNumberId"=l."sourcePhoneNumberId" AND n."tenantId"=l."tenantId" AND n."accountId"=l."accountId"
       LEFT JOIN "PortalUser" assignee ON assignee.id=l."assignedToUserId"
       LEFT JOIN LATERAL (
         SELECT id FROM "Conversation" WHERE "tenantId"=l."tenantId" AND "accountId"=l."accountId" AND "customerId"=l."customerId"

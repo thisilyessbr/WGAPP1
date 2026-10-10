@@ -328,7 +328,7 @@ export class PortalStore {
   }
   async stats(accountId: string, tenantId: string, days = 30) {
     days = Math.max(1, Math.min(90, Number.isFinite(days) ? Math.floor(days) : 30));
-    const [totals, daily, sources, costs, usage, responses, delivery] = await Promise.all([
+    const [totals, daily, sources, costs, usage, responses, delivery, numberRows, numberTraffic, numberLeads] = await Promise.all([
       this.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS conversations,COUNT(DISTINCT "customerId")::int AS contacts,
         COUNT(*) FILTER(WHERE "humanRequested"=true)::int AS handoffs FROM "Conversation" c WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
         AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%') AND "createdAt">NOW()-${days}*INTERVAL '1 day'`,
@@ -346,8 +346,36 @@ export class PortalStore {
         ROUND(AVG((metadata->>'latencyMs')::numeric)) AS "averageLatencyMs" FROM "PortalUsageEntry" WHERE "accountId"=${accountId} AND kind='message' AND status='COMPLETED'
         AND "createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY metadata->>'source',metadata->>'language',metadata->>'script',metadata->>'intent'`,
       this.db.$queryRaw<any[]>`SELECT "phoneNumberId",status,"outboundStatus",COUNT(*)::int AS count,COALESCE(SUM(GREATEST(attempts-1,0)),0)::int AS retries FROM "WhatsAppMessageJob"
-        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY "phoneNumberId",status,"outboundStatus"`
+        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY "phoneNumberId",status,"outboundStatus"`,
+      this.db.$queryRaw<any[]>`SELECT n."phoneNumberId",n."displayPhoneNumber",n.status,n.enabled,c.provider,c.enabled AS "connectionEnabled",c."botEnabled"
+        FROM "WhatsAppBusinessNumber" n LEFT JOIN "ChannelConnection" c ON c.id=n."connectionId" AND c."tenantId"=n."tenantId" AND c."accountId"=n."accountId"
+        WHERE n."accountId"=${accountId} AND n."tenantId"=${tenantId} ORDER BY n."createdAt"`,
+      this.db.$queryRaw<any[]>`SELECT m."phoneNumberId",COUNT(*) FILTER(WHERE m.role='USER')::int AS inbound,
+        COUNT(*) FILTER(WHERE m.role='ASSISTANT')::int AS replies,
+        COUNT(DISTINCT m."conversationId") FILTER(WHERE m.role='USER')::int AS conversations,
+        COUNT(DISTINCT c."customerId") FILTER(WHERE m.role='USER')::int AS contacts
+        FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId" AND c."tenantId"=m."tenantId"
+        JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+        WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId} AND m."phoneNumberId" IS NOT NULL
+          AND cu."externalId" NOT LIKE 'portal-preview:%' AND m."createdAt">NOW()-${days}*INTERVAL '1 day'
+        GROUP BY m."phoneNumberId"`,
+      this.db.$queryRaw<any[]>`SELECT l."sourcePhoneNumberId" AS "phoneNumberId",COUNT(*)::int AS leads
+        FROM "Lead" l JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
+        WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND l."sourcePhoneNumberId" IS NOT NULL
+          AND cu."externalId" NOT LIKE 'portal-preview:%' AND l."createdAt">NOW()-${days}*INTERVAL '1 day'
+        GROUP BY l."sourcePhoneNumberId"`
     ]);
-    return { days, totals: totals[0], daily, leads: sources, operations: costs, responses, delivery, usage, currency: 'USD', costBasis: 'Configured peak-rate estimates; unknown outcomes retain their reservation. Channel and hosting charges excluded.' };
+    const trafficByNumber = new Map(numberTraffic.map(row => [row.phoneNumberId, row]));
+    const leadsByNumber = new Map(numberLeads.map(row => [row.phoneNumberId, row]));
+    const numbers = numberRows.map(row => {
+      const traffic = trafficByNumber.get(row.phoneNumberId) || {};
+      const jobs = delivery.filter(job => job.phoneNumberId === row.phoneNumberId);
+      return { ...row, inbound: traffic.inbound || 0, replies: traffic.replies || 0,
+        conversations: traffic.conversations || 0, contacts: traffic.contacts || 0,
+        leads: leadsByNumber.get(row.phoneNumberId)?.leads || 0,
+        failures: jobs.filter(job => job.status === 'FAILED' || job.outboundStatus === 'FAILED').reduce((sum, job) => sum + Number(job.count), 0),
+        retries: jobs.reduce((sum, job) => sum + Number(job.retries), 0) };
+    });
+    return { days, totals: totals[0], daily, leads: sources, operations: costs, responses, delivery, numbers, usage, currency: 'USD', costBasis: 'Configured peak-rate estimates; unknown outcomes retain their reservation. Channel and hosting charges excluded.' };
   }
 }

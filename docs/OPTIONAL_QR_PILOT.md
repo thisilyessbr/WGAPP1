@@ -31,6 +31,19 @@ official or guarantee that WhatsApp will not disconnect or restrict the number.
    replies** for that number. To unlink it, the client selects **Disconnect QR**.
    Disabling QR account access pauses all QR replies and connections.
 
+## Per-number tracking
+
+Admin → Client account → Usage & statistics lists each WhatsApp number's
+connection/reply state, incoming messages, bot responses, contacts,
+conversations, new leads, delivery failures, and retries. A customer who writes
+to two numbers counts once under each number. A lead is attributed to the number
+that first created it; later contact through another number does not rewrite its
+source. Follow-up details show the lead's source number when known.
+
+Only inbound legacy messages matched exactly to a saved WhatsApp job are
+backfilled. Older replies and leads without verified provenance remain
+unattributed; the per-number report does not guess their origin.
+
 ## Runtime requirements
 
 Use one always-on application process for the initial pilot, running both queue

@@ -16,6 +16,7 @@ export interface TurnSignalParams {
   accountId?: string | null;
   customerId: string;
   conversationId?: string;
+  phoneNumberId?: string | null;
   workflowSessionId?: string | null;
   turnDecision?: TurnDecision | null;
   isWorkflowCompleted?: boolean;
@@ -117,7 +118,7 @@ export class CRMService {
   }
 
   /** Reuse an open request, but retain closed requests when the customer returns. */
-  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string; workflowSessionId?: string | null }): Promise<Lead> {
+  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string; workflowSessionId?: string | null; phoneNumberId?: string | null }): Promise<Lead> {
     if (!tenantId || !accountId || !customerId) {
       throw new Error('CRMService: tenantId, accountId, and customerId are required for upsertLead');
     }
@@ -155,6 +156,7 @@ export class CRMService {
         interest: signal?.interest?.slice(0, 280) || null,
         signalReason: signal?.reason || null,
         sourceConversationId: signal?.conversationId || null,
+        sourcePhoneNumberId: signal?.phoneNumberId || null,
         sourceWorkflowSessionId: signal?.workflowSessionId || null
       } });
     });
@@ -239,6 +241,7 @@ export class CRMService {
       accountId,
       customerId,
       conversationId,
+      phoneNumberId,
       turnDecision,
       isWorkflowCompleted,
       workflowId,
@@ -304,6 +307,7 @@ export class CRMService {
       logger.info(`CRMService: Strong sales signal detected for customer [${customerId}] in account [${accountId}]. Upserting lead.`);
       return this.upsertLead(tenantId, accountId, customerId, 'NEW', {
         interest: userMessage?.trim(), reason: signalReason, conversationId,
+        phoneNumberId,
         workflowSessionId: signalReason === 'COMPLETED_SALES_WORKFLOW' ? workflowSessionId : null
       });
     }

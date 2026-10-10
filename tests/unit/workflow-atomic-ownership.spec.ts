@@ -3,6 +3,24 @@ import { ConversationService } from '../../src/domain/conversation/ConversationS
 import { ConversationAutomationService } from '../../src/domain/conversation/ConversationAutomationService';
 
 describe('workflow persistence and ownership boundaries', () => {
+  it('stores the originating WhatsApp number on both messages and the atomic CRM request', async () => {
+    const messageCreate=vi.fn().mockResolvedValue({id:'message-1'}),leadCreate=vi.fn().mockResolvedValue({});
+    const tx:any={
+      conversation:{updateMany:vi.fn().mockResolvedValue({count:1})},
+      message:{create:messageCreate},
+      customer:{findFirst:vi.fn().mockResolvedValue({id:'customer'})},
+      account:{findFirst:vi.fn().mockResolvedValue({id:'account'})},
+      lead:{findFirst:vi.fn().mockResolvedValue(null),create:leadCreate}
+    };
+    const service=new ConversationService({$transaction:(fn:any)=>fn(tx)} as any);
+    await service.commitConversationTurn({tenantId:'tenant',conversationId:'conversation',expectedVersion:0,
+      userMessage:'Bghit demo',assistantMessage:'Marhba',externalMessageId:'wamid-1',phoneNumberId:'qr:number-1',
+      leadRequest:{accountId:'account',customerId:'customer',workflowSessionId:'session'}});
+    expect(messageCreate).toHaveBeenCalledTimes(2);
+    for(const call of messageCreate.mock.calls)expect(call[0].data.phoneNumberId).toBe('qr:number-1');
+    expect(leadCreate).toHaveBeenCalledWith({data:expect.objectContaining({sourcePhoneNumberId:'qr:number-1'})});
+  });
+
   it('prepares a new session without making it active until the turn commits', async () => {
     const sessionCreate = vi.fn().mockResolvedValue({});
     const tx: any = {

@@ -141,16 +141,16 @@ export class ConversationService {
     return new ConversationAutomationService(this.prisma).reopen({ tenantId, conversationId });
   }
 
-  async persistMessage(tenantId: string, conversationId: string, role: string, content: string, externalId?: string | null): Promise<Message> {
+  async persistMessage(tenantId: string, conversationId: string, role: string, content: string, externalId?: string | null, phoneNumberId?: string | null): Promise<Message> {
     if (externalId) {
       return this.prisma.message.upsert({
         where: { tenantId_externalId: { tenantId, externalId } },
-        create: { tenantId, conversationId, role, content, externalId, metadata: { turnCommitted: true, responseExpected: false } },
+        create: { tenantId, conversationId, role, content, externalId, phoneNumberId: phoneNumberId || null, metadata: { turnCommitted: true, responseExpected: false } },
         update: {}
       });
     }
     return this.prisma.message.create({
-      data: { tenantId, conversationId, role, content }
+      data: { tenantId, conversationId, role, content, phoneNumberId: phoneNumberId || null }
     });
   }
 
@@ -416,6 +416,7 @@ export class ConversationService {
     userMessage: string;
     assistantMessage?: string | null;
     externalMessageId?: string | null;
+    phoneNumberId?: string | null;
     contextData?: Record<string, any> | null;
     sessionUpdate?: {
       sessionId: string;
@@ -479,6 +480,7 @@ export class ConversationService {
           role: 'USER',
           content: params.userMessage,
           externalId: params.externalMessageId?.trim() || null,
+          phoneNumberId: params.phoneNumberId || null,
           metadata: { turnCommitted: true, responseExpected: Boolean(params.assistantMessage) }
         }
       });
@@ -550,6 +552,7 @@ export class ConversationService {
             interest: request.interest?.slice(0, 280) || null,
             signalReason: request.reason || 'COMPLETED_WORKFLOW',
             sourceConversationId: params.conversationId,
+            sourcePhoneNumberId: params.phoneNumberId || null,
             sourceWorkflowSessionId: request.workflowSessionId,
             details: request.details || {}
           } });
@@ -565,6 +568,7 @@ export class ConversationService {
             conversationId: params.conversationId,
             role: 'ASSISTANT',
             content: params.assistantMessage,
+            phoneNumberId: params.phoneNumberId || null,
             metadata: { replyToMessageId: userMsg.id, externalMessageId: params.externalMessageId || null, responseType: params.responseType || null }
           }
         });

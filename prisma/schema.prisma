@@ -136,6 +136,7 @@ model Message {
   role           String
   content        String
   externalId     String?
+  phoneNumberId  String?
   metadata       Json?
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -145,6 +146,7 @@ model Message {
   @@unique([tenantId, externalId])
   @@index([tenantId, conversationId])
   @@index([tenantId, conversationId, createdAt(sort: Asc)])
+  @@index([tenantId, phoneNumberId, createdAt(sort: Desc)])
 }
 
 model WorkflowSession {
@@ -280,6 +282,7 @@ model Lead {
   interest   String?
   signalReason String?
   sourceConversationId String?
+  sourcePhoneNumberId String?
   sourceWorkflowSessionId String?
   note       String?
   details    Json     @default("{}")
@@ -298,6 +301,7 @@ model Lead {
   @@index([tenantId, accountId, customerId, createdAt(sort: Desc)], map: "Lead_customer_history_idx")
   @@index([tenantId, accountId, status])
   @@index([tenantId, accountId, followUpAt])
+  @@index([tenantId, accountId, sourcePhoneNumberId, createdAt(sort: Desc)])
 }
 
 model PortalActionAlert {

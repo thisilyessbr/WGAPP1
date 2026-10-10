@@ -333,9 +333,15 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     };
     save.onclick=()=>run(false);publish.onclick=()=>run(true);pending();
   }
-  function statsTables(s){
+  function statsTablesBase(s){
     const table=(headers,rows)=>`<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${escape(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(v=>`<td>${escape(v)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${headers.length}">No recorded activity in this period.</td></tr>`}</tbody></table></div>`;
     return `<h3 style="margin-top:24px">Messages · last ${s.days} days</h3>${table(['Day','Incoming','Replies'],s.daily.map(d=>[new Date(d.day).toLocaleDateString(),d.inbound,d.outbound]))}<h3 style="margin-top:24px">AI and voice usage</h3>${table(['Type','Status','Calls','Estimated USD'],(s.operations||[]).map(o=>[o.kind==='audio'?'Voice transcription':o.kind,o.status,o.calls,'$'+(Number(o.chargedMicros||0)/1e6).toFixed(4)]))}<h3 style="margin-top:24px">Languages, intents and response sources</h3>${table(['Language','Script','Intent','Source','Replies','Average time (ms)'],s.responses.map(r=>[r.language||'Unrecorded',r.script||'Unrecorded',r.intent||'Unrecorded',r.source||'Unrecorded',r.count,r.averageLatencyMs||0]))}<h3 style="margin-top:24px">Lead status</h3>${table(['Status','Leads'],s.leads.map(l=>[l.status,l.count]))}<h3 style="margin-top:24px">WhatsApp delivery and retries</h3>${table(['Number','Job status','Delivery status','Jobs','Retries'],s.delivery.map(d=>[d.phoneNumberId,d.status,d.outboundStatus||'Pending',d.count,d.retries]))}`;
+  }
+
+  function statsTables(s){
+    const rows=(s.numbers||[]).map(n=>`<tr><td><strong>${escape(n.displayPhoneNumber||n.phoneNumberId)}</strong><br><small>${escape(n.provider==='QR_WEB'?'QR · Experimental':'Official API')}</small></td><td><span>${escape(n.status||'Unknown')}</span> · <span>${n.enabled&&n.connectionEnabled!==false&&n.botEnabled!==false?'Replies on':'Replies paused'}</span></td><td>${Number(n.inbound||0)}</td><td>${Number(n.replies||0)}</td><td>${Number(n.contacts||0)}</td><td>${Number(n.conversations||0)}</td><td>${Number(n.leads||0)}</td><td>${Number(n.failures||0)}</td><td>${Number(n.retries||0)}</td></tr>`).join('');
+    const report=`<h3 style="margin-top:24px">WhatsApp numbers · last ${Number(s.days||30)} days</h3><p class="small muted">Each number is counted separately. Older activity without a verified source number is excluded.</p><div class="table-wrap"><table><thead><tr>${['Number','Connection and replies','Incoming','Bot responses','Contacts','Conversations','Leads','Failures','Retries'].map(label=>`<th>${escape(label)}</th>`).join('')}</tr></thead><tbody>${rows||'<tr><td colspan="9">No WhatsApp numbers linked to this client.</td></tr>'}</tbody></table></div>`;
+    return report+statsTablesBase(s);
   }
 
   async function renderAdminConversations(accountId){
