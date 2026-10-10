@@ -887,11 +887,12 @@ export class WorkflowEngine {
               const evidence = [{ role: 'user', content: `<BUSINESS_EVIDENCE>\n${ownerEvidence}\n</BUSINESS_EVIDENCE>\n<CUSTOMER_QUESTION>\n${questionText}\n</CUSTOMER_QUESTION>` }];
               for (let attempt = 0; attempt < 2; attempt++) {
                 const answer = (await llm.generateResponse(
-                  attempt === 0 ? systemPrompt : `${systemPrompt} The previous attempt used the wrong language or script. Use only ${languageName} in this answer.`,
+                  attempt === 0 ? systemPrompt : `${systemPrompt} The previous attempt was unanswerable or used the wrong language or script. Re-check the approved FAQ entries and description before saying UNANSWERABLE. If a matching fact is present in another language, translate it into ${languageName}. Use only ${languageName} in this answer.`,
                   evidence,
-                  { ...llmOptions, temperature: 0, maxTokens: Math.min(llmOptions?.maxTokens || 180, 180), timeoutMs: Math.min(llmOptions?.timeoutMs || 5000, 5000) }
+                  { ...llmOptions, temperature: 0, maxTokens: Math.min(llmOptions?.maxTokens || 180, 180), timeoutMs: Math.max(llmOptions?.timeoutMs || 10000, 10000) }
                 )).trim();
-                if (!answer || answer.includes('UNANSWERABLE') || DirectRagGuard.hasInternalArtifacts(answer)) break;
+                if (!answer || DirectRagGuard.hasInternalArtifacts(answer)) break;
+                if (answer.includes('UNANSWERABLE')) continue;
                 if (this.answerUsesRequestedScript(answer, lang, script)) return answerAndContinue(answer);
               }
             } catch (err) {

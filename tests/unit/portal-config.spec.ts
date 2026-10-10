@@ -30,4 +30,12 @@ describe('managed chatbot configuration',()=>{
     expect(evidence).toContain('Instagram DM requires a linked account');
     expect(evidence).toContain('Voice notes are supported when enabled');
   });
+  it('keeps later approved FAQs available when a multilingual catalog exceeds 2 KiB',()=>{
+    const faqs = Array.from({length:13},(_,i)=>({id:`faq-${i}`,question:`Question ${i} `+'x'.repeat(75),
+      answer:i===12?'Instagram DM is available on eligible plans after account connection':'Answer '+i+' y'.repeat(70), language:'en'}));
+    const config=compileBusiness({ ...structuredClone(EMPTY_BUSINESS), name:'Relayqo', description:'Chatbot', faqs } as any,{},{});
+    const evidence=portalBusinessEvidence(config,'Est-ce que cela fonctionne aussi avec Instagram DM ?', {includeFaq:true});
+    expect(evidence).toContain('Instagram DM is available on eligible plans');
+    expect(evidence).not.toContain('[excerpt; do not infer omitted details]');
+  });
 });
