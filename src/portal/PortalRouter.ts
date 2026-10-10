@@ -1124,8 +1124,17 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const engine = deps.conversationEngine;
     if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE', 'Chatbot preview is temporarily unavailable.');
     const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config);
+    const previewConversation = (await store.db.$queryRaw<Array<{ status: string; humanRequested: boolean }>>`
+      SELECT c.status, c."humanRequested" FROM "Conversation" c
+      JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+      WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId}
+        AND cu."externalId"=${`portal-preview:${req.portal.user.id}:${sessionId}`}
+      ORDER BY c."updatedAt" DESC LIMIT 1`)[0];
+    const automationState = previewConversation?.humanRequested ||
+      ['HANDOFF_REQUESTED', 'HUMAN_ACTIVE'].includes(previewConversation?.status || '')
+      ? 'waiting_for_team' : 'active';
     await store.audit(req.portal.user.id, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
-    send(res, { response, mode, sessionId });
+    send(res, { response, automationState, mode, sessionId });
   }));
   admin.get('/accounts/:id/actions', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));

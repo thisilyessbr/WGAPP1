@@ -86,6 +86,7 @@ export class ResponseBuilder {
     if (state?.label?.trim()) return state.label.trim();
     const labels: Record<string, Record<string, string>> = {
       fullName: { en: 'your full name', fr: 'votre nom complet', ar: 'الاسم الكامل', darija: 'smitk kamla', darija_arabic: 'السمية الكاملة' },
+      name: { en: 'your name', fr: 'votre nom', ar: 'الاسم الكامل', darija: 'smitk', darija_arabic: 'السميّة ديالك' },
       businessNeed: { en: 'what you need the chatbot for', fr: 'votre besoin', ar: 'احتياجك', darija: '3lach bghiti chatbot', darija_arabic: 'شنو بغيتي الشات بوت يعاونك فيه' },
       preferredDemoTime: { en: 'your preferred day and time', fr: 'le jour et l\'heure qui vous conviennent', ar: 'اليوم والوقت المناسبين', darija: 'nhar w lwe9t li ynasbk', darija_arabic: 'النهار والوقت اللي كيناسبوك' },
       phone: { en: 'your phone number', fr: 'votre numéro de téléphone', ar: 'رقم الهاتف', darija: 'nemra dyal telephone', darija_arabic: 'نمرة التليفون' }
@@ -100,7 +101,8 @@ export class ResponseBuilder {
     const fieldName = this.fieldLabel(rawFieldName, state, lang, script);
     const fieldFallback = getWorkflowMessage('missingField', lang, script).replace('{{fieldName}}', fieldName);
     if (state.prompt) {
-      const defaultP = lang === 'darija' && script ? fieldFallback : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      const defaultP = typeof state.prompt === 'string' && lang !== 'ar' && !(lang === 'darija' && script)
+        ? state.prompt : fieldFallback;
       return resolveLocalizedPrompt(state.prompt, lang, defaultP, script);
     }
     if (typeof field !== 'string' && field?.extractionPrompt) {

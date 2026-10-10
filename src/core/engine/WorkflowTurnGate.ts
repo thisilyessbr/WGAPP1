@@ -13,7 +13,7 @@ const CLEAR_QUESTION_OPENERS = new Set([
   'do', 'does', 'is', 'are', 'tell', 'explain', 'comment', 'combien',
   'quel', 'quelle', 'quels', 'quelles', 'wach', 'wash', 'wesh',
   'chhal', 'ch7al', 'kifach', 'kifash', 'chno', 'ashno', 'fin',
-  'شنو', 'واش', 'كيفاش', 'شحال', 'هل', 'كيف', 'كم', 'متى', 'أين', 'اين'
+  'est-ce', 'شنو', 'واش', 'كيفاش', 'شحال', 'هل', 'كيف', 'كم', 'متى', 'أين', 'اين'
 ]);
 
 function isOneEditAway(value: string, candidate: string): boolean {
@@ -43,7 +43,8 @@ export class WorkflowTurnGate {
   }
 
   private static personNameValue(text: string): string | null {
-    const value = text.trim().replace(/^(?:my name is|i am|je m['’]appelle|je suis|سميتي|اسمي|أنا|انا|smiti)\s+/iu, '').trim();
+    const value = text.trim().replace(/^(?:my name is|i am|je m['’]appelle|je suis|سميتي|اسمي|أنا|انا|smiti)\s+/iu, '')
+      .replace(/[.!،,؛;]+$/u, '').trim();
     if (value === text.trim()) return null;
     const words = value.split(/\s+/u);
     return words.length >= 1 && words.length <= 3 && words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word))
