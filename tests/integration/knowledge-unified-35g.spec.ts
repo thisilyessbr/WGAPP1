@@ -23,7 +23,7 @@ describe('PHASE PDF-35G: Unified Knowledge Retrieval & FAQ-as-Knowledge Architec
     const chunkCount = await prisma.knowledgeChunk.count({ where: { tenantId } });
     if (productCount === 0 || chunkCount === 0) {
       const { execSync } = await import('child_process');
-      execSync('npx tsx scripts/seed-animeverse-client.ts', { stdio: 'inherit' });
+      execSync('npx tsx scripts/seed-animeverse-client.ts --target=test', { stdio: 'inherit' });
     }
 
     const config = await deps.tenantConfigService.getConfig(tenantId);

@@ -597,7 +597,8 @@ export class EcommerceIntentParser {
       .replace(/^[?؟,،.!;:()[\]{}'"]+|[?؟,،.!;:()[\]{}'"]+$/g, '')
       .trim();
 
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    cleaned = cleaned.replace(/\s+/g, ' ').trim()
+      .replace(/(?:\s+(?:شحال|وشحال|بشحال|ثمن|سعر|chhal|ch7al|taman))+$/giu, '').trim();
 
     if (this.isNonProductReference(cleaned, catalogCategories, customCategoryAliases, customAttributeAliases, candidateMetadataKeys)) {
       return '';
@@ -772,7 +773,9 @@ export class EcommerceIntentParser {
     // 6. Compare intent
     const isCompare = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
       /(?:^|\s|[.,!?;:()،؟])(?:compare|comparer|comparaison|مقارنة|قارن بين|قارن هاد|قارنها|قارنو|9aren bin|9arenha|قارن|9aren|versus|vs)(?:$|\s|[.,!?;:()،؟])/iu.test(lower) ||
-      lower.includes('compare ')
+      lower.includes('compare ') ||
+      (Boolean(productContext?.lastViewedProductIds && productContext.lastViewedProductIds.length >= 2) &&
+        /(?:شكون\s+(?:هو\s+)?(?:ال)?أرخص|شكون\s+(?:هو\s+)?(?:ال)?ارخص|which\s+(?:one\s+)?is\s+(?:the\s+)?cheapest|lequel\s+est\s+le\s+moins\s+cher)/iu.test(lower))
     );
     if (isCompare) {
       // 6A. Compare current product with target B: "قارنها مع X" / "compare it with X" / "قارنها ليا مع شي جاكيط"

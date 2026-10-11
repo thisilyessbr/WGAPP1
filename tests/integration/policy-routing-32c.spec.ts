@@ -119,7 +119,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('1. Arabic return-window question -> RETURNS ("وشحال عندي من الوقت باش نرجع المنتج؟")', () => {
       const text = 'وشحال عندي من الوقت باش نرجع المنتج؟';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
 
       const resolved = TurnDecisionResolver.resolve({
         text,
@@ -135,7 +137,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('2. Arabic exchange-window question -> RETURNS / KNOWLEDGE ("قداش بقا ليا باش نبدلو؟")', () => {
       const text = 'قداش بقا ليا باش نبدلو؟';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
 
       const resolved = TurnDecisionResolver.resolve({
         text,
@@ -149,7 +153,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('3. Darija return question -> RETURNS ("واش نقدر نرجعو؟")', () => {
       const text = 'واش نقدر نرجعو؟';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
 
       const resolved = TurnDecisionResolver.resolve({
         text,
@@ -163,7 +169,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('4. Arabizi return question -> RETURNS ("chhal 3ndi dlwa9t bach nrje3 lmontaj?")', () => {
       const text = 'chhal 3ndi dlwa9t bach nrje3 lmontaj?';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
 
       const resolved = TurnDecisionResolver.resolve({
         text,
@@ -177,7 +185,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('5. English return-window -> RETURNS ("how long do I have to return it?")', () => {
       const text = 'how long do I have to return it?';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
 
       const resolved = TurnDecisionResolver.resolve({
         text,
@@ -191,7 +201,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('6. French return-window -> RETURNS ("combien de temps pour le retourner ?")', () => {
       const text = 'combien de temps pour le retourner ?';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
 
       const resolved = TurnDecisionResolver.resolve({
         text,
@@ -266,7 +278,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('10. Product-specific return question -> HYBRID ("شنو هي سياسة الإرجاع ديال Moon Ninja Hoodie؟")', () => {
       const text = 'شنو هي سياسة الإرجاع ديال Moon Ninja Hoodie؟';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
       expect(parsed.productName).toBe('Moon Ninja Hoodie');
 
       const resolved = TurnDecisionResolver.resolve({
@@ -354,7 +368,9 @@ describe('Phase 32C: Global Policy-vs-Ecommerce Disambiguation', { timeout: 2000
     it('15. Explicit product + return remains Hybrid Knowledge', () => {
       const text = 'وشحال عندي من الوقت باش نرجع Moon Ninja Hoodie؟';
       const parsed = EcommerceIntentParser.parse(text);
-      expect(parsed.intent).toBe('POLICY_INQUIRY');
+      // The ecommerce parser deliberately yields policies to the sole
+      // TurnDecisionResolver; asserting its old policy intent duplicated routing.
+      expect(parsed.intent).toBe('UNKNOWN');
       expect(parsed.productName).toBe('Moon Ninja Hoodie');
 
       const resolved = TurnDecisionResolver.resolve({

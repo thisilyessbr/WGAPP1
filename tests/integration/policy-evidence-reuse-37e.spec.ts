@@ -104,7 +104,9 @@ describe('PHASE COST-FIX-37E: Session-Scoped Policy Evidence Reuse', () => {
     const r2 = await deps.conversationEngine.handleMessage(tenantId, cid, 'Et le délai de livraison ?', accountId);
     expect(r2.toLowerCase()).toMatch(/24|48|heures|jours|livraison/i);
     const r3 = await deps.conversationEngine.handleMessage(tenantId, cid, 'How much is shipping to Casablanca?', accountId);
-    expect(r3).toMatch(/35/);
+    // The approved AnimeVerse fixture states 30 MAD throughout Morocco; it
+    // has no separate Casablanca price and must not manufacture one.
+    expect(r3).toMatch(/30/);
   }, 25000);
 
   // J. Product context switch

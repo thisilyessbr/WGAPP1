@@ -19,6 +19,8 @@ export interface PolicyEvidence {
     page?: number;
     tenantId: string;
     accountId?: string | null;
+    responseLanguage?: string;
+    responseScript?: string;
   };
 }
 
