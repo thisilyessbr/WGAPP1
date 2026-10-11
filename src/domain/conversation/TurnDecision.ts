@@ -109,11 +109,11 @@ export class TurnDecisionResolver {
 
   private static readonly WARRANTY_TERMS = /(?:warranty|guarantee|garantie|garantir|ضمان|الضمان|daman|ldaman)/iu;
 
-  private static readonly PAYMENT_TERMS = /(?:payment|paiement|payer|cash\s+on\s+delivery|cod|moyen\s+de\s+paiement|modes\s+de\s+paiement|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|khalas|l5las|n5les|daf3|dafa3)/iu;
+  private static readonly PAYMENT_TERMS = /(?:\bpay\b|\bpaying\b|payment|paiement|payer|cash\s+on\s+delivery|cod|moyen\s+de\s+paiement|modes\s+de\s+paiement|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|khalas|l5las|n5les|daf3|dafa3)/iu;
 
   private static readonly STORE_INFO_TERMS = /(?:hours|opening\s+hours|business\s+hours|horaires|heures\s+d['’]ouverture|store\s+location|locations|branch|branches|boutique|magasin|magasins|أوقات\s+العمل|ساعات\s+العمل|مواعيد|فرع|فروع|محل|محلات|موقعكم|فين\s+كاينين|عنوان|العنوان|frou3|fara3|politique)/iu;
 
-  private static readonly SUPPORT_TERMS = /(?:support\s+email|support\s+phone|phone\s+number|contact\s+support|email\s+support|contactez|contacter|comment\s+contacter|how\s+to\s+contact|how\s+to\s+reach|numéro|numero|téléphone|telephone|رقم\s+الهاتف|إيميل\s+الدعم|ايميل\s+الدعم|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|تواصل\s+مع|اتصال\s+ب)/iu;
+  private static readonly SUPPORT_TERMS = /(?:customer\s+service|customer\s+support|support\s+email|support\s+phone|phone\s+number|email\s+and\s+phone|contact\s+support|email\s+support|contactez|contacter|comment\s+contacter|how\s+to\s+contact|how\s+to\s+reach|numéro|numero|téléphone|telephone|رقم\s+الهاتف|إيميل\s+الدعم|ايميل\s+الدعم|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|تواصل\s+مع|اتصال\s+ب)/iu;
 
   private static readonly SIZE_GUIDE_TERMS = /(?:size\s+guide|size\s+chart|size\s+recommendation|which\s+size|what\s+size|which\s+size\s+fits|what\s+fits|size\s+should|guide\s+des\s+tailles|guide\s+de\s+taille|tableau\s+des\s+tailles|quelle\s+taille|quelle\s+est\s+ma\s+taille|choisir\s+(?:sa\s+|une\s+)?taille|دليل\s+المقاسات|جدول\s+المقاسات|المقاس\s+المناسب|أي\s+مقاس|اي\s+مقاس|ما\s+هو\s+المقاس|شكون\s+لاطاي|شنو\s+هي\s+لاطاي|شمن\s+طاي|شمن\s+لاطاي|la\s+taille\s+li\s+tji|la\s+taille\s+li\s+mzyana|ashna\s+hiya\s+la\s+taille|tour\s+de\s+poitrine|chest\s+measurement|body\s+measurement|chest\s+size|\bchest\b.*?\b(?:cm|fits?|size)\b|\b(?:cm|fits?|size)\b.*?\bchest\b|محيط\s+الصدر|قياس\s+الصدر|مقاس\s+الصدر|\bالصدر\b.*?\b(?:سم|cm|مقاس|يناسب|واش|ناخد|ناخذ)\b|(?:سم|cm).*?\b(?:الصدر|صدر)\b|\b(?:الصدر|صدر)\b.*?(?:سم|cm)|f\s+(?:l-)?sder|f-sder|sder.*?(?:cm|taille|size)|\d+\s*(?:cm|سم).*?(?:chest|poitrine|sder|صدر|الصدر|taille|size|fits?)|(?:chest|poitrine|sder|صدر|الصدر|taille|size|fits?).*?\d+\s*(?:cm|سم))/iu;
 
@@ -125,10 +125,15 @@ export class TurnDecisionResolver {
 
     const isReturns = matchesPolicyPhrase(lower, this.RETURNS_TERMS) || matchesPolicyPhrase(lower, this.RETURNS_WINDOW_PATTERNS);
     const isCare = matchesPolicyPhrase(lower, this.CARE_TERMS);
-    const isShipping = matchesPolicyPhrase(lower, this.SHIPPING_TERMS);
     const isTracking = matchesPolicyPhrase(lower, this.TRACKING_TERMS);
     const isWarranty = matchesPolicyPhrase(lower, this.WARRANTY_TERMS);
     const isPayment = matchesPolicyPhrase(lower, this.PAYMENT_TERMS);
+    // "Track my delivery" and "pay on delivery" each express one policy,
+    // not an additional shipping question merely because of the word delivery.
+    const explicitlySeparateShipping = /(?:و(?:ال)?(?:شحن|توصيل)|\b(?:and|et)\s+(?:shipping|delivery|livraison)\b)/iu.test(lower);
+    const isShipping = matchesPolicyPhrase(lower, this.SHIPPING_TERMS) && (!isTracking || explicitlySeparateShipping) &&
+      !(isPayment && /\b(?:pay|paying|cash|cod|payer|paiement|payment)\b|دفع|نخلص|خلاص/iu.test(lower) &&
+        !/\b(?:shipping|delivery|livraison)\s+(?:cost|fee|price|time|duration|charge)|\b(?:cost|fee|price|time|duration|charge)\s+(?:of\s+)?(?:shipping|delivery|livraison)|ثمن\s+التوصيل|مدة\s+التوصيل|مصاريف\s+الشحن/iu.test(lower));
     const isSizeGuide = matchesPolicyPhrase(lower, this.SIZE_GUIDE_TERMS);
     const isSupport = matchesPolicyPhrase(lower, this.SUPPORT_TERMS);
     const isStoreInfo = matchesPolicyPhrase(lower, this.STORE_INFO_TERMS);
@@ -282,12 +287,29 @@ export class TurnDecisionResolver {
 
     // 7. Policy / Knowledge / Hybrid Detection
     const policySignals = this.detectPolicySignals(text);
-    const isPolicyQuery = policySignals.isPolicy;
-    const policyIntent = policySignals.intent;
+    // A condition-only follow-up can omit the word "return". Only inherit the
+    // returns topic when it is the sole cached policy and the customer asks
+    // about recognizable return conditions; never override an explicit topic.
+    const cachedPolicies = Object.entries(input.activePolicyEvidence || {})
+      .filter(([, evidence]) => Array.isArray(evidence) && evidence.length > 0)
+      .map(([intent]) => intent);
+    const returnsConditionFollowUp = !policySignals.isPolicy && cachedPolicies.length === 1
+      && cachedPolicies[0] === 'RETURNS'
+      && /(?:\bunworn\b|\btags?\s+attached\b|\bwith\s+tags?\b|\bnon\s+port[eé]s?\b|\bavec\s+[eé]tiquettes?\b|غير\s+ملبوس|التيكيت|البطاقة\s+الأصلية)/iu.test(text);
+    const trackingFollowUp = !policySignals.isPolicy && cachedPolicies.length === 1
+      && cachedPolicies[0] === 'TRACKING' && /\b(?:sms|tracking\s+link|lien\s+de\s+suivi)\b|رابط\s+التتبع|رسالة\s+التتبع/iu.test(text);
+    const hoursFollowUp = !policySignals.isPolicy && cachedPolicies.length === 1
+      && cachedPolicies[0] === 'STORE_INFO' && /\b(?:open|closed|saturday|sunday|weekend|samedi|dimanche)\b|محلولين|محلولة|السبت|الأحد/iu.test(text);
+    const careFollowUp = !policySignals.isPolicy && cachedPolicies.length === 1
+      && cachedPolicies[0] === 'CARE' && /\b(?:iron|ironing|print|bleach|dry|tumble)\b|مكواة|نكوي|الطبعة|جافيل/iu.test(text);
+    const inheritedPolicyIntent = returnsConditionFollowUp ? 'RETURNS'
+      : trackingFollowUp ? 'TRACKING' : hoursFollowUp ? 'STORE_INFO' : careFollowUp ? 'CARE' : null;
+    const isPolicyQuery = policySignals.isPolicy || Boolean(inheritedPolicyIntent);
+    const policyIntent = inheritedPolicyIntent || policySignals.intent;
     const isMultiPolicy = policySignals.isMultiPolicy;
     const policyIntents = policySignals.matchedCategories.length > 0
       ? policySignals.matchedCategories.slice(0, 4)
-      : null;
+      : (inheritedPolicyIntent ? [inheritedPolicyIntent] : null);
 
     let explicitProductName = ecomParams?.productName || null;
     if (explicitProductName && (EcommerceIntentParser.isNonProductReference(explicitProductName, input.catalogCategories, input.customCategoryAliases, input.customAttributeAliases, input.candidateMetadataKeys) || explicitProductName.length <= 2)) {

@@ -6,7 +6,7 @@ import { DEFAULT_BUSINESS_CONFIG } from '../src/domain/tenant/BusinessConfig';
 import { PdfIngestionService } from '../src/domain/rag/PdfIngestionService';
 import { KnowledgeRepository } from '../src/domain/rag/KnowledgeRepository';
 import { FaqKnowledgeAdapter } from '../src/domain/rag/FaqKnowledgeAdapter';
-import { EmbeddingProvider, MockEmbeddingProvider, GeminiEmbeddingProvider } from '../src/core/rag/EmbeddingProvider';
+import { MockEmbeddingProvider } from '../src/core/rag/EmbeddingProvider';
 
 function createPdfBuffer(title: string, bodyText: string): Buffer {
   const safeTitle = title.replace(/[()\\]/g, '');
@@ -138,7 +138,8 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
           en: 'Standard shipping across Morocco is 30 MAD, usually 24–48 hours.',
           fr: 'Livraison standard partout au Maroc : 30 MAD, généralement sous 24–48 h.',
           ar: 'التوصيل العادي في جميع أنحاء المغرب هو 30 درهمًا، عادة خلال 24–48 ساعة.',
-          darija: 'التوصيل عادي فالمغرب كامل بـ30 MAD، وعادة كيوصل بين 24 و48 ساعة.'
+          darija: 'التوصيل عادي فالمغرب كامل بـ30 MAD، وعادة كيوصل بين 24 و48 ساعة.',
+          darija_arabizi: 'Tawsil 3adi f lmaghrib kamel b 30 MAD, w 3adatan kaywsel bin 24 w 48 sa3a.'
         },
         keywords: {
           en: ['shipping', 'delivery', 'delivery fee', 'shipping cost', 'how long delivery', 'delivery time'],
@@ -160,7 +161,8 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
           en: 'We offer a 14-day return/exchange policy for unworn items with tags attached.',
           fr: 'Nous proposons une politique de retour/échange de 14 jours pour les articles non portés avec étiquettes.',
           ar: 'نقدم سياسة إرجاع واستبدال خلال 14 يومًا للمنتجات غير الملبوسة مع البطاقات الأصلية.',
-          darija: 'كنوفرو إمكانية الترجيع والتبديل فـ14 يوم للمنتوجات اللي ما ملبوساش ومع التيكيت ديالها.'
+          darija: 'كنوفرو إمكانية الترجيع والتبديل فـ14 يوم للمنتوجات اللي ما ملبوساش ومع التيكيت ديالها.',
+          darija_arabizi: 'T9der trje3 wla tbdel f 14 youm ila lmontoj ma tlbssch w fih t-tiket dyalo.'
         },
         keywords: {
           en: ['return', 'returns', 'exchange', 'exchanges', 'refund', 'return policy'],
@@ -211,6 +213,29 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
           fr: ['contacter le support', 'email support', 'telephone support', 'service client'],
           ar: ['تواصل مع الدعم', 'رقم الهاتف', 'ايميل الدعم', 'خدمة الزبناء', 'خدمة العملاء'],
           darija: ['contact support', 'nemra d support', 'email dyal support', 'khedmat zobana']
+        }
+      },
+      {
+        id: 'animeverse-tracking',
+        category: 'tracking',
+        questions: {
+          en: 'How can I track my order?',
+          fr: 'Comment suivre ma commande ?',
+          ar: 'كيف يمكنني تتبع طلبي؟',
+          darija: 'كيفاش نتبع الطلب ديالي؟'
+        },
+        answers: {
+          en: 'When tracking is available after dispatch, we send the tracking link by SMS. If it does not arrive, contact support with your order reference and delivery phone number.',
+          fr: 'Quand le suivi est disponible après l’expédition, nous envoyons le lien par SMS. S’il n’arrive pas, contactez le support avec votre référence de commande et votre numéro de livraison.',
+          ar: 'عندما يتوفر التتبع بعد إرسال الطلب، نرسل رابط التتبع عبر SMS. إذا لم تصلك الرسالة، تواصل مع الدعم برقم الطلب ورقم هاتف التوصيل.',
+          darija: 'ملي كيتصيفط الطلب وكيكون التتبع متوفر، كنصيفطو رابط التتبع فـ SMS. إلا ما وصلاتكش الرسالة، تواصل مع الدعم برقم الطلب ونمرة التوصيل.',
+          darija_arabizi: 'Mlli katsift commande w kaykon suivi disponible, kansifto lien dyal tracking f SMS. Ila ma wslatkch, twasel m3a support b reference dyal commande w nemra dyal tawsil.'
+        },
+        keywords: {
+          en: ['track order', 'tracking link', 'order tracking', 'SMS tracking'],
+          fr: ['suivi commande', 'lien de suivi', 'SMS suivi'],
+          ar: ['تتبع الطلب', 'رابط التتبع', 'رسالة التتبع'],
+          darija: ['ntbe3 commande', 'kifach ntbe3', 'fin wsel talab']
         }
       },
       {
@@ -390,12 +415,9 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
 
   // 6. Ingest standard AnimeVerse Knowledge Base PDFs via PdfIngestionService
   try {
-    let embeddingProvider: EmbeddingProvider;
-    if (process.env.GOOGLE_API_KEY) {
-      embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
-    } else {
-      embeddingProvider = new MockEmbeddingProvider();
-    }
+    // This script can only target the isolated test schema. Its vectors must
+    // match the test runtime and must never consume a real embedding API key.
+    const embeddingProvider = new MockEmbeddingProvider();
     const knowledgeRepo = new KnowledgeRepository(prisma);
     const pdfIngestionService = new PdfIngestionService(prisma, embeddingProvider, knowledgeRepo);
 
@@ -426,6 +448,13 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
         content: 'Size Guide: Size XS fits chest 86 to 90 cm. Size S fits chest 91 to 96 cm. Size M fits chest 97 to 102 cm. Size L fits chest 103 to 108 cm. Size XL fits chest 109 to 114 cm. For a chest size of 98 cm we recommend Size M for a relaxed fit.'
       }
     ];
+
+    // The isolated fixture may have been indexed with a different embedding
+    // model in an earlier run. Replace only these five test PDFs so their
+    // vectors always match the mock retrieval provider used by the tests.
+    await prisma.knowledgeSource.deleteMany({
+      where: { tenantId, accountId: null, type: 'PDF', name: { in: pdfs.map(doc => doc.filename) } }
+    });
 
     for (const doc of pdfs) {
       const buf = createPdfBuffer(doc.title, doc.content);

@@ -268,7 +268,7 @@ export class FaqMatcher {
    * If detected language is non-English, strictly requires a localized answer
    * and never silently falls back to an unlocalized English answer.
    */
-  private static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage): string | null {
+  static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage, script?: string): string | null {
     if (lang === 'en') {
       const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language || !entry.answers ? entry.answer : null);
       return enAns && typeof enAns === 'string' && enAns.trim() ? enAns.trim() : null;
@@ -282,6 +282,11 @@ export class FaqMatcher {
       return arAns && typeof arAns === 'string' && arAns.trim() ? arAns.trim() : null;
     }
     if (lang === 'darija') {
+      if (script === 'arabizi') {
+        const arabizi = entry.answers?.darija_arabizi;
+        return arabizi && typeof arabizi === 'string' && arabizi.trim() && !/[\u0600-\u06FF]/u.test(arabizi)
+          ? arabizi.trim() : null;
+      }
       const darAns = entry.answers?.darija || entry.answers?.ar || (entry.language === 'darija' || entry.language === 'ar' ? entry.answer : null);
       return darAns && typeof darAns === 'string' && darAns.trim() ? darAns.trim() : null;
     }

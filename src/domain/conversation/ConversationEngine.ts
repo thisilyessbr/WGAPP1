@@ -151,7 +151,9 @@ export class ConversationEngine {
     confidence: number,
     tenantId: string,
     accountId: string | null,
-    current: Record<string, PolicyEvidence[]>
+    current: Record<string, PolicyEvidence[]>,
+    responseLanguage?: string,
+    responseScript?: string
   ): Record<string, PolicyEvidence[]> | null {
     if (!PolicyEvidenceReuse.isCanonicalPolicy(policyIntent)) return null;
     return {
@@ -163,7 +165,7 @@ export class ConversationEngine {
         factualContent: answer,
         confidence,
         chunkType: 'FACTUAL_POLICY',
-        provenance: { documentTitle: `FAQ — ${policyIntent}`, tenantId, accountId }
+        provenance: { documentTitle: `FAQ — ${policyIntent}`, tenantId, accountId, responseLanguage, responseScript }
       }]
     };
   }
@@ -1406,12 +1408,35 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               ? turnDecision.intent : (faqMatch.entry.category || '').toUpperCase();
             const remembered = this.rememberPolicyFaq(policyIntent, faqMatch.entry.id,
               faqMatch.answer, faqMatch.confidence || 0.95, tenantId, conversation.accountId,
-              conversationContext.activePolicyEvidence || {});
+              conversationContext.activePolicyEvidence || {}, effectiveLang, effectiveScript);
             if (remembered) {
               conversationContext.activePolicyEvidence = remembered;
               contextDataUpdate = { ...(contextDataUpdate || conversation.contextData as Record<string, any> || {}),
                 activePolicyEvidence: remembered };
             }
+          }
+        }
+
+        // Explicit multi-topic policy questions can be answered from one approved,
+        // unambiguous FAQ per topic without relying on vector ranking or an LLM.
+        if (!answered && triggeredWorkflow.kind === 'NONE' && turnDecision?.domain === 'KNOWLEDGE' &&
+            turnDecision.source !== 'HYBRID' && !turnDecision.isComparative &&
+            turnDecision.isMultiPolicy && turnDecision.policyIntents?.length && !turnDecision.isScopeExpansion) {
+          const policyItems = FaqAnswerPolicy.matchPolicySet(content, config, effectiveLang,
+            turnDecision.policyIntents, effectiveScript);
+          if (policyItems) {
+            answered = true;
+            answerText = AnswerComposer.finalizeResponse(
+              AnswerComposer.composeMultiPolicyDeterministic(policyItems, effectiveLang, effectiveScript),
+              turnDecision, config);
+            responseSource = 'FAQ';
+            for (const item of policyItems) {
+              const remembered = this.rememberPolicyFaq(item.intent, item.faqId, item.content,
+                0.95, tenantId, conversation.accountId, conversationContext.activePolicyEvidence || {}, effectiveLang, effectiveScript);
+              if (remembered) conversationContext.activePolicyEvidence = remembered;
+            }
+            contextDataUpdate = { ...(contextDataUpdate || conversation.contextData as Record<string, any> || {}),
+              activePolicyEvidence: conversationContext.activePolicyEvidence };
           }
         }
 
@@ -1854,7 +1879,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
             const remembered = this.rememberPolicyFaq(policyIntent, faqMatch.entry.id,
               faqMatch.answer, faqMatch.confidence || 0.95, tenantId, conversation.accountId,
-              conversationContext.activePolicyEvidence || {});
+              conversationContext.activePolicyEvidence || {}, effectiveLang, effectiveScript);
             if (remembered) {
               conversationContext.activePolicyEvidence = remembered;
               contextDataUpdate = { ...(contextDataUpdate || conversation.contextData as Record<string, any> || {}),
@@ -1927,9 +1952,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             if (!turnDecision.isMultiPolicy && PolicyEvidenceReuse.isCanonicalPolicy(turnDecision.intent)) {
               const cachedForIntent = activeEvidenceMap[turnDecision.intent];
               if (cachedForIntent && cachedForIntent.length > 0) {
-                const sufficiency = PolicyEvidenceReuse.isSufficient(turnDecision.intent, content, cachedForIntent, config);
+                const localizedEvidence = cachedForIntent.filter(ev =>
+                  (!ev.provenance.responseLanguage || ev.provenance.responseLanguage === effectiveLang) &&
+                  (!ev.provenance.responseScript || ev.provenance.responseScript === effectiveScript));
+                const sufficiency = PolicyEvidenceReuse.isSufficient(turnDecision.intent, content, localizedEvidence, config);
                 if (sufficiency.isSufficient) {
-                  const reusedChunks = PolicyEvidenceReuse.evidenceToChunks(cachedForIntent);
+                  const reusedChunks = PolicyEvidenceReuse.evidenceToChunks(localizedEvidence);
                   ragResult = {
                     context: reusedChunks.map(c => c.content).join('\n---\n'),
                     chunks: reusedChunks
@@ -1952,9 +1980,12 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               for (const pol of turnDecision.policyIntents) {
                 const cached = activeEvidenceMap[pol];
                 if (PolicyEvidenceReuse.isCanonicalPolicy(pol) && cached && cached.length > 0) {
-                  const suff = PolicyEvidenceReuse.isSufficient(pol, content, cached, config);
+                  const localizedEvidence = cached.filter(ev =>
+                    (!ev.provenance.responseLanguage || ev.provenance.responseLanguage === effectiveLang) &&
+                    (!ev.provenance.responseScript || ev.provenance.responseScript === effectiveScript));
+                  const suff = PolicyEvidenceReuse.isSufficient(pol, content, localizedEvidence, config);
                   if (suff.isSufficient) {
-                    multiCachedChunks.push(...PolicyEvidenceReuse.evidenceToChunks(cached));
+                    multiCachedChunks.push(...PolicyEvidenceReuse.evidenceToChunks(localizedEvidence));
                   } else {
                     multiMissingIntents.push(pol);
                   }
@@ -1973,7 +2004,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               }
             }
 
-            let multiResultEvidence: Record<string, PolicyEvidence[]> | null = null;
+            let multiResultEvidence: PolicyEvidence[] | null = null;
 
             // Execution: If not fully satisfied by session cache, perform targeted RAG retrieval
             if (!isReusedSingleEvidence && !isReusedMultiEvidence) {
@@ -1992,7 +2023,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                   effectiveLang,
                   turnDecision.productName
                 );
-                multiResultEvidence = (multiResult as any).evidence || null;
+                multiResultEvidence = multiResult.evidence || null;
 
                 const mergedChunks = [...multiCachedChunks, ...multiResult.chunks];
                 ragResult = {
@@ -2088,11 +2119,16 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                   }
                 });
               } else {
-                ragResult = await this.ragService.retrieve(tenantId, retrievalQuery, effectiveKnowledgeConfig, conversation.accountId);
+                ragResult = await this.ragService.retrieve(tenantId, retrievalQuery, effectiveKnowledgeConfig, conversation.accountId,
+                  PolicyEvidenceReuse.isCanonicalPolicy(turnDecision.intent) ? turnDecision.intent : undefined);
                 const ragLatencyMs = Date.now() - ragStartTime;
                 const topChunk = ragResult.chunks?.[0];
                 const highConfidenceThreshold = Math.max(config.knowledge.minSimilarityScore || 0.52, 0.70);
-                const rawDirectMatch = Boolean(topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content);
+                const scopeEvidenceSufficient = turnDecision.intent !== 'SHIPPING' || !turnDecision.isScopeExpansion ||
+                  PolicyEvidenceReuse.isSufficient('SHIPPING', content,
+                    (ragResult.chunks || []).map((chunk: RAGChunk) => ({ factualContent: chunk.content } as PolicyEvidence)), config).isSufficient;
+                const rawDirectMatch = Boolean(turnDecision.domain === 'KNOWLEDGE' && scopeEvidenceSufficient &&
+                  topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content);
                 const guardResult = (rawDirectMatch && turnDecision.source !== 'HYBRID')
                   ? DirectRagGuard.evaluate(content, topChunk.content, effectiveLang, turnDecision.responseScript)
                   : null;
@@ -2191,7 +2227,11 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               } else if (!turnDecision.isMultiPolicy) {
                 // Phase 39B: Reused single policy evidence already verified by PolicyEvidenceReuse.isSufficient()
                 // requires only topChunk.content to proceed to DirectRagGuard evaluation
-                const rawDirectMatch = Boolean(topChunk && (isReusedSingleEvidence || topChunk.similarity >= highConfidenceThreshold) && topChunk.content);
+                const scopeEvidenceSufficient = turnDecision.intent !== 'SHIPPING' || !turnDecision.isScopeExpansion ||
+                  PolicyEvidenceReuse.isSufficient('SHIPPING', content,
+                    (ragResult.chunks || []).map((chunk: RAGChunk) => ({ factualContent: chunk.content } as PolicyEvidence)), config).isSufficient;
+                const rawDirectMatch = Boolean(turnDecision.domain === 'KNOWLEDGE' && scopeEvidenceSufficient && topChunk &&
+                  (isReusedSingleEvidence || topChunk.similarity >= highConfidenceThreshold) && topChunk.content);
                 const guardResult = (rawDirectMatch && turnDecision.source !== 'HYBRID')
                   ? DirectRagGuard.evaluate(content, topChunk.content, effectiveLang, turnDecision.responseScript)
                   : null;
@@ -2238,7 +2278,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
               for (const pol of targetIntents) {
                 if (PolicyEvidenceReuse.isCanonicalPolicy(pol)) {
-                  const newEvidenceItems: PolicyEvidence[] = ragResult.chunks.map((ch: RAGChunk) => ({
+                  const newEvidenceItems: PolicyEvidence[] = turnDecision.isMultiPolicy
+                    ? (multiResultEvidence || []).filter(ev => ev.intent === pol)
+                    : ragResult.chunks.filter((ch: RAGChunk) =>
+                      RAGService.matchesPolicyTitle(pol, ch.documentTitle)).map((ch: RAGChunk) => ({
                     intent: pol,
                     sourceDocumentId: ch.documentId,
                     sourceChunkId: ch.id,
@@ -2251,7 +2294,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                       accountId: conversation.accountId
                     }
                   }));
-                  updatedEvidenceMap = PolicyEvidenceReuse.mergeEvidence(updatedEvidenceMap, pol, newEvidenceItems);
+                  if (newEvidenceItems.length > 0 &&
+                      PolicyEvidenceReuse.isSufficient(pol, content, newEvidenceItems, config).isSufficient) {
+                    updatedEvidenceMap = PolicyEvidenceReuse.mergeEvidence(updatedEvidenceMap, pol, newEvidenceItems);
+                  }
                 }
               }
               conversationContext.activePolicyEvidence = updatedEvidenceMap;
@@ -2281,6 +2327,27 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                 inputSizeChars: retrievalQuery.length
               }
             });
+          }
+        }
+
+        // A domestic shipping answer must never be generalized to a foreign
+        // destination. If retrieval has no approved cross-border fact, give a
+        // transparent uncertainty response instead of asking the LLM to guess.
+        if (!answered && turnDecision?.intent === 'SHIPPING' && turnDecision.isScopeExpansion) {
+          const retrieved = (ragResult?.chunks || []).map((chunk: RAGChunk) =>
+            ({ factualContent: chunk.content } as PolicyEvidence));
+          if (!PolicyEvidenceReuse.isSufficient('SHIPPING', content, retrieved, config).isSufficient) {
+            answered = true;
+            answerText = effectiveLang === 'fr'
+              ? 'Je n’ai pas d’information confirmée sur la livraison internationale vers cette destination. Notre équipe peut vérifier pour vous.'
+              : effectiveLang === 'ar'
+                ? 'ليست لدي معلومات مؤكدة عن الشحن الدولي إلى هذه الوجهة. يمكن لفريقنا التحقق من ذلك لك.'
+                : effectiveLang === 'darija'
+                  ? (effectiveScript === 'arabizi'
+                    ? 'Ma 3ndich ma3loumat m2akkda 3la livraison lbarra. L-fariq y9der yt2akked lik mn had l-wijha.'
+                    : 'ما عنديش معلومات مؤكدة على التوصيل لبرّا. الفريق يقدر يتأكد ليك من هاد الوجهة.')
+                  : 'I don’t have confirmed information about international shipping to that destination. Our team can check it for you.';
+            responseSource = 'FALLBACK';
           }
         }
 

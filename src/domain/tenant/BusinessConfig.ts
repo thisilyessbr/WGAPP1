@@ -256,7 +256,7 @@ export interface FaqEntry {
   answer?: string;
   language?: string;
   questions?: { en?: string; fr?: string; ar?: string; darija?: string };
-  answers?: { en?: string; fr?: string; ar?: string; darija?: string };
+  answers?: { en?: string; fr?: string; ar?: string; darija?: string; darija_arabizi?: string };
   keywords?: { en?: string[]; fr?: string[]; ar?: string[]; darija?: string[] } | string[];
 }
 
