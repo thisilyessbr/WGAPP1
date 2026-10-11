@@ -270,6 +270,20 @@ describe('workflow turn gate', () => {
       'شنو بغيتي تحسن؟', llm)).toBe('FIELD_ANSWER');
   });
 
+  it('lets structured-field validation handle an inconclusive classifier result', async () => {
+    const llm = new LLMMockProvider();
+    llm.generatedResponseMock = 'not-json';
+    expect(await WorkflowTurnGate.classify('11/11/2026 at 3 pm', 'preferredDemoTime',
+      { name: 'preferredDemoTime', type: 'date', required: true }, 'Which date works?', llm))
+      .toBe('FIELD_ANSWER');
+    expect(await WorkflowTurnGate.classify('Does this work on Instagram?', 'preferredDemoTime',
+      { name: 'preferredDemoTime', type: 'date', required: true }, 'Which date works?', llm))
+      .toBe('CUSTOMER_QUESTION');
+    expect(await WorkflowTurnGate.classify('I have a question about pricing', 'businessNeed',
+      { name: 'businessNeed', type: 'string', required: true, semanticType: 'free_text' },
+      'What do you need?', llm)).toBe('UNCLEAR');
+  });
+
   it('preserves state and collected details for a mid-form question', async () => {
     const llm = new LLMMockProvider();
     llm.intentMock = 'CUSTOMER_QUESTION';

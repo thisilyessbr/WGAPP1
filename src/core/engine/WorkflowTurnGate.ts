@@ -176,6 +176,13 @@ export class WorkflowTurnGate {
       } catch {
         // Invalid or unavailable interpretation must not corrupt customer data.
       }
+      // Structured fields are validated by the workflow after routing. When
+      // the classifier is unavailable or inconclusive, keep that validator
+      // reachable instead of trapping a valid date, phone, or number here.
+      // Free-text fields remain fail-closed to avoid saving a side-question.
+      if (type !== 'string' && !questionOnly && !embeddedQuestion) {
+        return { kind: 'FIELD_ANSWER' };
+      }
       return { kind: 'UNCLEAR' };
     }
 
