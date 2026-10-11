@@ -77,12 +77,11 @@ function getPrismaClient(connectionUrl: string | undefined, schema?: string): { 
     } catch (e) {}
   }
 
-  const pool = new Pool({ connectionString: dbUrl, max: 5 });
-  if (schema) {
-    pool.on('connect', (client) => {
-      client.query(`SET search_path TO ${schema}, public, extensions;`);
-    });
-  }
+  const pool = new Pool({
+    connectionString: dbUrl,
+    max: 5,
+    ...(schema ? { options: `-c search_path=${schema},public,extensions` } : {})
+  });
   const adapter = new PrismaPg(pool, schema ? { schema } : undefined);
   const prisma = new PrismaClient({ adapter });
   return { prisma, pool };
@@ -443,35 +442,25 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
 }
 
 async function main() {
-  const live = getPrismaClient(process.env.DATABASE_URL);
-  if (live) {
-    try {
-      await seedAnimeVerse(live.prisma, 'DEVELOPMENT DATABASE (DATABASE_URL)');
-    } finally {
-      await live.prisma.$disconnect();
-      await live.pool.end();
-    }
+  if (!process.argv.includes('--target=test')) {
+    throw new Error('This fixture seeder requires --target=test and never writes to development or public schemas.');
   }
-
-  const test = getPrismaClient(process.env.TEST_DATABASE_URL, 'test');
-  if (test) {
-    try {
-      await seedAnimeVerse(test.prisma, 'TEST DATABASE (schema: test)');
-    } finally {
-      await test.prisma.$disconnect();
-      await test.pool.end();
-    }
+  const testUrl = process.env.TEST_DATABASE_URL;
+  if (!testUrl || testUrl === process.env.DATABASE_URL ||
+      (process.env.TEST_DATABASE_SCHEMA || 'test') !== 'test') {
+    throw new Error('Refusing to seed without an isolated TEST_DATABASE_URL using the test schema.');
   }
-
-  const testPublic = getPrismaClient(process.env.TEST_DATABASE_URL, 'public');
-  if (testPublic) {
-    try {
-      await seedAnimeVerse(testPublic.prisma, 'TEST DATABASE (schema: public)');
-    } finally {
-      await testPublic.prisma.$disconnect();
-      await testPublic.pool.end();
-    }
+  const test = getPrismaClient(testUrl, 'test');
+  if (!test) throw new Error('TEST_DATABASE_URL is required.');
+  try {
+    await seedAnimeVerse(test.prisma, 'TEST DATABASE (schema: test)');
+  } finally {
+    await test.prisma.$disconnect();
+    await test.pool.end();
   }
 }
 
-main().catch(console.error);
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

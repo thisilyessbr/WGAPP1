@@ -18,7 +18,7 @@ describe('PHASE PDF-35E: Global Knowledge Ingestion + RAG Quality Gate', () => {
     if (count === 0) {
       // Re-run seeder on test schema
       const { execSync } = await import('child_process');
-      execSync('npx tsx scripts/seed-animeverse-client.ts', { stdio: 'inherit' });
+      execSync('npx tsx scripts/seed-animeverse-client.ts --target=test', { stdio: 'inherit' });
     }
   }, 60000);
 

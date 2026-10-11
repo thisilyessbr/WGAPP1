@@ -144,6 +144,30 @@ export class ConversationEngine {
     return FaqAnswerPolicy.match(content, config, language, decision);
   }
 
+  private rememberPolicyFaq(
+    policyIntent: string,
+    faqId: string,
+    answer: string,
+    confidence: number,
+    tenantId: string,
+    accountId: string | null,
+    current: Record<string, PolicyEvidence[]>
+  ): Record<string, PolicyEvidence[]> | null {
+    if (!PolicyEvidenceReuse.isCanonicalPolicy(policyIntent)) return null;
+    return {
+      ...current,
+      [policyIntent]: [{
+        intent: policyIntent,
+        sourceDocumentId: `faq-${faqId}`,
+        sourceChunkId: `faq-chunk-${faqId}`,
+        factualContent: answer,
+        confidence,
+        chunkType: 'FACTUAL_POLICY',
+        provenance: { documentTitle: `FAQ — ${policyIntent}`, tenantId, accountId }
+      }]
+    };
+  }
+
   private buildGroundedSystemPrompt(config: BusinessConfig, detectedLang: string, responseScript?: SupportedScript): string {
     const botName = config.identity?.botName || 'our service';
     const brand = !config.portalFacts && config.identity?.brand ? ` (${config.identity.brand})` : '';
@@ -1378,6 +1402,16 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             }, config);
             responseSource = 'FAQ';
             logger.info(`ConversationEngine: Pre-workflow FAQ match [${faqMatch.entry.id}] (confidence: ${faqMatch.confidence}, 0 LLM calls).`);
+            const policyIntent = PolicyEvidenceReuse.isCanonicalPolicy(turnDecision.intent)
+              ? turnDecision.intent : (faqMatch.entry.category || '').toUpperCase();
+            const remembered = this.rememberPolicyFaq(policyIntent, faqMatch.entry.id,
+              faqMatch.answer, faqMatch.confidence || 0.95, tenantId, conversation.accountId,
+              conversationContext.activePolicyEvidence || {});
+            if (remembered) {
+              conversationContext.activePolicyEvidence = remembered;
+              contextDataUpdate = { ...(contextDataUpdate || conversation.contextData as Record<string, any> || {}),
+                activePolicyEvidence: remembered };
+            }
           }
         }
 
@@ -1818,26 +1852,13 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               ? turnDecision.intent
               : (faqMatch.entry.category ? faqMatch.entry.category.toUpperCase() : 'STORE_INFO');
 
-            if (PolicyEvidenceReuse.isCanonicalPolicy(policyIntent)) {
-              const currentContextData = (conversation.contextData as Record<string, any>) || {};
-              let updatedEvidenceMap = { ...(conversationContext.activePolicyEvidence || {}) };
-              const faqEvidence: PolicyEvidence = {
-                intent: policyIntent,
-                sourceDocumentId: `faq-${faqMatch.entry.id}`,
-                sourceChunkId: `faq-chunk-${faqMatch.entry.id}`,
-                factualContent: faqMatch.answer,
-                confidence: faqMatch.confidence || 0.95,
-                chunkType: 'FACTUAL_POLICY',
-                provenance: {
-                  documentTitle: `FAQ — ${policyIntent}`,
-                  tenantId,
-                  accountId: conversation.accountId
-                }
-              };
-              updatedEvidenceMap[policyIntent] = [faqEvidence];
-              conversationContext.activePolicyEvidence = updatedEvidenceMap;
-              currentContextData.activePolicyEvidence = updatedEvidenceMap;
-              contextDataUpdate = currentContextData;
+            const remembered = this.rememberPolicyFaq(policyIntent, faqMatch.entry.id,
+              faqMatch.answer, faqMatch.confidence || 0.95, tenantId, conversation.accountId,
+              conversationContext.activePolicyEvidence || {});
+            if (remembered) {
+              conversationContext.activePolicyEvidence = remembered;
+              contextDataUpdate = { ...(contextDataUpdate || conversation.contextData as Record<string, any> || {}),
+                activePolicyEvidence: remembered };
             }
             } // end intent-category parity else
           }
