@@ -270,7 +270,7 @@ export class FaqMatcher {
    */
   static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage, script?: string): string | null {
     if (lang === 'en') {
-      const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language || !entry.answers ? entry.answer : null);
+      const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language ? entry.answer : null);
       return enAns && typeof enAns === 'string' && enAns.trim() ? enAns.trim() : null;
     }
     if (lang === 'fr') {
@@ -327,7 +327,7 @@ export class FaqMatcher {
         if (!rawAnswer) continue; // Language safety: cannot match if valid localized answer is missing
 
         const rawQuestion = entry.questions?.[l] ||
-          ((entry.language === l || (l === 'darija' && entry.language === 'ar') || (l === 'ar' && entry.language === 'darija') || (!entry.questions && (l === 'en' || !entry.language))) ? entry.question : undefined);
+          ((entry.language === l || (l === 'darija' && entry.language === 'ar') || (l === 'ar' && entry.language === 'darija') || (!entry.questions && !entry.language)) ? entry.question : undefined);
         const rawKeywords: string[] = Array.isArray(entry.keywords)
           ? (l === 'en' ? entry.keywords : [])
           : (entry.keywords?.[l] || []);

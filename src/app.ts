@@ -60,8 +60,7 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
       res.status(503).json({
         status: 'unhealthy',
         timestamp: new Date().toISOString(),
-        error: 'DATABASE_UNAVAILABLE',
-        message: err.message || String(err)
+        error: 'DATABASE_UNAVAILABLE'
       });
     }
   });
