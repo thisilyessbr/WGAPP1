@@ -248,7 +248,8 @@ describe('Darija factual policy answers', () => {
     ['ch7al livraison?', 'Livraison f lmghrib b 30 MAD.'],
     ['شحال التوصيل؟', 'التوصيل فالمغرب ب 30 درهم.']
   ])('answers a trusted FAQ in the same script: %s', async (text, answer) => {
-    const { engine, config, llm } = fixture(); config.capabilities.faq = [{ id: 'shipping', category: 'SHIPPING', question: text, answer, language: 'darija' }];
+    const { engine, config, llm } = fixture(); config.capabilities.faq = [{ id: 'shipping', category: 'SHIPPING', question: text, answer,
+      answers: /[\u0600-\u06ff]/u.test(answer) ? { darija: answer } : { darija_arabizi: answer }, language: 'darija' }];
     expect(await engine.handleMessage('t', 'c', text, 'a')).toContain('30');
     expect(llm.generateResponse).not.toHaveBeenCalled();
   });

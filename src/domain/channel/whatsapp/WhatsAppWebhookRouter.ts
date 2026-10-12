@@ -135,6 +135,10 @@ export function createWhatsAppWebhookRouter(
             }
           } catch (statusErr: any) {
             logger.error(`WhatsAppWebhookRouter: Failed to record delivery receipt for [${st.wamid}]: ${statusErr.message || statusErr}`);
+            // A 200 would tell Meta to discard this event even though its
+            // receipt was not saved. Previously committed receipts are
+            // deduplicated when Meta retries the complete webhook payload.
+            throw statusErr;
           }
         }
 

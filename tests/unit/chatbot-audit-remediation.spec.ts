@@ -123,10 +123,10 @@ describe('audit: intent meaning and complete answers',()=>{
     expect(llm.generateResponse).not.toHaveBeenCalled();
   });
   it('does not label a greeting as workflow execution',async()=>{
-    const {engine,config,crm}=engineFixture();
+    const {engine,config,svc}=engineFixture();
     config.workflows={booking:{id:'booking',initialState:'name',states:{name:{type:'collect',field:{name:'name',type:'string'},prompt:'Name?'}}}};
     await engine.handleMessage('t','customer','Hello','a');
-    expect(crm.processTurnSignal.mock.calls[0][0].turnDecision.intent).toBe('GREETING');
+    expect(svc.commitConversationTurn.mock.calls[0][0].leadRequest).toBeNull();
   });
   it.each(['I want to buy this and how much is shipping?', 'Je veux acheter ceci et combien coûte la livraison?', 'أريد شراء هذا وما تكلفة التوصيل؟'])('preserves an affirmative purchase alongside a policy question: %s',text=>{
     const decision=TurnDecisionResolver.resolve({text,isEcommerceEnabled:true});
@@ -137,11 +137,11 @@ describe('audit: intent meaning and complete answers',()=>{
     expect(TurnDecisionResolver.resolve({text:'I do not want to buy this and how much is shipping?'}).secondaryIntents).toBeUndefined();
   });
   it('asks to confirm the product and retains the pending request for a mixed turn',async()=>{
-    const {engine,config,svc,crm}=engineFixture(); config.capabilities.ecommerceEnabled=true;
+    const {engine,config,svc}=engineFixture(); config.capabilities.ecommerceEnabled=true;
     const reply=await engine.handleMessage('t','customer','I want to buy this and how much is shipping?','a');
     expect(reply).toContain('confirm the product');
     expect(svc.commitConversationTurn.mock.calls[0][0].contextData.pendingPurchaseRequest.text).toContain('buy this');
-    expect(crm.processTurnSignal.mock.calls[0][0].turnDecision.secondaryIntents).toContain('BUY_INTENT');
+    expect(svc.commitConversationTurn.mock.calls[0][0].leadRequest).toMatchObject({reason:'EXPLICIT_SALES_INTENT',customerId:'customer'});
   });
   it('applies FAQ scope checks after workflow completion too',async()=>{
     const {engine,svc}=engineFixture();

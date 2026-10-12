@@ -5,6 +5,7 @@ import { BusinessConfig } from '../tenant/BusinessConfig';
 import { DirectRagGuard } from './DirectRagGuard';
 import { ChunkClassifier, ChunkQualityType } from './ChunkQuality';
 import { PolicyEvidence, MultiPolicyEvidenceResult } from './PolicyEvidence';
+import { PolicyAnswerSafety } from './PolicyAnswerSafety';
 
 export interface RAGChunk {
   id: string;
@@ -386,7 +387,8 @@ export class RAGService {
     config: BusinessConfig,
     accountId?: string | null,
     language: string = 'en',
-    productName?: string | null
+    productName?: string | null,
+    customerQuery?: string
   ): Promise<MultiPolicyEvidenceResult> {
     if (!config.knowledge.enabled || !intents.length) {
       return {
@@ -475,9 +477,11 @@ export class RAGService {
       // Sort intent candidates by composite quality score descending
       intentCandidates.sort((a, b) => b.score - a.score);
 
-      const titledCandidates = intentCandidates.filter(chunk =>
+      const relevantCandidates = intentCandidates.filter(chunk =>
+        PolicyAnswerSafety.supportsIntent(intent, customerQuery || subquery, chunk.content, chunk.documentTitle, config));
+      const titledCandidates = relevantCandidates.filter(chunk =>
         RAGService.matchesPolicyTitle(intent, chunk.documentTitle));
-      const topChunksForIntent = (titledCandidates.length > 0 ? titledCandidates : intentCandidates).slice(0, 2);
+      const topChunksForIntent = (titledCandidates.length > 0 ? titledCandidates : relevantCandidates).slice(0, 2);
 
       if (topChunksForIntent.length > 0) {
         availableIntents.push(intent);

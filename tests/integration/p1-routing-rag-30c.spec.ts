@@ -453,7 +453,8 @@ describe('Phase 30C: P1 Routing + RAG Contract Tests', () => {
         'animeverse',
         expect.any(String),
         expect.any(Object),
-        'animeverse-store'
+        'animeverse-store',
+        'SHIPPING'
       );
     });
 

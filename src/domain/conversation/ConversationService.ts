@@ -440,7 +440,7 @@ export class ConversationService {
     leadRequest?: {
       accountId: string;
       customerId: string;
-      workflowSessionId: string;
+       workflowSessionId?: string | null;
       interest?: string | null;
       reason?: string;
       details?: Record<string, any>;
@@ -526,24 +526,33 @@ export class ConversationService {
       // transaction. A saved conversation can therefore never be missing from CRM.
       if (params.leadRequest) {
         const request = params.leadRequest;
-        const ownership = await tx.customer.findFirst({
-          where: { id: request.customerId, tenantId: params.tenantId },
-          select: { id: true }
+        // Serialize lead creation across conversations for the same customer.
+        const ownership = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Customer"
+          WHERE id=${request.customerId} AND "tenantId"=${params.tenantId} FOR UPDATE`;
+        const account = await tx.account.findUnique({
+          where: { id: request.accountId }, select: { id: true, tenantId: true }
         });
-        const account = await tx.account.findFirst({
-          where: { id: request.accountId, tenantId: params.tenantId },
-          select: { id: true }
-        });
-        if (!ownership || !account) throw new Error('CRM_ACCOUNT_CUSTOMER_MISMATCH');
-        const existingLead = await tx.lead.findFirst({
-          where: {
-            tenantId: params.tenantId,
-            accountId: request.accountId,
-            customerId: request.customerId,
-            sourceWorkflowSessionId: request.workflowSessionId
-          }
-        });
-        if (!existingLead) {
+        if (!ownership.length || account?.tenantId !== params.tenantId) throw new Error('CRM_ACCOUNT_CUSTOMER_MISMATCH');
+
+        const scope = { tenantId: params.tenantId, accountId: request.accountId, customerId: request.customerId };
+        const existingLead = request.workflowSessionId
+          ? await tx.lead.findFirst({ where: { ...scope, sourceWorkflowSessionId: request.workflowSessionId } })
+          : await tx.lead.findFirst({
+              where: { ...scope, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+              orderBy: { createdAt: 'desc' }
+            });
+        const pending = !existingLead && request.workflowSessionId
+          ? await tx.lead.findFirst({
+              where: { ...scope, sourceConversationId: params.conversationId,
+                sourceWorkflowSessionId: null, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+              orderBy: { createdAt: 'desc' }
+            }) : null;
+        if (pending) {
+          await tx.lead.update({ where: { id: pending.id }, data: {
+            sourceWorkflowSessionId: request.workflowSessionId,
+            signalReason: request.reason || pending.signalReason
+          } });
+        } else if (!existingLead) {
           await tx.lead.create({ data: {
             tenantId: params.tenantId,
             accountId: request.accountId,
@@ -553,7 +562,7 @@ export class ConversationService {
             signalReason: request.reason || 'COMPLETED_WORKFLOW',
             sourceConversationId: params.conversationId,
             sourcePhoneNumberId: params.phoneNumberId || null,
-            sourceWorkflowSessionId: request.workflowSessionId,
+            sourceWorkflowSessionId: request.workflowSessionId || null,
             details: request.details || {}
           } });
         }

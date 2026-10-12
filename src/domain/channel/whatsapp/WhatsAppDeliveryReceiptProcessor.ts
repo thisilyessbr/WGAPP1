@@ -44,80 +44,54 @@ export class WhatsAppDeliveryReceiptProcessor {
       return { correlated: false, applied: false, reason: 'UNKNOWN_STATUS' };
     }
 
-    // Look up Message record strictly scoped by tenantId and externalId (providerMessageId / wamid)
-    const message = await this.prisma.message.findFirst({
-      where: {
-        tenantId: receipt.tenantId,
-        externalId: receipt.providerMessageId
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the message before reading its status. A second receipt must make
+      // its transition decision from the first receipt's committed status.
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Message"
+        WHERE "tenantId"=${receipt.tenantId} AND "externalId"=${receipt.providerMessageId} FOR UPDATE`;
+      if (!locked.length) {
+        logger.info(`WhatsAppDeliveryReceiptProcessor: Unmatched receipt [${receipt.id}] for wamid [${receipt.providerMessageId}]. Retaining for reconciliation.`);
+        return { correlated: false, applied: false, reason: 'MESSAGE_NOT_YET_COMMITTED' };
       }
-    });
 
-    if (!message) {
-      logger.info(`WhatsAppDeliveryReceiptProcessor: Unmatched receipt [${receipt.id}] for wamid [${receipt.providerMessageId}]. Retaining for reconciliation.`);
-      return { correlated: false, applied: false, reason: 'MESSAGE_NOT_YET_COMMITTED' };
-    }
+      const message = await tx.message.findUniqueOrThrow({ where: { id: locked[0].id } });
+      const existingMeta = (message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata))
+        ? { ...(message.metadata as Record<string, any>) }
+        : {};
+      const currentStatus: DeliveryStatus = (existingMeta.deliveryStatus as DeliveryStatus) || 'PENDING';
+      if (!canTransitionDeliveryStatus(currentStatus, targetStatus)) {
+        logger.info(`WhatsAppDeliveryReceiptProcessor: Suppressed status transition from [${currentStatus}] to [${targetStatus}] for message [${message.id}]`);
+        if (receipt.id) {
+          await tx.whatsAppDeliveryReceipt.update({ where: { id: receipt.id }, data: { correlated: true } });
+        }
+        return { correlated: true, applied: false, reason: `TRANSITION_PROHIBITED_${currentStatus}_TO_${targetStatus}` };
+      }
 
-    const existingMeta = (message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata))
-      ? { ...(message.metadata as Record<string, any>) }
-      : {};
+      const timestampMs = receipt.providerTimestamp ? receipt.providerTimestamp.getTime() : Date.now();
+      existingMeta.deliveryStatus = targetStatus;
+      if (targetStatus === 'SENT') {
+        existingMeta.sentAt = timestampMs;
+      } else if (targetStatus === 'DELIVERED') {
+        existingMeta.deliveredAt = timestampMs;
+        if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
+      } else if (targetStatus === 'READ') {
+        existingMeta.readAt = timestampMs;
+        if (!existingMeta.deliveredAt) existingMeta.deliveredAt = timestampMs;
+        if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
+      } else if (targetStatus === 'FAILED') {
+        existingMeta.failedAt = timestampMs;
+        if (receipt.errorCode) existingMeta.providerErrorCode = receipt.errorCode;
+        if (receipt.errorMessage) existingMeta.providerErrorMessage = receipt.errorMessage;
+        existingMeta.error = receipt.errorMessage || `WhatsApp delivery failed (code: ${receipt.errorCode ?? 'unknown'})`;
+      }
 
-    const currentStatus: DeliveryStatus = (existingMeta.deliveryStatus as DeliveryStatus) || 'PENDING';
-
-    // Verify whether the transition is allowed
-    const allowed = canTransitionDeliveryStatus(currentStatus, targetStatus);
-
-    if (!allowed) {
-      logger.info(
-        `WhatsAppDeliveryReceiptProcessor: Suppressed status transition from [${currentStatus}] to [${targetStatus}] for message [${message.id}] (monotonic / terminal rule)`
-      );
-
-      // Even if transition was suppressed (e.g. stale 'sent' after 'read'), the receipt is correlated
+      await tx.message.update({ where: { id: message.id }, data: { metadata: existingMeta } });
       if (receipt.id) {
-        await this.prisma.whatsAppDeliveryReceipt.update({
-          where: { id: receipt.id },
-          data: { correlated: true }
-        });
+        await tx.whatsAppDeliveryReceipt.update({ where: { id: receipt.id }, data: { correlated: true } });
       }
-
-      return { correlated: true, applied: false, reason: `TRANSITION_PROHIBITED_${currentStatus}_TO_${targetStatus}` };
-    }
-
-    // Apply the transition atomically
-    const timestampMs = receipt.providerTimestamp ? receipt.providerTimestamp.getTime() : Date.now();
-    existingMeta.deliveryStatus = targetStatus;
-
-    if (targetStatus === 'SENT') {
-      existingMeta.sentAt = timestampMs;
-    } else if (targetStatus === 'DELIVERED') {
-      existingMeta.deliveredAt = timestampMs;
-      if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
-    } else if (targetStatus === 'READ') {
-      existingMeta.readAt = timestampMs;
-      if (!existingMeta.deliveredAt) existingMeta.deliveredAt = timestampMs;
-      if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
-    } else if (targetStatus === 'FAILED') {
-      existingMeta.failedAt = timestampMs;
-      if (receipt.errorCode) existingMeta.providerErrorCode = receipt.errorCode;
-      if (receipt.errorMessage) existingMeta.providerErrorMessage = receipt.errorMessage;
-      existingMeta.error = receipt.errorMessage || `WhatsApp delivery failed (code: ${receipt.errorCode ?? 'unknown'})`;
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.message.update({
-        where: { id: message.id },
-        data: { metadata: existingMeta }
-      });
-
-      if (receipt.id) {
-        await tx.whatsAppDeliveryReceipt.update({
-          where: { id: receipt.id },
-          data: { correlated: true }
-        });
-      }
+      logger.info(`WhatsAppDeliveryReceiptProcessor: Applied status [${targetStatus}] to message [${message.id}] (Meta wamid: [${receipt.providerMessageId}])`);
+      return { correlated: true, applied: true };
     });
-
-    logger.info(`WhatsAppDeliveryReceiptProcessor: Applied status [${targetStatus}] to message [${message.id}] (Meta wamid: [${receipt.providerMessageId}])`);
-    return { correlated: true, applied: true };
   }
 
   /**

@@ -21,6 +21,15 @@ const config = {
 };
 
 describe('approved policy FAQ routing', () => {
+  it('does not use an Arabic-only FAQ as an English answer', () => {
+    const arabicOnly = { id: 'shipping-ar', category: 'SHIPPING', language: 'ar' as const,
+      question: 'واش كاين التوصيل فالمغرب؟', answer: 'التوصيل متوفر فالمغرب.' };
+    const arabicConfig = { ...config, capabilities: { ...config.capabilities, faq: [arabicOnly] } };
+    const englishDecision = TurnDecisionResolver.resolve({ text: 'What is your shipping policy?', language: 'en' });
+    expect(FaqAnswerPolicy.match('What is your shipping policy?', arabicConfig, 'en', englishDecision)).toBeNull();
+    expect(FaqAnswerPolicy.match('واش كاين التوصيل فالمغرب؟', arabicConfig, 'darija')?.answer)
+      .toBe('التوصيل متوفر فالمغرب.');
+  });
   it('never returns serialized multilingual FAQ storage text verbatim', () => {
     const stored = 'FAQ [HOURS]: What are your opening hours?\nAnswer: 10:00.\nMultilingual Answers:\n- [ar] 10:00';
     expect(DirectRagGuard.evaluate('كيفاش نتبع الطلب؟', stored, 'darija', 'arabic').isSafe).toBe(false);
