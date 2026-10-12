@@ -32,6 +32,7 @@ const NEGATED_PURCHASE = [
   /(?:^|\s)(?:ma\s+|m)?(?:bghit|baghi|baghya)\s*ch\s+(?:nchri|nshri|ncommandi|nkomandi|ncommander|komandi)(?:\s|$)/u,
   /(?:^|\s)(?:mabghitch|mabaghitch)\s+(?:nchri|nshri|ncommandi|nkomandi|ncommander|komandi)(?:\s|$)/u,
   /(?:^|\s)(?:ما\s*بغيتش|مابغيتش|ما\s*باغيش)\s+(?:نشري|نكوموندي|نكموندي|نطلب)(?:\s|$)/u,
+  /(?:^|\s)(?:لا|لن|ما)\s+(?:اريد|اود|اشتري|ساشتري|اطلب|ساطلب)(?:\s+(?:شراء|الشراء|اشتري|اطلب))?(?:\s|$)/u,
   /(?:^|\s)je\s+ne\s+veux\s+pas\s+(?:acheter|commander)(?:\s|$)/u,
   /(?:^|\s)(?:i\s+)?(?:do\s+not|don\s+t|dont)\s+want\s+to\s+(?:buy|order|purchase)(?:\s|$)/u
 ];
@@ -47,6 +48,8 @@ const PATTERNS: Record<TriggerUseCase, RegExp[]> = {
     /(?:^|\s)(?:(?:wach\s+)?(?:n9der|nqder|ne9der)|kifash|kifesh)\s+(?:nchri|nshri|nechri|ncommandi|nkomandi)(?:h|ha)?(?:\s|$)/u,
     /(?:^|\s)(?:bghit|baghi|baghya)\s+(?:chi\s+)?(?:chat\s*bot|chatbot|bot)(?:\s|$)/u,
     /(?:^|\s)(?:بغيت|باغي|باغيه|اريد|اود)\s+(?:نشري|نشتري|نكوموندي|نكموندي|نطلب|ناخد)(?:ه|ها)?(?:\s|$)/u,
+    /(?:^|\s)(?:اريد|اود|ابغي|احتاج)\s+(?:ان\s+)?(?:شراء|الشراء|اشتري|الاشتراك|طلب|الطلب)(?:\s|$)/u,
+    /(?:^|\s)(?:سوف\s+)?(?:ساشتري|اشتري|ساطلب)(?:\s|$)/u,
     /(?:^|\s)(?:(?:واش\s+)?نقدر|كيفاش|كيفيه)\s+(?:نشري|نشتري|نكوموندي|نكموندي|نطلب|الشراء|الطلب)(?:ه|ها)?(?:\s|$)/u,
     /(?:^|\s)(?:بغيت|باغي|باغيه)\s+(?:شي\s+)?(?:شات\s*بوت|تشات\s*بوت|بوت)(?:\s|$)/u,
     /(?:^|\s)(?:je\s+veux|je\s+voudrais|je\s+vais|j\s+aimerais)\s+(?:acheter|commander|prendre)(?:\s|$)/u,
@@ -82,8 +85,15 @@ export class IntentTriggerLibrary {
     const results: TriggerLibraryMatch[] = [];
     for (const useCase of TRIGGER_USE_CASES) {
       if (useCase === 'PURCHASE') {
-        if (NEGATED_PURCHASE.some(pattern => pattern.test(normalizedText))) continue;
-        if (ORDER_STATUS.some(pattern => pattern.test(normalizedText))) continue;
+        // Negation applies to its clause, not the entire customer message:
+        // "I don't want the red one, but I want to buy the blue one" is a lead.
+        const clauses = normalizedText.split(/(?:^|\s)(?:لكن|ولكن|but|mais|walakin)(?=\s|$)/u);
+        if (clauses.some(clause => PATTERNS.PURCHASE.some(pattern => pattern.test(clause)) &&
+          !NEGATED_PURCHASE.some(pattern => pattern.test(clause)) &&
+          !ORDER_STATUS.some(pattern => pattern.test(clause)))) {
+          results.push({ useCase, normalizedText });
+        }
+        continue;
       }
       if (PATTERNS[useCase].some(pattern => pattern.test(normalizedText))) {
         results.push({ useCase, normalizedText });

@@ -256,7 +256,7 @@ export class PolicyEvidenceReuse {
   public static isSufficient(
     intent: string,
     query: string,
-    cachedEvidence: PolicyEvidence[],
+    cachedEvidence: ReadonlyArray<Pick<PolicyEvidence, 'factualContent'>>,
     config?: BusinessConfig | null,
     shippingScope?: ShippingScopeConfig | null,
     domesticCountryOverride?: string | null

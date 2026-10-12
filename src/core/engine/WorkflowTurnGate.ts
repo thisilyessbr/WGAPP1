@@ -137,6 +137,11 @@ export class WorkflowTurnGate {
     const questionOnly = this.isQuestion(message);
     if (questionOnly && !embeddedQuestion) return { kind: 'CUSTOMER_QUESTION' };
 
+    // Constrained text fields belong to the configured validator, not an AI
+    // classification call. This also supports legacy email-as-string fields.
+    if (type === 'string' && (config?.pattern || config?.validationRegex) &&
+        !questionOnly && !embeddedQuestion) return { kind: 'FIELD_ANSWER' };
+
     if (llm && (type === 'string' || words.length > 1)) {
       try {
         const raw = await llm.generateResponse(

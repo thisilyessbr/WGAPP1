@@ -11,6 +11,7 @@ import { DirectRagGuard, SupportedScript } from '../rag/DirectRagGuard';
 import { QuestionReformulator } from '../rag/QuestionReformulator';
 import { PolicyEvidence } from '../rag/PolicyEvidence';
 import { PolicyEvidenceReuse, CANONICAL_POLICY_INTENTS } from '../rag/PolicyEvidenceReuse';
+import { PolicyAnswerSafety } from '../rag/PolicyAnswerSafety';
 import { ChunkClassifier } from '../rag/ChunkQuality';
 import { ContentSafetyGuard } from '../safety/ContentSafetyGuard';
 import { LanguageDetector } from '../faq/FaqMatcher';
@@ -1122,13 +1123,16 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               const reformResult = await QuestionReformulator.reformulate(content, conversationContext.memory, llm, { timeoutMs: 3000 });
               retrievalQuery = reformResult.retrievalQuery;
             }
-            ragResult = await this.ragService.retrieve(tenantId, retrievalQuery, config, conversation.accountId);
+            ragResult = await this.ragService.retrieve(tenantId, retrievalQuery, config, conversation.accountId,
+              PolicyEvidenceReuse.isCanonicalPolicy(turnDecision?.intent) ? turnDecision.intent : undefined);
             const ragLatencyMs = Date.now() - ragStartTime;
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(config.knowledge.minSimilarityScore || 0.52, 0.70);
             const rawDirectMatch = Boolean(topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content);
-            const guardResult = rawDirectMatch ? DirectRagGuard.evaluate(content, topChunk.content) : null;
-            const isDirectMatch = Boolean(rawDirectMatch && guardResult?.isSafe);
+            const isDirectMatch = Boolean(rawDirectMatch && topChunk &&
+              PolicyAnswerSafety.directAnswerIsSafe(content, topChunk.content, topChunk.documentTitle, config,
+                effectiveLang, effectiveScript,
+                PolicyEvidenceReuse.isCanonicalPolicy(turnDecision?.intent) ? [turnDecision.intent] : []));
             if (isDirectMatch) {
               answered = true;
               answerText = topChunk.content.trim();
@@ -1176,6 +1180,22 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               }
             });
           }
+        }
+
+        // A scope-expanded question cannot be grounded in domestic-only facts,
+        // including through the LLM fallback after direct retrieval declines.
+        const postCompletionShippingContext = PolicyAnswerSafety.requestedIntents(content,
+          turnDecision?.policyIntents || []).includes('SHIPPING') ||
+          Boolean(conversationContext.activePolicyEvidence?.SHIPPING?.length) ||
+          Boolean(PolicyEvidenceReuse.extractGeographicTarget(content) &&
+            (ragResult?.chunks || []).some((chunk: RAGChunk) =>
+              TurnDecisionResolver.detectPolicySignals(`${chunk.documentTitle || ''} ${chunk.content}`).matchedCategories.includes('SHIPPING')));
+        if (!answered && postCompletionShippingContext &&
+            PolicyEvidenceReuse.isScopeExpanded('SHIPPING', content, config) &&
+            !PolicyAnswerSafety.hasShippingScopeEvidence(content, ragResult?.chunks || [], config)) {
+          answered = true;
+          answerText = PolicyAnswerSafety.unknownShippingScope(effectiveLang, effectiveScript);
+          responseSource = 'FALLBACK';
         }
 
         // Try LLM safety-net answer if FAQ and high-confidence RAG missed
@@ -2021,7 +2041,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                   effectiveKnowledgeConfig,
                   conversation.accountId,
                   effectiveLang,
-                  turnDecision.productName
+                  turnDecision.productName,
+                  content
                 );
                 multiResultEvidence = multiResult.evidence || null;
 
@@ -2062,9 +2083,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
                     const similarity = bestChunk.similarity ?? 0.8;
                     const isFactual = (bestChunk.chunkType === 'FACTUAL_POLICY' || ChunkClassifier.classify(bestChunk.content).type === 'FACTUAL_POLICY');
-                    const guardRes = DirectRagGuard.evaluate(content, bestChunk.content, effectiveLang, turnDecision.responseScript);
+                    const guardRes = PolicyAnswerSafety.directAnswerIsSafe(content, bestChunk.content,
+                      bestChunk.documentTitle, config, effectiveLang, turnDecision.responseScript, [pol]);
 
-                    if (similarity < 0.75 || !isFactual || !guardRes.isSafe) {
+                    if (similarity < 0.75 || !isFactual || !guardRes) {
                       allIntentsSafe = false;
                       break;
                     }
@@ -2129,10 +2151,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                     (ragResult.chunks || []).map((chunk: RAGChunk) => ({ factualContent: chunk.content } as PolicyEvidence)), config).isSufficient;
                 const rawDirectMatch = Boolean(turnDecision.domain === 'KNOWLEDGE' && scopeEvidenceSufficient &&
                   topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content);
-                const guardResult = (rawDirectMatch && turnDecision.source !== 'HYBRID')
-                  ? DirectRagGuard.evaluate(content, topChunk.content, effectiveLang, turnDecision.responseScript)
-                  : null;
-                const isDirectMatch = Boolean(rawDirectMatch && guardResult?.isSafe);
+                const isDirectMatch = Boolean(rawDirectMatch && topChunk && turnDecision.source !== 'HYBRID' &&
+                  PolicyAnswerSafety.directAnswerIsSafe(content, topChunk.content, topChunk.documentTitle,
+                    config, effectiveLang, turnDecision.responseScript,
+                    PolicyEvidenceReuse.isCanonicalPolicy(turnDecision.intent) ? [turnDecision.intent] : []));
                 if (isDirectMatch) {
                   answered = true;
                   answerText = AnswerComposer.finalizeResponse(topChunk.content.trim(), turnDecision, config);
@@ -2197,9 +2219,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
                   const similarity = bestChunk.similarity ?? 0.8;
                   const isFactual = (bestChunk.chunkType === 'FACTUAL_POLICY' || ChunkClassifier.classify(bestChunk.content).type === 'FACTUAL_POLICY');
-                  const guardRes = DirectRagGuard.evaluate(content, bestChunk.content, effectiveLang, turnDecision.responseScript);
+                  const guardRes = PolicyAnswerSafety.directAnswerIsSafe(content, bestChunk.content,
+                    bestChunk.documentTitle, config, effectiveLang, turnDecision.responseScript, [pol]);
 
-                  if (similarity < 0.75 || !isFactual || !guardRes.isSafe) {
+                  if (similarity < 0.75 || !isFactual || !guardRes) {
                     allIntentsSafe = false;
                     break;
                   }
@@ -2232,10 +2255,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                     (ragResult.chunks || []).map((chunk: RAGChunk) => ({ factualContent: chunk.content } as PolicyEvidence)), config).isSufficient;
                 const rawDirectMatch = Boolean(turnDecision.domain === 'KNOWLEDGE' && scopeEvidenceSufficient && topChunk &&
                   (isReusedSingleEvidence || topChunk.similarity >= highConfidenceThreshold) && topChunk.content);
-                const guardResult = (rawDirectMatch && turnDecision.source !== 'HYBRID')
-                  ? DirectRagGuard.evaluate(content, topChunk.content, effectiveLang, turnDecision.responseScript)
-                  : null;
-                isDirectMatch = Boolean(rawDirectMatch && guardResult?.isSafe);
+                isDirectMatch = Boolean(rawDirectMatch && topChunk && turnDecision.source !== 'HYBRID' &&
+                  PolicyAnswerSafety.directAnswerIsSafe(content, topChunk.content, topChunk.documentTitle,
+                    config, effectiveLang, turnDecision.responseScript,
+                    PolicyEvidenceReuse.isCanonicalPolicy(turnDecision.intent) ? [turnDecision.intent] : []));
                 if (isDirectMatch) {
                   answered = true;
                   answerText = AnswerComposer.finalizeResponse(topChunk.content.trim(), turnDecision, config);
@@ -2338,15 +2361,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             ({ factualContent: chunk.content } as PolicyEvidence));
           if (!PolicyEvidenceReuse.isSufficient('SHIPPING', content, retrieved, config).isSufficient) {
             answered = true;
-            answerText = effectiveLang === 'fr'
-              ? 'Je n’ai pas d’information confirmée sur la livraison internationale vers cette destination. Notre équipe peut vérifier pour vous.'
-              : effectiveLang === 'ar'
-                ? 'ليست لدي معلومات مؤكدة عن الشحن الدولي إلى هذه الوجهة. يمكن لفريقنا التحقق من ذلك لك.'
-                : effectiveLang === 'darija'
-                  ? (effectiveScript === 'arabizi'
-                    ? 'Ma 3ndich ma3loumat m2akkda 3la livraison lbarra. L-fariq y9der yt2akked lik mn had l-wijha.'
-                    : 'ما عنديش معلومات مؤكدة على التوصيل لبرّا. الفريق يقدر يتأكد ليك من هاد الوجهة.')
-                  : 'I don’t have confirmed information about international shipping to that destination. Our team can check it for you.';
+            answerText = PolicyAnswerSafety.unknownShippingScope(effectiveLang, effectiveScript);
             responseSource = 'FALLBACK';
           }
         }

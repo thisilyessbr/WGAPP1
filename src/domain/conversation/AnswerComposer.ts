@@ -6,6 +6,8 @@ import { BusinessConfig, resolveLocalizedPrompt, DEFAULT_HANDOFF_MESSAGES } from
 import { LLMProvider, LLMRequestOptions } from '../../core/llm/LLMProvider';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { DirectRagGuard } from '../rag/DirectRagGuard';
+import { PolicyAnswerSafety } from '../rag/PolicyAnswerSafety';
+import { PolicyEvidenceReuse } from '../rag/PolicyEvidenceReuse';
 import { logger } from '../../utils/logger';
 
 export interface ChatMedia {
@@ -991,8 +993,17 @@ export class AnswerComposer {
 
     // Direct chunk return evaluation:
     // Allow raw chunk ONLY IF DirectRagGuard confirms language AND script match.
-    const guardResult = DirectRagGuard.evaluate(turnDecision?.productName || '', topChunk, responseLanguage, responseScript);
-    if (guardResult.isSafe) {
+    if (config && context.userMessage && turnDecision?.intent === 'SHIPPING' &&
+        PolicyEvidenceReuse.isScopeExpanded('SHIPPING', context.userMessage, config) &&
+        !PolicyAnswerSafety.hasShippingScopeEvidence(context.userMessage,
+          knowledgeFacts.map(content => ({ content })), config)) {
+      return PolicyAnswerSafety.unknownShippingScope(responseLanguage, responseScript);
+    }
+    const directSafe = config && context.userMessage
+      ? PolicyAnswerSafety.directAnswerIsSafe(context.userMessage, topChunk, undefined, config,
+        responseLanguage, responseScript)
+      : DirectRagGuard.evaluate(turnDecision?.productName || '', topChunk, responseLanguage, responseScript).isSafe;
+    if (directSafe) {
       return topChunk.trim();
     }
 

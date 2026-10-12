@@ -4,6 +4,8 @@ import { WorkflowStateEvaluator } from './WorkflowStateEvaluator';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
+import { PolicyAnswerSafety } from '../../domain/rag/PolicyAnswerSafety';
+import { PolicyEvidenceReuse } from '../../domain/rag/PolicyEvidenceReuse';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
@@ -591,7 +593,8 @@ export class WorkflowEngine {
                 const topChunk = ragResult.chunks?.[0];
                 const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
                 if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content &&
-                    DirectRagGuard.evaluate(message, topChunk.content, lang, script).isSafe) {
+                    PolicyAnswerSafety.directAnswerIsSafe(message, topChunk.content, topChunk.documentTitle,
+                      businessConfig, lang, script)) {
                   matchedAnswer = topChunk.content.trim();
                   logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) in state [${currentStateId}]`);
                 }
@@ -846,7 +849,8 @@ export class WorkflowEngine {
             const topChunk = ragResult.chunks?.[0];
             const highConfidenceThreshold = Math.max(businessConfig.knowledge.minSimilarityScore || 0.52, 0.70);
             if (topChunk && topChunk.similarity >= highConfidenceThreshold && topChunk.content &&
-                DirectRagGuard.evaluate(questionText, topChunk.content, lang, script).isSafe) {
+                PolicyAnswerSafety.directAnswerIsSafe(questionText, topChunk.content, topChunk.documentTitle,
+                  businessConfig, lang, script)) {
               matchedRagAnswer = topChunk.content.trim();
               logger.info(`WorkflowEngine: Mid-workflow RAG match (score: ${topChunk.similarity}) during collect step [${currentStateId}]`);
             }
@@ -864,6 +868,12 @@ export class WorkflowEngine {
           // Answer from owner-approved business facts, then resume the exact pending
           // form question. The customer question is never persisted as a field value.
           const ownerEvidence = portalBusinessEvidence(businessConfig, questionText, { includeFaq: true });
+          if (PolicyAnswerSafety.requestedIntents(questionText).includes('SHIPPING') &&
+              PolicyEvidenceReuse.isScopeExpanded('SHIPPING', questionText, businessConfig) &&
+              !PolicyAnswerSafety.hasShippingScopeEvidence(questionText,
+                ownerEvidence ? [{ content: ownerEvidence }] : [], businessConfig)) {
+            return answerAndContinue(PolicyAnswerSafety.unknownShippingScope(lang, script));
+          }
           const ownerDescription = typeof businessConfig.portalFacts?.description === 'string'
             ? businessConfig.portalFacts.description.trim() : '';
           const asksWhetherSuitable = /\b(?:mzyan|mezyan|good|bon|suitable|fit)\b|مزيان|مناسب|يناسب/iu.test(questionText);
