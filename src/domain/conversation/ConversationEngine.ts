@@ -2661,7 +2661,29 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       }
     });
 
-    // 6. Atomically persist entire conversation turn (optimistic version check, USER message, session update, ASSISTANT message)
+    // Decide the CRM outcome before committing. A saved customer turn must not
+    // depend on a best-effort second write to become visible to the team.
+    const workflowTurn = Boolean(activeSession || resolvedWorkflowRoute.kind === 'WORKFLOW');
+    const workflowCompleted = sessionUpdatePayload?.status === 'COMPLETED';
+    const crmHandledAtomically = workflowCompleted && completedWorkflowConfig?.outcome?.createLead === true;
+    const skipIndependentCrmSignal = resolvedWorkflowRoute.kind === 'UNMAPPED_PURCHASE' ||
+      resolvedWorkflowRoute.kind === 'AMBIGUOUS' || (workflowTurn && (!workflowCompleted || crmHandledAtomically));
+    const crmSignalReason = this.crmService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:') && !skipIndependentCrmSignal
+      ? CRMService.classifyTurnSignal({
+          tenantId, accountId: effectiveAccountId, customerId: conversation.customerId,
+          conversationId: conversation.id, phoneNumberId: options?.phoneNumberId,
+          turnDecision, isWorkflowCompleted: Boolean(workflowCompleted),
+          workflowId: workflowCompleted ? completedWorkflowId : null,
+          workflowSessionId: workflowCompleted ? sessionUpdatePayload?.sessionId : null,
+          workflowConfig: workflowCompleted ? completedWorkflowConfig : null,
+          terminalStateId: workflowCompleted ? completedTerminalStateId : null,
+          workflowIntents: workflowCompleted ? completedWorkflowIntents : null,
+          userMessage: routed.userDisplayContent, recognizedUseCases,
+          leadMode: config.capabilities?.leadMode
+        })
+      : null;
+
+    // 6. Atomically persist the conversation, workflow and any lead together.
     try {
       await this.conversationService.commitConversationTurn({
         tenantId,
@@ -2688,7 +2710,13 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               reason: 'COMPLETED_CONFIGURED_WORKFLOW',
               details: sessionUpdatePayload.collectedData || {}
             }
-          : null
+          : crmSignalReason && effectiveAccountId ? {
+              accountId: effectiveAccountId,
+              customerId: conversation.customerId,
+              workflowSessionId: crmSignalReason === 'COMPLETED_SALES_WORKFLOW' ? sessionUpdatePayload?.sessionId || null : null,
+              interest: routed.userDisplayContent,
+              reason: crmSignalReason
+            } : null
       });
     } catch (commitErr: any) {
       if (externalMessageId) {
@@ -2705,37 +2733,6 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       throw commitErr;
     }
 
-    // 7. Non-blocking CRM lead signal processing (Phase CRM-B & CRM-WORKFLOW-FIX-04)
-    const workflowTurn = Boolean(activeSession || resolvedWorkflowRoute.kind === 'WORKFLOW');
-    const workflowCompleted = sessionUpdatePayload?.status === 'COMPLETED';
-    const crmHandledAtomically = workflowCompleted && completedWorkflowConfig?.outcome?.createLead === true;
-    const skipIndependentCrmSignal = resolvedWorkflowRoute.kind === 'UNMAPPED_PURCHASE' ||
-      resolvedWorkflowRoute.kind === 'AMBIGUOUS' || (workflowTurn && (!workflowCompleted || crmHandledAtomically));
-    if (this.crmService && effectiveAccountId && !customerExternalId.startsWith('portal-preview:') && !skipIndependentCrmSignal) {
-      try {
-        const isWorkflowCompleted = Boolean(sessionUpdatePayload?.status === 'COMPLETED');
-        await this.crmService.processTurnSignal({
-          tenantId,
-          accountId: effectiveAccountId,
-          customerId: conversation.customerId,
-          conversationId: conversation.id,
-          phoneNumberId: options?.phoneNumberId,
-          turnDecision,
-          isWorkflowCompleted,
-          workflowId: isWorkflowCompleted ? completedWorkflowId : null,
-          workflowSessionId: isWorkflowCompleted ? sessionUpdatePayload?.sessionId : null,
-          workflowConfig: isWorkflowCompleted ? completedWorkflowConfig : null,
-          terminalStateId: isWorkflowCompleted ? completedTerminalStateId : null,
-          workflowIntents: isWorkflowCompleted ? completedWorkflowIntents : null,
-          userMessage: routed.userDisplayContent,
-          recognizedUseCases,
-          leadMode: config.capabilities?.leadMode
-        });
-      } catch (crmErr) {
-        logger.warn('ConversationEngine: Non-blocking CRM turn processing error', { error: crmErr });
-      }
-    }
-    
     return response;
   }
 

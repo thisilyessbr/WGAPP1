@@ -38,7 +38,7 @@ export class CRMService {
    * UNKNOWN defaults safely to false (NO LEAD).
    * 0 LLM calls, 0 embeddings, 0 extra DB queries.
    */
-  private isLeadGeneratingWorkflow(params: {
+  private static isLeadGeneratingWorkflow(params: {
     workflowId: string;
     workflowConfig?: any | null;
     terminalStateId?: string | null;
@@ -230,12 +230,8 @@ export class CRMService {
     });
   }
 
-  /**
-   * Analyzes in-memory turn decision signals post-turn.
-   * Strong purchase/booking signals create or update a Lead.
-   * 0 LLM calls, 0 embeddings, 0 vector queries.
-   */
-  async processTurnSignal(params: TurnSignalParams): Promise<Lead | null> {
+  /** Pure classification shared by the atomic conversation commit and other callers. */
+  static classifyTurnSignal(params: TurnSignalParams): string | null {
     const {
       tenantId,
       accountId,
@@ -272,7 +268,7 @@ export class CRMService {
       const workflowText = `${workflowId} ${(workflowIntents || []).join(' ')}`.toLowerCase();
       const wrongMode = (leadMode === 'SERVICE' && /checkout|cash_on_delivery|cod_order|purchase|product_order/.test(workflowText))
         || (leadMode === 'COMMERCE' && /booking|appointment|consultation|tutor_session|service_selector/.test(workflowText));
-      if (!wrongMode && this.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
+      if (!wrongMode && CRMService.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
         isStrongSignal = true;
         signalReason = 'COMPLETED_SALES_WORKFLOW';
       }
@@ -303,15 +299,18 @@ export class CRMService {
       }
     }
 
-    if (isStrongSignal && !isActionNegated(userMessage || '', 'purchase')) {
-      logger.info(`CRMService: Strong sales signal detected for customer [${customerId}] in account [${accountId}]. Upserting lead.`);
-      return this.upsertLead(tenantId, accountId, customerId, 'NEW', {
-        interest: userMessage?.trim(), reason: signalReason, conversationId,
-        phoneNumberId,
-        workflowSessionId: signalReason === 'COMPLETED_SALES_WORKFLOW' ? workflowSessionId : null
-      });
-    }
+    return isStrongSignal && !isActionNegated(userMessage || '', 'purchase') ? signalReason : null;
+  }
 
-    return null;
+  /** Strong purchase/booking signals create or update a Lead. */
+  async processTurnSignal(params: TurnSignalParams): Promise<Lead | null> {
+    const reason = CRMService.classifyTurnSignal(params);
+    if (!reason || !params.accountId) return null;
+    logger.info(`CRMService: Strong sales signal detected for customer [${params.customerId}] in account [${params.accountId}]. Upserting lead.`);
+    return this.upsertLead(params.tenantId, params.accountId, params.customerId, 'NEW', {
+      interest: params.userMessage?.trim(), reason, conversationId: params.conversationId,
+      phoneNumberId: params.phoneNumberId,
+      workflowSessionId: reason === 'COMPLETED_SALES_WORKFLOW' ? params.workflowSessionId : null
+    });
   }
 }

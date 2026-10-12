@@ -482,16 +482,15 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
     vi.spyOn(conversationService, 'getOrCreateConversation').mockResolvedValue(mockConv as any);
     vi.spyOn(conversationService, 'getActiveSession').mockResolvedValue(null);
     vi.spyOn(conversationService, 'getLatestCompletedSession').mockResolvedValue(null);
-    vi.spyOn(conversationService, 'commitConversationTurn').mockResolvedValue(mockConv as any);
+    const commitSpy = vi.spyOn(conversationService, 'commitConversationTurn').mockResolvedValue(mockConv as any);
     const classifySpy = vi.spyOn(mockLlm, 'classifyIntent');
-    const leadSpy = vi.spyOn(crmService, 'upsertLead').mockResolvedValue({ id: 'lead-1', status: 'NEW' } as any);
 
     const phrases = ['I want to buy this', 'بغيت نشري هادشي', 'bghit nchri hadchi'];
     for (const p of phrases) {
       classifySpy.mockClear();
       await conversationEngine.handleMessage(tenantId, customerId, p, accountId);
       expect(classifySpy).not.toHaveBeenCalled();
-      expect(leadSpy).toHaveBeenCalled();
+      expect(commitSpy).toHaveBeenCalled();
     }
   });
 
@@ -531,14 +530,13 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
 
     vi.spyOn(conversationService, 'getOrCreateConversation').mockResolvedValue(mockConv as any);
     vi.spyOn(conversationService, 'getActiveSession').mockResolvedValue(activeSession as any);
-    vi.spyOn(conversationService, 'commitConversationTurn').mockResolvedValue(mockConv as any);
-    const leadSpy = vi.spyOn(crmService, 'upsertLead').mockResolvedValue({ id: 'lead-finish', status: 'NEW' } as any);
+    const commitSpy = vi.spyOn(conversationService, 'commitConversationTurn').mockResolvedValue(mockConv as any);
 
     const response = await conversationEngine.handleMessage(tenantId, customerId, 'yes', accountId);
 
     expect(response).toContain('Thank you John Doe! Your consultation for Muscle gain is booked.');
-    expect(leadSpy).toHaveBeenCalledTimes(1);
-    expect(leadSpy).toHaveBeenCalledWith(tenantId, accountId, customerId, 'NEW', expect.objectContaining({ reason: 'COMPLETED_SALES_WORKFLOW', workflowSessionId: expect.any(String) }));
+    expect(commitSpy).toHaveBeenCalledTimes(1);
+    expect(commitSpy.mock.calls[0][0].leadRequest).toMatchObject({ accountId, customerId, workflowSessionId: expect.any(String) });
   });
 
   it('8. Operational workflow completion produces ZERO CRM leads', async () => {
