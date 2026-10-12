@@ -31,7 +31,9 @@ export async function startWebServer(): Promise<WebRuntimeInstance> {
   if (workerDeps && deps.qrSessionManager?.isEnabled()) {
     await deps.qrSessionManager.restoreEnabledSessions();
   }
-  const app = await createApp(deps);
+  const app = await createApp(deps, workerDeps ? {
+    workerReady: () => workerDeps.whatsAppMessageQueue.isWorkerRunning?.() === true
+  } : undefined);
 
   const host = process.env.HOST || '0.0.0.0';
   const port = Number(process.env.PORT || config.port || 3000);

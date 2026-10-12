@@ -17,7 +17,10 @@ import { createPortalRouter } from './portal/PortalRouter';
 import { createChannelManagementRouter } from './domain/channel/guard/ChannelManagementRouter';
 import { createInstagramRouter } from './domain/channel/instagram/InstagramRouter';
 
-export async function createApp(deps: ChatbotDependencies | WebDependencies): Promise<express.Application> {
+export async function createApp(
+  deps: ChatbotDependencies | WebDependencies,
+  readiness?: { workerReady?: () => boolean }
+): Promise<express.Application> {
   const app = express();
 
   // Configure Express for 1-hop reverse proxy (Nginx, Caddy, Cloudflare, AWS ALB)
@@ -50,6 +53,9 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
   app.get('/health', async (req, res) => {
     try {
       await deps.prisma.$queryRawUnsafe('SELECT 1');
+      if (readiness?.workerReady && !readiness.workerReady()) {
+        return res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString(), error: 'MESSAGE_WORKER_UNAVAILABLE' });
+      }
       res.status(200).json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
