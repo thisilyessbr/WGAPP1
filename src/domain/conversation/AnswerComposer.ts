@@ -9,6 +9,7 @@ import { DirectRagGuard } from '../rag/DirectRagGuard';
 import { PolicyAnswerSafety } from '../rag/PolicyAnswerSafety';
 import { PolicyEvidenceReuse } from '../rag/PolicyEvidenceReuse';
 import { logger } from '../../utils/logger';
+import { responseMediaStorage } from './ResponseMediaContext';
 
 export interface ChatMedia {
   type: 'image' | 'video';
@@ -202,6 +203,14 @@ export class AnswerComposer {
 
   public static attachMediaToContext(media: ChatMedia[]): void {
     if (!media || media.length === 0) return;
+    const responseContext = responseMediaStorage.getStore();
+    if (responseContext) {
+      for (const item of media) {
+        if (!responseContext.media.some(existing => existing.url === item.url)) {
+          responseContext.media.push(item);
+        }
+      }
+    }
     try {
       // Access chatDiagnosticStorage from dev chatApi if in runtime
       const { chatDiagnosticStorage } = require('../../dev/chatApi');
