@@ -1574,9 +1574,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                 currentContextData.productContext = {
                   ...(currentContextData.productContext || {}),
                   lastViewedProductIds: productIds,
-                  selectedProductId: results[0].product.id,
+                  selectedProductId: results.length === 1 ? results[0].product.id : null,
                   selectedVariantId: null,
-                  selectedSku: results[0].product.sku,
+                  selectedSku: results.length === 1 ? results[0].product.sku : null,
                   selectedColor: null,
                   selectedSize: null,
                   unresolvedTarget: null
@@ -1740,7 +1740,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               const isExplicitProduct = Boolean(
                 turnDecision.sku ||
                 turnDecision.productName ||
-                (turnDecision.category && !hasActiveProduct) ||
+                turnDecision.category ||
                 (turnDecision.ordinalIndex !== undefined && turnDecision.ordinalIndex !== null && !hasActiveProduct)
               );
 
@@ -1758,7 +1758,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                 targetId = conversationContext.productContext.lastViewedProductIds[turnDecision.ordinalIndex];
               } else if (isMediaRequest && hasActiveProduct && (!turnDecision.sku && (!turnDecision.productName || turnDecision.productName.toLowerCase() === 'it' || turnDecision.productName.toLowerCase() === 'this' || turnDecision.productName.toLowerCase() === 'that'))) {
                 targetId = conversationContext.productContext!.selectedProductId || undefined;
-              } else if (!turnDecision.sku && !turnDecision.productName && hasActiveProduct) {
+              } else if (!turnDecision.sku && !turnDecision.productName && !turnDecision.category && hasActiveProduct) {
                 targetId = conversationContext.productContext!.selectedProductId || undefined;
               }
 
@@ -1788,6 +1788,42 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                 effectiveLang
               );
 
+              // A category can resolve a product only when the catalog has one
+              // candidate. With several matches, ask the customer to choose.
+              if (!fact && turnDecision.category && !turnDecision.productName
+                && ['PRICE', 'AVAILABILITY', 'BUY_INTENT', 'VARIANT_SELECTION'].includes(turnDecision.intent)) {
+                const candidates = await this.ecommerceService.searchProducts(
+                  tenantId, targetAccountId, undefined, effectiveLang,
+                  { category: turnDecision.category, limit: 3 }
+                );
+                if (candidates.length === 1) {
+                  fact = await this.ecommerceService.getProductFact(tenantId, targetAccountId, {
+                    id: candidates[0].product.id, color: lookupColor, size: lookupSize
+                  }, effectiveLang);
+                } else if (candidates.length > 1) {
+                  const currentContextData = (conversation.contextData as Record<string, any>) || {};
+                  currentContextData.productContext = {
+                    ...(currentContextData.productContext || {}),
+                    lastViewedProductIds: candidates.map(candidate => candidate.product.id),
+                    selectedProductId: null, selectedVariantId: null, selectedSku: null,
+                    selectedColor: null, selectedSize: null, unresolvedTarget: null
+                  };
+                  conversationContext.productContext = currentContextData.productContext;
+                  contextDataUpdate = currentContextData;
+                  const choices = candidates.map((candidate, index) =>
+                    `${index + 1}. ${candidate.displayName}`).join('\n');
+                  const question = effectiveLang === 'fr' ? 'Lequel vous intéresse ?'
+                    : effectiveLang === 'en' ? 'Which one interests you?'
+                    : effectiveLang === 'ar' ? 'أي منتج تقصد؟'
+                    : turnDecision.responseScript === 'arabizi' ? 'Chmen wa7ed bghiti?'
+                    : 'شنو هو المنتوج اللي بغيتي؟';
+                  answerText = `${choices}\n${question}`;
+                  answered = true;
+                  responseSource = 'ECOMMERCE';
+                }
+              }
+
+              if (!answered) {
               let categoryFacts: any[] = [];
               if (!fact && (turnDecision.category || turnDecision.productName) && (turnDecision.intent === 'ATTRIBUTE_QUERY' || turnDecision.intent === 'PRODUCT_DETAIL')) {
                 categoryFacts = await this.ecommerceService.searchProducts(
@@ -1843,6 +1879,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
                 responseScript: turnDecision.responseScript,
                 config
               });
+              }
             }
           }
         }

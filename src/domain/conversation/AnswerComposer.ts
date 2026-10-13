@@ -529,18 +529,18 @@ export class AnswerComposer {
     const fact = Array.isArray(productFacts) ? productFacts[0] : productFacts;
     if (!fact) {
       if (responseLanguage === 'fr') {
-        return `Désolé, ce produit n'est pas disponible actuellement dans notre catalogue.`;
+        return `Je n'ai pas pu identifier le produit exact dans le catalogue. Pouvez-vous me donner son nom ou sa référence ?`;
       }
       if (responseLanguage === 'ar') {
-        return `عذراً، هذا المنتج غير متوفر حالياً في متجرنا.`;
+        return `لم أتمكن من تحديد المنتج المقصود في الكتالوج. هل يمكنك إرسال اسمه أو مرجعه؟`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
-          return `Smeh liya, had l-produit makaynch db f l-magasin dyalna.`;
+          return `Ma 9dertch n3ref chmen produit b d-debt. 3afak sifet smitou wla reference dyalou.`;
         }
-        return `سمح ليا، هاد المنتوج ما كاينش حالياً عندنا فالمحل.`;
+        return `ما قدرتش نحدد شنو هو المنتوج بالضبط. عافاك صيفط سميتو ولا المرجع ديالو.`;
       }
-      return `Sorry, that product is not currently available in our catalog.`;
+      return `I couldn't identify the exact product in the catalog. Could you send its name or reference?`;
     }
 
     const safeFactName = this.getSafeName(fact, responseScript, responseLanguage);
@@ -765,7 +765,7 @@ export class AnswerComposer {
       return `Great choice! To order ${productSubject} (${fact.effectivePrice} ${fact.currency}), please provide your delivery address and preferred payment method (Cash on Delivery is available).`;
     }
 
-    if (turnDecision.intent === 'PRICE') {
+    if (turnDecision.intent === 'PRICE' && !turnDecision.requestedAvailability) {
       const variant = fact.selectedVariant;
       const variantLabel = this.formatVariantLabel(variant?.color || turnDecision.color, variant?.size || turnDecision.size, responseLanguage, responseScript);
       const priceSubject = variantLabel ? `${safeFactName} (${variantLabel})` : safeFactName;
@@ -796,33 +796,33 @@ export class AnswerComposer {
       if (hasVariant) {
         // Variant-level in-stock response
         if (responseLanguage === 'fr') {
-          return `${safeFactName} (${variantLabel}) est disponible au prix de ${fact.effectivePrice} ${fact.currency}. (En stock : ${fact.availableStock})`;
+          return `Oui, ${safeFactName} (${variantLabel}) est disponible. Prix : ${fact.effectivePrice} ${fact.currency}. En stock : ${fact.availableStock}.`;
         }
         if (responseLanguage === 'ar') {
-          return `${safeFactName} (${variantLabel}) متوفر بسعر ${fact.effectivePrice} ${fact.currency}. (الكمية المتوفرة: ${fact.availableStock})`;
+          return `نعم، ${safeFactName} (${variantLabel}) متوفر. السعر: ${fact.effectivePrice} ${fact.currency}. الكمية المتوفرة: ${fact.availableStock}.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `${safeFactName} (${variantLabel}) kayen f stock b ${fact.effectivePrice} ${fact.currency}. (Kayen mno: ${fact.availableStock})`;
+            return `Ah, ${safeFactName} (${variantLabel}) kayen. Taman: ${fact.effectivePrice} ${fact.currency}. Kayen mno: ${fact.availableStock}.`;
           }
-          return `${safeFactName} (${variantLabel}) كاين فالمخزون بالثمن ديال ${fact.effectivePrice} ${fact.currency}. (كاين منو: ${fact.availableStock})`;
+          return `إيه، ${safeFactName} (${variantLabel}) كاين. الثمن: ${fact.effectivePrice} ${fact.currency}. كاين منو: ${fact.availableStock}.`;
         }
-        return `${safeFactName} (${variantLabel}) is available for ${fact.effectivePrice} ${fact.currency}. (In stock: ${fact.availableStock})`;
+        return `Yes, ${safeFactName} (${variantLabel}) is available. Price: ${fact.effectivePrice} ${fact.currency}. In stock: ${fact.availableStock}.`;
       } else {
         // Product-level in-stock response (unchanged)
         if (responseLanguage === 'fr') {
-          return `${safeFactName} est disponible au prix de ${fact.effectivePrice} ${fact.currency}. (En stock : ${fact.availableStock})`;
+          return `Oui, ${safeFactName} est disponible. Prix : ${fact.effectivePrice} ${fact.currency}. En stock : ${fact.availableStock}.`;
         }
         if (responseLanguage === 'ar') {
-          return `${safeFactName} متوفر بسعر ${fact.effectivePrice} ${fact.currency}. (الكمية المتوفرة: ${fact.availableStock})`;
+          return `نعم، ${safeFactName} متوفر. السعر: ${fact.effectivePrice} ${fact.currency}. الكمية المتوفرة: ${fact.availableStock}.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `${safeFactName} kayen f stock b ${fact.effectivePrice} ${fact.currency}. (Kayen mno: ${fact.availableStock})`;
+            return `Ah, ${safeFactName} kayen. Taman: ${fact.effectivePrice} ${fact.currency}. Kayen mno: ${fact.availableStock}.`;
           }
-          return `${safeFactName} كاين فالمخزون بالثمن ديال ${fact.effectivePrice} ${fact.currency}. (كاين منو: ${fact.availableStock})`;
+          return `إيه، ${safeFactName} كاين. الثمن: ${fact.effectivePrice} ${fact.currency}. كاين منو: ${fact.availableStock}.`;
         }
-        return `${safeFactName} is available for ${fact.effectivePrice} ${fact.currency}. (In stock: ${fact.availableStock})`;
+        return `Yes, ${safeFactName} is available. Price: ${fact.effectivePrice} ${fact.currency}. In stock: ${fact.availableStock}.`;
       }
     } else {
       const variantsList = fact.product.variants?.filter(v => v.stock > 0).map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean);

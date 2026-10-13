@@ -236,7 +236,9 @@ describe('Phase 50B: Low-Cost Deterministic Media Response Unit Tests', () => {
       responseScript: 'latin'
     });
 
-    expect(availResponse).toContain('Gaming Laptop RTX is available for 12000 USD. (In stock: 7)');
+    expect(availResponse).toContain('Gaming Laptop RTX');
+    expect(availResponse).toContain('12000 USD');
+    expect(availResponse).toContain('In stock: 7');
   });
 
   it('9. Multilingual media requests are recognized deterministically by EcommerceIntentParser', () => {

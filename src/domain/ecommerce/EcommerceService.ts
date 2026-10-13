@@ -89,11 +89,11 @@ export class EcommerceService {
         });
 
         if (matchingVariants.length > 0) {
-          selectedVariant = matchingVariants.find(v => v.stock > 0) || matchingVariants[0];
+          selectedVariant = matchingVariants.length === 1 ? matchingVariants[0] : null;
           if (identifier.size && identifier.color && identifier.color !== 'ALL') {
-            availableStock = selectedVariant.stock;
+            availableStock = matchingVariants.reduce((sum, variant) => sum + variant.stock, 0);
           } else if (matchingVariants.length === 1) {
-            availableStock = selectedVariant.stock;
+            availableStock = matchingVariants[0].stock;
           } else {
             availableStock = matchingVariants.reduce((sum, v) => sum + v.stock, 0);
           }
@@ -106,7 +106,7 @@ export class EcommerceService {
 
       // Hard Variant Invariant Assertion:
       // If a variant was requested, product.stock must NEVER be returned as availableStock.
-      if (!selectedVariant || availableStock < 0) {
+      if (availableStock < 0) {
         availableStock = 0;
       }
     } else if (product.variants && product.variants.length > 0 && identifier.sku) {
@@ -158,20 +158,21 @@ export class EcommerceService {
     });
 
     return products.map(product => {
-      let selectedVariant: ProductVariant | null = null;
-      if (options?.color || options?.size) {
-        selectedVariant = product.variants.find(v => {
-          const matchSize = !options.size || (v.size && v.size.toLowerCase() === options.size.toLowerCase());
-          const matchColor = !options.color || (v.color && (
+      const hasVariantFilter = Boolean(options?.color || options?.size);
+      const matchingVariants = hasVariantFilter ? product.variants.filter(v => {
+          const matchSize = !options?.size || (v.size && v.size.toLowerCase() === options.size.toLowerCase());
+          const matchColor = !options?.color || (v.color && (
             v.color.toLowerCase() === options.color.toLowerCase() ||
             v.color.toLowerCase().includes(options.color.toLowerCase()) ||
             options.color.toLowerCase().includes(v.color.toLowerCase())
           ));
           return matchSize && matchColor;
-        }) || null;
-      }
+        }) : [];
+      const selectedVariant: ProductVariant | null = matchingVariants.length === 1 ? matchingVariants[0] : null;
 
-      const availableStock = selectedVariant ? selectedVariant.stock : product.stock;
+      const availableStock = hasVariantFilter
+        ? matchingVariants.reduce((sum, variant) => sum + variant.stock, 0)
+        : product.stock;
       const effectivePrice = selectedVariant?.priceOverride
         ? Number(selectedVariant.priceOverride)
         : Number(product.price);
