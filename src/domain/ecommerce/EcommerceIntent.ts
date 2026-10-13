@@ -46,6 +46,16 @@ export interface ExtractedCommerceParams {
 }
 
 export class EcommerceIntentParser {
+  /** Compare customer color names with catalog variant labels across supported languages. */
+  public static canonicalColor(label: string): string {
+    const normalized = label.trim().toLowerCase();
+    const direct = this.COLOR_MAP[normalized];
+    if (direct) return direct;
+    const colors = new Set(normalized.split(/[^\p{L}\p{N}]+/u)
+      .map(token => this.COLOR_MAP[token]).filter(Boolean));
+    return colors.size === 1 ? [...colors][0] : normalized;
+  }
+
   public static readonly CANONICAL_CATEGORIES: Record<string, string[]> = {
     'T-Shirts': ['t-shirt', 't-shirts', 'tshirt', 'tshirts', 'tee', 'tees', 'shirt', 'shirts', 't-shirten', 'تيشورت', 'تيشورتات', 'تيشيرت', 'تيشيرتات', 'قميص', 'قمصان'],
     'Hoodies': ['hoodie', 'hoodies', 'sweat', 'sweats', 'sweatshirt', 'sweatshirts', 'pull', 'capuchon', 'هودي', 'هوديات', 'سويت', 'سويتشرت', 'كابوشون'],
