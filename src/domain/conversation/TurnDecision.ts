@@ -46,6 +46,7 @@ export interface TurnDecision {
   maxPrice?: number | null;
   compareProductNames?: string[] | null;
   requestedMediaType?: 'image' | 'video' | null;
+  requestedAvailability?: boolean;
   isMultiPolicy?: boolean;
   policyIntents?: string[] | null;
   secondaryIntents?: string[];
@@ -524,6 +525,7 @@ export class TurnDecisionResolver {
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
         requestedMediaType: ecomParams?.requestedMediaType ?? null,
+        requestedAvailability: ecomParams?.requestedAvailability ?? false,
         isComparative,
         isPluralReference,
         isScopeExpansion,
