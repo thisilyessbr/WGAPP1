@@ -11,6 +11,7 @@ import { PortalConnections } from '../../src/portal/PortalConnections';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
 import { validateAdminConfig, validatePlan } from '../../src/portal/validation';
 import { portalBusinessEvidence } from '../../src/portal/BusinessFacts';
+import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
 import sharp from 'sharp';
 
 describe('portal PostgreSQL and HTTP boundaries', () => {
@@ -25,7 +26,10 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     auth = new PortalAuth(store, { publicUrl: 'http://localhost', sendLink: async (email, kind, url) => { delivered.push({ email, kind, url }); } });
     docs = new PortalDocuments(store, budget, { ingestPdf: vi.fn(async () => 'source-test') } as any, { getEffectiveConfig: vi.fn(async () => ({})) } as any);
     connections = new PortalConnections(store, { whatsAppOnboardingService: onboarding, qrSessionManager: { isEnabled: () => false } } as any);
-    app = express(); app.use(express.json()); app.use('/api', createPortalRouter({ store, auth, documents: docs, connections }, { conversationEngine: { previewMessage: vi.fn(async () => 'Preview reply') } } as any));
+    app = express(); app.use(express.json()); app.use('/api', createPortalRouter({ store, auth, documents: docs, connections }, { conversationEngine: { previewMessage: vi.fn(async (_tenantId, _accountId, _sessionId, message) => {
+      if (message.includes('photo')) AnswerComposer.attachMediaToContext([{ type: 'image', url: 'https://example.test/product.jpg' }]);
+      return 'Preview reply';
+    }) } } as any));
     passwordHash = await hashPassword(password);
     const id = randomUUID(); await store.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash",role,"verifiedAt") VALUES (${id},'admin@portal.test','Admin',${passwordHash},'ADMIN',NOW())`;
     admin = await store.userById(id);
@@ -345,6 +349,10 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     const preview=await request(app).post('/api/admin/accounts/'+c.accountId+'/preview').set(adminHeaders)
       .send({message:'Salam, chno katbi3o?',mode:'draft',sessionId:'draftsession01'});
     expect(preview.status).toBe(200);expect(preview.body).toMatchObject({response:'Preview reply',mode:'draft',sessionId:'draftsession01'});
+    const imagePreview=await request(app).post('/api/admin/accounts/'+c.accountId+'/preview').set(adminHeaders)
+      .send({message:'Can I see a photo?',mode:'draft',sessionId:'draftimage01'});
+    expect(imagePreview.status).toBe(200);
+    expect(imagePreview.body.media).toEqual([{type:'image',url:'https://example.test/product.jpg'}]);
     const afterPreview=await request(app).get('/api/admin/overview').set(adminHeaders);
     expect(afterPreview.body.traffic).toEqual(adminOverview.body.traffic);
     const published=await request(app).post('/api/admin/accounts/'+c.accountId+'/preview').set(adminHeaders)
