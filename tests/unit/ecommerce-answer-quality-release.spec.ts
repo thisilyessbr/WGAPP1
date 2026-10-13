@@ -55,6 +55,24 @@ describe('commerce answer quality release', () => {
     expect(absent?.inStock).toBe(false);
   });
 
+  it('matches a canonical requested color with a localized variant color', async () => {
+    const frenchCatalog = { ...product, variants: [
+      { id: 'bleu-32', sku: 'BLEU-32', color: 'Bleu moyen', size: '32', stock: 4, priceOverride: null },
+      { id: 'bleu-34', sku: 'BLEU-34', color: 'Bleu moyen', size: '34', stock: 4, priceOverride: null }
+    ] };
+    const service = new EcommerceService({
+      findById: vi.fn().mockResolvedValue(frenchCatalog),
+      search: vi.fn().mockResolvedValue([frenchCatalog])
+    } as any);
+    const fact = await service.getProductFact('tenant', 'account', { id: product.id, color: 'Blue' }, 'darija');
+    expect(fact?.availableStock).toBe(8);
+    expect(fact?.inStock).toBe(true);
+    const sizeFact = await service.getProductFact('tenant', 'account', { id: product.id, color: 'Blue', size: '34' }, 'darija');
+    expect(sizeFact?.availableStock).toBe(4);
+    const search = await service.searchProducts('tenant', 'account', undefined, 'darija', { color: 'Blue' });
+    expect(search[0].availableStock).toBe(8);
+  });
+
   it('does not use parent stock for a filtered search with no matching variant', async () => {
     const service = new EcommerceService({ search: vi.fn().mockResolvedValue([product]) } as any);
     const result = await service.searchProducts('tenant', 'account', undefined, 'en', { size: '36' });
