@@ -20,6 +20,9 @@ export function resolveGroundedAnswer(raw: string, question: string, language: s
   if (!match) return /^(?:CLARIFY|UNCONFIRMED)\b/u.test(text) ? 'UNANSWERABLE' : text;
   const phrase=match[2].trim();
   if (!phrase || phrase.length>160 || !question.toLocaleLowerCase().includes(phrase.toLocaleLowerCase())) return 'UNANSWERABLE';
+  // Quoting the whole question back ("what do you mean by 'and how long?'") is not a clarification.
+  const bare=(value: string) => value.replace(/[sp{P}]+/gu,'').toLocaleLowerCase();
+  if (bare(phrase).length >= bare(question).length*0.8) return 'UNANSWERABLE';
   if (match[1]==='CLARIFY') {
     if (language==='fr') return `Que voulez-vous dire par « ${phrase} » ?`;
     if (language==='ar') return `ما الذي تقصده بعبارة «${phrase}»؟`;

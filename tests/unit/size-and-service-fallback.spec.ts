@@ -35,3 +35,12 @@ describe('follow-up questions', () => {
     expect(GroundedPromptBuilder.isFollowupQuestion(text)).toBe(false);
   });
 });
+
+describe('next step versus completed booking', () => {
+  it('lets "the team will confirm your appointment" through', async () => {
+    const { GroundedAnswerGuard } = await import('../../src/domain/conversation/GroundedAnswerGuard');
+    expect(GroundedAnswerGuard.claimsCompletedAction('صيفطي لينا رسالة فواتساب والفرقة تأكد ليك الموعد.')).toBe(false);
+    expect(GroundedAnswerGuard.claimsCompletedAction('راه تأكد الحجز ديالك')).toBe(true);
+    expect(GroundedAnswerGuard.claimsCompletedAction('الحجز ديالك تأكد')).toBe(true);
+  });
+});

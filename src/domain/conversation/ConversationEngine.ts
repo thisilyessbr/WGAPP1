@@ -384,6 +384,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     tenantId: string; accountId: string | null | undefined; content: string; config: BusinessConfig;
     llm: LLMProvider; llmOptions: LLMRequestOptions; language: string; script: string;
     productContext: ConversationContext['productContext']; lexicalProductId: string | null;
+    recentTurns?: { role: string; content: string }[];
   }): Promise<{ productId: string | null; serviceName: string | null; serviceReference: string | null; routingText: string; usedModel: boolean }> {
     const { tenantId, accountId, content, config } = args;
     const out = { productId: args.lexicalProductId, serviceName: null as string | null, serviceReference: null as string | null, routingText: content, usedModel: false };
@@ -407,6 +408,16 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       // answer, which otherwise refuses wording that differs from the menu.
       const ranked = out.serviceName ? CatalogMatcher.rank(text, menu) : [];
       if (ranked[0]?.product.name === out.serviceName && (!ranked[1] || ranked[0].score - ranked[1].score >= 1)) out.serviceReference = out.serviceName;
+    }
+    // "And how long does it take?" asks about the service of the previous message.
+    if (kind === 'service' && !out.serviceName && GroundedPromptBuilder.isFollowupQuestion(text)) {
+      const previous = [...(args.recentTurns || [])].reverse().find(turn => turn.role.toLowerCase() === 'user' && turn.content.trim() !== text);
+      if (previous) {
+        const learned = matchLearnedPhrase(previous.content, await this.phraseStore.list(tenantId, accountId, kind), kind);
+        const ranked = CatalogMatcher.rank(previous.content, menu);
+        const lexical = ranked[0] && (!ranked[1] || ranked[0].score - ranked[1].score >= 1) ? ranked[0].product.name : null;
+        out.serviceName = out.serviceReference = (learned ? serviceByName(learned.itemKey) : null) || lexical;
+      }
     }
 
     const resolve = (routingText: string, productId: string | null) => TurnDecisionResolver.resolve({
@@ -1050,13 +1061,13 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         const understood = await this.understandTurn({
           tenantId, accountId: conversation.accountId, content, config, llm, llmOptions,
           language: effectiveLang, script: effectiveScript, productContext: conversationContext.productContext,
-          lexicalProductId: catalogProductId
+          lexicalProductId: catalogProductId, recentTurns: conversationContext.recentTurns
         });
         catalogProductId = understood.productId;
         routingText = understood.routingText;
         understoodService = understood.serviceName;
         if (understood.serviceReference) serviceReference = `
-Store menu match (verified by this business's own menu and wording list, not a spelling guess): the service the customer names in <CUSTOMER_QUESTION> is "${understood.serviceReference}". Treat it as the requested service and answer about it with its menu facts; do not ask what it means.`;
+Store menu match (verified by this business's own menu and wording list, not a spelling guess): the service the customer is asking about is "${understood.serviceReference}". Treat it as the requested service and answer about it with its menu facts; do not ask what it means.`;
       } catch (error: any) {
         logger.warn(`ConversationEngine: message understanding unavailable: ${error?.message || error}`);
       }
