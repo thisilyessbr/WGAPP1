@@ -160,7 +160,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   });
   // Freeze only chatbot data edits; inbox, leads, plans and WhatsApp remain usable.
   client.use((req, _res, next) => {
-    if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)|^\/product-images(?:\/|$)|^\/learned-wording(?:\/|$)/.test(req.path))) return next();
+    if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)|^\/product-images(?:\/|$)/.test(req.path))) return next();
     store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
       .then(profile => profile.editingFrozen
         ? next(new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.'))
@@ -239,12 +239,6 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
     const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
     send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset, view));
-  }));
-  client.get('/learned-wording', route(async (req, res) =>
-    send(res, await learnedWording().list(req.portal.tenantId!, req.portal.accountId!))));
-  client.patch('/learned-wording/:id', route(async (req, res) => {
-    const body = object(req.body); allowed(body, ['status', 'itemKey']);
-    send(res, { phrase: await learnedWording().update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id).slice(0, 100), body) });
   }));
   client.get('/leads/summary', route(async (req, res) =>
     send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!))));
@@ -1083,6 +1077,18 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     }
     await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_ACTIVATED', { connectionId: result.connectionId });
     send(res, result);
+  }));
+  // Customer wording the chatbot learned for a client: reviewed by administrators only.
+  admin.get('/accounts/:id/learned-wording', route(async (req, res) => {
+    const accountId = String(req.params.id);
+    const profile = await store.profile(accountId);
+    send(res, await learnedWording().list(profile.tenantId, accountId));
+  }));
+  admin.patch('/accounts/:id/learned-wording/:phraseId', route(async (req, res) => {
+    const accountId = String(req.params.id);
+    const body = object(req.body); allowed(body, ['status', 'itemKey']);
+    const profile = await store.profile(accountId);
+    send(res, { phrase: await learnedWording().update(profile.tenantId, accountId, String(req.params.phraseId).slice(0, 100), body) });
   }));
   admin.patch('/accounts/:id/editing-freeze', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['frozen']);
