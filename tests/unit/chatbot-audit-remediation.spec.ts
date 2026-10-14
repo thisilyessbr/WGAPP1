@@ -63,7 +63,7 @@ describe('generic grounded request identity',()=>{
   });
   it('does not turn undocumented availability into unavailability',()=>{
     const result=resolveGroundedAnswer('{"status":"unconfirmed","phrase":"MRI"}','Can I book an MRI?','en');
-    expect(result).toContain('cannot confirm');
+    expect(result).toContain('can confirm it');
     expect(result).not.toContain('unavailable');
   });
   it.each(['{"status":"answer","answer":', '{"status":"other"}', '{"status":"answer"}', 'CLARIFY without a phrase'])('does not leak malformed protocol output: %s',raw=>{

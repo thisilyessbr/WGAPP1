@@ -738,7 +738,7 @@ export class AnswerComposer {
         if (family === 'PERFORMANCE') {
           hasEvidence = /(?:waterproof|water-resistant|rainproof|warm|breathable|windproof|imperm[ée]able|chaud|respirant|مقاوم|ضد الما|ضد الماء|سخون|دافئ)/iu.test(descLower);
         } else if (family === 'MATERIAL') {
-          hasEvidence = /(?:cotton|polyester|leather|fleece|wool|silk|linen|denim|nylon|coton|cuir|mati[èe]re|tissu|composition|قطن|جلد|قماش|ثوب|صوف|حرير|توب)/iu.test(descLower);
+          hasEvidence = /(?:cotton|polyester|leather|fleece|wool|silk|linen|denim|nylon|coton|cuir|molleton|molletonn|crêpe|soie|acier|mesh|laine|lin|mati[èe]re|tissu|composition|قطن|جلد|قماش|ثوب|صوف|حرير|توب)/iu.test(descLower);
         } else if (family === 'FIT') {
           hasEvidence = /(?:fit|oversize|oversized|slim|regular|loose|coupe|large|ajust[ée]e|واسع|عريض|مزير|فصالة)/iu.test(descLower);
         } else if (family === 'WEIGHT') {
@@ -750,20 +750,21 @@ export class AnswerComposer {
         }
       }
 
+      // Say plainly what is known and offer the team, instead of "the details do not specify".
       if (!hasEvidence && safeFactDesc) {
         if (responseLanguage === 'fr') {
-          return `Les informations disponibles pour ${safeFactName} ne mentionnent pas cette caractéristique spécifique (${safeFactDesc}).`;
+          return `Je n'ai pas cette précision pour ${safeFactName}. Sa description : ${safeFactDesc} Notre équipe peut vous confirmer le reste ici.`;
         }
         if (responseLanguage === 'ar') {
-          return `المعلومات المتوفرة لـ ${safeFactName} لا تشير إلى هذه الخاصية تحديداً (${safeFactDesc}).`;
+          return `ليست لدي هذه المعلومة عن ${safeFactName}. وصفه: ${safeFactDesc} يمكن لفريقنا تأكيد الباقي لك هنا.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `Had l-ma3loma ma kaynach f l-wasf dyal ${safeFactName} (${safeFactDesc}).`;
+            return `Ma 3ndich had lma3loma 3la ${safeFactName}. Lwasf dyalo: ${safeFactDesc} Lfari9 dyalna y9der y2ekked lik hna.`;
           }
-          return `المعلومات المتوفرة على ${safeFactName} ما فيهاش هاد الخاصية بالضبط (${safeFactDesc}).`;
+          return `ما عنديش هاد المعلومة على ${safeFactName}. الوصف ديالو: ${safeFactDesc} الفريق ديالنا يقدر يأكد ليك هنا.`;
         }
-        return `The product details for ${safeFactName} do not specify this particular feature (${safeFactDesc}).`;
+        return `I don't have that detail for ${safeFactName}. Its description: ${safeFactDesc} Our team can confirm the rest here.`;
       }
 
       if (metadataValue) {
@@ -811,33 +812,38 @@ export class AnswerComposer {
         if (size && !list.includes(size)) list.push(size);
         bySize.set(color, list);
       }
-      const options = [...bySize.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${sizes.join(sep)})` : color || sizes.join(sep)).join(' · ');
+      const options = [...bySize.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${AnswerComposer.sortSizes(sizes).join(sep)})` : color || AnswerComposer.sortSizes(sizes).join(sep)).join(' · ');
       // The merchant's description is quoted only when it is in the reply's language/script.
       const descArabic = /[؀-ۿ]/.test(safeFactDesc);
       const descFrench = !descArabic && (safeFactDesc.match(/(?:^|\s)(?:en|de|des|du|le|la|les|avec|pour|et|à)(?=\s)/giu) || []).length >= 1
         && !/\b(?:the|with|and|for)\b/i.test(safeFactDesc);
       const keepDesc = safeFactDesc && (arabicScript ? descArabic : responseLanguage === 'fr' ? !descArabic : !descArabic && !descFrench);
       const descLine = keepDesc ? `\n${safeFactDesc}` : '';
+      const photo = media.some(item => item.type === 'image');
+      const lead = !photo ? '' : responseLanguage === 'fr' ? 'Voici la photo : '
+        : responseLanguage === 'ar' ? 'إليك الصورة: '
+        : responseLanguage === 'darija' ? (responseScript === 'arabizi' ? 'Hahiya tswira: ' : 'ها هي التصويرة: ')
+        : "Here's the photo: ";
       // Available items need no stock line; only an unavailable one says so.
       const offLine = fact.inStock ? '' : `\n${this.unavailableSentence(responseLanguage, responseScript)}`;
       if (responseLanguage === 'fr') {
         const variantsText = options ? `\nTailles disponibles : ${options}` : '';
-        return `${safeFactName}${descLine}\nPrix : ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
+        return `${lead}${safeFactName}${descLine}\nPrix : ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
       }
       if (responseLanguage === 'ar') {
         const variantsText = options ? `\nالمقاسات المتوفرة: ${options}` : '';
-        return `${safeFactName}${descLine}\nالسعر: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
+        return `${lead}${safeFactName}${descLine}\nالسعر: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
           const variantsText = options ? `\nTailles li kaynin: ${options}` : '';
-          return `${safeFactName}${descLine}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
+          return `${lead}${safeFactName}${descLine}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
         }
         const variantsText = options ? `\nالمقاسات اللي كاينين: ${options}` : '';
-        return `${safeFactName}${descLine}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
+        return `${lead}${safeFactName}${descLine}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
       }
       const variantsText = options ? `\nAvailable sizes: ${options}` : '';
-      return `${safeFactName}${descLine}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
+      return `${lead}${safeFactName}${descLine}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
     }
 
     if (turnDecision.intent === 'BUY_INTENT') {
@@ -871,7 +877,7 @@ export class AnswerComposer {
       const priceSubject = variantLabel ? `${safeFactName} (${variantLabel})` : safeFactName;
 
       if (responseLanguage === 'fr') {
-        return `Le prix de ${priceSubject} est de ${fact.effectivePrice} ${fact.currency}.`;
+        return `${priceSubject} est à ${fact.effectivePrice} ${fact.currency}.`;
       }
       if (responseLanguage === 'ar') {
         return `سعر ${priceSubject} هو ${fact.effectivePrice} ${fact.currency}.`;
@@ -882,7 +888,7 @@ export class AnswerComposer {
         }
         return `الثمن ديال ${priceSubject} هو ${fact.effectivePrice} ${fact.currency}.`;
       }
-      return `The price for ${priceSubject} is ${fact.effectivePrice} ${fact.currency}.`;
+      return `${priceSubject} is ${fact.effectivePrice} ${fact.currency}.`;
     }
 
     // AVAILABILITY or VARIANT_SELECTION
@@ -905,6 +911,18 @@ export class AnswerComposer {
       return `Yes, ${subject} is available, at ${fact.effectivePrice} ${fact.currency}.`;
     }
     return `${this.unavailableSentence(responseLanguage, responseScript, subject)}${hasVariant ? this.inStockOptions(fact, responseLanguage, responseScript) : ''}`;
+  }
+
+  /** XS, S, M, L, XL… then numbers ascending; anything else keeps its order. */
+  private static sortSizes(sizes: string[]): string[] {
+    const letter = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '4XL', '5XL'];
+    const rank = (size: string) => {
+      const index = letter.indexOf(size.toUpperCase());
+      if (index >= 0) return index;
+      const number = Number(size.replace(',', '.'));
+      return Number.isFinite(number) ? 100 + number : 10000;
+    };
+    return [...sizes].sort((a, b) => rank(a) - rank(b));
   }
 
   /** "unavailable" as a short note after a price, in the reply's language. */
@@ -939,7 +957,7 @@ export class AnswerComposer {
       if (size && !list.includes(size)) list.push(size);
       byColor.set(color, list);
     }
-    const options = [...byColor.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${sizes.join(sep)})` : color || sizes.join(sep)).join(' · ');
+    const options = [...byColor.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${AnswerComposer.sortSizes(sizes).join(sep)})` : color || AnswerComposer.sortSizes(sizes).join(sep)).join(' · ');
     if (!options) return '';
     if (lang === 'fr') return ` Encore disponible : ${options}.`;
     if (lang === 'ar') return ` المتوفر حالياً: ${options}.`;

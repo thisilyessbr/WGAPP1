@@ -549,10 +549,24 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           const product = variant ? `${fact.displayName} (${variant})` : fact.displayName;
           const seed = {
             stateHistory: [workflowConfig.initialState],
-            collectedData: { [fieldName!]: product },
-            contextData: { [fieldName!]: product }
+            collectedData: { [fieldName!]: product } as Record<string, string>,
+            contextData: { [fieldName!]: product } as Record<string, string>
           };
-          return this.conversationService.createSession(tenantId, conversationId, workflowId, initial.next, seed);
+          // The size/colour step is skipped when the item has no options (a
+          // bag, a watch) or the customer already chose one ("taille 52, noir").
+          let startState = initial.next;
+          const sizeState = workflowConfig.states[startState];
+          const sizeField = typeof sizeState?.field === 'string' ? sizeState.field : sizeState?.field?.name;
+          const hasOptions = (fact.product.variants || []).some((v: any) => v && v.active !== false && (v.size || v.color));
+          if (sizeState?.type === 'collect' && sizeField && /^(?:size|taille|pointure|sizecolor|variant|variante)$/i.test(sizeField)
+            && sizeState.next && workflowConfig.states[sizeState.next] && (!hasOptions || variant)) {
+            const value = variant || '—';
+            seed.stateHistory.push(startState);
+            seed.collectedData[sizeField] = value;
+            seed.contextData[sizeField] = value;
+            startState = sizeState.next;
+          }
+          return this.conversationService.createSession(tenantId, conversationId, workflowId, startState, seed);
         }
       } catch (error: any) {
         logger.warn(`ConversationEngine: Catalog prefill unavailable; retaining product question: ${error?.message || error}`);
@@ -1798,7 +1812,8 @@ Check again: the business-owner evidence above lists the business's policies, se
           const location = config.identity.locations[0];
           const prefix = effectiveScript === 'arabizi' ? 'Kaynin f '
             : effectiveLang === 'fr' ? 'Nous sommes à '
-            : effectiveLang === 'ar' || effectiveLang === 'darija' ? 'العنوان ديالنا: '
+            : effectiveLang === 'ar' ? 'عنواننا: '
+            : effectiveLang === 'darija' ? 'العنوان ديالنا: '
             : 'We are at ';
           answered = true;
           answerText = `${prefix}${location}.`;

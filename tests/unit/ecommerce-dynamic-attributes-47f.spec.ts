@@ -169,7 +169,7 @@ describe('PHASE ARCH-FIX-47F — Dynamic Ecommerce Attribute & Specification Res
       responseLanguage: 'en',
       responseScript: 'latin'
     });
-    expect(response).toContain('do not specify this particular feature');
+    expect(response).toContain("I don't have that detail");
   });
 
   // Test I: Different tenants attribute vocabulary isolation
