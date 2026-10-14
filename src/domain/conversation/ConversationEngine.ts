@@ -249,7 +249,7 @@ export class ConversationEngine {
       scriptRule = 'CRITICAL SCRIPT RULE: Output in Latin script in the target language.';
     }
 
-    parts.push(`Language: The account configured primary language is "${accountLang}", detected: "${lang}". Always respond in the customer's language and script. Script: "${script}". ${scriptRule}`);
+    parts.push(`Language: The account configured primary language is "${accountLang}", detected: "${lang}". Always respond in the customer's language and script. Script: "${script}". ${scriptRule}${lang === 'ar' ? ' The customer wrote Modern Standard Arabic: reply in Modern Standard Arabic (فصحى), not Darija, even when the business texts are written in Darija.' : lang === 'darija' ? ' The customer wrote Moroccan Darija: reply in Darija, not Modern Standard Arabic.' : ''}`);
     // Moroccan merchants usually write policies in French; customers ask in
     // English, Arabic or Darija. Facts must be translated, not quoted.
     parts.push('Translation: Business evidence is often written in another language (usually French). Translate every fact into the customer\'s language and script; never copy evidence sentences in a different language. Keep product names, prices and numbers exactly as written.');
