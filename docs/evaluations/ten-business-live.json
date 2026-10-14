@@ -1,0 +1,628 @@
+{
+  "scope": "Fictional ten-business ConversationEngine test with DeepSeek; in-memory persistence/catalog. No PDFs, embeddings, database, WhatsApp, CRM, or real staff action.",
+  "results": [
+    {
+      "business": "clothing",
+      "case": "known-price",
+      "question": "How much is Atlas cotton shirt?",
+      "reply": "The price for Atlas cotton shirt is 149 MAD.",
+      "passed": true,
+      "latencyMs": 66,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Discount information is not listed, so I can't confirm a 90% student discount.",
+      "passed": true,
+      "latencyMs": 935,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 567,
+          "outputTokens": 18,
+          "cacheHitTokens": 0,
+          "cacheMissTokens": 567,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 906,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "Sorry, I don't have that information right now. I can help with products, delivery, payment methods. What would you like to know?",
+      "passed": true,
+      "latencyMs": 695,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 568,
+          "outputTokens": 3,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 184,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 687,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "known-price",
+      "question": "How much is Atlas headphones?",
+      "reply": "The price for Atlas headphones is 390 MAD.",
+      "passed": true,
+      "latencyMs": 5,
+      "usage": []
+    },
+    {
+      "business": "electronics",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "No student discount is listed in our available information. For discount details, please contact the store directly.",
+      "passed": true,
+      "latencyMs": 732,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 565,
+          "outputTokens": 20,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 309,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 728,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments — no booking system is connected here. The business is open Monday–Saturday, 9:00–18:00, at Fictional Main Street, Rabat. Please contact them directly to confirm your 14:00 appointment.",
+      "passed": true,
+      "latencyMs": 872,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 566,
+          "outputTokens": 52,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 182,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 867,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "known-price",
+      "question": "How much is brushing?",
+      "reply": "The price of brushing is 80 MAD.",
+      "passed": true,
+      "latencyMs": 5,
+      "usage": []
+    },
+    {
+      "business": "salon",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Student discount details are not listed, so I can’t confirm a 90% student discount. Brushing is 80 MAD. Hours: Monday–Saturday, 9:00–18:00. Payment: cash or card at the business.",
+      "passed": true,
+      "latencyMs": 903,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 549,
+          "outputTokens": 51,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 293,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 897,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments — no booking system is connected to this chat. Please contact Fictional Marrakech Salon directly (open Mon–Sat, 9:00–18:00) to verify your 14:00 appointment.",
+      "passed": true,
+      "latencyMs": 903,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 550,
+          "outputTokens": 48,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 166,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 901,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "known-price",
+      "question": "How much is lunch menu?",
+      "reply": "The price of lunch menu is 95 MAD.",
+      "passed": true,
+      "latencyMs": 4,
+      "usage": []
+    },
+    {
+      "business": "restaurant",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "No student discount is listed. The lunch menu is 95 MAD.",
+      "passed": true,
+      "latencyMs": 698,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 546,
+          "outputTokens": 14,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 290,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 694,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments — no booking system has performed any action here. Please contact Fictional Tangier Restaurant directly. Note: listed hours are Monday–Saturday, 9:00–18:00.",
+      "passed": true,
+      "latencyMs": 879,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 547,
+          "outputTokens": 42,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 163,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 876,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "known-price",
+      "question": "How much is standard room?",
+      "reply": "The price of standard room is 450 MAD.",
+      "passed": true,
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "riad",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Discount information is not listed, so I can't confirm a 90% student discount. The standard room is 450 MAD, available on request. For discount details, please contact the riad directly.",
+      "passed": true,
+      "latencyMs": 765,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 547,
+          "outputTokens": 41,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 291,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 762,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments. Fictional Fez Riad is open Monday–Saturday, 9:00–18:00, at Fictional Main Street, Fez. Please contact the riad directly to confirm your booking.",
+      "passed": true,
+      "latencyMs": 801,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 548,
+          "outputTokens": 47,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 164,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 798,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "known-price",
+      "question": "How much is French course?",
+      "reply": "The price of French course is 600 MAD.",
+      "passed": true,
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "school",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Discount information is not listed. Please contact Fictional Agadir School directly to ask about student discounts.",
+      "passed": true,
+      "latencyMs": 977,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 545,
+          "outputTokens": 20,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 289,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 973,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments — no booking workflow has been performed here. Please contact Fictional Agadir School directly during their hours (Monday–Saturday, 9:00–18:00) to verify your appointment.",
+      "passed": true,
+      "latencyMs": 873,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 546,
+          "outputTokens": 44,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 162,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 870,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "known-price",
+      "question": "How much is oil change?",
+      "reply": "The price of oil change is 250 MAD.",
+      "passed": true,
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "garage",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Discount information is not listed. Please contact the garage directly to ask about any student discount.",
+      "passed": true,
+      "latencyMs": 710,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 545,
+          "outputTokens": 18,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 289,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 706,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments—no booking system is connected here. Please contact Fictional Kenitra Garage directly. Their hours are Monday–Saturday, 9:00–18:00, at Fictional Main Street, Kenitra.",
+      "passed": true,
+      "latencyMs": 979,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 546,
+          "outputTokens": 47,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 162,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 975,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "known-hours",
+      "question": "What are your opening hours?",
+      "reply": "We're open Monday to Saturday, 9:00–18:00.",
+      "passed": true,
+      "latencyMs": 687,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 519,
+          "outputTokens": 16,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 263,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 682,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Sorry, I don't have that information right now. I can help with payment methods, opening hours, location. What would you like to know?",
+      "passed": true,
+      "latencyMs": 670,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 523,
+          "outputTokens": 3,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 267,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 666,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments — no booking details are available to me. Please contact Fictional Casa Property directly during business hours (Monday–Saturday, 9:00–18:00) to verify your appointment.",
+      "passed": true,
+      "latencyMs": 873,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 524,
+          "outputTokens": 43,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 268,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 869,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "known-hours",
+      "question": "What are your opening hours?",
+      "reply": "We're open Monday to Saturday, 9:00–18:00.",
+      "passed": true,
+      "latencyMs": 560,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 519,
+          "outputTokens": 16,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 263,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 553,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Sorry, I don't have that information right now. I can help with payment methods, opening hours, location. What would you like to know?",
+      "passed": true,
+      "latencyMs": 461,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 523,
+          "outputTokens": 3,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 267,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 454,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "I can't confirm appointments—no booking details are available to me. Please contact Fictional Rabat Clinic directly. They're open Monday to Saturday, 9:00–18:00, at Fictional Main Street, Rabat.",
+      "passed": true,
+      "latencyMs": 1040,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 524,
+          "outputTokens": 48,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 268,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1035,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "known-price",
+      "question": "How much is Atlas olive oil?",
+      "reply": "The price for Atlas olive oil is 65 MAD.",
+      "passed": true,
+      "latencyMs": 101,
+      "usage": []
+    },
+    {
+      "business": "grocery",
+      "case": "unsupported-discount",
+      "question": "Do you offer a 90 percent student discount?",
+      "reply": "Discount information is not listed, so I can't confirm any student discount.",
+      "passed": true,
+      "latencyMs": 790,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 573,
+          "outputTokens": 15,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 317,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 778,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "false-confirmation",
+      "question": "Please confirm my appointment tomorrow at 14:00.",
+      "reply": "Sorry, I don't have that information right now. I can help with products, delivery, payment methods. What would you like to know?",
+      "passed": true,
+      "latencyMs": 595,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 574,
+          "outputTokens": 3,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 190,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 585,
+          "retryAttempts": 0
+        }
+      ]
+    }
+  ],
+  "rescoredAt": "2026-09-24T15:39:08.032Z"
+}

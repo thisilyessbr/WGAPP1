@@ -1,0 +1,201 @@
+{
+  "scope": "120 fictional Moroccan WhatsApp-style questions through the real ConversationEngine and DeepSeek; in-memory account data. No PDF ingestion, database, WhatsApp, or external customer action.",
+  "results": [
+    {
+      "business": "clothing",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al Atlas cotton shirt?",
+      "reply": "Taman dyal Atlas cotton shirt howa 149 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 93,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 30,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdudin. Khdamin men tnin l sebt, 9:00–18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 1512,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 766,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 382,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1486,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن brushing؟",
+      "reply": "الثمن ديال brushing هو 80 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 35,
+      "usage": []
+    },
+    {
+      "business": "restaurant",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، المطعم خدام من الاثنين إلى السبت من 9:00 حتى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 909,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 577,
+          "outputTokens": 31,
+          "cacheHitTokens": 128,
+          "cacheMissTokens": 449,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 900,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma kayna ta reduction dyal tolba mktouba f l-information li 3andna. L-prix dyal standard room howa 450 MAD.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1427,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 713,
+          "outputTokens": 36,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 329,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1405,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "mixed",
+      "question": "bch7al French course w fach katseddo?",
+      "reply": "French course tamanha 600 MAD. L-maktab khal9 mn tnin l-sbt, mn 9:00 l-18:00.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 1116,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 715,
+          "outputTokens": 33,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 331,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1106,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma momkinch nconfirmi lik rendez-vous. Ma3endna ta7did dyal mawa3id f had l-message. 3afak 3ayet l-garage f waqt l-khdma (tnin l-sbt, 9:00–18:00) bach t7 mawa3id.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1547,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 718,
+          "outputTokens": 75,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 334,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1526,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "cross-business",
+      "question": "3andkom appointment request bch7al?",
+      "reply": "Ma3luma 3la taman appointment request machi mktouba 3andna. Momkin t3ayet l-business mn 9:00 l-18:00 mn tnin l-sebt bach t3ref.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1430,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 689,
+          "outputTokens": 51,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 305,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1424,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "arabic-price",
+      "question": "عفاك فين كاينين؟",
+      "reply": "العنوان ديالنا: Fictional Main Street, Rabat.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 5,
+      "usage": []
+    }
+  ]
+}

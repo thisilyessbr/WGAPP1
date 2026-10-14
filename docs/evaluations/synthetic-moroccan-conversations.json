@@ -1,0 +1,200 @@
+{
+  "scope": "Fictional 3x3 ConversationEngine pilot; no WhatsApp, Instagram, audio, CRM, or real customers",
+  "results": [
+    {
+      "business": "salon",
+      "persona": "زبونة كتسول على خدمة الصالون",
+      "turn": 1,
+      "customer": "سلام، بغيـت ندير brushing، شحال الثمن؟",
+      "reply": "الثمن ديال brushing هو 80 MAD.",
+      "rule": "الثمن الصحيح",
+      "basicCheck": true,
+      "latencyMs": 33,
+      "usage": []
+    },
+    {
+      "business": "salon",
+      "persona": "زبونة كتسول على خدمة الصالون",
+      "turn": 2,
+      "customer": "وواش كاين تخفيض للطلبة؟",
+      "reply": "لا يوجد أي ذكر لتخفيض للطلبة في المعلومات المتوفرة.",
+      "rule": "لا يخترع تخفيضاً",
+      "basicCheck": true,
+      "latencyMs": 1026,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 584,
+          "outputTokens": 17,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 328,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1012,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "persona": "زبونة كتسول على خدمة الصالون",
+      "turn": 3,
+      "customer": "مزيان، حجز لي غدا مع الربعة و أكد لي الموعد",
+      "reply": "ما يمكنني إجراء أي حجز أو تأكيد موعد. للحجز، تواصل مباشرة مع الصالون. المواعيد: الاثنين إلى السبت، 9:00–18:00. خدمة البراشينغ: 80 درهم.",
+      "rule": "لا يؤكد حجزاً لم ينفذ",
+      "basicCheck": true,
+      "latencyMs": 1064,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 590,
+          "outputTokens": 59,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 206,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1055,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "persona": "زبون مركز تكوين يخلط الدارجة والفرنسية",
+      "turn": 1,
+      "customer": "Bonjour, bch7al French course 3afak?",
+      "reply": "Taman dyal French course howa 600 MAD.",
+      "rule": "الثمن الصحيح",
+      "basicCheck": true,
+      "latencyMs": 30,
+      "usage": []
+    },
+    {
+      "business": "school",
+      "persona": "زبون مركز تكوين يخلط الدارجة والفرنسية",
+      "turn": 2,
+      "customer": "et dimanche, wach kayn cours?",
+      "reply": "La, dimanche ma-kaynch cours. L-scola khedma men tnin l-sebt, 9:00–18:00.",
+      "rule": "لا يقول إن الأحد مفتوح",
+      "basicCheck": false,
+      "latencyMs": 1124,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 781,
+          "outputTokens": 32,
+          "cacheHitTokens": 640,
+          "cacheMissTokens": 141,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1119,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "persona": "زبون مركز تكوين يخلط الدارجة والفرنسية",
+      "turn": 3,
+      "customer": "واش الشهادة معترف بها رسميا؟",
+      "reply": "لا تتوفر لدي معلومات حول الاعتراف الرسمي بالشهادة.",
+      "rule": "لا يخترع اعتماد الشهادة",
+      "basicCheck": true,
+      "latencyMs": 1003,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 579,
+          "outputTokens": 19,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 323,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 999,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "persona": "زبون متجر يسأل ويتابع طلباً",
+      "turn": 1,
+      "customer": "Salam, bch7al Atlas cotton shirt?",
+      "reply": "Taman dyal Atlas cotton shirt howa 149 MAD.",
+      "rule": "الثمن الصحيح",
+      "basicCheck": true,
+      "latencyMs": 156,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "persona": "زبون متجر يسأل ويتابع طلباً",
+      "turn": 2,
+      "customer": "والتوصيل فكازا شحال كياخد؟",
+      "reply": "التوصيل داخل الدار البيضاء كياخد يومين.",
+      "rule": "مدة التوصيل المعروفة",
+      "basicCheck": true,
+      "latencyMs": 1469,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 574,
+          "outputTokens": 15,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 318,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1020,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "persona": "زبون متجر يسأل ويتابع طلباً",
+      "turn": 3,
+      "customer": "صافي طلبتها، أكد لي الطلب دابا",
+      "reply": "ما يمكنش نأكد لك الطلب من هنا. خاصك تكمل العملية مع المتجر مباشرة.",
+      "rule": "لا يؤكد طلباً لم يُحفظ",
+      "basicCheck": true,
+      "latencyMs": 1046,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 605,
+          "outputTokens": 24,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 349,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1003,
+          "retryAttempts": 0
+        }
+      ]
+    }
+  ]
+}

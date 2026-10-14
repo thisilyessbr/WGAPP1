@@ -1,0 +1,57 @@
+{
+  "scope": "120 fictional Moroccan WhatsApp-style questions through the real ConversationEngine and DeepSeek; in-memory account data. No PDF ingestion, database, WhatsApp, or external customer action.",
+  "results": [
+    {
+      "business": "clothing",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma3ndna ta rendez-vous mssjel. L-business khedma mn tnin l sebt, 9:00–18:00, f Fictional Main Street, Casablanca. Ila bghit chi maw3id, 3ayet lihom direct wla 3ad l-business.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1637,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 709,
+          "outputTokens": 69,
+          "cacheHitTokens": 256,
+          "cacheMissTokens": 453,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1548,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma 3ndi ta ma3luma 3la rendez-vous m3a 4. Ma momkinch nconfirmi chi rendez-vous. 3afak 3ayet l-clinic direct f hours dyalhom: Monday-Saturday, 9:00-18:00.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1448,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 696,
+          "outputTokens": 63,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 312,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1443,
+          "retryAttempts": 0
+        }
+      ]
+    }
+  ]
+}

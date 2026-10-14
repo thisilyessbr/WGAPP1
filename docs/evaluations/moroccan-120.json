@@ -1,0 +1,2437 @@
+{
+  "scope": "120 fictional Moroccan WhatsApp-style questions through the real ConversationEngine and DeepSeek; in-memory account data. No PDF ingestion, database, WhatsApp, or external customer action.",
+  "results": [
+    {
+      "business": "clothing",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al Atlas cotton shirt?",
+      "reply": "Taman dyal Atlas cotton shirt howa 149 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 61,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن Atlas cotton shirt؟",
+      "reply": "الثمن ديال Atlas cotton shirt هو 149 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 46,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، الخدمة من الاثنين إلى السبت، من 9:00 إلى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 1061,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 539,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 155,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1017,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 15,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 948,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 675,
+          "outputTokens": 18,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 163,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 942,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma3luma 3la chi reduction dyal tolba ma kaynach f l-information li 3andna. Momkin t3ayet l-business f Casablanca mn tnin l-sbt, 9:00–18:00, bach t3ref.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1318,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 674,
+          "outputTokens": 60,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 162,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1313,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "delivery",
+      "question": "twsil l Casablanca ch7al kayakhod?",
+      "reply": "Twsil l Casablanca kayakhod juj (2) yum.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1186,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 678,
+          "outputTokens": 18,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 166,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1034,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma3endna ta rendez-vous mssjel f had l-answer. L-business khdam mn tnin l-sbt, 9:00–18:00, f Fictional Main Street, Casablanca. Bghit tconfirmi chi maw3id? 3ayt l-business direct.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1020,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 681,
+          "outputTokens": 66,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 169,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1011,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "mixed",
+      "question": "bch7al Atlas cotton shirt w fach katseddo?",
+      "reply": "Atlas cotton shirt tamanu 149 MAD, w kayn f stock (4). L-hourat: ltnen 7tal sebt, 9:00–18:00. Ma-kaynch ma3luma 3la shipping f had l-fact, ghir twsil f Casablanca kayakhod jouj yyam.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 975,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 710,
+          "outputTokens": 73,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 198,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 960,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clothing",
+      "case": "cross-business",
+      "question": "3andkom Atlas headphones bch7al?",
+      "reply": "Smeh liya, had l-produit makaynch db f l-magasin dyalna.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 8,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 10,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdoudin. L7wayj mn tnin l sebt, mn 9h00 l 18h00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 948,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 738,
+          "outputTokens": 34,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 226,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 938,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al Atlas headphones?",
+      "reply": "Taman dyal Atlas headphones howa 390 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 9,
+      "usage": []
+    },
+    {
+      "business": "electronics",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن Atlas headphones؟",
+      "reply": "الثمن ديال Atlas headphones هو 390 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 11,
+      "usage": []
+    },
+    {
+      "business": "electronics",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، خدامين من الاثنين إلى السبت، من 9:00 حتى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 806,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 538,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 154,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 798,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Rabat.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 10,
+      "usage": []
+    },
+    {
+      "business": "electronics",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla b cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 763,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 674,
+          "outputTokens": 19,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 162,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 753,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma3luma 3la chi reduction dyal tolba ma kaynach f l-information li 3andna. Momkin t3ayet l-business f Rabat (Monday–Saturday, 9:00–18:00) bach t2akked.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1204,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 673,
+          "outputTokens": 58,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 161,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1198,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "delivery",
+      "question": "twsil l Rabat ch7al kayakhod?",
+      "reply": "Twsil l Rabat kayakhod juj (2) yum.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1124,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 676,
+          "outputTokens": 17,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 164,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 865,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma3endna ta khidma dyal rendez-vous m3a 4. L-business mahlul mn tnin l-sebt, 9:00–18:00, f Fictional Main Street, Rabat. Ma-ymkench nconfirmiw rendez-vous. 3afak 3ayet lihom direct.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1419,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 680,
+          "outputTokens": 72,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 168,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1405,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "mixed",
+      "question": "bch7al Atlas headphones w fach katseddo?",
+      "reply": "Atlas headphones tamanhom 390 MAD, w kaynin f stock (4). L-business khalssa cash wla card f l-mahal. Ma-kaynch ma3luma 3la shipping f had l-evidence.",
+      "passed": false,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 1133,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 707,
+          "outputTokens": 50,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 195,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1095,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "electronics",
+      "case": "cross-business",
+      "question": "3andkom brushing bch7al?",
+      "reply": "Smeh liya, had l-produit makaynch db f l-magasin dyalna.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 10,
+      "usage": []
+    },
+    {
+      "business": "electronics",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Rabat.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 12,
+      "usage": []
+    },
+    {
+      "business": "electronics",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdudin. L7orat: men tnin l sebt, men 9:00 hta l 18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 1139,
+      "usage": [
+        {
+          "accountId": "electronics",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 736,
+          "outputTokens": 36,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 224,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1129,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al brushing?",
+      "reply": "Taman dyal brushing howa 80 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 4,
+      "usage": []
+    },
+    {
+      "business": "salon",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن brushing؟",
+      "reply": "الثمن ديال brushing هو 80 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 8,
+      "usage": []
+    },
+    {
+      "business": "salon",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، الخدمة من الاثنين إلى السبت، من 9:00 إلى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 1256,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 552,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 168,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1251,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Marrakech.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "salon",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla cash f salon.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 835,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 688,
+          "outputTokens": 17,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 176,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 830,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma-kaynch chi ma3luma 3la reduction dyal tolba f l-information li 3andna. Momkin t3ayet l-salon bach t3ref wla kayna chi 3ard.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1123,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 687,
+          "outputTokens": 50,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 175,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1116,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "لا، المعلومات المتوفرة ما كتذكرش خدمة التوصيل للمنزل. الخدمات المتوفرة: بروسينغ بـ80 درهم، فالصالون. للاستفسار، تواصل مع الصالون مباشرة.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1303,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 554,
+          "outputTokens": 55,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 170,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1137,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma ymkench liya nconfirmi rendez-vous. Ma3endna ta chi workflow kaydir booking hna. 3afak 3ayet l-salon f 9:00–18:00 mn tnin l-sebt bach tconfirmi m3ahom.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1290,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 694,
+          "outputTokens": 61,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 182,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1285,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "mixed",
+      "question": "bch7al brushing w fach katseddo?",
+      "reply": "Brushing: 80 MAD. L-salon khddam mn tnin l-sbt, mn 9:00 l-18:00.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 814,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 690,
+          "outputTokens": 31,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 178,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 810,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "cross-business",
+      "question": "3andkom lunch menu bch7al?",
+      "reply": "Ma3ndna lunch menu. Had l-business salon, khdemna ghir b brushing b 80 MAD. L-ma3lomat 3la menu makaynach f l-lista.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 919,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 687,
+          "outputTokens": 41,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 175,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 912,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "salon",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Marrakech.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "salon",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdoudin. L7ours: tnin (Lundi) hta seb t (Samedi), men 9:00 hta 18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 895,
+      "usage": [
+        {
+          "accountId": "salon",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 751,
+          "outputTokens": 43,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 239,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 891,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al lunch menu?",
+      "reply": "Taman dyal lunch menu howa 95 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 6,
+      "usage": []
+    },
+    {
+      "business": "restaurant",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن lunch menu؟",
+      "reply": "الثمن ديال lunch menu هو 95 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "restaurant",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، المطعم خدام من الاثنين إلى السبت، من 9:00 حتى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 613,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 549,
+          "outputTokens": 32,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 165,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 610,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Tangier.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "restaurant",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 628,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 685,
+          "outputTokens": 18,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 173,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 623,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma kayna ta reduction dyal tolba mktouba f l-ma3loumat li 3andna. L-lunch menu taman dyalo 95 MAD.",
+      "passed": false,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1163,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 684,
+          "outputTokens": 36,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 172,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1158,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "لا، المعلومات المتوفرة ما كتشيرش لخدمة التوصيل. الخدمات المتوفرة: قائمة الغداء بـ95 درهم مغربي، والدفع نقداً أو بالبطاقة في المحل.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1059,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 551,
+          "outputTokens": 51,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 167,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1048,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma momkinch nconfirmi lik ay rendez-vous. Ma kayn ta chi workflow kaydir booking. L-agenda: tnin l-sbt, 9:00–18:00. L-lunch menu: 95 MAD. Bghit rendez-vous? Twasel m3a l-restaurant nichan.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1115,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 691,
+          "outputTokens": 68,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 179,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1112,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "mixed",
+      "question": "bch7al lunch menu w fach katseddo?",
+      "reply": "Lunch menu b 95 MAD. L-restaurant khddam mn tnin l sebt, mn 9:00 l 18:00.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 681,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 688,
+          "outputTokens": 32,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 176,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 678,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "cross-business",
+      "question": "3andkom standard room bch7al?",
+      "reply": "Ma3ndna ta ghorfa f had l-business. Hna restaurant f Tangier, men tnin l sebt 9:00–18:00. L-lunch menu b 95 MAD.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1062,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 684,
+          "outputTokens": 44,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 172,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1057,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "restaurant",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Tangier.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "restaurant",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdodin. L7wayj: men tnin l sebt, men 9h00 l 18h00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 1156,
+      "usage": [
+        {
+          "accountId": "restaurant",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 747,
+          "outputTokens": 34,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 235,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1153,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al standard room?",
+      "reply": "Taman dyal standard room howa 450 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 6,
+      "usage": []
+    },
+    {
+      "business": "riad",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن standard room؟",
+      "reply": "الثمن ديال standard room هو 450 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "riad",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، الخدمة من الاثنين إلى السبت، من 9:00 إلى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 977,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 550,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 166,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 974,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Fez.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 4,
+      "usage": []
+    },
+    {
+      "business": "riad",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 699,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 686,
+          "outputTokens": 18,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 174,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 696,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma-kaynch chi ma3luma 3la reduction dyal tolba f l-information li 3ndna. Thaman dyal standard room howa 450 MAD.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 741,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 685,
+          "outputTokens": 39,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 173,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 739,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "غير المعلومات المتوفرة: العنوان هو \"Fictional Main Street, Fez\"، وما كاينش تفاصيل على التوصيل. سعر الغرفة العادية 450 درهم مغربي، والدفع نقداً أو بالبطاقة.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 863,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 552,
+          "outputTokens": 54,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 168,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 852,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma momkinch nconfirmi lik ay rendez-vous. Ma kayn ta chi workflow kayn f had l-answer. L-ouverture: tnin l-sbt, 9:00–18:00. 3afak t7taj t3ayet l-business bach tconfirmi m3a 4.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1097,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 692,
+          "outputTokens": 71,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 180,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1095,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "mixed",
+      "question": "bch7al standard room w fach katseddo?",
+      "reply": "Standard room: 450 MAD. L-ouverture: tnin (lundi) hta sebth (samedi), men 9:00 hta 18:00.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 1105,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 689,
+          "outputTokens": 39,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 177,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1100,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "cross-business",
+      "question": "3andkom French course bch7al?",
+      "reply": "Ma3andna ta French course f l-lista dyalna. L-khedma l-mojouda hiya ghir standard room b 450 MAD. Ila bghit t3ref ktar, twasel m3ana mn tnin l-sebt, 9:00–18:00.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1315,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 685,
+          "outputTokens": 68,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 173,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1310,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "riad",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Fez.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "riad",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdoudin. L-horaires dyalna: men tnin l sebt, 9:00–18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 881,
+      "usage": [
+        {
+          "accountId": "riad",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 748,
+          "outputTokens": 36,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 236,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 877,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al French course?",
+      "reply": "Taman dyal French course howa 600 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 4,
+      "usage": []
+    },
+    {
+      "business": "school",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن French course؟",
+      "reply": "الثمن ديال French course هو 600 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "school",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، المدرسة خدامة من الاثنين إلى السبت من 9:00 حتى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 849,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 548,
+          "outputTokens": 31,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 164,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 846,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Agadir.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 7,
+      "usage": []
+    },
+    {
+      "business": "school",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 675,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 684,
+          "outputTokens": 18,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 172,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 672,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma-kaynch chi ma3luma 3la reduction dyal tolba f l-information li 3andna. Thaman dyal French course howa 600 MAD.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 760,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 683,
+          "outputTokens": 39,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 171,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 752,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "لا، المعلومات المتوفرة ما كتذكرش خدمة التوصيل للمنازل. العنوان: Fictional Main Street, Agadir. للاستفسار، تواصل مع المدرسة مباشرة.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 879,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 550,
+          "outputTokens": 44,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 166,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 870,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma n9darch nconfirmi rendez-vous. Ma3endna ta chi workflow li kaydir booking. 3afak t3ayet l-numar dial l-business awla tzur l-address: Fictional Main Street, Agadir. L-hours: Monday to Saturday, 9:00–18:00.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1274,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 690,
+          "outputTokens": 70,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 178,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1270,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "mixed",
+      "question": "bch7al French course w fach katseddo?",
+      "reply": "French course: 600 MAD. L-agenda: Monday–Saturday, 9:00–18:00. L-paiement: cash wla card f l-business.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 999,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 687,
+          "outputTokens": 37,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 175,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 992,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "cross-business",
+      "question": "3andkom oil change bch7al?",
+      "reply": "Ma3ndna ta khidma dyal oil change f had l-business. L-khidma l-wahida li kayna hiya French course b 600 MAD. Ila bghit t3ref chi haja okhra, sewwel.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1063,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 683,
+          "outputTokens": 55,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 171,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1059,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "school",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Agadir.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "school",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed ma khdaminch. L-houraf: men tnin l sebt, men 9h00 l 18h00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 893,
+      "usage": [
+        {
+          "accountId": "school",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 746,
+          "outputTokens": 36,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 234,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 888,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al oil change?",
+      "reply": "Taman dyal oil change howa 250 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "garage",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن oil change؟",
+      "reply": "الثمن ديال oil change هو 250 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 4,
+      "usage": []
+    },
+    {
+      "business": "garage",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، الخدمة كتكون من الاثنين إلى السبت من 9:00 حتى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 843,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 548,
+          "outputTokens": 32,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 164,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 839,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Kenitra.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "garage",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla cash f l-garage.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 759,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 684,
+          "outputTokens": 20,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 172,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 756,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma kayna ta chi ma3luma 3la reduction dyal tolba f l-ma3lumat li 3andna. Momkin t3ayet l-garage bach t3ref.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1140,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 683,
+          "outputTokens": 45,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 171,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1134,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "لا، المعلومات المتوفرة ما كتشيرش بلي كاين خدمة توصيل حتى للدار. الخدمات المتوفرة: تبديل الزيت بـ250 درهم، والدفع نقداً أو بالبطاقة فالمحل.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1145,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 550,
+          "outputTokens": 55,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 166,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1126,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma ymkench liya nconfirmi rendez-vous. Ma3endna ta chi workflow kaydir booking. 3afak 3ayet l-garage f 9:00–18:00 mn tnin l-sebt, wla sir 3ndhom f Fictional Main Street, Kenitra.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1129,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 690,
+          "outputTokens": 67,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 178,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1125,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "mixed",
+      "question": "bch7al oil change w fach katseddo?",
+      "reply": "Oil change: 250 MAD. L-garage katseddo mn tnin l-sebt, mn 9:00 l-18:00.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 718,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 687,
+          "outputTokens": 33,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 175,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 715,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "cross-business",
+      "question": "3andkom viewing request bch7al?",
+      "reply": "Ma3luminat 3la viewing request ma kaynin-ch f l-lista. Ghir oil change b 250 MAD. Momkin t3ayet l-garage bach tsawel.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1224,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 683,
+          "outputTokens": 44,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 171,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1214,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "garage",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Kenitra.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 9,
+      "usage": []
+    },
+    {
+      "business": "garage",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdoudin. L7orari dyalhom men tnin l sebt, men 9:00 l 18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 862,
+      "usage": [
+        {
+          "accountId": "garage",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 746,
+          "outputTokens": 37,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 234,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 856,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "darija-price",
+      "question": "salam 3afak fach kat7ello?",
+      "reply": "Salam! Kan7ello mn tnin l sebt, mn 9h00 l 18h00.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 663,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 663,
+          "outputTokens": 24,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 151,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 658,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "arabic-price",
+      "question": "عفاك فين كاينين؟",
+      "reply": "العنوان ديالنا: Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 1,
+      "usage": []
+    },
+    {
+      "business": "property",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، خدامين من الاثنين إلى السبت، من 9:00 حتى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 786,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 526,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 142,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 783,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "property",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla b cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 646,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 662,
+          "outputTokens": 19,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 150,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 644,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma-kaynch ma3luma 3la chi reduction dyal tolba f l-information li 3andna. Momkin t3ayet l-business mn tnin l-sebt, 9:00–18:00, bach t2akked.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 892,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 661,
+          "outputTokens": 58,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 149,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 888,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "لا توجد معلومات في البيانات المتاحة عن خدمة التوصيل إلى المنازل.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 764,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 528,
+          "outputTokens": 19,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 144,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 755,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma ymkench liya nconfirmi ay rendez-vous. Ma3endich access l l-agenda wla l bookings. 3afak t7dd m3a l-business direct f wa9t l-khdma: tnin l sebt, 9:00–18:00.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1123,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 668,
+          "outputTokens": 64,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 156,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1121,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "mixed",
+      "question": "fin kaynin w fach katseddo?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": false,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "property",
+      "case": "cross-business",
+      "question": "3andkom appointment request bch7al?",
+      "reply": "Ma3luma 3la taman appointment request ma-kayna-ch f l-information li 3andna. L-business khedma men tnin l-sebt, 9:00–18:00, f Fictional Main Street, Casablanca. L-khlass cash wla card f l-business.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1366,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 661,
+          "outputTokens": 68,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 149,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1362,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "property",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 2,
+      "usage": []
+    },
+    {
+      "business": "property",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdudin. L7wayj mn tnin l sebt, mn 9:00 l 18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 719,
+      "usage": [
+        {
+          "accountId": "property",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 725,
+          "outputTokens": 33,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 341,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 716,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "darija-price",
+      "question": "salam 3afak fach kat7ello?",
+      "reply": "Salam! Kan7ello mn tnin l-sebt, mn 9h00 l-18h00.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 747,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 663,
+          "outputTokens": 24,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 151,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 745,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "arabic-price",
+      "question": "عفاك فين كاينين؟",
+      "reply": "العنوان ديالنا: Fictional Main Street, Rabat.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 1,
+      "usage": []
+    },
+    {
+      "business": "clinic",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، الخدمة من الاثنين إلى السبت من 9:00 إلى 18:00، والأحد مغلق.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 569,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 526,
+          "outputTokens": 28,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 142,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 564,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Rabat.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 1,
+      "usage": []
+    },
+    {
+      "business": "clinic",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte. Payment: cash wla carte f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 904,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 662,
+          "outputTokens": 22,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 150,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 902,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma3luma 3la reduction dyal tolba ma-kaynach f l-information li 3andna. Momkin t3ayet l-clinic f Rabat (Monday–Saturday, 9:00–18:00) bach tsewwel.",
+      "passed": true,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1130,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 661,
+          "outputTokens": 59,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 149,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1127,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "delivery",
+      "question": "واش كتوصّلو حتى لدار؟",
+      "reply": "لا، المعلومات المتوفرة ما كتوضحش واش كاين توصيل للدار. الخدمات المتوفرة: لا توجد خدمات مدرجة. للاستفسار، تواصل مع العيادة مباشرة.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1092,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 528,
+          "outputTokens": 49,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 144,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1085,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma ymkench liya nconfirmi ay rendez-vous. Ana ma3ndi ta access l agenda wla l bookings. 3afak t3ayet l clinic direct f waqt l khedma: Monday–Saturday, 9:00–18:00.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1438,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 668,
+          "outputTokens": 59,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 156,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1435,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "mixed",
+      "question": "fin kaynin w fach katseddo?",
+      "reply": "Kaynin f Fictional Main Street, Rabat.",
+      "passed": false,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "clinic",
+      "case": "cross-business",
+      "question": "3andkom Atlas olive oil bch7al?",
+      "reply": "Ma3luma 3la Atlas olive oil ma kaynach f l-lista dyalna. Ma n9drouch n3tiwk taman. Sifet lina sual dyalek b tafsil wla 3ayet l-clinic.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 1338,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 662,
+          "outputTokens": 57,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 150,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1334,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "clinic",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Rabat.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "clinic",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdudin. L7wayj: men tnin l sebt, men 9:00 l 18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 865,
+      "usage": [
+        {
+          "accountId": "clinic",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 724,
+          "outputTokens": 34,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 340,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 861,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al Atlas olive oil?",
+      "reply": "Taman dyal Atlas olive oil howa 65 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 96,
+      "usage": []
+    },
+    {
+      "business": "grocery",
+      "case": "arabic-price",
+      "question": "عفاك شحال ثمن Atlas olive oil؟",
+      "reply": "الثمن ديال Atlas olive oil هو 65 MAD.",
+      "passed": true,
+      "note": "Known fact in Moroccan Arabic",
+      "latencyMs": 62,
+      "usage": []
+    },
+    {
+      "business": "grocery",
+      "case": "sunday",
+      "question": "واش خدامين نهار الحد؟",
+      "reply": "لا، الخدمة من الاثنين إلى السبت، من 9:00 إلى 18:00. الأحد مسدود.",
+      "passed": true,
+      "note": "Sunday must not be presented as open",
+      "latencyMs": 1001,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 545,
+          "outputTokens": 30,
+          "cacheHitTokens": 384,
+          "cacheMissTokens": 161,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 986,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "location",
+      "question": "fin kaynin 3afak?",
+      "reply": "Kaynin f Fictional Main Street, Oujda.",
+      "passed": true,
+      "note": "Correct location",
+      "latencyMs": 6,
+      "usage": []
+    },
+    {
+      "business": "grocery",
+      "case": "card",
+      "question": "wach n9der nkhelles b carte?",
+      "reply": "Iyeh, momkin tkhelles b carte wla b cash f l-business.",
+      "passed": true,
+      "note": "Supported card payment",
+      "latencyMs": 870,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 681,
+          "outputTokens": 19,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 169,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 866,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "discount",
+      "question": "wach kayna chi reduction dyal tolba?",
+      "reply": "Ma kayna ta reduction dyal tolba mktouba f l-ma3lumat li 3andna. Ghir l-as3ar l-madrouba b l-3omla MAD. Ila bghit t3ref chi haja khra, sewwel.",
+      "passed": false,
+      "note": "Unsupported discount requires uncertainty",
+      "latencyMs": 1415,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 680,
+          "outputTokens": 62,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 168,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1413,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "delivery",
+      "question": "twsil l Oujda ch7al kayakhod?",
+      "reply": "Twsil l Oujda kayakhod jouj (2) yum.",
+      "passed": true,
+      "note": "Delivery policy is account-specific",
+      "latencyMs": 1187,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 684,
+          "outputTokens": 18,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 172,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1181,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "booking",
+      "question": "3afak confirmi lia rendez-vous ghdda m3a 4",
+      "reply": "Ma3endna ta rendez-vous mssjel. L-business khedma mn tnin l-sbt, 9:00–18:00, f Fictional Main Street, Oujda. Momkin tzur wla t3ayet f wa9t l-khedma bach tconfirmi m3ahom.",
+      "passed": true,
+      "note": "No false booking confirmation",
+      "latencyMs": 1492,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 687,
+          "outputTokens": 71,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 175,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1487,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "mixed",
+      "question": "bch7al Atlas olive oil w fach katseddo?",
+      "reply": "Atlas olive oil: 65 MAD, w kayn f stock (4). L-oujda, katwslo f 2 yum. L-horaires: tnin l-sbt, 9:00–18:00.",
+      "passed": true,
+      "note": "Both parts of a mixed question answered",
+      "latencyMs": 1324,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 716,
+          "outputTokens": 52,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 204,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1318,
+          "retryAttempts": 0
+        }
+      ]
+    },
+    {
+      "business": "grocery",
+      "case": "cross-business",
+      "question": "3andkom Atlas cotton shirt bch7al?",
+      "reply": "Smeh liya, had l-produit makaynch db f l-magasin dyalna.",
+      "passed": true,
+      "note": "No cross-account product leakage",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "grocery",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Oujda.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 3,
+      "usage": []
+    },
+    {
+      "business": "grocery",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "La, nhar l7ed msdoudin. L7orari dyalhom men tnin l sebt, men 9:00 l 18:00.",
+      "passed": true,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 1211,
+      "usage": [
+        {
+          "accountId": "grocery",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "provider",
+          "inputTokens": 744,
+          "outputTokens": 37,
+          "cacheHitTokens": 512,
+          "cacheMissTokens": 232,
+          "purpose": "generation",
+          "success": true,
+          "latencyMs": 1207,
+          "retryAttempts": 0
+        }
+      ]
+    }
+  ]
+}

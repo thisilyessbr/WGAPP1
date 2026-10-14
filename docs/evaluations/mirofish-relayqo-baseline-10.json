@@ -1,0 +1,47 @@
+{
+  "scope": "120 fictional Moroccan WhatsApp-style questions through the real ConversationEngine and DeepSeek; in-memory account data. No PDF ingestion, database, WhatsApp, or external customer action.",
+  "results": [
+    {
+      "business": "clothing",
+      "case": "darija-price",
+      "question": "salam 3afak bch7al Atlas cotton shirt?",
+      "reply": "Taman dyal Atlas cotton shirt howa 149 MAD.",
+      "passed": true,
+      "note": "Known price or opening hours in Arabizi",
+      "latencyMs": 67,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "followup-location",
+      "question": "salam, fin kaynin?",
+      "reply": "Kaynin f Fictional Main Street, Casablanca.",
+      "passed": true,
+      "note": "First conversation turn",
+      "latencyMs": 28,
+      "usage": []
+    },
+    {
+      "business": "clothing",
+      "case": "followup-hours",
+      "question": "w nhar l7ed, khdamin?",
+      "reply": "Smeh liya, ma3ndich had lme3louma daba. N9der n3awnk f lmontojat, tawsil, toroq lkhlas. Chno bghiti t3ref?",
+      "passed": false,
+      "note": "Follow-up in same conversation",
+      "latencyMs": 410,
+      "usage": [
+        {
+          "accountId": "clothing",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "attempts": 1,
+          "tokenSource": "unknown",
+          "purpose": "generation",
+          "success": false,
+          "latencyMs": 402,
+          "retryAttempts": 0
+        }
+      ]
+    }
+  ]
+}
