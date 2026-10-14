@@ -52,6 +52,7 @@ describe('production risk fixes', () => {
       expect(BusinessHoursClause.alreadyStated('Kan7ello mn 9h 7ta 19h.', 'Mon–Sat, 09:00–19:00')).toBe(true);
       expect(BusinessHoursClause.alreadyStated('Open 09h00 to 19h00.', '9:00 - 19:00')).toBe(true);
       expect(BusinessHoursClause.alreadyStated('We close at 18:00.', '09:00–19:00')).toBe(false);
+      expect(BusinessHoursClause.alreadyStated('كنسدو على 21:00، من الثلاثاء حتى الحد.', 'Mardi au dimanche de 10:00 à 21:00.')).toBe(true);
     });
 
     it('shortens the first answer so the hours clause is never truncated', () => {

@@ -17,8 +17,10 @@ export class BusinessHoursClause {
     if (configured.length === 0) {
       return response.toLocaleLowerCase().includes(businessHours.trim().toLocaleLowerCase());
     }
-    const stated = new Set(GroundedAnswerGuard.extractTimes(response));
-    return configured.every(time => stated.has(time));
+    // "We close at 21:00" answers "when do you close?"; a time that is not
+    // configured ("18:00" for 09:00–19:00) still gets the real hours.
+    const stated = GroundedAnswerGuard.extractTimes(response);
+    return stated.length > 0 && stated.every(time => configured.includes(time));
   }
 
   static append(response: string, businessHours: string, label: string, maxResponseLength?: number | string): string {

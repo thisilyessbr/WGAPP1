@@ -1521,13 +1521,22 @@ Store menu match (verified by this business's own menu and wording list, not a s
 
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
-              const rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
+              let rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
                 temperature: config.llm?.temperature ?? 0.2,
                 maxTokens: config.llm?.maxTokens ?? 500,
                 timeoutMs
               });
               const latencyMs = Date.now() - startTime;
-              const trimmed = resolveGroundedAnswer(rawResponse, content, effectiveLang, turnDecision?.responseScript);
+              let trimmed = resolveGroundedAnswer(rawResponse, content, effectiveLang, turnDecision?.responseScript);
+              // One more look before "I don't have that" when the question is about a
+              // documented policy or a matched menu service: the facts are in the evidence.
+              if ((!trimmed || trimmed.startsWith('UNANSWERABLE')) && (turnDecision?.policyIntents?.length || serviceReference)) {
+                rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: `${userPromptContent}
+Check again: the business-owner evidence above lists the business's policies, services, prices, hours and contact. Answer from it when it covers the question; use unanswerable only when it truly does not.` }], {
+                temperature: 0, maxTokens: config.llm?.maxTokens ?? 500, timeoutMs: config.llm?.timeoutMs ?? 10000
+              }).catch(() => rawResponse);
+                trimmed = resolveGroundedAnswer(rawResponse, content, effectiveLang, turnDecision?.responseScript);
+              }
 
               const inputTokensEst = Math.ceil((systemPrompt.length + userPromptContent.length) / 4);
               const outputTokensEst = Math.ceil((rawResponse || '').length / 4);
@@ -2838,13 +2847,22 @@ Store menu match (verified by this business's own menu and wording list, not a s
             const startTime = Date.now();
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
-              const rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
+              let rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: userPromptContent }], {
                 temperature: config.llm?.temperature ?? 0.2,
                 maxTokens: turnDecision?.isMultiPolicy ? 800 : (config.llm?.maxTokens ?? 500),
                 timeoutMs
               });
               const latencyMs = Date.now() - startTime;
-              const trimmed = resolveGroundedAnswer(rawResponse, content, effectiveLang, turnDecision?.responseScript);
+              let trimmed = resolveGroundedAnswer(rawResponse, content, effectiveLang, turnDecision?.responseScript);
+              // One more look before "I don't have that" when the question is about a
+              // documented policy or a matched menu service: the facts are in the evidence.
+              if ((!trimmed || trimmed.startsWith('UNANSWERABLE')) && (turnDecision?.policyIntents?.length || serviceReference)) {
+                rawResponse = await generateResponseWithDeadline(llm, systemPrompt, [{ role: 'user', content: `${userPromptContent}
+Check again: the business-owner evidence above lists the business's policies, services, prices, hours and contact. Answer from it when it covers the question; use unanswerable only when it truly does not.` }], {
+                temperature: 0, maxTokens: config.llm?.maxTokens ?? 500, timeoutMs: config.llm?.timeoutMs ?? 10000
+              }).catch(() => rawResponse);
+                trimmed = resolveGroundedAnswer(rawResponse, content, effectiveLang, turnDecision?.responseScript);
+              }
 
               const inputTokensEst = Math.ceil((systemPrompt.length + userPromptContent.length) / 4);
               const outputTokensEst = Math.ceil((rawResponse || '').length / 4);
