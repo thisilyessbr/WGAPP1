@@ -10,6 +10,8 @@ const INTERNAL_WORDING = /\bevidence\b|l-evidence|المعطيات|les informati
 const MOJIBAKE = /Ã[©¨ ¢§]|â€[™œ\x9d“”]|Ø[§£]|�/u;
 const MARKDOWN = /\*\*[^*\n]+\*\*|^#{1,6}\s|\[[^\]\n]+\]\(https?:[^)]+\)|^\s*\|.*\|\s*$/mu;
 const ROBOTIC = /as an ai|en tant qu'(?:ia|intelligence)|كذكاء اصطناعي|language model|modèle de langage|I am just a bot/iu;
+const STOCK_COUNT = /in stock\s*[:(]\s*\d|en stock\s*[:(]\s*\d|\d+\s*(?:pieces?|pièces?|units?|unités?|items?|articles?)\s*(?:left|available|in stock|restante?s?|disponibles?|en stock)|(?:only|plus que|reste|il reste|ghir|غير|بقاو|بقات)\s*\d+\s*(?:pieces?|pièces?|units?|left|قطع|قطعة|حبات|بياسات|wa7da|pièce)|كاين منو\s*:?\s*\d|الكمية المتوفرة\s*:?\s*\d|kayen mno\s*:?\s*\d|\d+\s*(?:قطع|قطعة|حبات|حبة|بياسات|بياسة)\s*(?:متوفرة?|متبقية|كاينين|باقيين)/iu;
+const STOCK_LABEL = /(?:^|\n)\s*(?:stock|المخزون|disponibilité|availability|الحالة)\s*:/iu;
 const GREETING_START = /^(?:hello|hi|hey|good (?:morning|evening)|bonjour|bonsoir|salut|salam|slm|السلام عليكم|سلام|مرحبا|أهلا|أهلاً|ahlan|mr7ba|marhba)\b/iu;
 const GENERIC_FALLBACK = /don't have that (?:detail|information)|n[’']ai pas cette (?:précision|information)|لا تتوفر لدي|ما عنديش هاد المعلومة|ma3ndich had (?:lma3loma|lme3louma)/iu;
 const FR_WORDS = /(?<![\p{L}'])(?:le|la|les|est|vous|nous|notre|nos|pour|des|une|et|avec|votre|sont|livraison|merci|bonjour|disponible|taille|couleur|voici|désolé|frais|jours|paiement|gratuite?|dès|sauf|échange|réception|boutique|commande)(?![\p{L}])/giu;
@@ -29,6 +31,9 @@ export function replyQualityIssues(rawReply: string, ctx: QualityContext): strin
   if (MOJIBAKE.test(reply)) issues.push('broken characters (encoding)');
   if (MARKDOWN.test(reply)) issues.push('markdown that WhatsApp does not render');
   if (ROBOTIC.test(reply)) issues.push('robotic AI disclaimer');
+  // Customers are told whether an item is available, never the stock count.
+  if (STOCK_COUNT.test(reply)) issues.push('reveals the stock count');
+  if (STOCK_LABEL.test(reply)) issues.push('robotic stock label');
   if (ctx.turnIndex > 0 && GREETING_START.test(reply.trim())) issues.push('greets again mid-conversation');
   if (ctx.answerable && GENERIC_FALLBACK.test(reply)) issues.push('generic "no information" fallback on an answerable question');
   const limit = ctx.multiTopic ? 1200 : 800;

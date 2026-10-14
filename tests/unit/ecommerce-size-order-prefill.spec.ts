@@ -27,10 +27,10 @@ const decision = (text: string, selectedProductId?: string) => TurnDecisionResol
 
 describe('commerce size and order handoff', () => {
   it.each([
-    ['Vous avez le jean bleu en taille 34 ? Combien coûte-t-il ?', 'fr', 'latin', 'En stock : 4'],
-    ['Is the blue jeans size 34 available, and how much is it?', 'en', 'latin', 'In stock: 4'],
-    ['هل الجينز الأزرق مقاس 34 متوفر وكم سعره؟', 'ar', 'arabic', 'الكمية المتوفرة: 4'],
-    ['سلام، واش عندكم جينز أزرق مقاس 34 وشحال الثمن؟', 'darija', 'arabic', 'كاين منو: 4']
+    ['Vous avez le jean bleu en taille 34 ? Combien coûte-t-il ?', 'fr', 'latin', 'est disponible, à 299 MAD'],
+    ['Is the blue jeans size 34 available, and how much is it?', 'en', 'latin', 'is available, at 299 MAD'],
+    ['هل الجينز الأزرق مقاس 34 متوفر وكم سعره؟', 'ar', 'arabic', 'متوفر بسعر 299 MAD'],
+    ['سلام، واش عندكم جينز أزرق مقاس 34 وشحال الثمن؟', 'darija', 'arabic', 'كاين، بـ 299 MAD']
   ] as const)('answers the price and stock together: %s', (message, language, script, stockPhrase) => {
     const turnDecision = TurnDecisionResolver.resolve({
       text: message, language, script, isEcommerceEnabled: true
@@ -64,8 +64,8 @@ describe('commerce size and order handoff', () => {
     });
     expect(answer).toContain('299 MAD');
     expect(answer).toContain('34');
-    expect(answer).toContain('كاين منو: 4');
-    expect(answer).not.toContain('كاين منو: 8');
+    expect(answer).toContain('(Blue / 34) كاين، بـ 299 MAD');
+    expect(answer).not.toContain('كاين منو');
   });
 
   it('uses a single catalog match for a category enquiry and rechecks variant stock', async () => {
@@ -83,7 +83,7 @@ describe('commerce size and order handoff', () => {
     });
     expect(getProductFact).toHaveBeenLastCalledWith('tenant', 'account',
       { id: 'jeans-1', color: 'Blue', size: '34' }, 'darija');
-    expect(result.answerText).toContain('كاين منو: 4');
+    expect(result.answerText).toContain('(Blue / 34) كاين، بـ 299 MAD');
   });
 
   it('keeps the selected product for a size-only follow-up and never reports parent stock', async () => {
@@ -99,8 +99,8 @@ describe('commerce size and order handoff', () => {
     });
     expect(getProductFact).toHaveBeenCalledWith('tenant', 'account',
       { id: 'jeans-1', sku: undefined, name: undefined, color: 'Blue', size: '34' }, 'darija');
-    expect(result.answerText).toContain('كاين منو: 4');
-    expect(result.answerText).not.toContain('كاين منو: 8');
+    expect(result.answerText).toContain('(Blue / 34) كاين، بـ 299 MAD');
+    expect(result.answerText).not.toContain('كاين منو');
   });
 
   it('prefills a product only after catalog verification, then asks the next order field', async () => {
@@ -178,7 +178,7 @@ describe('commerce size and order handoff', () => {
       productFacts: aggregated as any, userMessage: 'واش المقاس 34 متوفر دابا؟',
       responseLanguage: 'darija', responseScript: 'arabic'
     });
-    expect(answer).toContain('كاين منو: 7');
+    expect(answer).toContain('كاين، بـ 299 MAD');
     expect(answer).not.toContain('Red / 34');
     expect(answer).not.toContain('Blue / 34');
 
@@ -200,7 +200,7 @@ describe('commerce size and order handoff', () => {
     expect(result.answerText).toContain('Jean Atlas bleu');
     expect(result.answerText).toContain('Jean Second');
     expect(result.answerText).not.toContain('ما كاينش');
-    expect(result.answerText).not.toContain('كاين منو: 8');
+    expect(result.answerText).not.toContain('كاين منو');
     expect(result.productContextUpdate?.selectedProductId).toBeNull();
   });
 

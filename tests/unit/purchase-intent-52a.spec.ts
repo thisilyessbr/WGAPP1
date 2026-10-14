@@ -246,7 +246,7 @@ describe('Phase CRM-D-FIX — Purchase Intent & Lead Flow Contract (52A)', () =>
 
       expect(responseEn).toContain('Moon Ninja Hoodie');
       expect(responseEn).toContain('399 MAD');
-      expect(responseEn).toContain('delivery address');
+      expect(responseEn).toContain('your address with the city');
 
       const responseFr = AnswerComposer.composeEcommerce({
         turnDecision: { ...decisionEn, responseLanguage: 'fr' },
@@ -256,7 +256,7 @@ describe('Phase CRM-D-FIX — Purchase Intent & Lead Flow Contract (52A)', () =>
       });
       expect(responseFr).toContain('Sweat à Capuche Moon Ninja');
       expect(responseFr).toContain('399 MAD');
-      expect(responseFr).toContain('commander');
+      expect(responseFr).toContain('Pour la commande');
 
       const responseAr = AnswerComposer.composeEcommerce({
         turnDecision: { ...decisionEn, responseLanguage: 'ar', responseScript: 'arabic' },
@@ -265,7 +265,7 @@ describe('Phase CRM-D-FIX — Purchase Intent & Lead Flow Contract (52A)', () =>
         responseScript: 'arabic'
       });
       expect(responseAr).toContain('399 MAD');
-      expect(responseAr).toContain('عنوان التوصيل');
+      expect(responseAr).toContain('عنوانك مع المدينة');
 
       const responseDarija = AnswerComposer.composeEcommerce({
         turnDecision: { ...decisionEn, responseLanguage: 'darija', responseScript: 'arabizi' },
@@ -274,7 +274,7 @@ describe('Phase CRM-D-FIX — Purchase Intent & Lead Flow Contract (52A)', () =>
         responseScript: 'arabizi'
       });
       expect(responseDarija).toContain('399 MAD');
-      expect(responseDarija).toContain('tcommandi');
+      expect(responseDarija).toContain('lcommande');
     });
   });
 

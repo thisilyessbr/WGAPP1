@@ -15,10 +15,10 @@ const product = {
 
 describe('commerce answer quality release', () => {
   it.each([
-    ['Vous avez le jean bleu en taille 34 ? Combien coûte-t-il ?', 'fr', 'latin', 'En stock : 4'],
-    ['Is the blue jeans size 34 available, and how much is it?', 'en', 'latin', 'In stock: 4'],
-    ['هل الجينز الأزرق مقاس 34 متوفر وكم سعره؟', 'ar', 'arabic', 'الكمية المتوفرة: 4'],
-    ['سلام، واش عندكم جينز أزرق مقاس 34 وشحال الثمن؟', 'darija', 'arabic', 'كاين منو: 4']
+    ['Vous avez le jean bleu en taille 34 ? Combien coûte-t-il ?', 'fr', 'latin', 'est disponible, à 299 MAD'],
+    ['Is the blue jeans size 34 available, and how much is it?', 'en', 'latin', 'is available, at 299 MAD'],
+    ['هل الجينز الأزرق مقاس 34 متوفر وكم سعره؟', 'ar', 'arabic', 'متوفر بسعر 299 MAD'],
+    ['سلام، واش عندكم جينز أزرق مقاس 34 وشحال الثمن؟', 'darija', 'arabic', 'كاين، بـ 299 MAD']
   ] as const)('keeps price and stock in the same reply: %s', (message, language, script, stockPhrase) => {
     const turnDecision = TurnDecisionResolver.resolve({
       text: message, language, script, isEcommerceEnabled: true

@@ -205,7 +205,7 @@ export class ConversationEngine {
     // The business name is merchant-written: quoted, single-line and bounded.
     const businessName = String(config.identity?.brand || '').replace(/[\r\n"`]/g, ' ').trim().slice(0, 80);
     parts.push(`Role: Customer support for ${botName}${businessName ? ` of the business "${businessName}"` : ''}. Answer concisely and accurately.`);
-    parts.push('Style: Write like an experienced, friendly advisor of this business on WhatsApp. Lead with the direct answer, then only the useful detail; usually one to three short sentences. Warm and professional, never robotic: no "as an AI", no "great question", no repeating the question, no greeting after the first message. Speak as the business ("we", "our"). Use "vous" in French; in Darija be warm and respectful as Moroccan shop staff are. No markdown headings or bold; plain line breaks only to list options. End with a short next step (how to order, book or reach the team) only when it helps the customer. Tone and behaviour settings chosen by the business owner (below) take priority over this style.');
+    parts.push('Style: Write like an experienced, friendly advisor of this business on WhatsApp. Lead with the direct answer, then only the useful detail; usually one to three short sentences. Warm and professional, never robotic: no "as an AI", no "great question", no repeating the question, no greeting after the first message. Speak as the business ("we", "our"). Use "vous" in French; in Darija be warm and respectful as Moroccan shop staff are. No markdown headings or bold; plain line breaks only to list options. Say whether an item is available, never how many pieces are in stock or left. End with a short next step (how to order, book or reach the team) only when it helps the customer. Tone and behaviour settings chosen by the business owner (below) take priority over this style.');
     if (Number.isFinite(config.limits?.maxResponseLength) && config.limits.maxResponseLength > 0) {
       parts.push(`Length: Keep the complete answer within ${Math.floor(config.limits.maxResponseLength)} characters. State required facts compactly; avoid repetition and introductions.`);
     }
@@ -2827,7 +2827,7 @@ Check again: the business-owner evidence above lists the business's policies, se
                   effectiveLang
                 );
                 if (prodFact) {
-                  productContextInfo = `\n\nLive Store Catalog Fact:\nProduct: ${prodFact.displayName}\nPrice: ${prodFact.effectivePrice} ${prodFact.currency}\nStock: ${prodFact.inStock ? `In stock (${prodFact.availableStock})` : 'Out of stock'}\nDescription: ${prodFact.displayDescription}`;
+                  productContextInfo = `\n\nLive Store Catalog Fact:\nProduct: ${prodFact.displayName}\nPrice: ${prodFact.effectivePrice} ${prodFact.currency}\nAvailability: ${prodFact.inStock ? 'Available' : 'Currently unavailable'} (never state stock quantities to the customer)\nDescription: ${prodFact.displayDescription}`;
                   // The catalog matcher already mapped the customer's wording
                   // (Darija/Arabic/French names such as "سبرديلة" for baskets)
                   // to this product; the model must not ask to clarify it.

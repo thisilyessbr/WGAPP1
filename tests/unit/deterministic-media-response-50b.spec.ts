@@ -197,7 +197,7 @@ describe('Phase 50B: Low-Cost Deterministic Media Response Unit Tests', () => {
     });
 
     // Should indicate In stock without the raw count in parentheses
-    expect(searchResponse).toContain('Gaming Laptop RTX — 12000 USD (In stock)');
+    expect(searchResponse).toContain('Gaming Laptop RTX — 12000 USD'); expect(searchResponse).not.toContain('In stock');
     expect(searchResponse).not.toContain('(7 available)');
 
     const decisionRec: TurnDecision = {
@@ -216,7 +216,7 @@ describe('Phase 50B: Low-Cost Deterministic Media Response Unit Tests', () => {
       responseScript: 'latin'
     });
 
-    expect(recResponse).toBe('We recommend Gaming Laptop RTX (12000 USD): In stock.');
+    expect(recResponse).toBe("I'd recommend Gaming Laptop RTX, at 12000 USD.");
   });
 
   it('8. Explicit availability queries render the exact numeric available stock', async () => {
@@ -238,7 +238,7 @@ describe('Phase 50B: Low-Cost Deterministic Media Response Unit Tests', () => {
 
     expect(availResponse).toContain('Gaming Laptop RTX');
     expect(availResponse).toContain('12000 USD');
-    expect(availResponse).toContain('In stock: 7');
+    expect(availResponse).toContain('is available'); expect(availResponse).not.toContain(' 7');
   });
 
   it('9. Multilingual media requests are recognized deterministically by EcommerceIntentParser', () => {
