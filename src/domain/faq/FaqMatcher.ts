@@ -213,6 +213,9 @@ export class FaqMatcher {
   /**
    * Normalizes text for robust exact and fuzzy keyword matching.
    */
+  /** Normalized words that carry no topic: question words, articles, auxiliaries, politeness. */
+  static readonly FILLER_TOKENS = new Set(['what', 'which', 'does', 'have', 'there', 'your', 'with', 'this', 'that', 'please', 'about', 'quoi', 'quel', 'quelle', 'quels', 'quelles', 'comment', 'est', 'cest', 'vous', 'votre', 'avez', 'pour', 'dans', 'avec', 'merci', 'bonjour', 'واش', 'شنو', 'كيفاش', 'علاش', 'فين', 'واشنو', 'عافاك', 'عفاك', 'شكرا', 'ديال', 'ديالكم', 'هاد', 'حتي', 'حتى', 'لديكم', 'عندكم', 'wach', 'chno', 'kifach', 'dyal', 'dyalkom', '3afak', 'relayqo']);
+
   static normalize(text: string): string {
     if (!text) return '';
     return text
@@ -386,7 +389,15 @@ export class FaqMatcher {
               const overlapRatio = commonTokens.length / Math.max(1, totalQueryTokens);
               const qCoverage = commonTokens.length / Math.max(1, qTokensList.length);
 
-              if (overlapRatio >= 0.6 && qCoverage >= 0.25) {
+              // Shared filler ("est", "واش", the brand name) is not a match:
+              // "c'est quoi Relayqo" is not "quel est le prix de Relayqo", and
+              // "واش كيخدم بالدارجة" is not "واش كيخدم فواتساب". When either side
+              // has a meaningful word the other lacks, two meaningful words must match.
+              const content = (t: string) => t.length >= 4 && !FaqMatcher.FILLER_TOKENS.has(t);
+              const sharedContent = commonTokens.filter(content).length;
+              const unmatchedContent = queryTokensList.some(t => content(t) && !qTokens.has(t))
+                || qTokensList.some(t => content(t) && !queryTokens.has(t));
+              if (overlapRatio >= 0.6 && qCoverage >= 0.25 && (!unmatchedContent || sharedContent >= 2)) {
                 candidates.push({
                   entry,
                   answer: rawAnswer,

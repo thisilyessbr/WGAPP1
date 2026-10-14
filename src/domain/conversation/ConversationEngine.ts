@@ -3454,7 +3454,9 @@ Check again: the business-owner evidence above lists the business's policies, se
       }
     }
 
-    return intentPrompt;
+    // A question about the business ("how do I contact you?", "is there a free
+    // trial?", "how much is it?") is answered, not turned into a form.
+    return `${intentPrompt}\n\nOnly choose an intent when the customer asks to start that action now (for example "I want a demo", "bghit nchri"). A question about prices, contact details, trials, features or how something works is not an intent: reply "null".`;
   }
 
   private async classifyWorkflowTrigger(
