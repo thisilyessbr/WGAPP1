@@ -209,7 +209,7 @@ describe('commerce size and order handoff', () => {
       turnDecision: decision('شحال ثمن داك المنتوج؟'), productFacts: null,
       userMessage: 'شحال ثمن داك المنتوج؟', responseLanguage: 'darija', responseScript: 'arabic'
     });
-    expect(answer).toContain('صيفط سميتو');
+    expect(answer).toContain('صيفط ليا سميتو');
     expect(answer).not.toContain('ما كاينش');
   });
 

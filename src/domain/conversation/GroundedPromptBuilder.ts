@@ -1,3 +1,4 @@
+import { LEXICON_PROMPT_GLOSSARY } from '../understanding/MoroccanLexicon';
 import { BusinessConfig } from '../tenant/BusinessConfig';
 import { SupportedScript } from '../rag/DirectRagGuard';
 import { TurnDecision } from './TurnDecision';
@@ -55,7 +56,10 @@ export class GroundedPromptBuilder {
     const parts: string[] = [];
 
     // 1. ROLE — compact persona
-    parts.push(`Role: Customer support for ${botName}${brand}. Answer concisely and accurately.`);
+    // The business name is merchant-written: quoted, single-line and bounded.
+    const businessName = String(config.identity?.brand || '').replace(/[\r\n"`]/g, ' ').trim().slice(0, 80);
+    parts.push(`Role: Customer support for ${botName}${businessName ? ` of the business "${businessName}"` : ''}. Answer concisely and accurately.`);
+    parts.push('Style: Write like an experienced, friendly advisor of this business on WhatsApp. Lead with the direct answer, then only the useful detail; usually one to three short sentences. Warm and professional, never robotic: no "as an AI", no "great question", no repeating the question, no greeting after the first message. Speak as the business ("we", "our"). Use "vous" in French; in Darija be warm and respectful as Moroccan shop staff are. No markdown headings or bold; plain line breaks only to list options. End with a short next step (how to order, book or reach the team) only when it helps the customer. Tone and behaviour settings chosen by the business owner (below) take priority over this style.');
     if (Number.isFinite(config.limits?.maxResponseLength) && config.limits.maxResponseLength > 0) {
       parts.push(`Length: Keep the complete answer within ${Math.floor(config.limits.maxResponseLength)} characters. State required facts compactly; avoid repetition and introductions.`);
     }
@@ -105,7 +109,7 @@ export class GroundedPromptBuilder {
     parts.push('Translation: Business evidence is often written in another language (usually French). Translate every fact into the customer\'s language and script; never copy evidence sentences in a different language. Keep product names, prices and numbers exactly as written.');
     parts.push('Voice: Speak as the business. Never mention evidence, data, sources, a knowledge base or "the information provided" (nor "المعطيات", "les informations fournies"); when a detail is missing, say plainly that you do not have that detail and offer the team.');
     if (lang === 'darija' || lang === 'ar') {
-      parts.push('Moroccan vocabulary: "nkhles 3nd stilam", "lkhlas f lbab", "الخلاص عند الاستلام", "ملي توصلني السلعة" mean paying cash when the order is delivered (cash on delivery). "livraison", "twsil", "ليفريزون", "التوصيل" mean delivery. "nbedel", "نبدل" mean exchange. "trj3o lflouss", "ترجعو الفلوس" mean refund. "lkarta", "carte guichet" mean bank card. "khdamin", "حالين" mean open. "lghit", "nlghi", "لغيت", "نلغي" mean cancel; "khlas" right after a cancellation means a fee. "nbdel rdv", "نبدل الموعد" mean reschedule. "rdv", "موعد" mean appointment. "7lawa", "الحلاوة" mean waxing. "l7enna", "الحنة" mean henna. "fo9ach kat7lo", "فوقاش كتحلو" ask the opening time; "katsdo", "كتسدو" ask the closing time. Weekdays in Darija: lundi = tnin / الاثنين, mardi = tlat / الثلاثاء, mercredi = larb3 / الأربعاء, jeudi = lkhmis / الخميس, vendredi = jjem3a / الجمعة, samedi = sebt / السبت, dimanche = l7ed / الحد; never swap one day for another. Write Arabic script with standard Arabic letters only (no پ, ڤ, چ).');
+      parts.push(LEXICON_PROMPT_GLOSSARY);
     }
 
     // 5. GROUNDING & SAFETY — compact directives, identical semantics

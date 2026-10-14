@@ -1,22 +1,11 @@
+import { LEXICON_ARABIZI_WORDS } from '../understanding/MoroccanLexicon';
 import { FaqEntry } from '../tenant/BusinessConfig';
 import { normalizeIntentText } from '../conversation/IntentLanguage';
 
 export type SupportedLanguage = 'en' | 'fr' | 'ar' | 'darija';
 
 export class LanguageDetector {
-  private static DARIJA_LATIN_WORDS = new Set([
-    'bghit', 'bghiti', 'bghina', 'dakchi', 'katbi3o', 'dyal', 'dyalk', 'dyalna', 'dyalkom',
-    'dial', 'diyalna', 'wach', 'chno', 'chnou', 'ashno', 'chhal', 'kifach', 'kifash',
-    'fayn', 'fin', 'kayn', 'kayna', 'daba', 'hadi', 'hada', 'homa', 'chokran', 'shukran',
-    'salam', 'ahlan', 'mzyan', 'mezyan', 'khass', 'khesni', 'khasni', '3ndkom', '3ndek', '3ndi',
-    'shhar', 'chhar', 'nsowl', 'nswl', 'nswlo', 'swal', 'soual', 'fhad', 'hadchi', '3afak',
-    'afak', 'ila', 'walakin', 'chof', 'sbah', 'sba7', 'labas', 'lkhir',
-    'kidayr', 'kidayra', 'rje3', 'arja3', 'wakha', 'iyih', 'wah', 'flous', 'flousi', 'zwin',
-    'zwina', 'bzzaf', 'bzaf', 'n3ref', 'n3raf', 't9dro', 't3awnoni', 'katkhedmo', 'taman',
-    'khedma', 'ndir', 'bach', 'mouchkil', 'baghi', 'baghya', 'nchri', 'nshri', 'ncommandi',
-    'mabghitch', 'mabghitsh', 'makaynch', 'machi', 'bghitch', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al',
-    'bchhal', 'bchehal', 'bche7al', 'bshal', 'safi', 'nlghi', 'n7jez', 'mn', 'ach', 'achno', 'msawb', 'msawba', 'wla', 'mazal', 'ba9i', 'tswira', 'tsawer', 'sift', 'mrakch', 'twslo', 'katwslo', 'twsalni', 'nkhles', 'ntb3', 'ntbe3', 'fabor', 'fabour', 'batel', 'b7al', 'imta', 'emta', 'katsdo', 'katsedo', 'kat7lo', 'kat7elo', 'fo9ach', 'fou9ach', 'foqach', 'khdamin', 'khdama', 'letnin', 'tnin', 'smiti', 'smitek', 'smitk', 'ykhalik', 'ykhallik', 'm7lolin', 'mhlolin', 'l7ed', 'ghedda', 'l3chiya', 'lw9t', 'lwe9t', 'kayakhod', 'kaydoum', 'n9ess', '9ess', 'wjeh', 'lwejh', 'l7lawa', 'l7enna', 'rjlin', 'katjiw', 'rjal', 'y9dro', 'yjiw', 'nparki', 'nbdel', 'lghit', 'nfs'
-  ]);
+  private static DARIJA_LATIN_WORDS = new Set(LEXICON_ARABIZI_WORDS);
 
   private static FRENCH_WORDS = new Set([
     'bonjour', 'salut', 'merci', 'svp', 'vous', 'votre', 'vos', 'nous', 'notre', 'nos',

@@ -286,25 +286,25 @@ export class AnswerComposer {
       if (custom && custom.trim()) {
         // If Arabizi requested but prompt is in Arabic script, provide Arabizi
         if (responseLanguage === 'darija' && responseScript === 'arabizi' && /[\u0600-\u06FF]/.test(custom)) {
-          return 'Smeh liya, ma3ndich had lme3louma db.';
+          return "Ma3ndich had lma3loma daba, walakin l'équipe t9der t2akkedha lik hna.";
         }
         return custom;
       }
     }
 
     if (responseLanguage === 'fr') {
-      return 'Désolé, je ne dispose pas de cette information.';
+      return "Je n'ai pas cette information pour le moment ; notre équipe pourra vous la confirmer ici.";
     }
     if (responseLanguage === 'ar') {
-      return 'عذراً، لا تتوفر لدي هذه المعلومة حالياً.';
+      return 'لا تتوفر لدي هذه المعلومة حالياً، لكن يمكن لفريقنا تأكيدها لك هنا.';
     }
     if (responseLanguage === 'darija') {
       if (responseScript === 'arabizi') {
-        return 'Smeh liya, ma3ndich had lme3louma db.';
+        return "Ma3ndich had lma3loma daba, walakin l'équipe t9der t2akkedha lik hna.";
       }
-      return 'سمح ليا، ما عنديش هاد المعلومة حالياً.';
+      return 'ما عنديش هاد المعلومة دابا، ولكن الفريق يقدر يأكدها ليك هنا.';
     }
-    return 'I did not understand that. Could you rephrase?';
+    return "I don't have that information right now, but our team can confirm it for you here.";
   }
 
   /** Remove a document heading when a trusted RAG chunk is returned verbatim. */
@@ -343,12 +343,15 @@ export class AnswerComposer {
       arabizi: { products: 'lmontojat', services: 'lkhedmat', delivery: 'tawsil', returns: 'trji3', payment: 'toroq lkhlas', hours: 'lw9at', location: 'l3onwan', faq: 'las2ila lmatrou7a' }
     };
     const key = lang === 'darija' && script === 'arabizi' ? 'arabizi' : lang;
-    const list = selected.map(topic => labels[key]?.[topic] || labels.en[topic]).join(', ');
-    if (lang === 'fr') return `Désolé, je n’ai pas cette information pour le moment. ${list ? `Je peux vous aider avec ${list}. Que souhaitez-vous savoir ?` : 'Que souhaitez-vous savoir sur cette entreprise ?'}`;
-    if (lang === 'ar') return `عذراً، لا تتوفر لدي هذه المعلومة حالياً. ${list ? `يمكنني مساعدتك بخصوص ${list}. ماذا تود أن تعرف؟` : 'ماذا تود أن تعرف عن هذا النشاط؟'}`;
-    if (lang === 'darija' && script === 'arabizi') return `Smeh liya, ma3ndich had lme3louma daba. ${list ? `N9der n3awnk f ${list}. Chno bghiti t3ref?` : 'Chno bghiti t3ref 3la had lma7al?'}`;
-    if (lang === 'darija') return `سمح ليا، ما عنديش هاد المعلومة دابا. ${list ? `نقدر نعاونك فـ ${list}. شنو بغيتي تعرف؟` : 'شنو بغيتي تعرف على هاد المحل؟'}`;
-    return `Sorry, I don't have that information right now. ${list ? `I can help with ${list}. What would you like to know?` : 'What would you like to know about this business?'}`;
+    const names = selected.map(topic => labels[key]?.[topic] || labels.en[topic]);
+    const and = key === 'fr' ? ' et ' : key === 'en' ? ' and ' : key === 'arabizi' ? ' w ' : ' و';
+    const comma = key === 'ar' || key === 'darija' ? '، ' : ', ';
+    const list = names.length > 1 ? `${names.slice(0, -1).join(comma)}${and}${names[names.length - 1]}` : names.join('');
+    if (lang === 'fr') return `Je n'ai pas cette précision pour le moment, mais notre équipe pourra vous la confirmer ici.${list ? ` Je peux aussi vous renseigner sur ${list}.` : ''}`;
+    if (lang === 'ar') return `لا تتوفر لدي هذه المعلومة حالياً، لكن يمكن لفريقنا تأكيدها لك هنا.${list ? ` ويمكنني أيضاً مساعدتك بخصوص ${list}.` : ''}`;
+    if (lang === 'darija' && script === 'arabizi') return `Ma3ndich had lma3loma daba, walakin l'équipe dyalna t9der t2akkedha lik hna.${list ? ` W n9der n3awnek f ${list}.` : ''}`;
+    if (lang === 'darija') return `ما عنديش هاد المعلومة دابا، ولكن الفريق ديالنا يقدر يأكدها ليك هنا.${list ? ` ونقدر نعاونك حتى فـ${list}.` : ''}`;
+    return `I don't have that detail at the moment, but our team can confirm it for you here.${list ? ` I can also help you with ${list}.` : ''}`;
   }
 
   /** Answer an exact, single-service price from published fields without a model call. */
@@ -602,18 +605,18 @@ export class AnswerComposer {
     const fact = Array.isArray(productFacts) ? productFacts[0] : productFacts;
     if (!fact) {
       if (responseLanguage === 'fr') {
-        return `Je n'ai pas pu identifier le produit exact dans le catalogue. Pouvez-vous me donner son nom ou sa référence ?`;
+        return `Je ne suis pas sûr de l'article dont vous parlez. Pouvez-vous m'envoyer son nom ou une photo ?`;
       }
       if (responseLanguage === 'ar') {
-        return `لم أتمكن من تحديد المنتج المقصود في الكتالوج. هل يمكنك إرسال اسمه أو مرجعه؟`;
+        return `لست متأكداً من المنتج الذي تقصده. هل يمكنك إرسال اسمه أو صورة له؟`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
-          return `Ma 9dertch n3ref chmen produit b d-debt. 3afak sifet smitou wla reference dyalou.`;
+          return `Ma 3reftch achmen produit kat9sed. 3afak sift lia smito wla tswira dyalo.`;
         }
-        return `ما قدرتش نحدد شنو هو المنتوج بالضبط. عافاك صيفط سميتو ولا المرجع ديالو.`;
+        return `ما عرفتش أشمن منتوج كتقصد. عافاك صيفط ليا سميتو ولا تصويرة ديالو.`;
       }
-      return `I couldn't identify the exact product in the catalog. Could you send its name or reference?`;
+      return `I'm not sure which item you mean. Could you send me its name or a photo?`;
     }
 
     const safeFactName = this.getSafeName(fact, responseScript, responseLanguage);
@@ -733,7 +736,7 @@ export class AnswerComposer {
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `L-me3loumat li kaynin 3la ${safeFactName} mafihomch had l-khasya b d-debt (${safeFactDesc}).`;
+            return `Had l-ma3loma ma kaynach f l-wasf dyal ${safeFactName} (${safeFactDesc}).`;
           }
           return `المعلومات المتوفرة على ${safeFactName} ما فيهاش هاد الخاصية بالضبط (${safeFactDesc}).`;
         }

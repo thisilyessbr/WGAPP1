@@ -22,7 +22,7 @@ describe('customer-facing knowledge answers', () => {
     config.portalFacts = { policies: { shipping: 'Delivery in Morocco', returns: 'Within 7 days' }, services: [] };
     config.identity.businessHours = 'Monday to Friday';
     const answer = AnswerComposer.composeUnknownAnswer({ turnDecision: decision as any, responseLanguage: 'en', responseScript: 'latin', config });
-    expect(answer).toContain('delivery, returns, opening hours');
+    expect(answer).toContain('delivery, returns and opening hours');
     expect(answer).not.toContain('products');
   });
 

@@ -394,6 +394,12 @@ export class ProductRepository {
     if (!tenantId || !accountId || !text?.trim() || !CatalogMatcher.queryTokens(text).length) return null;
     // Runs on every customer message: score a light, briefly cached index and
     // load the full product only for a match.
+    const best = CatalogMatcher.best(text, await this.catalogIndex(tenantId, accountId));
+    return best ? this.findById(tenantId, accountId, best.id) : null;
+  }
+
+  /** Light, briefly cached list of the account's active products (id, name, category...). */
+  async catalogIndex(tenantId: string, accountId: string) {
     const key = `${tenantId}:${accountId}`;
     let entry = ProductRepository.catalogIndex.get(key);
     if (!entry || entry.expiresAt < Date.now()) {
@@ -406,8 +412,7 @@ export class ProductRepository {
       if (ProductRepository.catalogIndex.size >= 1000) ProductRepository.catalogIndex.clear();
       ProductRepository.catalogIndex.set(key, entry);
     }
-    const best = CatalogMatcher.best(text, entry.products);
-    return best ? this.findById(tenantId, accountId, best.id) : null;
+    return entry.products;
   }
 
   private static readonly CATALOG_INDEX_TTL_MS = 30_000;

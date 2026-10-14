@@ -156,7 +156,7 @@ function singleTurnFailures(c: Case10k, turns: TurnResult[]): string[] {
   const failures = isCommerce(c.profile)
     ? judge({ id: c.id, intent: c.intent, lang: c.lang, turns: c.turns, expect: c.expect }, turns).failures
     : judgeService(c.expect, c.lang, last.reply, c.turns.at(-1)!, last.workflowActive);
-  if (['orderNoWf', 'orderDetailsNoWf', 'svcBookNoWf'].includes(c.expect.kind) && /I don't have that information|je n[’']ai pas cette information|لا تتوفر لدي|ما عنديش هاد المعلومة|ma3ndich had lme3louma/iu.test(last.reply)) failures.push('dead-end reply to a purchase/booking request');
+  if (['orderNoWf', 'orderDetailsNoWf', 'svcBookNoWf'].includes(c.expect.kind) && /don't have that (?:detail|information)|n[’']ai pas cette (?:précision|information)|لا تتوفر لدي|ما عنديش هاد المعلومة|ma3ndich had (?:lma3loma|lme3louma)/iu.test(last.reply)) failures.push('dead-end reply to a purchase/booking request');
   return failures;
 }
 

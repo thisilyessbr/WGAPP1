@@ -59,8 +59,8 @@ describe('Moroccan salon live-test regressions', () => {
     const { engine, llm } = fixture();
     llm.generateResponse.mockResolvedValue('UNANSWERABLE');
     const reply = await engine.handleMessage('t', 'customer', 'How much is the Atlas T-shirt?', 'a');
-    expect(reply).toContain("Sorry, I don't have that information right now.");
-    expect(reply).toContain('I can help with services');
+    expect(reply).toContain("I don't have that detail at the moment");
+    expect(reply).toContain('I can also help you with services');
   });
   it.each([
     ['tutoring', 'cours de maths', 150],

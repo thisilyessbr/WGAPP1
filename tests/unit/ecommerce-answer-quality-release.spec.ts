@@ -86,7 +86,7 @@ describe('commerce answer quality release', () => {
       turnDecision: TurnDecisionResolver.resolve({ text: message, language: 'darija', script: 'arabic' }),
       userMessage: message, responseLanguage: 'darija', responseScript: 'arabic', productFacts: null
     });
-    expect(answer).toContain('صيفط سميتو');
+    expect(answer).toContain('صيفط ليا سميتو');
     expect(answer).not.toContain('ما كاينش');
   });
 

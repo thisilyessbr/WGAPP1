@@ -1,3 +1,4 @@
+import { LEXICON_CONCEPTS } from '../understanding/MoroccanLexicon';
 /**
  * Catalog-aware product matching for Moroccan commerce conversations.
  *
@@ -23,53 +24,7 @@ export interface MatchableProduct {
 
 export interface CatalogMatch<T extends MatchableProduct> { product: T; score: number }
 
-const CONCEPTS: Record<string, string[]> = {
-  caftan: ['caftan', 'caftans', 'kaftan', 'qaftan', 'قفطان', 'قفاطن', '9eftan', '9oftan', 'kaftane'],
-  takchita: ['takchita', 'tekchita', 'تكشيطة', 'تكاشط'],
-  djellaba: ['djellaba', 'djellabas', 'jellaba', 'jelaba', 'jallaba', 'gandoura', 'جلابة', 'جلابية', 'جلالب', 'jlaba', 'jlayb'],
-  abaya: ['abaya', 'abayas', 'abaya', 'عباية', 'عباءة', 'عبايات', '3baya', '3abaya'],
-  jeans: ['jean', 'jeans', 'denim', 'djin', 'jin', 'jinz', 'جين', 'جينز', 'دجين', 'دجينز'],
-  pants: ['pantalon', 'pantalons', 'pants', 'trousers', 'jean', 'jeans', 'سروال', 'سراول', 'بنطلون', 'بنطال', 'serwal', 'sarwal', 'srawl'],
-  sneakers: ['basket', 'baskets', 'sneaker', 'sneakers', 'trainers', 'tennis', 'running', 'runner', 'sbrdila', 'sbardila', 'sebrdila', 'sbadri', 'espadrille', 'espadrilles', 'سبرديلة', 'سبرديلات', 'سبادري', 'رياضي', 'رياضية', 'sport', 'sportif', 'sportive'],
-  // Generic footwear only: specific types (baskets, babouches) must not tie
-  // every shoe in a "Chaussures" category.
-  shoes: ['chaussure', 'chaussures', 'shoe', 'shoes', 'footwear', 'صباط', 'سباط', 'صبابط', 'حذاء', 'أحذية', 'احذية', 'sbat', 'sebbat', 'sabbat'],
-  babouche: ['babouche', 'babouches', 'belgha', 'blgha', 'balgha', 'bel8a', 'بلغة', 'بلاغي', 'بلغات'],
-  bag: ['sac', 'sacs', 'bag', 'bags', 'handbag', 'sacoche', 'pochette', 'sak', 'sakk', 'saka', 'صاك', 'صاكات', 'حقيبة', 'حقائب', 'شنطة', 'chanta', 'sacados', 'cartable'],
-  leather: ['cuir', 'leather', 'جلد', 'جلدية', 'جلدي', 'jeld', 'jild', 'jlad'],
-  watch: ['montre', 'montres', 'watch', 'watches', 'ساعة', 'ساعات', 'مونطر', 'مونطرة', 'montra', 'magana', 'ماكانة'],
-  hoodie: ['hoodie', 'hoodies', 'hoody', 'sweat', 'sweatshirt', 'capuche', 'capuchon', 'كابوشون', 'كابيشون', 'هودي', 'هوديز', 'kabbouchon', 'kapuchon', 'kabouchon'],
-  tshirt: ['tshirt', 'tshirts', 'teeshirt', 'tee', 'tricot', 'tricots', 'تيشورت', 'تيشيرت', 'تيشرت', 'تريكو', 'tishort', 'tichort', 'tichirt', 'tishirt', 'قميص'],
-  shirt: ['chemise', 'chemises', 'shirt', 'shirts', 'قميص', 'قمجة', 'kamis', '9amis', 'kamija', '9amija'],
-  dress: ['robe', 'robes', 'dress', 'dresses', 'كسوة', 'روبة', 'فستان', 'فساتين', 'ksswa', 'kswa', 'keswa', 'roba'],
-  jacket: ['veste', 'vestes', 'jacket', 'jackets', 'blouson', 'jaquette', 'جاكيط', 'جاكيت', 'جاكيطة', 'jakit', 'jakita'],
-  coat: ['manteau', 'manteaux', 'coat', 'coats', 'كبوط', 'معطف', 'kabbot', 'kabbout'],
-  perfume: ['parfum', 'parfums', 'perfume', 'perfumes', 'fragrance', 'عطر', 'عطور', 'ريحة', 'ri7a', 'parfan'],
-  phone: ['phone', 'telephone', 'téléphone', 'smartphone', 'iphone', 'تيليفون', 'هاتف', 'portable', 'tilifoun'],
-  jersey: ['maillot', 'maillots', 'jersey', 'مايو', 'مايوه', 'mayo'],
-  scarf: ['foulard', 'foulards', 'scarf', 'hijab', 'echarpe', 'écharpe', 'زيف', 'حجاب', 'شال', 'zif'],
-  casablanca: ['casablanca', 'casa', 'كازا', 'كازابلانكا', 'البيضاء', 'kaza'],
-  marrakech: ['marrakech', 'marrakesh', 'مراكش', 'mrakch', 'rrakch'],
-  fes: ['fes', 'fès', 'fez', 'فاس'],
-  accessories: ['accessoire', 'accessoires', 'accessories', 'accessory', 'اكسسوارات', 'إكسسوارات', 'aksiswar'],
-  // Beauty and wellness services (Moroccan spas, salons, hammams).
-  hammam: ['hammam', 'hamam', 'hammams', 'حمام', 'الحمام', '7mam', 'l7mam', '7ammam'],
-  scrub: ['gommage', 'scrub', 'exfoliation', 'kessa', 'kassa', 'كسالة', 'الكسالة', 'تقشير', 'kessala', 'kesala', 'ghassoul', 'غاسول', 'enveloppement', 'wrap'],
-  massage: ['massage', 'massages', 'massaj', 'masaj', 'مساج', 'تدليك', 'ماساج', 'tadlik'],
-  facial: ['visage', 'facial', 'face', 'skincare', 'وجه', 'الوجه', 'بشرة', 'البشرة', 'wjeh', 'wajh', 'lwejh', 'bachra'],
-  manicure: ['manucure', 'manicure', 'مانيكير', 'المانيكير', 'manikir', 'ongles', 'nails', 'أظافر', 'ظفار', 'dfar', 'vernis', 'polish'],
-  pedicure: ['pédicure', 'pedicure', 'باديكير', 'الباديكير', 'pedikir', 'pieds', 'feet', 'foot', 'قدمين', 'القدمين'],
-  // In Darija رجلين covers both legs and feet; it ranks with leg services.
-  legs: ['jambes', 'jambe', 'legs', 'leg', 'ساقين', 'الساقين', 'ساق', 'رجلين', 'الرجلين', 'rjlin', 'rjel', 'rejlin'],
-  traditional: ['traditionnel', 'traditionnelle', 'traditional', 'beldi', 'bldi', 'بلدي', 'البلدي', 'تقليدي', 'التقليدي'],
-  complete: ['complet', 'complète', 'complete', 'full', 'rituel', 'ritual', 'كامل', 'كاملة', 'الكاملة', 'باقة', 'kamel', 'kamla'],
-  waxing: ['épilation', 'epilation', 'waxing', 'wax', 'cire', 'حلاوة', 'الحلاوة', 'شمع', 'الشمع', '7lawa', 'l7lawa', 'إزالة', 'ازالة'],
-  haircut: ['coupe', 'coiffure', 'haircut', 'cut', 'brushing', 'blowdry', 'قص', 'حلاقة', 'تسريح', 'براشينغ', 'بروشينغ', '9ess', 'kess', 'cha3r', 'شعر', 'الشعر', 'coiffeur', 'coiffeuse'],
-  coloring: ['coloration', 'couleur', 'coloring', 'dye', 'صباغة', 'sbagha', 'teinture', 'mèches', 'meches', 'balayage'],
-  henna: ['henné', 'henne', 'henna', 'حناء', 'الحناء', 'حنة', 'الحنة', 'l7enna', '7enna', 'nekcha', 'n9cha', 'نقش', 'نقشة', 'النقشة'],
-  eyebrows: ['sourcils', 'eyebrows', 'brows', 'حواجب', 'الحواجب', '7wajeb'],
-  makeup: ['maquillage', 'makeup', 'ماكياج', 'مكياج', 'makiyaj', 'maquiyaj']
-};
+const CONCEPTS = LEXICON_CONCEPTS;
 
 /** Moroccan cities: a delivery destination, not a product, when the message is about shipping. */
 const CITIES = new Set(`casablanca casa kaza rabat rbat sale salé tanger tanja tangier tetouan tetuan agadir oujda wejda wjda marrakech marrakesh mrakch fes fès fez meknes meknès

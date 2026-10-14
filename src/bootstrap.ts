@@ -1,3 +1,4 @@
+import { PrismaLearnedPhraseStore } from './domain/understanding/LearnedPhraseStore';
 import { PrismaClient } from '@prisma/client';
 import { logger } from './utils/logger';
 import { ConversationService } from './domain/conversation/ConversationService';
@@ -296,6 +297,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
       ragService, portalService.budget.wrapImages(new ImageCapabilityGateway()), undefined,
       accountConfigService, ecommerceService, crmService, portalService.budget
     );
+    if (!isTestEnv) conversationEngine.setPhraseStore(new PrismaLearnedPhraseStore(prisma));
   }
   if (portalService) {
     portalService.attach({
@@ -409,6 +411,8 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     portalService?.budget,
     outcomeTrackingService
   );
+  // Customer wording learned per business survives restarts and is shared by workers.
+  if (!isTestEnv) conversationEngine.setPhraseStore(new PrismaLearnedPhraseStore(prisma));
 
   const whatsAppOutboundAdapter = new WhatsAppOutboundAdapter({
     numberService: whatsAppNumberService,
@@ -575,6 +579,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     portalService?.budget,
     outcomeTrackingService
   );
+  if (!isTestEnv) conversationEngine.setPhraseStore(new PrismaLearnedPhraseStore(prisma));
 
   // Initialize Security and Routing
   const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });

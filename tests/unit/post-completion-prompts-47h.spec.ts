@@ -317,14 +317,14 @@ describe('PHASE ARCH-FIX-47H — Config-Driven Multilingual Customer Prompts', (
       config,
       'en'
     );
-    expect(missingField).toBe('Please provide: customerEmail');
+    expect(missingField).toBe('Could you share your email, please?');
 
     const frMissing = responseBuilder.buildMissingFieldResponse(
       { type: 'collect', field: 'customerEmail' } as any,
       config,
       'fr'
     );
-    expect(frMissing).toBe('Veuillez fournir : customerEmail');
+    expect(frMissing).toBe("Pourriez-vous m'indiquer votre e-mail, s'il vous plaît ?");
   });
 
   // Test N: Arabizi response-script behavior preserved

@@ -93,7 +93,7 @@ describe('ten fictional Moroccan business answer matrix', () => {
   it.each(businesses)('$id guides unsupported requests toward its configured offer', async profile => {
     const { engine, config } = makeEngine(profile);
     const answer = await engine.handleMessage(profile.id, 'customer', 'Do you offer a 90 percent student discount?', profile.id);
-    expect(answer).toMatch(/don't have that information/i);
+    expect(answer).toMatch(/don't have that (?:detail|information)/i);
     expect(answer).not.toMatch(/yes.{0,30}90 percent/i);
     expect(answer).toContain(profile.mode === 'commerce' ? 'products' : 'services');
     expect(AnswerComposer.composeUnknownAnswer({ turnDecision: {} as any, responseLanguage: 'en', responseScript: 'latin', config })).not.toContain('fictional-customer');
@@ -101,7 +101,7 @@ describe('ten fictional Moroccan business answer matrix', () => {
 
   it.each(businesses)('$id keeps the requested language/script for an unanswered question', async profile => {
     const cases = [
-      { question: 'Est-ce que vous avez une réduction étudiante de 90% ?', script: 'latin', marker: /(?:Désolé|information|réduction)/iu },
+      { question: 'Est-ce que vous avez une réduction étudiante de 90% ?', script: 'latin', marker: /(?:Désolé|information|précision|réduction)/iu },
       { question: 'هل لديكم خصم للطلاب؟', script: 'arabic', marker: /[\u0600-\u06FF]/u },
       { question: 'واش عندكم تخفيض للطلبة؟', script: 'arabic', marker: /[\u0600-\u06FF]/u },
       { question: 'wach 3ndkom reduction l talaba?', script: 'arabizi', marker: /(?:smeh|n9der|lme3louma)/iu }

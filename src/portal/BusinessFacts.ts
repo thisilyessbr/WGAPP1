@@ -1,5 +1,6 @@
 import { BusinessConfig } from '../domain/tenant/BusinessConfig';
 import { CatalogMatcher } from '../domain/ecommerce/CatalogMatcher';
+import { parseWeekSchedule } from '../domain/understanding/WeekSchedule';
 
 /** Character budget for the service list; small menus are always sent whole. */
 const SERVICE_BUDGET = 1900;
@@ -30,8 +31,10 @@ export function portalBusinessEvidence(
     if (used + size > SERVICE_BUDGET && ranked.length) break;
     ranked.push(entry); used += size;
   }
+  // Days computed from the hours text, named in every customer language.
+  const week = parseWeekSchedule(config.identity.businessHours);
   const sections: [string, unknown][] = [
-    ['Business', { name: config.identity.brand, hours: config.identity.businessHours, address: config.identity.locations, currency: config.identity.currency, ...config.identity.support }],
+    ['Business', { name: config.identity.brand, hours: config.identity.businessHours, ...(week ? { openDays: week.open, closedDays: week.closed } : {}), address: config.identity.locations, currency: config.identity.currency, ...config.identity.support }],
     ['Description', facts?.description], ['Contact', { phone: facts?.phone, website: facts?.website }],
     ...Object.entries((facts?.policies || {}) as Record<string, unknown>), [services.length > ranked.length ? 'Relevant services' : 'Services', ranked]
   ];

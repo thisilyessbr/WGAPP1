@@ -5,7 +5,7 @@ import { TenantConfigService } from '../tenant/TenantConfigService';
 import { WorkflowEngine, WorkflowCancellationDetector } from '../../core/engine/WorkflowEngine';
 import { LLMProvider, LLMProviderError, LLMRequestOptions } from '../../core/llm/LLMProvider';
 import { LLMFactory } from '../../core/llm/LLMFactory';
-import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, getWorkflowMessage } from './ResponseBuilder';
+import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, defaultWorkflowValues, getWorkflowMessage } from './ResponseBuilder';
 import { RAGChunk, RAGService } from '../rag/RAGService';
 import { DirectRagGuard, SupportedScript } from '../rag/DirectRagGuard';
 import { QuestionReformulator } from '../rag/QuestionReformulator';
@@ -27,6 +27,9 @@ import { ProductRepository } from '../ecommerce/ProductRepository';
 import { EcommerceIntentParser } from '../ecommerce/EcommerceIntent';
 import { HandoffService } from './HandoffService';
 import { TurnDecision, TurnDecisionResolver } from './TurnDecision';
+import { MessageUnderstanding } from '../understanding/MessageUnderstanding';
+import { LEXICON_PROMPT_GLOSSARY } from '../understanding/MoroccanLexicon';
+import { LearnedPhraseStore, MemoryLearnedPhraseStore, PhraseKind, matchLearnedPhrase } from '../understanding/LearnedPhraseStore';
 import { AnswerComposer, outboundMediaContext } from './AnswerComposer';
 import { ProductLookupResult } from '../ecommerce/EcommerceService';
 import { CRMService } from '../crm/CRMService';
@@ -118,6 +121,13 @@ export class ConversationEngine {
     this.crmService = crmService;
   }
 
+  private phraseStore: LearnedPhraseStore = new MemoryLearnedPhraseStore();
+
+  /** Where customer wording learned per business is kept (database in production). */
+  setPhraseStore(store: LearnedPhraseStore): void {
+    this.phraseStore = store;
+  }
+
   setOutcomeService(outcomeService: OutcomeTrackingService): void {
     this.outcomeService = outcomeService;
   }
@@ -192,7 +202,10 @@ export class ConversationEngine {
     const parts: string[] = [];
 
     // 1. ROLE — compact persona
-    parts.push(`Role: Customer support for ${botName}${brand}. Answer concisely and accurately.`);
+    // The business name is merchant-written: quoted, single-line and bounded.
+    const businessName = String(config.identity?.brand || '').replace(/[\r\n"`]/g, ' ').trim().slice(0, 80);
+    parts.push(`Role: Customer support for ${botName}${businessName ? ` of the business "${businessName}"` : ''}. Answer concisely and accurately.`);
+    parts.push('Style: Write like an experienced, friendly advisor of this business on WhatsApp. Lead with the direct answer, then only the useful detail; usually one to three short sentences. Warm and professional, never robotic: no "as an AI", no "great question", no repeating the question, no greeting after the first message. Speak as the business ("we", "our"). Use "vous" in French; in Darija be warm and respectful as Moroccan shop staff are. No markdown headings or bold; plain line breaks only to list options. End with a short next step (how to order, book or reach the team) only when it helps the customer. Tone and behaviour settings chosen by the business owner (below) take priority over this style.');
     if (Number.isFinite(config.limits?.maxResponseLength) && config.limits.maxResponseLength > 0) {
       parts.push(`Length: Keep the complete answer within ${Math.floor(config.limits.maxResponseLength)} characters. State required facts compactly; avoid repetition and introductions.`);
     }
@@ -242,7 +255,7 @@ export class ConversationEngine {
     parts.push('Translation: Business evidence is often written in another language (usually French). Translate every fact into the customer\'s language and script; never copy evidence sentences in a different language. Keep product names, prices and numbers exactly as written.');
     parts.push('Voice: Speak as the business. Never mention evidence, data, sources, a knowledge base or "the information provided" (nor "المعطيات", "les informations fournies"); when a detail is missing, say plainly that you do not have that detail and offer the team.');
     if (lang === 'darija' || lang === 'ar') {
-      parts.push('Moroccan vocabulary: "nkhles 3nd stilam", "lkhlas f lbab", "الخلاص عند الاستلام", "ملي توصلني السلعة" mean paying cash when the order is delivered (cash on delivery). "livraison", "twsil", "ليفريزون", "التوصيل" mean delivery. "nbedel", "نبدل" mean exchange. "trj3o lflouss", "ترجعو الفلوس" mean refund. "lkarta", "carte guichet" mean bank card. "khdamin", "حالين" mean open. "lghit", "nlghi", "لغيت", "نلغي" mean cancel; "khlas" right after a cancellation means a fee. "nbdel rdv", "نبدل الموعد" mean reschedule. "rdv", "موعد" mean appointment. "7lawa", "الحلاوة" mean waxing. "l7enna", "الحنة" mean henna. "fo9ach kat7lo", "فوقاش كتحلو" ask the opening time; "katsdo", "كتسدو" ask the closing time. Weekdays in Darija: lundi = tnin / الاثنين, mardi = tlat / الثلاثاء, mercredi = larb3 / الأربعاء, jeudi = lkhmis / الخميس, vendredi = jjem3a / الجمعة, samedi = sebt / السبت, dimanche = l7ed / الحد; never swap one day for another. Write Arabic script with standard Arabic letters only (no پ, ڤ, چ).');
+      parts.push(LEXICON_PROMPT_GLOSSARY);
     }
 
     // 5. GROUNDING & SAFETY — compact directives, identical semantics
@@ -359,6 +372,105 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
     return 'I do not have confirmed shipping information for that international destination. Our team can check it for you.';
   }
+
+  /**
+   * Understands the item and question in customer wording the deterministic
+   * matchers do not know (Darija slang, Arabizi spellings, new phrasings):
+   * learned phrases first, then the word matcher, and only when the message
+   * still names no known item or cannot be routed, one short model call over
+   * this business's own item list. Resolutions are learned for next time.
+   */
+  private async understandTurn(args: {
+    tenantId: string; accountId: string | null | undefined; content: string; config: BusinessConfig;
+    llm: LLMProvider; llmOptions: LLMRequestOptions; language: string; script: string;
+    productContext: ConversationContext['productContext']; lexicalProductId: string | null;
+  }): Promise<{ productId: string | null; serviceName: string | null; routingText: string; usedModel: boolean }> {
+    const { tenantId, accountId, content, config } = args;
+    const out = { productId: args.lexicalProductId, serviceName: null as string | null, routingText: content, usedModel: false };
+    const text = content.trim();
+    if (!accountId || text.length < 3 || HandoffService.isHandoffRequested(text)) return out;
+    const commerce = config.capabilities?.ecommerceEnabled === true && Boolean(this.ecommerceService);
+    const menu = (Array.isArray(config.portalFacts?.services) ? config.portalFacts!.services as any[] : [])
+      .filter(s => s && typeof s.name === 'string' && s.name.trim())
+      .map((s, index) => ({ id: String(index), name: String(s.name), description: typeof s.description === 'string' ? s.description : '' }));
+    const kind: PhraseKind | null = commerce ? 'product' : menu.length ? 'service' : null;
+    const serviceByName = (name: string) => menu.find(s => s.name === name)?.name ?? null;
+
+    if (kind) {
+      const learned = matchLearnedPhrase(text, await this.phraseStore.list(tenantId, accountId, kind), kind);
+      if (learned && kind === 'product' && !out.productId) out.productId = learned.itemKey;
+      if (learned && kind === 'service') out.serviceName = serviceByName(learned.itemKey);
+    }
+    if (kind === 'service' && !out.serviceName) out.serviceName = CatalogMatcher.best(text, menu)?.name ?? null;
+
+    const resolve = (routingText: string, productId: string | null) => TurnDecisionResolver.resolve({
+      text: routingText, language: args.language, script: args.script as any, productContext: args.productContext,
+      isEcommerceEnabled: commerce, isGreeting: false, isHandoff: false, isWorkflow: false, catalogProductId: productId
+    });
+    const decision = resolve(text, out.productId);
+    if (['GREETING', 'HANDOFF', 'WORKFLOW'].includes(decision.domain) || decision.intent === 'SAFETY_REFUSAL') return out;
+    // Deterministic answers stay free: approved FAQs, workflow triggers and
+    // cancel commands never wait for (or pay for) the understanding call.
+    if (WorkflowCancellationDetector.isCancellation(text)) return out;
+    if (this.resolveWorkflowTrigger(text, config, decision, IntentTriggerLibrary.match(text).map(match => match.useCase)).kind !== 'NONE') return out;
+    if (Array.isArray(config.capabilities?.faq) && config.capabilities.faq.length && this.matchSafeFaq(text, config, args.language, decision)) return out;
+    const unrouted = decision.domain === 'GENERAL'
+      || (decision.domain === 'KNOWLEDGE' && decision.intent === 'KNOWLEDGE_RETRIEVAL' && !decision.policyIntents?.length);
+    // The grounded answer already sees policies and a normal service menu and
+    // understands Darija, so the extra call is spent only where facts must be
+    // looked up by item: a product question (price, photo, stock) naming no
+    // known product, or a service question when the menu is too large to send.
+    const menuTooLarge = JSON.stringify(menu).length > 1900;
+    const itemMissing = kind === 'product'
+      ? !out.productId && decision.domain === 'ECOMMERCE'
+      : kind === 'service' ? !out.serviceName && menuTooLarge && (ConversationEngine.SERVICE_CUE.test(text) || unrouted) : false;
+    if (!itemMissing) return out;
+
+    const items = kind === 'product'
+      ? await this.ecommerceService!.understandingCandidates(tenantId, accountId, text)
+      : menu.map(s => ({ id: s.name, name: s.description ? `${s.name} (${s.description.slice(0, 80)})` : s.name }));
+    const understanding = await MessageUnderstanding.understand(args.llm, text, items, { timeoutMs: 5000, model: args.llmOptions.model });
+    out.usedModel = true;
+    if (!understanding) return out;
+    // Self-consistency check: a pick contradicted by the model's own rewrite
+    // ("lmanto bl9ob3a" picked as the watch, rewritten "manteau à capuche")
+    // is a look-alike guess. It is dropped and left for the owner to review.
+    if (understanding.itemId && understanding.rewrite) {
+      const ranked = kind === 'product'
+        ? await this.ecommerceService!.rankCatalog(tenantId, accountId, understanding.rewrite)
+        : CatalogMatcher.rank(understanding.rewrite, menu).map(m => ({ id: m.product.name, score: m.score }));
+      // Accepted when the rewrite names no catalog item, or clearly the same one.
+      const consistent = !ranked.length
+        || (ranked[0].id === understanding.itemId && (!ranked[1] || ranked[0].score - ranked[1].score >= 1));
+      if (!consistent) {
+        logger.info('ConversationEngine: understanding pick not confirmed by its own rewrite; asking the customer instead');
+        understanding.itemId = null;
+      }
+    }
+    if (understanding.itemId) {
+      if (kind === 'product' && !out.productId) out.productId = understanding.itemId;
+      if (kind === 'service' && !out.serviceName) out.serviceName = serviceByName(understanding.itemId);
+      if (kind && understanding.mention) {
+        const label = items.find(i => i.id === understanding.itemId)?.name || understanding.itemId;
+        void this.phraseStore.record(tenantId, accountId, { kind, mention: understanding.mention, itemKey: understanding.itemId, itemLabel: label });
+      }
+    } else if (kind && understanding.mention) {
+      // Not matched: kept for the owner to say what it means (or that it is not sold).
+      void this.phraseStore.record(tenantId, accountId, { kind, mention: understanding.mention, itemKey: '', itemLabel: '' });
+    }
+    // When the model is not sure which item the customer means, no item is
+    // picked from its rewrite: a wrong photo or price is worse than asking.
+    if (understanding.rewrite && unrouted) {
+      const rerouted = resolve(understanding.rewrite, out.productId);
+      const routed = rerouted.domain === 'ECOMMERCE' || Boolean(rerouted.policyIntents?.length)
+        || (rerouted.domain === 'KNOWLEDGE' && rerouted.intent !== 'KNOWLEDGE_RETRIEVAL');
+      if (routed) out.routingText = understanding.rewrite;
+    }
+    return out;
+  }
+
+  /** A service-business message that asks about a specific service. */
+  private static readonly SERVICE_CUE = /combien|prix|tarif|dur[ée]e?|r[ée]serv|rendez|rdv|how much|price|cost|how long|book|appointment|do you (?:do|offer)|vous faites|proposez|bch7al|bchhal|ch7al|chhal|taman|kayakhod|kaydoum|n7jez|katdiro|3ndkom|شحال|بشحال|كم|سعر|ثمن|مدة|كياخد|كيدوم|نحجز|حجز|موعد|كتديرو|عندكم|تقدمون/iu;
 
   /** Reuse a catalog-verified product from an explicit purchase request, never an unverified phrase. */
   private async createWorkflowSessionForTurn(
@@ -915,6 +1027,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     // usually French or English; resolve the named product against the live
     // catalog before routing so the turn reaches the product facts.
     let catalogProductId: string | null = null;
+    // Text used for routing: the customer's message, or its plain-French rewrite when only the rewrite can be routed.
+    let routingText = content;
+    let understoodService: string | null = null;
     if (config.capabilities?.ecommerceEnabled === true && !activeSession && this.ecommerceService && conversation.accountId) {
       try {
         catalogProductId = (await this.ecommerceService.matchProductFromText(tenantId, conversation.accountId, content))?.id || null;
@@ -922,8 +1037,22 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         logger.warn(`ConversationEngine: catalog match unavailable: ${error?.message || error}`);
       }
     }
+    if (!activeSession) {
+      try {
+        const understood = await this.understandTurn({
+          tenantId, accountId: conversation.accountId, content, config, llm, llmOptions,
+          language: effectiveLang, script: effectiveScript, productContext: conversationContext.productContext,
+          lexicalProductId: catalogProductId
+        });
+        catalogProductId = understood.productId;
+        routingText = understood.routingText;
+        understoodService = understood.serviceName;
+      } catch (error: any) {
+        logger.warn(`ConversationEngine: message understanding unavailable: ${error?.message || error}`);
+      }
+    }
     turnDecision = TurnDecisionResolver.resolve({
-      text: content,
+      text: routingText,
       language: effectiveLang,
       script: effectiveScript,
       productContext: conversationContext.productContext,
@@ -1095,7 +1224,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         responseSource = 'WORKFLOW';
         const workflowConfig = config.workflows[activeSession.workflowId];
         if (!workflowConfig) {
-          response = config.prompts.workflowUnavailable || 'This workflow is no longer available.';
+          const customUnavailable = config.prompts?.workflowUnavailable;
+          response = customUnavailable && (typeof customUnavailable === 'object' || !defaultWorkflowValues('workflowUnavailable').includes(customUnavailable))
+            ? resolveLocalizedPrompt(customUnavailable, effectiveLang, getWorkflowMessage('workflowUnavailable', effectiveLang, effectiveScript), effectiveScript)
+            : getWorkflowMessage('workflowUnavailable', effectiveLang, effectiveScript);
           sessionUpdatePayload = {
             sessionId: activeSession.id,
             stateId: activeSession.stateId,
@@ -1148,7 +1280,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       let postCompletionWorkflowTrigger: WorkflowRouteDecision = { kind: 'NONE' };
       if (previousCompletedSession && hasWorkflowsConfigured) {
         turnDecision = TurnDecisionResolver.resolve({
-          text: content,
+          text: routingText,
           language: effectiveLang,
           script: effectiveScript,
           productContext: conversationContext.productContext,
@@ -1191,7 +1323,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
           const session = await this.createWorkflowSessionForTurn(
             tenantId, conversation.id, workflowId, workflowConfig, turnDecision,
-            conversationContext.productContext, effectiveAccountId, effectiveLang, content, config.portalFacts?.services
+            conversationContext.productContext, effectiveAccountId, effectiveLang, understoodService ? `${content} ${understoodService}` : content, config.portalFacts?.services
           );
           const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
           applyWorkflowHandoff(result);
@@ -1371,7 +1503,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             const maxChunks = turnDecision?.isMultiPolicy ? 6 : (isSingleDominantChunk ? 1 : 3);
             const topChunks = (ragResult?.chunks || []).slice(0, maxChunks);
             const effectiveContextBudget = this.resolveEffectiveContextBudget(config, turnDecision, false);
-            const contextText = this.buildGroundedContextText(topChunks, effectiveContextBudget) + portalBusinessEvidence(config, content, { includeFaq: true });
+            const contextText = this.buildGroundedContextText(topChunks, effectiveContextBudget) + portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true });
 
             groundingEvidence = contextText;
             const systemPrompt = this.buildGroundedSystemPrompt(config, effectiveLang, turnDecision?.responseScript);
@@ -1540,7 +1672,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
         if (!answered) {
           turnDecision = TurnDecisionResolver.resolve({
-            text: content,
+            text: routingText,
             language: effectiveLang,
             script: effectiveScript,
             productContext: conversationContext.productContext,
@@ -1679,7 +1811,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
             const session = await this.createWorkflowSessionForTurn(
               tenantId, conversation.id, workflowId, workflowConfig, turnDecision,
-              conversationContext.productContext, targetAccountId, effectiveLang, content, config.portalFacts?.services
+              conversationContext.productContext, targetAccountId, effectiveLang, understoodService ? `${content} ${understoodService}` : content, config.portalFacts?.services
             );
             const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
             applyWorkflowHandoff(result);
@@ -2689,7 +2821,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               ? (ragResult.context + productContextInfo)
               : (this.buildGroundedContextText(topChunks, effectiveContextBudget) + productContextInfo);
 
-            groundingEvidence = contextText + portalBusinessEvidence(config, content, { includeFaq: true });
+            groundingEvidence = contextText + portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true });
             const systemPrompt = this.buildGroundedSystemPrompt(config, effectiveLang, turnDecision?.responseScript);
             const userPromptContent = this.buildGroundedUserMessage(groundingEvidence, content, turnDecision?.isMultiPolicy, turnDecision?.policyIntents, turnDecision?.responseScript, conversationContext.recentTurns, effectiveLang);
 
@@ -2842,7 +2974,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     if (responseSource === 'LLM' || responseSource === 'RAG') {
       const currentEvidence = groundingEvidence || [
         ...(ragResult?.chunks || []).map((chunk: { content?: string }) => chunk.content || ''),
-        portalBusinessEvidence(config, content, { includeFaq: true })
+        portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true })
       ].join('\n');
       const claimCheck = GroundedAnswerGuard.evaluate(response, currentEvidence, {
         question: content,
@@ -2878,7 +3010,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
     // Construct normalized TurnDecision object for the turn (Phase 26B global decision layer)
     turnDecision = TurnDecisionResolver.resolve({
-      text: content,
+      text: routingText,
       language: effectiveLang,
       script: effectiveScript,
       productContext: conversationContext.productContext,

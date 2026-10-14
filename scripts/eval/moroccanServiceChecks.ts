@@ -13,7 +13,7 @@ const DURATION: Record<number, RegExp> = {
   60: /60|1\s*h(?![\d])|une heure|one hour|an hour|1 hour|ساعة(?!\s*(?:و|إلا|الا))|sa3a(?!\s*(?:w|ghir|lla))|soixante/iu,
   75: /75|1\s*h\s*15|une heure (?:et )?(?:un )?quart|1 hour 15|hour and (?:a )?(?:quarter|15)|ساعة وربع|ساعة و ربع|sa3a w r(?:o|e)b3|1h15/iu
 };
-const BOOKING_CLAIM = /(?:rendez-vous|réservation|appointment|booking|موعد|الموعد|الحجز|rdv|maw3id|créneau|slot).{0,40}(?:est confirmée?(?!\s+(?:par|via|dès|après|une fois|quand))|is confirmed(?!\s+(?:by|via|through|when|once|after))|has been (?:confirmed|booked)|a été (?:confirmée?|réservée?)|تم تأكيد|تأكد|مأكد|tconfirma|m2ekked)|c'est réservé|you(?:'re| are) booked|تم الحجز|t7jez lik|محجوز ليك|حجزت ليك/iu;
+const BOOKING_CLAIM = /(?:rendez-vous|réservation|appointment|booking|موعد|الموعد|الحجز|rdv|maw3id|créneau|slot).{0,40}(?:est confirmée?(?!\s+(?:par|via|dès|après|une fois|quand))|is confirmed(?!\s+(?:by|via|through|when|once|after))|has been (?:confirmed|booked)|a été (?:confirmée?|réservée?)|تم تأكيد|tconfirma|m2ekked)|تم تأكيد (?:الموعد|الحجز)|(?:الموعد|الحجز)(?:\s+ديالك)?\s+(?:تأكد|تأكدات|مأكد|تم تأكيده)(?![\p{L}])|c'est réservé|you(?:'re| are) booked|تم الحجز|t7jez lik|محجوز ليك|حجزت ليك/iu;
 const CONDITIONAL = /(?:after|once|when|until|after the team|après|dès que|une fois|jusqu'à|بعد|ملي|من بعد|ba3d|mli|ghir mli)\b/iu;
 const SLOT_PROMISE = /(?:^|\s)(?:yes|oui|نعم|إيه|wah|iyeh)[,!.\s].{0,40}(?:available|disponible|free|libre|كاينة|متوفر|متاحة|kayna)/iu;
 const STARTS_NEG = /^\s*(?:no\b|non\b|la3?\b|لا(?![\p{L}])|ما\s)/iu;
@@ -62,7 +62,7 @@ export function judgeService(expect: any, lang: Lang, rawReply: string, question
       break;
     case 'svcHours': {
       const closeOnly = /close|fermez|katsdo|كتسدو/iu.test(question);
-      if ((!closeOnly && !/10/.test(reply)) || !/21|9\s*(?:pm|h du soir|d l3chiya)|التاسعة/iu.test(reply)) failures.push('missing hours 10:00–21:00');
+      if ((!closeOnly && !/10/.test(reply)) || !/21|9(?::00)?\s*(?:pm|h du soir|d l3chiya|dial lil|دالليل|ديال الليل|د الليل|ليلا|مساء)|التاسعة/iu.test(reply)) failures.push('missing hours 10:00–21:00');
       break;
     }
     case 'svcMonday':

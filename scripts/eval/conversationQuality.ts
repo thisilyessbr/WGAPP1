@@ -11,7 +11,7 @@ const MOJIBAKE = /Ã[©¨ ¢§]|â€[™œ\x9d“”]|Ø[§£]|�/u;
 const MARKDOWN = /\*\*[^*\n]+\*\*|^#{1,6}\s|\[[^\]\n]+\]\(https?:[^)]+\)|^\s*\|.*\|\s*$/mu;
 const ROBOTIC = /as an ai|en tant qu'(?:ia|intelligence)|كذكاء اصطناعي|language model|modèle de langage|I am just a bot/iu;
 const GREETING_START = /^(?:hello|hi|hey|good (?:morning|evening)|bonjour|bonsoir|salut|salam|slm|السلام عليكم|سلام|مرحبا|أهلا|أهلاً|ahlan|mr7ba|marhba)\b/iu;
-const GENERIC_FALLBACK = /I don't have that information|je n[’']ai pas cette information|لا تتوفر لدي هذه المعلومة|ما عنديش هاد المعلومة|ma3ndich had lme3louma/iu;
+const GENERIC_FALLBACK = /don't have that (?:detail|information)|n[’']ai pas cette (?:précision|information)|لا تتوفر لدي|ما عنديش هاد المعلومة|ma3ndich had (?:lma3loma|lme3louma)/iu;
 const FR_WORDS = /(?<![\p{L}'])(?:le|la|les|est|vous|nous|notre|nos|pour|des|une|et|avec|votre|sont|livraison|merci|bonjour|disponible|taille|couleur|voici|désolé|frais|jours|paiement|gratuite?|dès|sauf|échange|réception|boutique|commande)(?![\p{L}])/giu;
 const DZ_WORDS = /(?<![\p{L}\d])(?:kayn|kayna|dyal|dyali|dyalk|3la|wach|bghiti|ghadi|m3a|hna|daba|3ndna|lik|lia|liya|mzyan|ch7al|bch7al|wakha|chi|ila|3afak|safi|taman|bach|mn|f|l|w|nhar|smeh|n9der|n3awnk|twsil|khlas|lkhlas|katwsl|ghir|wla|machi|ma3ndnach|mli|tswira|kanqblo|katakhod|kayakhod|sa3a|d9i9a|dirham|drahem)(?![\p{L}\d])/giu;
 

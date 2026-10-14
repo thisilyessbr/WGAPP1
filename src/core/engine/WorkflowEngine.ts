@@ -2,7 +2,7 @@ import { WorkflowSession } from '@prisma/client';
 import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
 import { WorkflowStateEvaluator } from './WorkflowStateEvaluator';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
-import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
+import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, defaultWorkflowValues, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { PolicyAnswerSafety } from '../../domain/rag/PolicyAnswerSafety';
 import { PolicyEvidenceReuse } from '../../domain/rag/PolicyEvidenceReuse';
@@ -190,10 +190,10 @@ export class WorkflowCancellationDetector {
 }
 
 export const DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES = {
-  en: "This workflow has reached its maximum number of steps. Please start a new request.",
-  fr: "Ce processus a atteint son nombre maximal d'étapes. Veuillez démarrer une nouvelle demande.",
-  ar: "لقد وصل هذا المسار إلى الحد الأقصى من الخطوات. يرجى بدء طلب جديد.",
-  darija: "هاد العملية وصلات للحد الأقصى ديال الخطوات. عافاك بدا طلب جديد."
+  en: "Let's start this request again so nothing gets mixed up. What would you like to do?",
+  fr: "Reprenons cette demande depuis le début pour éviter toute confusion. Que souhaitez-vous faire ?",
+  ar: 'لنبدأ هذا الطلب من جديد حتى لا يختلط شيء. ماذا تود أن تفعل؟',
+  darija: 'خلينا نعاودو هاد الطلب من اللول باش ما يتخلط والو. شنو بغيتي دير؟'
 };
 
 export class WorkflowEngine {
@@ -569,7 +569,7 @@ export class WorkflowEngine {
           if (nextStateConfig.type === 'end') {
             isComplete = true;
             const defaultCompletion = getWorkflowMessage('completion', lang, script);
-            const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
+            const defaultVals = defaultWorkflowValues('completion');
             const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
               ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
               : defaultCompletion;
@@ -652,7 +652,7 @@ export class WorkflowEngine {
           // Layer 4: Fallback redirect message
           currentContext['_consecutiveUnmatched'] = consecutive + 1;
           const defaultRedirect = getWorkflowMessage('choiceRedirect', lang, script);
-          const defaultRedirectVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choiceRedirect);
+          const defaultRedirectVals = defaultWorkflowValues('choiceRedirect');
           const rawRedirect = (businessConfig.prompts as any)?.choiceRedirect;
           const redirectLine = rawRedirect && (!defaultRedirectVals.includes(rawRedirect) || typeof rawRedirect === 'object')
             ? resolveLocalizedPrompt(rawRedirect, lang, defaultRedirect, script)
@@ -787,7 +787,7 @@ export class WorkflowEngine {
             let unclearResponse = currentCollectPrompt;
             if (unclearCount > 1) {
               const defaultCollectFallback = getWorkflowMessage('collectFallback', lang, script);
-              const defaultCollectVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.collectFallback);
+              const defaultCollectVals = defaultWorkflowValues('collectFallback');
               const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
               const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
                 ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
@@ -844,7 +844,7 @@ export class WorkflowEngine {
             if (nextStateConfig.type === 'end') {
               isComplete = true;
               const defaultCompletion = getWorkflowMessage('completion', lang, script);
-              const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
+              const defaultVals = defaultWorkflowValues('completion');
               const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
                 ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
                 : defaultCompletion;
@@ -963,7 +963,7 @@ export class WorkflowEngine {
           // No safe factual answer: do not guess or lose the form's place.
           currentContext['_consecutiveUnmatched'] = consecutive + 1;
           const defaultCollectFallback = getWorkflowMessage('collectFallback', lang, script);
-          const defaultCollectVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.collectFallback);
+          const defaultCollectVals = defaultWorkflowValues('collectFallback');
           const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
           const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
             ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
@@ -1010,7 +1010,7 @@ export class WorkflowEngine {
           if (!nextStateId) {
             isComplete = true;
             const defaultCompletion = getWorkflowMessage('completion', lang, script);
-            const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
+            const defaultVals = defaultWorkflowValues('completion');
             const endPrompt = stateConfig.prompt && (!defaultVals.includes(stateConfig.prompt as string) || typeof stateConfig.prompt === 'object')
               ? resolveLocalizedPrompt(stateConfig.prompt, lang, defaultCompletion, script)
               : defaultCompletion;
@@ -1051,7 +1051,7 @@ export class WorkflowEngine {
         if (nextStateConfig.type === 'end') {
           isComplete = true;
           const defaultCompletion = getWorkflowMessage('completion', lang, script);
-          const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.completion);
+          const defaultVals = defaultWorkflowValues('completion');
           const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
             ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
             : defaultCompletion;

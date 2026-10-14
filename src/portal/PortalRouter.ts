@@ -18,6 +18,7 @@ import { voiceProviderConfigured, voiceTranscriptionAvailable } from '../domain/
 import { logger } from '../utils/logger';
 import { InstagramService } from '../domain/channel/instagram/InstagramService';
 import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
+import { PortalLearnedWording } from './PortalLearnedWording';
 import { PortalStaffActions } from './PortalStaffActions';
 import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService';
 import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
@@ -74,6 +75,9 @@ function validateAccountChanges(changes: Record<string, any>) {
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
   const portalLeads = new PortalLeads(store);
+  // Created on first use: the router is also built without a store (entry routes only).
+  let learnedWordingInstance: PortalLearnedWording | undefined;
+  const learnedWording = () => (learnedWordingInstance ??= new PortalLearnedWording(store.db as any));
   const staffActions = new PortalStaffActions(store);
   const photos = new PortalProductImages(store);
   const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
@@ -156,7 +160,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   });
   // Freeze only chatbot data edits; inbox, leads, plans and WhatsApp remain usable.
   client.use((req, _res, next) => {
-    if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)|^\/product-images(?:\/|$)/.test(req.path))) return next();
+    if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)|^\/product-images(?:\/|$)|^\/learned-wording(?:\/|$)/.test(req.path))) return next();
     store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
       .then(profile => profile.editingFrozen
         ? next(new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.'))
@@ -235,6 +239,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
     const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
     send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset, view));
+  }));
+  client.get('/learned-wording', route(async (req, res) =>
+    send(res, await learnedWording().list(req.portal.tenantId!, req.portal.accountId!))));
+  client.patch('/learned-wording/:id', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['status', 'itemKey']);
+    send(res, { phrase: await learnedWording().update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id).slice(0, 100), body) });
   }));
   client.get('/leads/summary', route(async (req, res) =>
     send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!))));

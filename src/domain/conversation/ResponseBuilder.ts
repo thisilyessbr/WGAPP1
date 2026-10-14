@@ -2,52 +2,52 @@ import { BusinessConfig, WorkflowStateConfig, resolveLocalizedPrompt } from '../
 
 export const DEFAULT_WORKFLOW_MESSAGES = {
   missingField: {
-    en: 'Please provide: {{fieldName}}',
-    fr: 'Veuillez fournir : {{fieldName}}',
-    ar: 'يرجى تقديم: {{fieldName}}',
-    darija: '3afak 3tina: {{fieldName}}'
+    en: 'Could you share {{fieldName}}, please?',
+    fr: "Pourriez-vous m'indiquer {{fieldName}}, s'il vous plaît ?",
+    ar: 'هل يمكنك تزويدي ب{{fieldName}} من فضلك؟',
+    darija: '3afak, 3tini {{fieldName}}.'
   },
   confirmation: {
-    en: "Please confirm the following details:\n{{summary}}\n\n(Reply 'yes' to confirm or 'no' to cancel)",
-    fr: "Veuillez confirmer les détails suivants :\n{{summary}}\n\n(Répondez 'oui' pour confirmer ou 'non' pour annuler)",
-    ar: "يرجى تأكيد التفاصيل التالية:\n{{summary}}\n\n(أجب بـ 'نعم' للتأكيد أو 'لا' للإلغاء)",
-    darija: "3afak akkid had l-ma3loumat:\n{{summary}}\n\n(jawb b 'ih' / 'wakha' bach t-akked awla 'la' bach t-anuli)"
+    en: 'Here is a summary of your request:\n{{summary}}\n\nIs everything correct? Reply "yes" to confirm or "no" to cancel.',
+    fr: 'Voici le récapitulatif de votre demande :\n{{summary}}\n\nTout est correct ? Répondez « oui » pour confirmer ou « non » pour annuler.',
+    ar: 'هذا ملخص طلبك:\n{{summary}}\n\nهل كل المعلومات صحيحة؟ أجب بـ«نعم» للتأكيد أو «لا» للإلغاء.',
+    darija: 'Hahouma l-ma3lomat dyal talab dyalek:\n{{summary}}\n\nKolchi mzyan? Jawb b "wakha" bach t2akked wla "la" bach nlghiwh.'
   },
   choice: {
-    en: 'Please choose an option:',
-    fr: 'Veuillez choisir une option :',
-    ar: 'يرجى اختيار أحد الخيارات:',
-    darija: '3afak khtar wahd mn l-ikhtiyarat:'
+    en: 'Which option would you like?',
+    fr: 'Quelle option vous convient ?',
+    ar: 'أي خيار تفضّل؟',
+    darija: 'Achmen ikhtiyar bghiti?'
   },
   choiceReprompt: {
-    en: 'Please choose an option to continue:',
-    fr: 'Veuillez choisir une option pour continuer :',
-    ar: 'يرجى اختيار خيار للمتابعة:',
-    darija: '3afak khtar kheyart bach tkemel:'
+    en: 'Just choose one of these options so we can continue:',
+    fr: "Choisissez simplement l'une de ces options pour continuer :",
+    ar: 'يُرجى اختيار أحد هذه الخيارات لنكمل:',
+    darija: 'Khtar wa7d mn had l-ikhtiyarat bach nkemlo:'
   },
   fallback: {
-    en: 'I did not understand that. Could you rephrase?',
-    fr: "Je n'ai pas compris. Pourriez-vous reformuler ?",
-    ar: 'لم أفهم ذلك. هل يمكنك إعادة الصياغة؟',
-    darija: 'mafhemtch mezyan. 3afak 3awed chr7 liya?'
+    en: "Sorry, I didn't quite catch that. Could you say it another way?",
+    fr: "Désolé, je n'ai pas bien compris. Pouvez-vous le formuler autrement ?",
+    ar: 'عذراً، لم أفهم قصدك تماماً. هل يمكنك توضيح ذلك بطريقة أخرى؟',
+    darija: 'Smeh liya, ma fhemtch mzyan. Momkin tgoulha b tari9a khra?'
   },
   completion: {
-    en: 'Thank you — a member of our team will contact you shortly.',
-    fr: 'Merci — un membre de notre équipe vous contactera sous peu.',
-    ar: 'شكراً لك — سيتواصل معك أحد أعضاء فريقنا قريباً.',
-    darija: 'chokran — wahd mn l-fariq dyalna ghadi y-ttasel bik 9riban.'
+    en: 'Thank you! Our team will contact you shortly.',
+    fr: 'Merci ! Notre équipe vous contactera très bientôt.',
+    ar: 'شكراً لك! سيتواصل معك فريقنا قريباً.',
+    darija: "Chokran! L'équipe dyalna ghadi ttwasel m3ak 9riban."
   },
   choiceRedirect: {
-    en: "Let's finish this first — please choose one of the options below:",
-    fr: "Terminons d'abord ceci — veuillez choisir l'une des options ci-dessous :",
-    ar: "دعنا نكمل هذا أولاً — يرجى اختيار أحد الخيارات أدناه:",
-    darija: "nkhemlou hadchi lowel 3afak — khtar wahd mn had l-kheyarat:"
+    en: "Let's finish this step first. Please choose one of the options below:",
+    fr: "Terminons d'abord cette étape. Choisissez l'une des options ci-dessous :",
+    ar: 'لنكمل هذه الخطوة أولاً. يُرجى اختيار أحد الخيارات أدناه:',
+    darija: 'Nkemlo had l-khatwa lwla. Khtar wa7d mn had l-ikhtiyarat:'
   },
   collectFallback: {
-    en: "I can help with questions related to your request. Let's finish this first:",
-    fr: "Je peux vous aider avec les questions liées à votre demande. Terminons d'abord ceci :",
-    ar: "يمكنني المساعدة في الأسئلة المتعلقة بطلبك. دعنا نكمل هذا أولاً:",
-    darija: "n9der n3awnek f l-as'ila dyal talab dyalek. nkhemlou hadchi lowel:"
+    en: "Happy to help with that. Let's first finish your request:",
+    fr: "Avec plaisir. Terminons d'abord votre demande :",
+    ar: 'بكل سرور. لنكمل طلبك أولاً:',
+    darija: 'Mra7ba. Nkemlo talab dyalek lwel:'
   },
   workflowCancelled: {
     en: "No problem, I've cancelled this request. Let me know if you need anything else.",
@@ -56,25 +56,53 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
     darija: 'Wakha, tlgha had talab. Ila bghiti chi haja khra, ana hna.'
   },
   workflowUnavailable: {
-    en: 'This workflow is no longer available.',
-    fr: "Ce processus n'est plus disponible.",
-    ar: 'هذا المسار لم يعد متاحاً.',
-    darija: 'had l-workflow ma b9ach mota7.'
+    en: 'This request is no longer available. How else can I help you?',
+    fr: "Cette demande n'est plus disponible. Comment puis-je vous aider ?",
+    ar: 'هذا الطلب لم يعد متاحاً. كيف يمكنني مساعدتك؟',
+    darija: 'Had talab ma b9ach mota7. Kifach n9der n3awnek?'
   }
 };
 
 const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESSAGES, string> = {
-  missingField: 'عفاك عطينا {{fieldName}}.',
-  confirmation: "هادو هما المعلومات اللي عطيتينا:\n{{summary}}\n\nواش نسجلو طلب الديمو؟ جاوب بـ «واخا» أو «لا».",
-  choice: 'عفاك اختار واحد من هاد الاختيارات:',
-  choiceReprompt: 'عفاك اختار واحد من هاد الاختيارات باش نكملو:',
-  fallback: 'سمح ليا، ما فهمتش مزيان. عفاك عاود شرح ليا.',
-  completion: 'شكرا! تسجلات المعلومات ديالك.',
-  choiceRedirect: 'نكملو هاد الطلب اللول، عفاك اختار واحد من هاد الاختيارات:',
-  collectFallback: 'نقدر نعاونك فالأسئلة ديال الطلب ديالك. نكملو هاد الخطوة اللولة:',
+  missingField: 'عافاك، عطيني {{fieldName}}.',
+  confirmation: 'هاهوما المعلومات ديال الطلب ديالك:\n{{summary}}\n\nكلشي مزيان؟ جاوب بـ«واخا» باش تأكد، ولا «لا» باش نلغيوه.',
+  choice: 'شمن اختيار بغيتي؟',
+  choiceReprompt: 'ختار واحد من هاد الاختيارات باش نكملو:',
+  fallback: 'سمح ليا، ما فهمتش مزيان. ممكن تقولها بطريقة أخرى؟',
+  completion: 'شكرا! الفريق ديالنا غادي يتواصل معاك قريب.',
+  choiceRedirect: 'نكملو هاد الخطوة اللولة. ختار واحد من هاد الاختيارات:',
+  collectFallback: 'مرحبا. نكملو الطلب ديالك اللول:',
   workflowCancelled: 'واخا، تلغى الطلب ديالك. إلا بغيتي شي حاجة أخرى، أنا هنا.',
-  workflowUnavailable: 'هاد الخدمة ما بقاتش متوفرة.'
+  workflowUnavailable: 'هاد الطلب ما بقاش متوفر. كيفاش نقدر نعاونك؟'
 };
+
+/**
+ * Earlier built-in texts. Tenant configs saved before a wording change keep a
+ * copy of the old default; they are still treated as "default", so customers
+ * get the current localized text instead of an old English string.
+ */
+const LEGACY_WORKFLOW_MESSAGES: Partial<Record<keyof typeof DEFAULT_WORKFLOW_MESSAGES, string[]>> = {
+  missingField: ['Please provide: {{fieldName}}', 'Veuillez fournir : {{fieldName}}', 'يرجى تقديم: {{fieldName}}', '3afak 3tina: {{fieldName}}', 'عفاك عطينا {{fieldName}}.'],
+  confirmation: ["Please confirm the following details:\n{{summary}}\n\n(Reply 'yes' to confirm or 'no' to cancel)",
+    "Veuillez confirmer les détails suivants :\n{{summary}}\n\n(Répondez 'oui' pour confirmer ou 'non' pour annuler)",
+    "يرجى تأكيد التفاصيل التالية:\n{{summary}}\n\n(أجب بـ 'نعم' للتأكيد أو 'لا' للإلغاء)",
+    "3afak akkid had l-ma3loumat:\n{{summary}}\n\n(jawb b 'ih' / 'wakha' bach t-akked awla 'la' bach t-anuli)",
+    'هادو هما المعلومات اللي عطيتينا:\n{{summary}}\n\nواش نسجلو طلب الديمو؟ جاوب بـ «واخا» أو «لا».'],
+  choice: ['Please choose an option:', 'Veuillez choisir une option :', 'يرجى اختيار أحد الخيارات:', '3afak khtar wahd mn l-ikhtiyarat:', 'عفاك اختار واحد من هاد الاختيارات:'],
+  choiceReprompt: ['Please choose an option to continue:', 'Veuillez choisir une option pour continuer :', 'يرجى اختيار خيار للمتابعة:', '3afak khtar kheyart bach tkemel:'],
+  completion: ['Thank you — a member of our team will contact you shortly.', 'Merci — un membre de notre équipe vous contactera sous peu.',
+    'شكراً لك — سيتواصل معك أحد أعضاء فريقنا قريباً.', 'chokran — wahd mn l-fariq dyalna ghadi y-ttasel bik 9riban.', 'شكرا! تسجلات المعلومات ديالك.'],
+  choiceRedirect: ["Let's finish this first — please choose one of the options below:", "Terminons d'abord ceci — veuillez choisir l'une des options ci-dessous :",
+    'دعنا نكمل هذا أولاً — يرجى اختيار أحد الخيارات أدناه:', 'nkhemlou hadchi lowel 3afak — khtar wahd mn had l-kheyarat:'],
+  collectFallback: ["I can help with questions related to your request. Let's finish this first:", "Je peux vous aider avec les questions liées à votre demande. Terminons d'abord ceci :",
+    'يمكنني المساعدة في الأسئلة المتعلقة بطلبك. دعنا نكمل هذا أولاً:', "n9der n3awnek f l-as'ila dyal talab dyalek. nkhemlou hadchi lowel:"],
+  workflowUnavailable: ['This workflow is no longer available.', "Ce processus n'est plus disponible.", 'هذا المسار لم يعد متاحاً.', 'had l-workflow ma b9ach mota7.']
+};
+
+/** Every built-in text (current, Darija Arabic-script, earlier versions) for one message. */
+export function defaultWorkflowValues(key: keyof typeof DEFAULT_WORKFLOW_MESSAGES): string[] {
+  return [...Object.values(DEFAULT_WORKFLOW_MESSAGES[key]), DARIJA_ARABIC_WORKFLOW_MESSAGES[key], ...(LEGACY_WORKFLOW_MESSAGES[key] || [])];
+}
 
 export function getWorkflowMessage(key: keyof typeof DEFAULT_WORKFLOW_MESSAGES, lang: string, script?: string): string {
   if (lang === 'darija' && script === 'arabic') return DARIJA_ARABIC_WORKFLOW_MESSAGES[key];
@@ -124,7 +152,10 @@ export class ResponseBuilder {
       phone: { en: 'your phone number', fr: 'votre numéro de téléphone', ar: 'رقم الهاتف', darija: 'nemra dyal telephone', darija_arabic: 'نمرة التليفون' }
     };
     const key = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
-    return labels[fieldName]?.[key] || state?.name?.trim() || fieldName;
+    if (labels[fieldName]?.[key] || state?.name?.trim()) return labels[fieldName]?.[key] || state!.name!.trim();
+    // Never ask for a raw key such as "customerEmail".
+    const label = ResponseBuilder.summaryLabel(fieldName, key);
+    return lang === 'en' ? `your ${label.toLowerCase()}` : lang === 'fr' ? `votre ${label.toLowerCase()}` : label;
   }
 
   buildMissingFieldResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en', script?: string): string {
@@ -156,7 +187,7 @@ export class ResponseBuilder {
     }
 
     const defaultTpl = getWorkflowMessage('missingField', lang, script);
-    const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.missingField);
+    const defaultVals = defaultWorkflowValues('missingField');
 
     let template = defaultTpl;
     const customPrompt = config.prompts?.missingFieldPrompt || config.prompts?.workflow;
@@ -254,7 +285,7 @@ export class ResponseBuilder {
       : /^(?:city|ville|town)$/.test(k) ? 'city'
       : /^(?:address|adresse|deliveryaddress)$/.test(k) ? 'address'
       : /^(?:product|productname|item|produit|article)$/.test(k) ? 'product'
-      : /^(?:email|mail)$/.test(k) ? 'email'
+      : /^(?:email|mail|customeremail|emailaddress|adressemail)$/.test(k) ? 'email'
       : /^(?:note|notes|message|comment|comments|remarque)$/.test(k) ? 'note' : '';
     const labels: Record<string, Record<string, string>> = {
       en: { name: 'Name', phone: 'Phone', service: 'Service', time: 'Preferred time', size: 'Size', color: 'Colour', city: 'City', address: 'Address', product: 'Product', email: 'Email', note: 'Note' },
@@ -300,7 +331,7 @@ export class ResponseBuilder {
     }
 
     const defaultTpl = getWorkflowMessage('confirmation', lang, script);
-    const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.confirmation);
+    const defaultVals = defaultWorkflowValues('confirmation');
 
     let template = defaultTpl;
     if (config.prompts?.confirmationPrompt && typeof config.prompts.confirmationPrompt === 'string' && !defaultVals.includes(config.prompts.confirmationPrompt)) {
@@ -313,7 +344,7 @@ export class ResponseBuilder {
 
   buildChoiceResponse(state: WorkflowStateConfig, lang: string = 'en', script?: string): string {
     const defaultPrompt = getWorkflowMessage('choice', lang, script);
-    const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choice);
+    const defaultVals = defaultWorkflowValues('choice');
     const prompt = state.prompt && (!defaultVals.includes(state.prompt as string) || typeof state.prompt === 'object')
       ? resolveLocalizedPrompt(state.prompt, lang, defaultPrompt, script)
       : defaultPrompt;
@@ -328,7 +359,7 @@ export class ResponseBuilder {
 
   buildChoiceReprompt(state: WorkflowStateConfig, repromptPrompt?: string, lang: string = 'en', script?: string): string {
     const defaultReprompt = getWorkflowMessage('choiceReprompt', lang, script);
-    const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.choiceReprompt);
+    const defaultVals = defaultWorkflowValues('choiceReprompt');
     const prompt = repromptPrompt && (!defaultVals.includes(repromptPrompt) || typeof repromptPrompt === 'object')
       ? resolveLocalizedPrompt(repromptPrompt, lang, defaultReprompt, script)
       : defaultReprompt;

@@ -187,7 +187,7 @@ describe('Phase COST-FIX-46D: Single Authoritative Language Detection Per Turn',
     const sessionDarija = createSession('collect_name');
     const resDarija = await engine.process(sessionDarija, 'Reda Bennani', mockMultilingualWorkflow, testConfig, undefined, undefined, undefined, 'corr-dar', 'darija', 'arabizi');
     expect(resDarija.response).toContain('Reda Bennani');
-    expect(resDarija.response).toContain('3afak akkid');
+    expect(resDarija.response).toContain('Kolchi mzyan');
     expect(resDarija.response).not.toMatch(/[\u0600-\u06FF]/);
   });
 

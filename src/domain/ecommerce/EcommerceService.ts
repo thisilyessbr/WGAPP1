@@ -3,6 +3,7 @@ import { ProductVariant } from '@prisma/client';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductRecommendationService, RecommendationCriteria, RecommendationResult } from './ProductRecommendationService';
 import { EcommerceIntentParser } from './EcommerceIntent';
+import { CatalogMatcher } from './CatalogMatcher';
 
 export type ProductLookupResult = ProductFact;
 export type { ProductFact } from './ProductRepository';
@@ -149,6 +150,25 @@ export class EcommerceService {
     if (!tenantId || !accountId || typeof this.productRepo.matchCatalog !== 'function') return null;
     const product = await this.productRepo.matchCatalog(tenantId, accountId, text);
     return product ? { id: product.id, name: product.name } : null;
+  }
+
+  /**
+   * Products offered to the understanding step: the whole catalog when it is
+   * small, otherwise the best cross-language candidates for this message.
+   */
+  async understandingCandidates(tenantId: string, accountId: string, text: string, limit = 80): Promise<{ id: string; name: string }[]> {
+    if (!tenantId || !accountId || typeof (this.productRepo as any).catalogIndex !== 'function') return [];
+    const products: { id: string; name: string; category: string | null; description?: string | null }[] = await (this.productRepo as any).catalogIndex(tenantId, accountId);
+    const label = (p: { name: string; category: string | null }) => p.category ? `${p.name} (${p.category})` : p.name;
+    if (products.length <= limit) return products.map(p => ({ id: p.id, name: label(p) }));
+    return products.map(p => ({ p, score: CatalogMatcher.score(text, p as any) }))
+      .sort((a, b) => b.score - a.score).slice(0, limit).map(({ p }) => ({ id: p.id, name: label(p) }));
+  }
+
+  /** Catalog products ranked for a text (cross-language matcher), best first. */
+  async rankCatalog(tenantId: string, accountId: string, text: string): Promise<{ id: string; score: number }[]> {
+    if (!tenantId || !accountId || typeof (this.productRepo as any).catalogIndex !== 'function') return [];
+    return CatalogMatcher.rank(text, await (this.productRepo as any).catalogIndex(tenantId, accountId)).map(m => ({ id: m.product.id, score: m.score }));
   }
 
   /**
