@@ -99,6 +99,7 @@ model Conversation {
   id                         String            @id @default(uuid())
   tenantId                   String
   accountId                  String?
+  sourcePhoneNumberId        String?
   customerId                 String
   status                     String            @default("ACTIVE")
   currentWorkflowId          String?
@@ -127,6 +128,7 @@ model Conversation {
   @@index([tenantId, accountId, updatedAt(sort: Desc)])
   @@index([tenantId, accountId, status, updatedAt(sort: Desc)])
   @@index([tenantId, accountId, customerId])
+  @@index([tenantId, accountId, customerId, sourcePhoneNumberId])
 }
 
 model Message {

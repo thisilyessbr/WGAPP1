@@ -81,7 +81,7 @@ export class ConversationService {
     return conversation as ConversationWithMessages | null;
   }
 
-  async getOrCreateConversation(tenantId: string, externalId: string, accountId?: string | null): Promise<Conversation> {
+  async getOrCreateConversation(tenantId: string, externalId: string, accountId?: string | null, phoneNumberId?: string | null): Promise<Conversation> {
     const customer = await this.prisma.customer.upsert({
       where: { tenantId_externalId: { tenantId, externalId } },
       create: { tenantId, externalId },
@@ -89,6 +89,7 @@ export class ConversationService {
     });
 
     const trimmedAccountId = accountId && typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+    const sourcePhoneNumberId = phoneNumberId?.trim() || null;
 
     if (trimmedAccountId) {
       // Verify account exists and belongs to tenant
@@ -111,7 +112,8 @@ export class ConversationService {
           customerId: customer.id,
           status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
           automationCapped: false,
-          accountId: trimmedAccountId
+          accountId: trimmedAccountId,
+          sourcePhoneNumberId
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -121,6 +123,7 @@ export class ConversationService {
           data: {
             tenantId,
             customerId: customer.id,
+            sourcePhoneNumberId,
             ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
           }
         });
