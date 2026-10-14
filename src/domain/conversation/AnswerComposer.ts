@@ -364,12 +364,19 @@ export class AnswerComposer {
     const service = matches[0] as { name: string; price?: string | number };
     const price = Number(service.price);
     if (!Number.isFinite(price) || price < 0) return null;
-    const currency = context.config?.identity?.currency || 'MAD';
-    if (context.responseLanguage === 'fr') return `Le prix de ${service.name} est de ${price} ${currency}.`;
-    if (context.responseLanguage === 'ar') return `سعر ${service.name} هو ${price} ${currency}.`;
-    if (context.responseLanguage === 'darija' && context.responseScript === 'arabizi') return `Taman dyal ${service.name} howa ${price} ${currency}.`;
-    if (context.responseLanguage === 'darija') return `الثمن ديال ${service.name} هو ${price} ${currency}.`;
-    return `The price of ${service.name} is ${price} ${currency}.`;
+    return AnswerComposer.namedServicePrice(service.name, price, context.config?.identity?.currency || 'MAD', context.responseLanguage, context.responseScript);
+  }
+
+  /** "The price of <service> is <price>", from a menu price such as 150 or "150 MAD". */
+  public static namedServicePrice(name: string, rawPrice: string | number, currency: string, lang: string, script?: string): string | null {
+    const text = String(rawPrice ?? '').trim();
+    const amount = /^\d+(?:[.,]\d+)?$/.test(text) ? `${text} ${currency}` : text;
+    if (!/\d/.test(amount) || amount.length > 40) return null;
+    if (lang === 'fr') return `Le prix de ${name} est de ${amount}.`;
+    if (lang === 'ar') return `سعر ${name} هو ${amount}.`;
+    if (lang === 'darija' && script === 'arabizi') return `Taman dyal ${name} howa ${amount}.`;
+    if (lang === 'darija') return `الثمن ديال ${name} هو ${amount}.`;
+    return `The price of ${name} is ${amount}.`;
   }
 
   private static getSafeName(fact: ProductLookupResult | null | undefined, script?: string, lang?: string): string {

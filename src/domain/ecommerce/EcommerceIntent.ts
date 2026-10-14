@@ -582,10 +582,10 @@ export class EcommerceIntentParser {
       cleaned = cleaned.replace(colorRegex, ' ');
     }
 
-    const sizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:taille|size|pointure|قياس|نمرة|مقاس)\s*(?:de|du|en|f|fl|d|l)?\s*(?:4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/giu;
+    const sizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:taille|size|pointure|بمقاس|فمقاس|بقياس|قياس|نمرة|مقاس)\s*(?:de|du|en|f|fl|d|l)?\s*(?:60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/giu;
     cleaned = cleaned.replace(sizePrefixRegex, ' ');
 
-    const standaloneSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f|b-|b|l-|l|en|in|de|du|فـ|ف|بـ|ب|لـ|ل)?\s*(?:4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/giu;
+    const standaloneSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f|b-|b|l-|l|en|in|de|du|فـ|ف|بـ|ب|لـ|ل)?\s*(?:60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/giu;
     cleaned = cleaned.replace(standaloneSizeRegex, ' ');
 
     const statePatternsRegex = /(?:^|\s|[.,!?;:()،؟])(?:واش\s+عندكم|عندكم|واش\s+عندك|عندك|واش\s+كاينين|واش\s+كاين|واش\s+كاينة|واش\s+كاينا|واش\s+متوفر|واش\s+متوفرة|واش\s+متوفرين|هل\s+متوفر|هل\s+متوفرة|هل\s+متوفرين|هل\s+عندكم|كتبيعو|واش\s+كتبيعو|واش\s+باقي\s+كاين|واش\s+باقي\s+كاينة|واش\s+باقي\s+متوفر|واش\s+باقي|باقي\s+كاين|باقي\s+كاينة|باقي\s+متوفر|باقي|مازال\s+كاين|مازال\s+كاينة|مازال|مزال|موجود|موجودة|موجودين|avez-vous|avez\s+vous|vous\s+avez|vendez-vous|do\s+you\s+have|have\s+you|3ndkom|3ndkoum|3ndkm|3ndek|wach\s+3ndkom|wash\s+3ndkom|wach\s+kayn|wash\s+kayn|wach\s+kayna|wash\s+kayna|wach\s+kaynin|wash\s+kaynin|wach\s+ba9i|wash\s+ba9i|is\s+it\s+available|is\s+available|are\s+they\s+available|in\s+stock|disponible|disponibles|dispo|dispos)(?:$|\s|[.,!?;:()،؟])/giu;
@@ -674,13 +674,13 @@ export class EcommerceIntentParser {
 
     // 3. Size extraction
     let size: string | undefined;
-    const explicitSizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:size|taille|قياس|نمرة|pointure|f\s+taille|en\s+taille|in\s+size|مقاس|حجم|فالمقاس|بالمقاس|فالحجم|طاي)\s*[:=]?\s*(4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const procliticSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f\s+|en\s+|in\s+|فـ?|بـ?|لـ?)\s*(4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const intentVerbSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:bghit|bghina|بغيت|أريد|اريد|je\s+veux|i\s+want|i\s+need|prends|take|khtar|choisir|نختار)\s+(4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const suffixAvailabilityRegex = /(?:^|\s|[.,!?;:()،؟])(4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)\s*(?:واش\s+)?(?:kayn|kayna|dispo|disponible|available|in\s+stock|متوفر|متوفرة|كاين|كاينة|\?|؟)(?:$|\s|[.,!?;:()،؟])/iu;
-    const colorPrecedingSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:black|white|red|blue|noir|blanc|rouge|bleu|كحل|بيض|حمر|زرق|أسود|أبيض|أحمر|أزرق|فالأسود|بالأسود|فالكحل|بالكحل)\s+(4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const multiCharOrNumericRegex = /(?:^|\s|[.,!?;:()،؟])(4[0-8]|3[0-9]|2[8-9]|xs|xl|xxl|2xl|3xl)(?:$|\s|[.,!?;:()،؟])/iu;
-    const shortTurnIsolatedRegex = /^(?:(?:size|taille|قياس|f|en|in|فـ|ف|bghit|بغيت|اريد)\s+)?(4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl)[.?!؟]*$/iu;
+    const explicitSizePrefixRegex = /(?:^|\s|[.,!?;:()،؟])(?:size|taille|قياس|نمرة|pointure|f\s+taille|en\s+taille|in\s+size|مقاس|حجم|فالمقاس|بالمقاس|فالحجم|بمقاس|فمقاس|لمقاس|بقياس|بحجم|طاي)\s*[:=]?\s*(60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const procliticSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:f-|fl|f\s+|en\s+|in\s+|فـ?|بـ?|لـ?)\s*(60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const intentVerbSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:bghit|bghina|بغيت|أريد|اريد|je\s+veux|i\s+want|i\s+need|prends|take|khtar|choisir|نختار)\s+(60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const suffixAvailabilityRegex = /(?:^|\s|[.,!?;:()،؟])(60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)\s*(?:واش\s+)?(?:kayn|kayna|dispo|disponible|available|in\s+stock|متوفر|متوفرة|كاين|كاينة|\?|؟)(?:$|\s|[.,!?;:()،؟])/iu;
+    const colorPrecedingSizeRegex = /(?:^|\s|[.,!?;:()،؟])(?:black|white|red|blue|noir|blanc|rouge|bleu|كحل|بيض|حمر|زرق|أسود|أبيض|أحمر|أزرق|فالأسود|بالأسود|فالكحل|بالكحل)\s+(60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const multiCharOrNumericRegex = /(?:^|\s|[.,!?;:()،؟])(4[0-8]|3[0-9]|2[8-9]|xs|xl|xxl|2xl|3xl|4xl|5xl)(?:$|\s|[.,!?;:()،؟])/iu;
+    const shortTurnIsolatedRegex = /^(?:(?:size|taille|قياس|f|en|in|فـ|ف|bghit|بغيت|اريد)\s+)?(60|5[0-9]|49|4[0-8]|3[0-9]|2[8-9]|xs|s|m|l|xl|xxl|2xl|3xl|4xl|5xl)[.?!؟]*$/iu;
 
     const prefixMatch = trimmed.match(explicitSizePrefixRegex);
     const procliticMatch = trimmed.match(procliticSizeRegex);
@@ -704,6 +704,10 @@ export class EcommerceIntentParser {
       size = shortTurnMatch[1].toUpperCase();
     } else if (multiCharMatch && multiCharMatch[1]) {
       size = multiCharMatch[1].toUpperCase();
+    }
+    // An amount ("50 درهم", "60 dh", "30%") is never a size.
+    if (size && /^\d+$/.test(size) && new RegExp(`(?:^|\\D)${size}\\s*(?:%|dh\\b|dhs\\b|mad\\b|dirhams?\\b|drahem\\b|ryal\\b|درهم|دراهم|ريال|د\\.م)`, 'iu').test(trimmed)) {
+      size = undefined;
     }
 
     // 4. SKU extraction

@@ -384,9 +384,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     tenantId: string; accountId: string | null | undefined; content: string; config: BusinessConfig;
     llm: LLMProvider; llmOptions: LLMRequestOptions; language: string; script: string;
     productContext: ConversationContext['productContext']; lexicalProductId: string | null;
-  }): Promise<{ productId: string | null; serviceName: string | null; routingText: string; usedModel: boolean }> {
+  }): Promise<{ productId: string | null; serviceName: string | null; serviceReference: string | null; routingText: string; usedModel: boolean }> {
     const { tenantId, accountId, content, config } = args;
-    const out = { productId: args.lexicalProductId, serviceName: null as string | null, routingText: content, usedModel: false };
+    const out = { productId: args.lexicalProductId, serviceName: null as string | null, serviceReference: null as string | null, routingText: content, usedModel: false };
     const text = content.trim();
     if (!accountId || text.length < 3 || HandoffService.isHandoffRequested(text)) return out;
     const commerce = config.capabilities?.ecommerceEnabled === true && Boolean(this.ecommerceService);
@@ -399,9 +399,15 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     if (kind) {
       const learned = matchLearnedPhrase(text, await this.phraseStore.list(tenantId, accountId, kind), kind);
       if (learned && kind === 'product' && !out.productId) out.productId = learned.itemKey;
-      if (learned && kind === 'service') out.serviceName = serviceByName(learned.itemKey);
+      if (learned && kind === 'service') out.serviceName = out.serviceReference = serviceByName(learned.itemKey);
     }
-    if (kind === 'service' && !out.serviceName) out.serviceName = CatalogMatcher.best(text, menu)?.name ?? null;
+    if (kind === 'service' && !out.serviceName) {
+      out.serviceName = CatalogMatcher.best(text, menu)?.name ?? null;
+      // A clear word match ("تنقية الوجه" -> Soin du visage) is named for the
+      // answer, which otherwise refuses wording that differs from the menu.
+      const ranked = out.serviceName ? CatalogMatcher.rank(text, menu) : [];
+      if (ranked[0]?.product.name === out.serviceName && (!ranked[1] || ranked[0].score - ranked[1].score >= 1)) out.serviceReference = out.serviceName;
+    }
 
     const resolve = (routingText: string, productId: string | null) => TurnDecisionResolver.resolve({
       text: routingText, language: args.language, script: args.script as any, productContext: args.productContext,
@@ -416,14 +422,14 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     if (Array.isArray(config.capabilities?.faq) && config.capabilities.faq.length && this.matchSafeFaq(text, config, args.language, decision)) return out;
     const unrouted = decision.domain === 'GENERAL'
       || (decision.domain === 'KNOWLEDGE' && decision.intent === 'KNOWLEDGE_RETRIEVAL' && !decision.policyIntents?.length);
-    // The grounded answer already sees policies and a normal service menu and
-    // understands Darija, so the extra call is spent only where facts must be
-    // looked up by item: a product question (price, photo, stock) naming no
-    // known product, or a service question when the menu is too large to send.
+    // The extra call is spent only where an item must be identified: a
+    // product question (price, photo, stock) naming no known product, or a
+    // service question naming no menu service ("تنقية الوجه" for the facial).
+    // Short follow-ups ("and how long?") take their subject from the history.
     const menuTooLarge = JSON.stringify(menu).length > 1900;
     const itemMissing = kind === 'product'
       ? !out.productId && decision.domain === 'ECOMMERCE'
-      : kind === 'service' ? !out.serviceName && menuTooLarge && (ConversationEngine.SERVICE_CUE.test(text) || unrouted) : false;
+      : kind === 'service' ? !out.serviceName && !GroundedPromptBuilder.isFollowupQuestion(text) && (ConversationEngine.SERVICE_CUE.test(text) || (menuTooLarge && unrouted)) : false;
     if (!itemMissing) return out;
 
     const items = kind === 'product'
@@ -449,7 +455,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
     if (understanding.itemId) {
       if (kind === 'product' && !out.productId) out.productId = understanding.itemId;
-      if (kind === 'service' && !out.serviceName) out.serviceName = serviceByName(understanding.itemId);
+      if (kind === 'service' && !out.serviceName) out.serviceName = out.serviceReference = serviceByName(understanding.itemId);
       if (kind && understanding.mention) {
         const label = items.find(i => i.id === understanding.itemId)?.name || understanding.itemId;
         void this.phraseStore.record(tenantId, accountId, { kind, mention: understanding.mention, itemKey: understanding.itemId, itemLabel: label });
@@ -1030,6 +1036,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     // Text used for routing: the customer's message, or its plain-French rewrite when only the rewrite can be routed.
     let routingText = content;
     let understoodService: string | null = null;
+    // Set only when the service was resolved from learned or understood wording, not plain word overlap.
+    let serviceReference = '';
     if (config.capabilities?.ecommerceEnabled === true && !activeSession && this.ecommerceService && conversation.accountId) {
       try {
         catalogProductId = (await this.ecommerceService.matchProductFromText(tenantId, conversation.accountId, content))?.id || null;
@@ -1047,6 +1055,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         catalogProductId = understood.productId;
         routingText = understood.routingText;
         understoodService = understood.serviceName;
+        if (understood.serviceReference) serviceReference = `
+Store menu match (verified by this business's own menu and wording list, not a spelling guess): the service the customer names in <CUSTOMER_QUESTION> is "${understood.serviceReference}". Treat it as the requested service and answer about it with its menu facts; do not ask what it means.`;
       } catch (error: any) {
         logger.warn(`ConversationEngine: message understanding unavailable: ${error?.message || error}`);
       }
@@ -1503,11 +1513,11 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
             const maxChunks = turnDecision?.isMultiPolicy ? 6 : (isSingleDominantChunk ? 1 : 3);
             const topChunks = (ragResult?.chunks || []).slice(0, maxChunks);
             const effectiveContextBudget = this.resolveEffectiveContextBudget(config, turnDecision, false);
-            const contextText = this.buildGroundedContextText(topChunks, effectiveContextBudget) + portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true });
+            const contextText = this.buildGroundedContextText(topChunks, effectiveContextBudget) + (portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true }));
 
             groundingEvidence = contextText;
             const systemPrompt = this.buildGroundedSystemPrompt(config, effectiveLang, turnDecision?.responseScript);
-            const userPromptContent = this.buildGroundedUserMessage(contextText, content, undefined, undefined, turnDecision?.responseScript, conversationContext.recentTurns, effectiveLang);
+            const userPromptContent = this.buildGroundedUserMessage(contextText, content, undefined, undefined, turnDecision?.responseScript, conversationContext.recentTurns, effectiveLang) + serviceReference;
 
             try {
               const timeoutMs = config.llm?.timeoutMs ?? 10000;
@@ -2821,9 +2831,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
               ? (ragResult.context + productContextInfo)
               : (this.buildGroundedContextText(topChunks, effectiveContextBudget) + productContextInfo);
 
-            groundingEvidence = contextText + portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true });
+            groundingEvidence = contextText + (portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true }));
             const systemPrompt = this.buildGroundedSystemPrompt(config, effectiveLang, turnDecision?.responseScript);
-            const userPromptContent = this.buildGroundedUserMessage(groundingEvidence, content, turnDecision?.isMultiPolicy, turnDecision?.policyIntents, turnDecision?.responseScript, conversationContext.recentTurns, effectiveLang);
+            const userPromptContent = this.buildGroundedUserMessage(groundingEvidence, content, turnDecision?.isMultiPolicy, turnDecision?.policyIntents, turnDecision?.responseScript, conversationContext.recentTurns, effectiveLang) + serviceReference;
 
             const startTime = Date.now();
             try {
@@ -2974,7 +2984,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     if (responseSource === 'LLM' || responseSource === 'RAG') {
       const currentEvidence = groundingEvidence || [
         ...(ragResult?.chunks || []).map((chunk: { content?: string }) => chunk.content || ''),
-        portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true })
+        (portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true }))
       ].join('\n');
       const claimCheck = GroundedAnswerGuard.evaluate(response, currentEvidence, {
         question: content,
