@@ -5,7 +5,7 @@ import { TenantConfigService } from '../tenant/TenantConfigService';
 import { WorkflowEngine, WorkflowCancellationDetector } from '../../core/engine/WorkflowEngine';
 import { LLMProvider, LLMProviderError, LLMRequestOptions } from '../../core/llm/LLMProvider';
 import { LLMFactory } from '../../core/llm/LLMFactory';
-import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES } from './ResponseBuilder';
+import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, getWorkflowMessage } from './ResponseBuilder';
 import { RAGChunk, RAGService } from '../rag/RAGService';
 import { DirectRagGuard, SupportedScript } from '../rag/DirectRagGuard';
 import { QuestionReformulator } from '../rag/QuestionReformulator';
@@ -229,7 +229,7 @@ export class ConversationEngine {
 
     let scriptRule: string;
     if (script === 'arabizi') {
-      scriptRule = 'CRITICAL SCRIPT RULE: The customer wrote in Arabizi (Latin script). You MUST respond in Moroccan Darija written STRICTLY in LATIN LETTERS with Arabizi phoneme numbers (e.g., 3 for ع, 7 for ح, 9 for ق, kh, gh). Example: "Momkin trje3 l-produit f 14 yum b chart ykoun b les etiquettes dyalo". ABSOLUTELY ZERO ARABIC UNICODE CHARACTERS ALLOWED.';
+      scriptRule = 'CRITICAL SCRIPT RULE: The customer wrote in Arabizi (Latin script). Write natural Darija words, not French phrases (say "lkhlas mli twslek" rather than "paiement à la livraison"). You MUST respond in Moroccan Darija written STRICTLY in LATIN LETTERS with Arabizi phoneme numbers (e.g., 3 for ع, 7 for ح, 9 for ق, kh, gh). Example: "Momkin trje3 l-produit f 14 yum b chart ykoun b les etiquettes dyalo". ABSOLUTELY ZERO ARABIC UNICODE CHARACTERS ALLOWED.';
     } else if (script === 'arabic') {
       scriptRule = 'CRITICAL SCRIPT RULE: Output in Arabic script only. No Latin transliteration.';
     } else {
@@ -240,8 +240,9 @@ export class ConversationEngine {
     // Moroccan merchants usually write policies in French; customers ask in
     // English, Arabic or Darija. Facts must be translated, not quoted.
     parts.push('Translation: Business evidence is often written in another language (usually French). Translate every fact into the customer\'s language and script; never copy evidence sentences in a different language. Keep product names, prices and numbers exactly as written.');
+    parts.push('Voice: Speak as the business. Never mention evidence, data, sources, a knowledge base or "the information provided" (nor "المعطيات", "les informations fournies"); when a detail is missing, say plainly that you do not have that detail and offer the team.');
     if (lang === 'darija' || lang === 'ar') {
-      parts.push('Moroccan vocabulary: "nkhles 3nd stilam", "lkhlas f lbab", "الخلاص عند الاستلام", "ملي توصلني السلعة" mean paying cash when the order is delivered (cash on delivery). "livraison", "twsil", "ليفريزون", "التوصيل" mean delivery. "nbedel", "نبدل" mean exchange. "trj3o lflouss", "ترجعو الفلوس" mean refund. "lkarta", "carte guichet" mean bank card. "khdamin", "حالين" mean open.');
+      parts.push('Moroccan vocabulary: "nkhles 3nd stilam", "lkhlas f lbab", "الخلاص عند الاستلام", "ملي توصلني السلعة" mean paying cash when the order is delivered (cash on delivery). "livraison", "twsil", "ليفريزون", "التوصيل" mean delivery. "nbedel", "نبدل" mean exchange. "trj3o lflouss", "ترجعو الفلوس" mean refund. "lkarta", "carte guichet" mean bank card. "khdamin", "حالين" mean open. "lghit", "nlghi", "لغيت", "نلغي" mean cancel; "khlas" right after a cancellation means a fee. "nbdel rdv", "نبدل الموعد" mean reschedule. "rdv", "موعد" mean appointment. "7lawa", "الحلاوة" mean waxing. "l7enna", "الحنة" mean henna. "fo9ach kat7lo", "فوقاش كتحلو" ask the opening time; "katsdo", "كتسدو" ask the closing time. Weekdays in Darija: lundi = tnin / الاثنين, mardi = tlat / الثلاثاء, mercredi = larb3 / الأربعاء, jeudi = lkhmis / الخميس, vendredi = jjem3a / الجمعة, samedi = sebt / السبت, dimanche = l7ed / الحد; never swap one day for another. Write Arabic script with standard Arabic letters only (no پ, ڤ, چ).');
     }
 
     // 5. GROUNDING & SAFETY — compact directives, identical semantics
@@ -368,10 +369,23 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     turnDecision: TurnDecision | null | undefined,
     productContext: ConversationContext['productContext'],
     accountId: string | null | undefined,
-    language: 'en' | 'fr' | 'ar' | 'darija'
+    language: 'en' | 'fr' | 'ar' | 'darija',
+    content = '',
+    serviceMenu: unknown = undefined
   ) {
     const initial = workflowConfig.states[workflowConfig.initialState];
     const fieldName = typeof initial?.field === 'string' ? initial.field : initial?.field?.name;
+    // "bghit n7jez l7mam" already names the service: do not ask for it again.
+    const isServiceField = /^(?:service|services|serviceName|prestation|soin|treatment|الخدمة|خدمة)$/iu.test(fieldName || '');
+    if (isServiceField && content && Array.isArray(serviceMenu) && initial?.type === 'collect' && initial.next && workflowConfig.states[initial.next]) {
+      const menu = serviceMenu.filter((s: any) => s && typeof s.name === 'string' && s.name.trim())
+        .map((s: any, index: number) => ({ id: String(index), name: s.name as string, description: typeof s.description === 'string' ? s.description : '' }));
+      const service = CatalogMatcher.best(content, menu);
+      if (service) {
+        const seed = { stateHistory: [workflowConfig.initialState], collectedData: { [fieldName!]: service.name }, contextData: { [fieldName!]: service.name } };
+        return this.conversationService.createSession(tenantId, conversationId, workflowId, initial.next, seed);
+      }
+    }
     const isProductField = /^(?:product|productName|item|itemName|produit|produitNom|المنتوج|المنتج)$/iu.test(fieldName || '');
     if (turnDecision?.domain === 'ECOMMERCE' && turnDecision.intent === 'BUY_INTENT'
       && this.ecommerceService && accountId && initial?.type === 'collect'
@@ -1068,9 +1082,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
           contextData: activeSession.contextData as any,
           status: 'CANCELLED'
         };
-        const defaultCancel = effectiveLang === 'darija' && effectiveScript === 'arabic'
-          ? 'تلغى الطلب ديالك.' : DEFAULT_WORKFLOW_MESSAGES.workflowCancelled[effectiveLang as keyof typeof DEFAULT_WORKFLOW_MESSAGES.workflowCancelled] || DEFAULT_WORKFLOW_MESSAGES.workflowCancelled.en;
-        const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled);
+        const defaultCancel = getWorkflowMessage('workflowCancelled', effectiveLang, effectiveScript);
+        const defaultVals = DEFAULT_CANCELLED_VALUES;
         const promptToUse = config.prompts?.workflowCancelled;
         const rawCancelMsg = promptToUse && (!defaultVals.includes(promptToUse) || typeof promptToUse === 'object')
           ? resolveLocalizedPrompt(promptToUse, effectiveLang, defaultCancel, effectiveScript)
@@ -1178,7 +1191,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
           const session = await this.createWorkflowSessionForTurn(
             tenantId, conversation.id, workflowId, workflowConfig, turnDecision,
-            conversationContext.productContext, effectiveAccountId, effectiveLang
+            conversationContext.productContext, effectiveAccountId, effectiveLang, content, config.portalFacts?.services
           );
           const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
           applyWorkflowHandoff(result);
@@ -1666,7 +1679,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
             const session = await this.createWorkflowSessionForTurn(
               tenantId, conversation.id, workflowId, workflowConfig, turnDecision,
-              conversationContext.productContext, targetAccountId, effectiveLang
+              conversationContext.productContext, targetAccountId, effectiveLang, content, config.portalFacts?.services
             );
             const result = await this.workflowEngine.process(session, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
             applyWorkflowHandoff(result);

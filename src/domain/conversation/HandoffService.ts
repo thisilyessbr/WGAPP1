@@ -12,10 +12,10 @@ export class HandoffService {
       /\b(?:talk\s+to\s+someone|human\s+agent|live\s+agent|human\s+support|real\s+person|human\s+representative)\b/i
     ],
     fr: [
-      /\b(?:parler|discuter|échanger)\s+(?:à|a|avec)\s+(?:un\s+|une\s+)?(?:humain|agent|conseiller|opérateur|personne|quelqu['’]un)\b/i,
-      /\b(?:passez|passer|transférez|transferer|transferez|connectez|mettre\s+en\s+relation)\s*(?:-moi|\s+moi)?\s+(?:à|a|avec)?\s*(?:un\s+|une\s+)?(?:agent|conseiller|humain|opérateur|personne)\b/i,
-      /\b(?:je\s+veux|j['’]ai\s+besoin\s+d['’]|donnez-moi)\s+(?:un\s+|une\s+)?(?:humain|agent|conseiller\s+humain|personne\s+réelle|personne\s+reelle)\b/i,
-      /\b(?:agent\s+humain|conseiller\s+humain|assistance\s+humaine|être\s+rappelé\s+par\s+un\s+humain)\b/i
+      /\b(?:parler|discuter|échanger)\s+(?:à|a|avec)\s+(?:un\s+|une\s+)?(?:humain|agent|conseill(?:er|ère|ere)|opérat(?:eur|rice)|personne|quelqu['’]un)\b/i,
+      /\b(?:passez|passer|transférez|transferer|transferez|connectez|mettre\s+en\s+relation)\s*(?:-moi|\s+moi)?\s+(?:à|a|avec)?\s*(?:un\s+|une\s+)?(?:agent|conseill(?:er|ère|ere)|humain|opérat(?:eur|rice)|personne)\b/i,
+      /\b(?:je\s+veux|j['’]ai\s+besoin\s+d['’]|donnez-moi)\s+(?:un\s+|une\s+)?(?:humain|agent|conseill(?:er|ère|ere)\s+humain|personne\s+réelle|personne\s+reelle)\b/i,
+      /\b(?:agent\s+humain|conseill(?:er|ère|ere)\s+humain|assistance\s+humaine|être\s+rappelé\s+par\s+un\s+humain)\b/i
     ],
     ar: [
       /(?:تحدث|أتحدث|اتحدث|نتحدث|أكلم|اككلم|تكلم|كلام)\s+(?:مع|بـ?)\s+(?:أحد\s+)?(?:موظفي|الموظفين|موظف|إنسان|انسان|شخص|عميل|وكيل)\b/u,
@@ -26,7 +26,7 @@ export class HandoffService {
     darija: [
       /(?:بغيت|باغي|باغية)\s+(?:نهضر|ندوي|نتكلم)\s+مع\s+(?:شي\s+)?(?:واحد|مول\s+(?:المحل|الحانوت)|مسؤول)/u,
       /(?:دوزني|حولني)\s+ل(?:شي\s+)?(?:موظف|مسؤول|بنادم)/u,
-      /(?:بغيت|بدي|خليني|نقدر|واش\s+نقدر)\s+(?:نهضر|ندوي|نتكلم|نتواصل)\s+مع\s+(?:شي\s+)?(?:موظف|بنادم|إنسان|انسان|واحد\s+حقيقي|شخص)/u,
+      /(?:بغيت|بدي|خليني|نقدر|واش\s+نقدر)\s+(?:نهضر|ندوي|نتكلم|نتواصل)\s+مع\s+(?:شي\s+)?(?:موظف|بنادم|إنسان|انسان|واحد\s+حقيقي|وحدة\s+حقيقية|(?:واحد|وحدة)\s+من\s+(?:الخدامة|الفريق|الموظفين)|شخص)/u,
       /(?:هضر|دوي|تكلم)\s+(?:معايا|مع|بـ)\s+(?:شي\s+)?(?:بنادم|موظف|إنسان|انسان|شخص\s+حقيقي)/u,
       /(?:دوز|دوزو|عطيني|حولني)\s+(?:ليا|لي|لـ)\s*(?:شي\s+)?(?:موظف|بنادم|إنسان|مسؤول)/u,
       /\b(?:bghit|bghina|khassni|khasni|bdi)\s+(?:nhedar|nhder|nhdr|ndwi|ntkellem|ntwasel)\s+m3a\s+(?:chi\s+)?(?:agent|l-agent|conseiller|bnadm|insan|wahed|chi\s+7ed)\b/i,

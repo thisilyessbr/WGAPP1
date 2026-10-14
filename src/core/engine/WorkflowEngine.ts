@@ -2,7 +2,7 @@ import { WorkflowSession } from '@prisma/client';
 import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
 import { WorkflowStateEvaluator } from './WorkflowStateEvaluator';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
-import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
+import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { PolicyAnswerSafety } from '../../domain/rag/PolicyAnswerSafety';
 import { PolicyEvidenceReuse } from '../../domain/rag/PolicyEvidenceReuse';
@@ -167,6 +167,21 @@ export class WorkflowCancellationDetector {
       /^(?:ما\s*بغيتش|مابغيتش|ما\s*باغيش)\s+(?:نكمل|نتابع|نتمم)$/u
     ];
     if (naturalCancellationPatterns.some(pattern => pattern.test(normalized))) {
+      return true;
+    }
+
+    // A short statement with an explicit cancel verb ("non finalement j'annule",
+    // "safi ma bghitch, annuler", "أريد إلغاء الطلب") cancels the current request.
+    // Questions and policy queries ("can I cancel?", "frais d'annulation") never do.
+    const cancelVerb = /(?:^|[\s,،])(?:cancel(?:led)?|annul(?:e|er|ez)|j'annule|الغاء|الغي|لغي|لغيه|نلغي|nlghi|lghi|lghih|annuli)(?=$|[\s,،.!])/u;
+    const questionOrPolicy = /[?؟]|^(?:can|could|how|is|what|do|does|when|if)\b|est[\s-]ce|puis[\s-]je|je peux|peut[\s-]on|comment|\bsi\b|\bwach\b|\bila\b|n9der|kifach|\bchno\b|\bndir\b|هل|واش|إلا|الا\s|نقدر|يمكن|كيفاش|شنو|ندير|policy|politique|frais|\bfees?\b|gratuit|\bfree\b|\d|شروط|رسوم|شحال/u;
+    // "ma bghitch nlghi" = I do NOT want to cancel.
+    const negatedCancel = /(?:\bma\s*bghit(?:ch)?|mabghitch|ma\s+baghich|ما\s*بغيتش|مابغيتش|don't|do not|dont|ne\s+veux\s+pas|لا\s+اريد|لا\s+أريد)\s+(?:\S+\s+)?(?:nlghi|lghi|cancel|annuler|نلغي|الغاء|الغي)/u;
+    if (normalized.split(' ').length <= 9 && cancelVerb.test(normalized) && !negatedCancel.test(normalized)
+      && !questionOrPolicy.test(normalized) && !/[?؟]/.test(input)) {
+      return true;
+    }
+    if (/^(?:(?:actually|no|non|finalement|safi|صافي|لا)[\s,،]+)*(?:i\s+(?:do\s+not|don't|dont)\s+want\s+(?:it|this|that)(?:\s+any\s*more)?|je\s+n(?:e\s+|')(?:le|la|les)\s+veux\s+plus)$/u.test(normalized)) {
       return true;
     }
 
@@ -525,7 +540,7 @@ export class WorkflowEngine {
           collectedData['_confirmed'] = false;
           const defaultCancelled = getWorkflowMessage('workflowCancelled', lang, script);
           const promptToUse = businessConfig.prompts?.workflowCancelled;
-          const cancelledResponse = promptToUse && (typeof promptToUse === 'object' || !Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled).includes(promptToUse))
+          const cancelledResponse = promptToUse && (typeof promptToUse === 'object' || !DEFAULT_CANCELLED_VALUES.includes(promptToUse))
             ? resolveLocalizedPrompt(promptToUse, lang, defaultCancelled, script)
             : defaultCancelled;
           return finishAndReturn({
@@ -689,7 +704,7 @@ export class WorkflowEngine {
           collectedData['_confirmed'] = false;
           const defaultCancel = getWorkflowMessage('workflowCancelled', lang, script);
           const promptToUse = businessConfig.prompts?.workflowCancelled;
-          const rawCancelMsg = promptToUse && (typeof promptToUse === 'object' || !Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled).includes(promptToUse))
+          const rawCancelMsg = promptToUse && (typeof promptToUse === 'object' || !DEFAULT_CANCELLED_VALUES.includes(promptToUse))
             ? resolveLocalizedPrompt(promptToUse, lang, defaultCancel, script)
             : defaultCancel;
           return finishAndReturn({
@@ -1005,7 +1020,7 @@ export class WorkflowEngine {
         } else if (isConfirmCancel) {
           collectedData['_confirmed'] = false;
           const defaultCancelled = getWorkflowMessage('workflowCancelled', lang, script);
-          const defaultVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled);
+          const defaultVals = DEFAULT_CANCELLED_VALUES;
           const promptToUse = stateConfig.cancellationPrompt || businessConfig.prompts?.workflowCancelled;
           response = promptToUse && (!defaultVals.includes(promptToUse as string) || typeof promptToUse === 'object')
             ? resolveLocalizedPrompt(promptToUse, lang, defaultCancelled, script)

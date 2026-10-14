@@ -102,11 +102,11 @@ export type Expectation =
 
 export interface EvalCase { id: string; intent: string; lang: Lang; turns: string[]; expect: Expectation }
 
-type Tpl = Record<Lang, string[]>;
-const fill = (t: string, vars: Record<string, string>) => t.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '')
+export type Tpl = Record<Lang, string[]>;
+export const fill = (t: string, vars: Record<string, string>) => t.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '')
   .replace(/(^|\s)لال/gu, '$1لل');
 
-const T: Record<string, Tpl> = {
+export const T: Record<string, Tpl> = {
   price: {
     en: ['How much is the {p}?', 'what is the price of the {p}', 'price of {p} please'],
     fr: ['Combien coûte le {p} ?', "c'est combien le {p}", 'Prix du {p} svp'],
@@ -225,7 +225,7 @@ const T: Record<string, Tpl> = {
   }
 };
 
-const UNKNOWN_ITEMS: Record<Lang, string[]> = {
+export const UNKNOWN_ITEMS: Record<Lang, string[]> = {
   en: ['iPhone 15', 'Dior perfume', 'a takchita', 'Raja jersey'], fr: ['iPhone 15', 'parfum Dior', 'takchita', 'maillot du Raja'],
   ar: ['آيفون 15', 'عطر ديور', 'تكشيطة', 'قميص الرجاء'], da: ['آيفون 15', 'ريحة ديور', 'التكشيطة', 'مايو الرجاء'], dz: ['iphone 15', 'ri7a dior', 'takchita', 'maillot raja']
 };

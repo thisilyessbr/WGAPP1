@@ -15,7 +15,7 @@ export class LanguageDetector {
     'zwina', 'bzzaf', 'bzaf', 'n3ref', 'n3raf', 't9dro', 't3awnoni', 'katkhedmo', 'taman',
     'khedma', 'ndir', 'bach', 'mouchkil', 'baghi', 'baghya', 'nchri', 'nshri', 'ncommandi',
     'mabghitch', 'mabghitsh', 'makaynch', 'machi', 'bghitch', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al',
-    'bchhal', 'bchehal', 'bche7al', 'bshal', 'safi', 'nlghi', 'n7jez', 'mn', 'ach', 'achno', 'msawb', 'msawba', 'wla', 'mazal', 'ba9i', 'tswira', 'tsawer', 'sift', 'mrakch', 'twslo', 'katwslo', 'twsalni', 'nkhles', 'ntb3', 'ntbe3', 'fabor', 'fabour', 'batel', 'b7al'
+    'bchhal', 'bchehal', 'bche7al', 'bshal', 'safi', 'nlghi', 'n7jez', 'mn', 'ach', 'achno', 'msawb', 'msawba', 'wla', 'mazal', 'ba9i', 'tswira', 'tsawer', 'sift', 'mrakch', 'twslo', 'katwslo', 'twsalni', 'nkhles', 'ntb3', 'ntbe3', 'fabor', 'fabour', 'batel', 'b7al', 'imta', 'emta', 'katsdo', 'katsedo', 'kat7lo', 'kat7elo', 'fo9ach', 'fou9ach', 'foqach', 'khdamin', 'khdama', 'letnin', 'tnin', 'smiti', 'smitek', 'smitk', 'ykhalik', 'ykhallik', 'm7lolin', 'mhlolin', 'l7ed', 'ghedda', 'l3chiya', 'lw9t', 'lwe9t', 'kayakhod', 'kaydoum', 'n9ess', '9ess', 'wjeh', 'lwejh', 'l7lawa', 'l7enna', 'rjlin', 'katjiw', 'rjal', 'y9dro', 'yjiw', 'nparki', 'nbdel', 'lghit', 'nfs'
   ]);
 
   private static FRENCH_WORDS = new Set([

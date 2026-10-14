@@ -11,7 +11,7 @@ const has = (re: RegExp, s: string) => re.test(s);
 const norm = (s: string) => s.normalize('NFKC').replace(/[ً-ْ]/g, '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 const num = (n: number) => new RegExp(`(?<![\\d.,])${n}(?:[.,]0{1,2})?(?![\\d])`, 'u');
 
-const NEG = /(?:\bne\s+\S+\s+(?:pas|plus)\b|\bpas\s+de\b|(?:^|[\s.,!])la3?[,!.]?\s|^la3?\b|\bma\s*ka[tn]\S+|\bmaka[tn]\S+|\bmach?i\s+mqbol|\bmsali\b|مسالي|\bonly\s+(?:possible\s+)?for\b|ما\s*كن\S+|ماكن\S+|\bnot?\b|\bno\b|n'est pas|ne sont pas|pas (?:disponible|en stock|de |d')|plus disponible|rupture|épuisé|indisponible|out of stock|unavailable|sold out|isn't|aren't|don't|doesn't|ما\s*كاين|ماكاين|ما\s*كايناش|ماكايناش|ما\s*بقا|مابقا|غير متوفر|غير متاح|نفد|نفذ|لا يوجد|ليس|لا\s|ma\s*kayn|makayn|ma\s*b9a|mab9a|ma\s*kaynach|makaynach|machi|mkaynch|ma\s*3ndna|ما عندناش|ما\s*عندنا|ماعندنا|ma\s*3andnach|walou|wlh la|indispo)/iu;
+const NEG = /(?:\bne\s+\S+\s+(?:pas|plus)\b|\bpas\s+de\b|(?:^|[\s.,!])la3?[,!.]?\s|^la3?\b|\bma[\s-]*ka[tn]\S+|\bmaka[tn]\S+|\bmach?i\s+mqbol|\bmsali\b|مسالي|\bonly\s+(?:possible\s+)?for\b|ما\s*كن\S+|ماكن\S+|\bnot?\b|\bno\b|n'est pas|ne sont pas|pas (?:disponible|en stock|de |d')|plus disponible|rupture|épuisé|indisponible|out of stock|unavailable|sold out|isn't|aren't|don't|doesn't|ما\s*كاين|ماكاين|ما\s*كايناش|ماكايناش|ما\s*بقا|مابقا|غير متوفر|غير متاح|نفد|نفذ|لا يوجد|ليس|لا\s|ma[\s-]*kayn|makayn|ma\s*b9a|mab9a|ma\s*kaynach|makaynach|machi|mkaynch|ma\s*3ndna|ما عندناش|ما\s*عندنا|ماعندنا|ma\s*3andnach|walou|wlh la|indispo)/iu;
 const YES = /(?:\byes\b|available|in stock|\boui\b|disponible|en stock|متوفر|متاح|كاين|موجود|نعم|إيه|\bkayn|\bkayna|mawjoud|metwfer|\bwah\b|\biyeh\b|eh\b|\bdispo)/iu;
 const CURRENCY = /(?:MAD|DHS?|DH\b|dirhams?|درهم|دراهم|dh|drahm)/iu;
 
@@ -19,10 +19,12 @@ const CURRENCY = /(?:MAD|DHS?|DH\b|dirhams?|درهم|دراهم|dh|drahm)/iu;
 // verbatim in whatever language the merchant wrote it; judge only the bot's words.
 const CATALOG_TEXT = [...STORE.products.flatMap(p => [p.description, p.name, ...p.variants.map(v => v.color)]), STORE.address, STORE.name]
   .sort((a, b) => b.length - a.length);
-const withoutCatalog = (reply: string) => CATALOG_TEXT.reduce((s, t) => s.split(t).join(' '), reply);
+const withoutCatalog = (reply: string, catalog: string[] = CATALOG_TEXT) => catalog.reduce((s, t) => s.split(t).join(' '), reply);
 
-function languageOk(lang: Lang, rawReply: string): string | null {
-  const reply = withoutCatalog(rawReply);
+export function languageOk(lang: Lang, rawReply: string, catalog: string[] = CATALOG_TEXT): string | null {
+  const reply = withoutCatalog(rawReply, catalog);
+  // A reply made almost only of merchant-written names and numbers carries no language signal.
+  if ((reply.match(/\p{L}/gu) || []).length < 20) return null;
   const r = arabicRatio(reply);
   if (lang === 'ar' || lang === 'da') return r >= 0.5 ? null : `expected Arabic script (ratio ${r.toFixed(2)})`;
   if (r > 0.2) return `expected Latin script (ratio ${r.toFixed(2)})`;
@@ -34,7 +36,8 @@ function languageOk(lang: Lang, rawReply: string): string | null {
   // few function words; require a clear lead rather than a fixed count.
   if (lang === 'fr' && (fr < 1 || fr <= en || dz > fr + 1)) return `expected French (fr=${fr}, en=${en}, darija=${dz})`;
   if (lang === 'en' && (en < 1 || en <= fr || dz > en + 1)) return `expected English (en=${en}, fr=${fr}, darija=${dz})`;
-  if (lang === 'dz' && (dz < 2 || en > dz + 1 || fr > dz + 1)) return `expected Darija in Latin script (darija=${dz}, en=${en}, fr=${fr})`;
+  const short = reply.split(/\s+/).length < 10;
+  if (lang === 'dz' && (dz < (short ? 1 : 2) || en > dz + 1 || fr > dz + 1)) return `expected Darija in Latin script (darija=${dz}, en=${en}, fr=${fr})`;
   return null;
 }
 
@@ -51,6 +54,8 @@ function inventedAmounts(reply: string): string[] {
   }
   return found;
 }
+
+export { NEG, YES, num, norm, inventedAmounts };
 
 export function judge(c: EvalCase, turns: TurnResult[]): Verdict {
   const failures: string[] = [];

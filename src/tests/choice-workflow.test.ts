@@ -157,7 +157,7 @@ describe('Minimal Choice-Based Workflow Engine', () => {
     
     expect(res.isComplete).toBe(true);
     expect(res.nextStateId).toBeNull();
-    expect(res.response).toContain('Workflow cancelled.');
+    expect(res.response).toContain("I've cancelled this request");
   });
 
   it.each(['Wakha', 'Ui baghi', 'Ih bghit nconfirme', 'Ah bghit', 'اه بغيت'])(

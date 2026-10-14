@@ -460,7 +460,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     await conversationEngine.handleMessage(tenantId, 'c6', 'I want to book a session', accountId);
     const cancelRes = await conversationEngine.handleMessage(tenantId, 'c6', 'cancel', accountId);
-    expect(cancelRes).toBe('Workflow cancelled.');
+    expect(cancelRes).toBe("No problem, I've cancelled this request. Let me know if you need anything else.");
 
     const retryRes = await conversationEngine.handleMessage(tenantId, 'c6', 'I want to book a session', accountId);
     expect(retryRes).toBe('What is your full name?');

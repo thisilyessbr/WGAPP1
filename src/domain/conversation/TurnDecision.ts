@@ -120,7 +120,7 @@ export class TurnDecisionResolver {
 
   private static readonly PAYMENT_TERMS = /(?:\bpay\b|\bpaying\b|payment|paiement|payer|cash\s+on\s+delivery|cod|moyen\s+de\s+paiement|modes\s+de\s+paiement|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|khalas|l5las|n5les|daf3|dafa3)/iu;
 
-  private static readonly STORE_INFO_TERMS = /(?:hours|opening\s+hours|business\s+hours|\bopen\b|\bclosed\b|\bsaturdays?\b|\bweekends?\b|horaires|heures\s+d['’]ouverture|store\s+location|locations|branch|branches|boutique|magasin|magasins|أوقات\s+العمل|ساعات\s+العمل|مواعيد|فرع|فروع|محل|محلات|موقعكم|فين\s+كاينين|عنوان|العنوان|frou3|fara3|politique|\bfin\s+kaynin\b|\bfach\s+katseddo\b|\bnhar\s+l7ed\b|physical\s+(?:store|shop)|\b(?:your|the)\s+(?:store|shop)\b|where\s+(?:is|are)\s+you\b|\blboutique\b|\blmagasin\b|\blma7al\b|\bfin\s+jat\b|\bfin\s+jaya\b|فين\s+جاين|فين\s+جات|متجركم|المحل\s+ديالكم)/iu;
+  private static readonly STORE_INFO_TERMS = /(?:\bfo9ach\b|\bfou9ach\b|\bkat7lo\b|\bkatsdo\b|\bm7lolin\b|فوقاش|كتحلو|كتسدو|حالين|hours|opening\s+hours|business\s+hours|\bopen\b|\bclosed\b|\bsaturdays?\b|\bweekends?\b|horaires|heures\s+d['’]ouverture|store\s+location|locations|branch|branches|boutique|magasin|magasins|أوقات\s+العمل|ساعات\s+العمل|مواعيد|فرع|فروع|محل|محلات|موقعكم|فين\s+كاينين|عنوان|العنوان|frou3|fara3|politique|\bfin\s+kaynin\b|\bfach\s+katseddo\b|\bnhar\s+l7ed\b|physical\s+(?:store|shop)|\b(?:your|the)\s+(?:store|shop)\b|where\s+(?:is|are)\s+you\b|\blboutique\b|\blmagasin\b|\blma7al\b|\bfin\s+jat\b|\bfin\s+jaya\b|فين\s+جاين|فين\s+جات|متجركم|المحل\s+ديالكم)/iu;
 
   private static readonly SUPPORT_TERMS = /(?:customer\s+service|customer\s+support|support\s+email|support\s+phone|phone\s+number|email\s+and\s+phone|contact\s+support|email\s+support|contactez|contacter|comment\s+contacter|how\s+to\s+contact|how\s+to\s+reach|numéro|numero|téléphone|telephone|رقم\s+الهاتف|إيميل\s+الدعم|ايميل\s+الدعم|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|تواصل\s+مع|اتصال\s+ب)/iu;
 
@@ -141,7 +141,10 @@ export class TurnDecisionResolver {
       : lower;
     const isTracking = matchesPolicyPhrase(lower, this.TRACKING_TERMS);
     const isWarranty = matchesPolicyPhrase(lower, this.WARRANTY_TERMS);
-    const isPayment = matchesPolicyPhrase(lower, this.PAYMENT_TERMS);
+    // "ila lghit nfs nhar wach kayn chi khlas?" asks about a cancellation fee,
+    // not about payment methods.
+    const isCancellationQuestion = /(?:\bannul|\bcancel|\blghit|\bnlghi|\blghi\b|إلغاء|الغاء|لغيت|نلغي|ألغيت|الغيت|ألغي)/iu.test(lower);
+    const isPayment = matchesPolicyPhrase(lower, this.PAYMENT_TERMS) && !isCancellationQuestion;
     // "Track my delivery" and "pay on delivery" each express one policy,
     // not an additional shipping question merely because of the word delivery.
     const explicitlySeparateShipping = /(?:و(?:ال)?(?:شحن|توصيل)|\b(?:and|et)\s+(?:shipping|delivery|livraison)\b)/iu.test(lower);

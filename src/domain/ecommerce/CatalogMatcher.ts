@@ -51,7 +51,24 @@ const CONCEPTS: Record<string, string[]> = {
   casablanca: ['casablanca', 'casa', 'كازا', 'كازابلانكا', 'البيضاء', 'kaza'],
   marrakech: ['marrakech', 'marrakesh', 'مراكش', 'mrakch', 'rrakch'],
   fes: ['fes', 'fès', 'fez', 'فاس'],
-  accessories: ['accessoire', 'accessoires', 'accessories', 'accessory', 'اكسسوارات', 'إكسسوارات', 'aksiswar']
+  accessories: ['accessoire', 'accessoires', 'accessories', 'accessory', 'اكسسوارات', 'إكسسوارات', 'aksiswar'],
+  // Beauty and wellness services (Moroccan spas, salons, hammams).
+  hammam: ['hammam', 'hamam', 'hammams', 'حمام', 'الحمام', '7mam', 'l7mam', '7ammam'],
+  scrub: ['gommage', 'scrub', 'exfoliation', 'kessa', 'kassa', 'كسالة', 'الكسالة', 'تقشير', 'kessala', 'kesala', 'ghassoul', 'غاسول', 'enveloppement', 'wrap'],
+  massage: ['massage', 'massages', 'massaj', 'masaj', 'مساج', 'تدليك', 'ماساج', 'tadlik'],
+  facial: ['visage', 'facial', 'face', 'skincare', 'وجه', 'الوجه', 'بشرة', 'البشرة', 'wjeh', 'wajh', 'lwejh', 'bachra'],
+  manicure: ['manucure', 'manicure', 'مانيكير', 'المانيكير', 'manikir', 'ongles', 'nails', 'أظافر', 'ظفار', 'dfar', 'vernis', 'polish'],
+  pedicure: ['pédicure', 'pedicure', 'باديكير', 'الباديكير', 'pedikir', 'pieds', 'feet', 'foot', 'قدمين', 'القدمين'],
+  // In Darija رجلين covers both legs and feet; it ranks with leg services.
+  legs: ['jambes', 'jambe', 'legs', 'leg', 'ساقين', 'الساقين', 'ساق', 'رجلين', 'الرجلين', 'rjlin', 'rjel', 'rejlin'],
+  traditional: ['traditionnel', 'traditionnelle', 'traditional', 'beldi', 'bldi', 'بلدي', 'البلدي', 'تقليدي', 'التقليدي'],
+  complete: ['complet', 'complète', 'complete', 'full', 'rituel', 'ritual', 'كامل', 'كاملة', 'الكاملة', 'باقة', 'kamel', 'kamla'],
+  waxing: ['épilation', 'epilation', 'waxing', 'wax', 'cire', 'حلاوة', 'الحلاوة', 'شمع', 'الشمع', '7lawa', 'l7lawa', 'إزالة', 'ازالة'],
+  haircut: ['coupe', 'coiffure', 'haircut', 'cut', 'brushing', 'blowdry', 'قص', 'حلاقة', 'تسريح', 'براشينغ', 'بروشينغ', '9ess', 'kess', 'cha3r', 'شعر', 'الشعر', 'coiffeur', 'coiffeuse'],
+  coloring: ['coloration', 'couleur', 'coloring', 'dye', 'صباغة', 'sbagha', 'teinture', 'mèches', 'meches', 'balayage'],
+  henna: ['henné', 'henne', 'henna', 'حناء', 'الحناء', 'حنة', 'الحنة', 'l7enna', '7enna', 'nekcha', 'n9cha', 'نقش', 'نقشة', 'النقشة'],
+  eyebrows: ['sourcils', 'eyebrows', 'brows', 'حواجب', 'الحواجب', '7wajeb'],
+  makeup: ['maquillage', 'makeup', 'ماكياج', 'مكياج', 'makiyaj', 'maquiyaj']
 };
 
 /** Moroccan cities: a delivery destination, not a product, when the message is about shipping. */
@@ -144,7 +161,7 @@ function conceptsOf(token: string): Set<string> {
   const direct = conceptIndex.get(token) || conceptIndex.get(stripArabizi(token));
   if (direct) return direct;
   // Light plural / feminine handling: baskets → basket, جلابات → جلاب
-  for (const candidate of [token.replace(/(?:es|s|x)$/, ''), token.replace(/(?:ات|ين)$/, ''), token.replace(/ة$/, '')]) {
+  for (const candidate of [token.replace(/(?:es|s|x)$/, ''), token.replace(/(?:ات|ين)$/, ''), token.replace(/ة$/, ''), token.replace(/^[لب](?=[؀-ۿ]{3,})/, '')]) {
     const hit = candidate !== token ? conceptIndex.get(candidate) : undefined;
     if (hit) return hit;
   }
@@ -190,7 +207,8 @@ export class CatalogMatcher {
   static queryTokens(text: string): string[] {
     const tokens = [...new Set(tokenize(text))];
     // "livraison l fes" names a destination, not the "Sac Fès" product.
-    return DELIVERY_CUE.test(text) ? tokens.filter(t => !CITIES.has(t) && !CITIES.has(stripArabizi(t))) : tokens;
+    const isCity = (t: string) => CITIES.has(t) || CITIES.has(stripArabizi(t)) || CITIES.has(t.replace(/^[لب](?=[؀-ۿ]{3,})/, ''));
+    return DELIVERY_CUE.test(text) ? tokens.filter(t => !isCity(t)) : tokens;
   }
 
   static score(text: string, product: MatchableProduct): number {

@@ -1,4 +1,8 @@
 import { BusinessConfig } from '../domain/tenant/BusinessConfig';
+import { CatalogMatcher } from '../domain/ecommerce/CatalogMatcher';
+
+/** Character budget for the service list; small menus are always sent whole. */
+const SERVICE_BUDGET = 1900;
 
 /** Bounded, untrusted evidence supplied by the account owner, never system instructions. */
 export function portalBusinessEvidence(
@@ -11,12 +15,25 @@ export function portalBusinessEvidence(
   if (!facts && faq.length === 0) return '';
   const words = question.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2);
   const services = Array.isArray(facts?.services) ? facts.services : [];
-  const ranked = services.map((s: any) => ({ s, score: words.filter(w => JSON.stringify(s).toLocaleLowerCase().includes(w)).length }))
-    .sort((a, b) => b.score - a.score).slice(0, 5).map(x => ({ ...x.s, currency: config.identity.currency || 'MAD' }));
+  // Customers name services in Darija, Arabic, French or English while the
+  // menu is usually French: rank across languages, then send every service
+  // that fits the budget instead of a fixed top 5 that silently drops the rest.
+  const scored = services.map((s: any, index: number) => ({ s, index,
+    score: words.filter(w => JSON.stringify(s).toLocaleLowerCase().includes(w)).length
+      + CatalogMatcher.score(question, { id: String(index), name: String(s?.name || ''), description: String(s?.description || '') }) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  const ranked: unknown[] = [];
+  let used = 2;
+  for (const { s } of scored) {
+    const entry = { ...s, currency: config.identity.currency || 'MAD' };
+    const size = JSON.stringify(entry).length + 1;
+    if (used + size > SERVICE_BUDGET && ranked.length) break;
+    ranked.push(entry); used += size;
+  }
   const sections: [string, unknown][] = [
     ['Business', { name: config.identity.brand, hours: config.identity.businessHours, address: config.identity.locations, currency: config.identity.currency, ...config.identity.support }],
     ['Description', facts?.description], ['Contact', { phone: facts?.phone, website: facts?.website }],
-    ...Object.entries((facts?.policies || {}) as Record<string, unknown>), ['Relevant services', ranked]
+    ...Object.entries((facts?.policies || {}) as Record<string, unknown>), [services.length > ranked.length ? 'Relevant services' : 'Services', ranked]
   ];
   if (faq.length > 0) {
     // A workflow interruption can ask in a different language from the FAQ.

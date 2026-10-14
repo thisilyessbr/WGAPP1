@@ -772,34 +772,44 @@ export class AnswerComposer {
     }
 
     if (turnDecision.intent === 'PRODUCT_DETAIL') {
+      const arabicScript = responseLanguage === 'ar' || (responseLanguage === 'darija' && responseScript !== 'arabizi');
+      const sep = arabicScript ? '، ' : ', ';
+      // In-stock options grouped by colour ("Bleu : 30, 32 · Noir : 34"): a flat
+      // "Bleu 30, Noir 30, Bleu 32, ..." list is hard to read in a chat.
+      const bySize = new Map<string, string[]>();
+      for (const v of fact.product.variants || []) {
+        if ((v as any).active === false || !(Number((v as any).stock) > 0)) continue;
+        const color = (v.color || '').trim(), size = (v.size || '').trim();
+        if (!color && !size) continue;
+        const list = bySize.get(color) || [];
+        if (size && !list.includes(size)) list.push(size);
+        bySize.set(color, list);
+      }
+      const options = [...bySize.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${sizes.join(sep)})` : color || sizes.join(sep)).join(' · ');
+      // The merchant's description is quoted only when it is in the reply's language/script.
+      const descArabic = /[؀-ۿ]/.test(safeFactDesc);
+      const descFrench = !descArabic && (safeFactDesc.match(/(?:^|\s)(?:en|de|des|du|le|la|les|avec|pour|et|à)(?=\s)/giu) || []).length >= 1
+        && !/\b(?:the|with|and|for)\b/i.test(safeFactDesc);
+      const keepDesc = safeFactDesc && (arabicScript ? descArabic : responseLanguage === 'fr' ? !descArabic : !descArabic && !descFrench);
+      const descLine = keepDesc ? `\n${safeFactDesc}` : '';
       if (responseLanguage === 'fr') {
-        const variantsText = fact.product.variants?.length
-          ? `\nOptions (tailles et couleurs) : ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join(', ')}`
-          : '';
-        return `${safeFactName}\n${safeFactDesc}\nPrix : ${fact.effectivePrice} ${fact.currency}${variantsText}\nDisponibilité : ${fact.inStock ? `En stock (${fact.availableStock} disponibles)` : 'Rupture de stock'}`;
+        const variantsText = options ? `\nTailles disponibles : ${options}` : '';
+        return `${safeFactName}${descLine}\nPrix : ${fact.effectivePrice} ${fact.currency}${variantsText}\nDisponibilité : ${fact.inStock ? 'En stock' : 'Rupture de stock'}`;
       }
       if (responseLanguage === 'ar') {
-        const variantsText = fact.product.variants?.length
-          ? `\nالخيارات المتوفرة (المقاسات والألوان): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join('، ')}`
-          : '';
-        return `${safeFactName}\n${safeFactDesc}\nالسعر: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالحالة: ${fact.inStock ? `متوفر في المخزون (${fact.availableStock} قطع)` : 'غير متوفر حالياً'}`;
+        const variantsText = options ? `\nالمقاسات المتوفرة: ${options}` : '';
+        return `${safeFactName}${descLine}\nالسعر: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالحالة: ${fact.inStock ? 'متوفر' : 'غير متوفر حالياً'}`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
-          const variantsText = fact.product.variants?.length
-            ? `\nKheyarat (taille w lwan): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join(', ')}`
-            : '';
-          return `${safeFactName}\n${safeFactDesc}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}\nStock: ${fact.inStock ? 'Kayen' : 'Msali db'}`;
+          const variantsText = options ? `\nTailles li kaynin: ${options}` : '';
+          return `${safeFactName}${descLine}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}\nStock: ${fact.inStock ? 'Kayen' : 'Msali db'}`;
         }
-        const variantsText = fact.product.variants?.length
-          ? `\nالخيارات اللي كاينين (القياس والألوان): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join('، ')}`
-          : '';
-        return `${safeFactName}\n${safeFactDesc}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالمخزون: ${fact.inStock ? 'كاين' : 'مسالي حالياً'}`;
+        const variantsText = options ? `\nالمقاسات اللي كاينين: ${options}` : '';
+        return `${safeFactName}${descLine}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالمخزون: ${fact.inStock ? 'كاين' : 'مسالي حالياً'}`;
       }
-      const variantsText = fact.product.variants?.length
-        ? `\nAvailable options (colors & sizes): ${fact.product.variants.map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean).join(', ')}`
-        : '';
-      return `${safeFactName}\n${safeFactDesc}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}\nAvailability: ${fact.inStock ? 'In stock' : 'Out of stock'}`;
+      const variantsText = options ? `\nAvailable sizes: ${options}` : '';
+      return `${safeFactName}${descLine}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}\nAvailability: ${fact.inStock ? 'In stock' : 'Out of stock'}`;
     }
 
     if (turnDecision.intent === 'BUY_INTENT') {

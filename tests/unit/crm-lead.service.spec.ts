@@ -102,9 +102,9 @@ describe('CRMService: Minimal Lead Unit Tests', () => {
     // Customer details remain on the related Customer; lead workflow fields are first-class.
     const leadKeys = Object.keys(leadWithCustomer!).filter(k => k !== 'customer');
     expect(leadKeys.sort()).toEqual([
-      'accountId', 'closedAt', 'contactedAt', 'createdAt', 'customerId',
+      'accountId', 'assignedToUserId', 'closedAt', 'contactedAt', 'createdAt', 'customerId', 'details',
       'followUpAt', 'id', 'interest', 'note', 'signalReason',
-      'sourceConversationId', 'status', 'tenantId', 'updatedAt'
+      'sourceConversationId', 'sourcePhoneNumberId', 'sourceWorkflowSessionId', 'status', 'tenantId', 'updatedAt'
     ].sort());
   });
 

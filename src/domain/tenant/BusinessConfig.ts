@@ -372,7 +372,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     intentClassification: 'You are an intent classification engine. Classify the user message into exactly ONE of the following intents: [{{intents}}]. If it matches none, reply with "null". Reply ONLY with the exact intent string or "null". Do not include quotes or any other text.',
     fieldExtraction: 'You are a data extraction engine. Extract the field of type "{{fieldType}}" from the user\'s message. Reply ONLY with valid JSON in this format: {"value": <extracted_value>}. If the information is not present, reply with {"value": null}. Do not include markdown code blocks.',
     workflowUnavailable: 'This workflow is no longer available.',
-    workflowCancelled: 'Workflow cancelled.',
+    workflowCancelled: "No problem, I've cancelled this request. Let me know if you need anything else.",
     missingFieldPrompt: 'Please provide: {{fieldName}}',
     confirmationPrompt: 'Please confirm the following details:\n{{summary}}\n\n(Reply \'yes\' to confirm or \'no\' to cancel)'
   },

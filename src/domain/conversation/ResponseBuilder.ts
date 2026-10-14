@@ -50,10 +50,10 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
     darija: "n9der n3awnek f l-as'ila dyal talab dyalek. nkhemlou hadchi lowel:"
   },
   workflowCancelled: {
-    en: 'Workflow cancelled.',
-    fr: 'Processus annulé.',
-    ar: 'تم إلغاء العملية.',
-    darija: 't-anulat l-3amaliya.'
+    en: "No problem, I've cancelled this request. Let me know if you need anything else.",
+    fr: "Pas de souci, j'ai annulé cette demande. Dites-moi si vous avez besoin d'autre chose.",
+    ar: 'حسناً، تم إلغاء هذا الطلب. أخبرني إذا احتجت أي شيء آخر.',
+    darija: 'Wakha, tlgha had talab. Ila bghiti chi haja khra, ana hna.'
   },
   workflowUnavailable: {
     en: 'This workflow is no longer available.',
@@ -72,7 +72,7 @@ const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESS
   completion: 'شكرا! تسجلات المعلومات ديالك.',
   choiceRedirect: 'نكملو هاد الطلب اللول، عفاك اختار واحد من هاد الاختيارات:',
   collectFallback: 'نقدر نعاونك فالأسئلة ديال الطلب ديالك. نكملو هاد الخطوة اللولة:',
-  workflowCancelled: 'تلغى الطلب ديالك.',
+  workflowCancelled: 'واخا، تلغى الطلب ديالك. إلا بغيتي شي حاجة أخرى، أنا هنا.',
   workflowUnavailable: 'هاد الخدمة ما بقاتش متوفرة.'
 };
 
@@ -81,12 +81,25 @@ export function getWorkflowMessage(key: keyof typeof DEFAULT_WORKFLOW_MESSAGES, 
   return DEFAULT_WORKFLOW_MESSAGES[key][lang as 'en' | 'fr' | 'ar' | 'darija'] || DEFAULT_WORKFLOW_MESSAGES[key].en;
 }
 
+/**
+ * Built-in cancellation texts, current and previous. Stored tenant configs
+ * often carry a copy of an old default ("Workflow cancelled."); treat those as
+ * defaults so customers get the localized message, not technical wording.
+ */
+export const DEFAULT_CANCELLED_VALUES: string[] = [
+  ...Object.values(DEFAULT_WORKFLOW_MESSAGES.workflowCancelled),
+  DARIJA_ARABIC_WORKFLOW_MESSAGES.workflowCancelled,
+  'Workflow cancelled.', 'Processus annulé.', 'تم إلغاء العملية.', 't-anulat l-3amaliya.', 'تلغى الطلب ديالك.'
+];
+
 /** Natural Darija questions for the order fields Moroccan shops collect most. */
 const DARIJA_FIELD_QUESTIONS: { pattern: RegExp; arabizi: string; arabic: string }[] = [
   { pattern: /^(?:product|productname|item|itemname|produit|article)$/i, arabizi: 'Chno howa l-produit li bghiti?', arabic: 'شنو هو المنتوج اللي بغيتي؟' },
   { pattern: /^(?:size|taille|pointure|sizecolor|variant|variante)$/i, arabizi: 'Chmen taille w chmen lon bghiti?', arabic: 'شمن مقاس وشمن لون بغيتي؟' },
   { pattern: /^(?:colou?r|couleur)$/i, arabizi: 'Chmen lon bghiti?', arabic: 'شمن لون بغيتي؟' },
   { pattern: /^(?:quantity|qty|quantite|quantité)$/i, arabizi: 'Ch7al mn wa7da bghiti?', arabic: 'شحال من وحدة بغيتي؟' },
+  { pattern: /^(?:service|services|servicename|prestation|soin|treatment)$/i, arabizi: 'Achmen service bghiti 3afak?', arabic: 'شمن خدمة بغيتي عافاك؟' },
+  { pattern: /^(?:preferredtime|preferreddate|preferreddatetime|preferreddemotime|appointmenttime|appointmentdate|date|time|datetime|slot|creneau|créneau|day|rdv)$/i, arabizi: 'Achmen nhar w ach men sa3a kaynasbek?', arabic: 'أشمن نهار وأشمن ساعة كيناسبك؟' },
   { pattern: /^(?:name|fullname|customername|nom|nomcomplet)$/i, arabizi: '3afak 3tini smitek l-kamla.', arabic: 'عافاك عطيني سميتك الكاملة.' },
   { pattern: /^(?:city|ville|town)$/i, arabizi: 'F ina mdina nta? W 3tini l-3onwan 3afak.', arabic: 'فاشمن مدينة نتا؟ وعطيني العنوان عافاك.' },
   { pattern: /^(?:address|adresse|deliveryaddress)$/i, arabizi: '3afak 3tini l-3onwan dyal l-livraison.', arabic: 'عافاك عطيني العنوان ديال التوصيل.' },
@@ -229,6 +242,32 @@ export class ResponseBuilder {
     });
   }
 
+  /** Customer-facing label for a collected field; never a raw key such as "preferred_time". */
+  static summaryLabel(key: string, language: string): string {
+    const k = key.replace(/[\s_-]/g, '').toLowerCase();
+    const kind = /^(?:name|fullname|customername|nom|nomcomplet|prenom)$/.test(k) ? 'name'
+      : /^(?:phone|phonenumber|telephone|tel|mobile|numero|whatsapp)$/.test(k) ? 'phone'
+      : /^(?:service|services|servicename|prestation|soin|treatment)$/.test(k) ? 'service'
+      : /^(?:preferredtime|preferreddate|preferreddatetime|appointmenttime|appointmentdate|date|time|datetime|slot|creneau|day|rdv)$/.test(k) ? 'time'
+      : /^(?:size|taille|pointure|sizecolor|variant)$/.test(k) ? 'size'
+      : /^(?:colou?r|couleur)$/.test(k) ? 'color'
+      : /^(?:city|ville|town)$/.test(k) ? 'city'
+      : /^(?:address|adresse|deliveryaddress)$/.test(k) ? 'address'
+      : /^(?:product|productname|item|produit|article)$/.test(k) ? 'product'
+      : /^(?:email|mail)$/.test(k) ? 'email'
+      : /^(?:note|notes|message|comment|comments|remarque)$/.test(k) ? 'note' : '';
+    const labels: Record<string, Record<string, string>> = {
+      en: { name: 'Name', phone: 'Phone', service: 'Service', time: 'Preferred time', size: 'Size', color: 'Colour', city: 'City', address: 'Address', product: 'Product', email: 'Email', note: 'Note' },
+      fr: { name: 'Nom', phone: 'Téléphone', service: 'Prestation', time: 'Créneau souhaité', size: 'Taille', color: 'Couleur', city: 'Ville', address: 'Adresse', product: 'Produit', email: 'E-mail', note: 'Remarque' },
+      ar: { name: 'الاسم', phone: 'الهاتف', service: 'الخدمة', time: 'الموعد المفضل', size: 'المقاس', color: 'اللون', city: 'المدينة', address: 'العنوان', product: 'المنتج', email: 'البريد الإلكتروني', note: 'ملاحظة' },
+      darija: { name: 'Smiya', phone: 'Téléphone', service: 'Service', time: 'Nhar w sa3a', size: 'Taille', color: 'Lon', city: 'Lmdina', address: 'L3onwan', product: 'Lproduit', email: 'Email', note: 'Mola7aza' },
+      darija_arabic: { name: 'السمية', phone: 'نمرة التيليفون', service: 'الخدمة', time: 'النهار والساعة', size: 'المقاس', color: 'اللون', city: 'المدينة', address: 'العنوان', product: 'المنتوج', email: 'الإيميل', note: 'ملاحظة' }
+    };
+    if (kind) return labels[language]?.[kind] || labels.en[kind];
+    const words = key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
   buildConfirmationResponse(
     contextData: Record<string, any>,
     config: BusinessConfig,
@@ -246,7 +285,7 @@ export class ResponseBuilder {
     const labelLanguage = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
     const summary = Object.entries(contextData)
       .filter(([key]) => !key.startsWith('_'))
-      .map(([key, val]) => `${checkoutLabels[labelLanguage]?.[key] || key}: ${val}`)
+      .map(([key, val]) => `${checkoutLabels[labelLanguage]?.[key] || ResponseBuilder.summaryLabel(key, labelLanguage)}: ${val}`)
       .join('\n');
 
     const interpolationData: Record<string, unknown> = {
