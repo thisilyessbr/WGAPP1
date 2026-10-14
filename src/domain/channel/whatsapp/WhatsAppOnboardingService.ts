@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { WhatsAppNumberService } from './WhatsAppNumberService';
 import { SecretBox } from '../../../core/security/SecretBox';
 import { logger } from '../../../utils/logger';
@@ -174,6 +174,11 @@ export class WhatsAppOnboardingService {
       throw new Error(`Account [${trimmedAccountId}] not found for tenant [${trimmedTenantId}]`);
     }
 
+    const existingNumber = await this.prisma.whatsAppBusinessNumber.findUnique({ where: { phoneNumberId: trimmedPhoneNumberId } });
+    if (existingNumber && (existingNumber.tenantId !== trimmedTenantId || existingNumber.accountId !== trimmedAccountId)) {
+      throw new Error(`phoneNumberId [${trimmedPhoneNumberId}] is already registered to another account or tenant`);
+    }
+
     const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
     if (stateToken) {
       if (!this.validateSignupState(stateToken, trimmedTenantId, trimmedAccountId)) {
@@ -253,24 +258,37 @@ export class WhatsAppOnboardingService {
 
     const tokenToUse = userAccessToken;
 
-    // 3. Encrypt access token and persist ChannelConnection
-    // Keep the registration PIN with the client credential bundle so it is not
-    // lost after a successful registration. The whole bundle is encrypted.
+    // Meta, not the browser callback, must confirm that this number belongs to
+    // the WABA shared by this OAuth grant before we touch local credentials.
+    let verifiedDisplayPhoneNumber = displayPhoneNumber?.trim() || null;
+    if (!isMockCode) {
+      try {
+        const phonesUrl = `${this.baseUrl}/${this.version}/${encodeURIComponent(trimmedWabaId)}/phone_numbers?fields=id,display_phone_number&limit=100`;
+        const phonesResp = await this.fetchFn(phonesUrl, { headers: { Authorization: `Bearer ${tokenToUse}` } });
+        const phones: any = await phonesResp.json().catch(() => ({}));
+        if (!phonesResp.ok || !Array.isArray(phones.data)) {
+          return { success: false, tenantId: trimmedTenantId, accountId: trimmedAccountId, phoneNumberId: trimmedPhoneNumberId,
+            wabaId: trimmedWabaId, status: 'FAILED', webhookSubscribed: false, registered: false,
+            error: 'Meta could not verify the WhatsApp number in the selected business account.' };
+        }
+        const selected = phones.data.find((number: any) => String(number.id) === trimmedPhoneNumberId);
+        if (!selected) {
+          return { success: false, tenantId: trimmedTenantId, accountId: trimmedAccountId, phoneNumberId: trimmedPhoneNumberId,
+            wabaId: trimmedWabaId, status: 'FAILED', webhookSubscribed: false, registered: false,
+            error: 'The selected WhatsApp number does not belong to the business account returned by Meta.' };
+        }
+        verifiedDisplayPhoneNumber = selected.display_phone_number || null;
+      } catch {
+        return { success: false, tenantId: trimmedTenantId, accountId: trimmedAccountId, phoneNumberId: trimmedPhoneNumberId,
+          wabaId: trimmedWabaId, status: 'FAILED', webhookSubscribed: false, registered: false,
+          error: 'Meta could not verify the WhatsApp number. Please retry the connection.' };
+      }
+    }
+
+    // Keep the PIN with this number's encrypted credentials after Meta succeeds.
     const pinToUse = pin && /^\d{6}$/.test(pin.trim())
       ? pin.trim()
       : crypto.randomInt(100000, 1000000).toString();
-    const encryptedCredentials = this.secretBox.encryptJson({ accessToken: tokenToUse, registrationPin: pinToUse });
-    const connection = await this.numberService.createOrUpdateConnection({
-      tenantId: trimmedTenantId,
-      accountId: trimmedAccountId,
-      provider: 'META_CLOUD',
-      status: 'PENDING',
-      enabled: true,
-      encryptedCredentials,
-      appId: this.appId || null,
-      wabaId: trimmedWabaId,
-      lastConnectedAt: new Date()
-    });
 
     // 4. Subscribe Meta App to WABA Webhooks: POST /{waba_id}/subscribed_apps
     let webhookSubscribed = false;
@@ -294,7 +312,6 @@ export class WhatsAppOnboardingService {
           const errData: any = await subResp.json().catch(() => ({}));
           const errMsg = errData?.error?.message || `HTTP ${subResp.status}`;
           logger.error(`WhatsAppOnboardingService: Webhook subscription failed for WABA [${trimmedWabaId}]: ${errMsg}`);
-          await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
           return {
             success: false,
             tenantId: trimmedTenantId,
@@ -305,14 +322,12 @@ export class WhatsAppOnboardingService {
             status: 'FAILED',
             webhookSubscribed: false,
             registered: false,
-            connectionId: connection.id,
             error: `Webhook subscription failed: ${errMsg}`
           };
         }
       } catch (err: any) {
         const errMsg = err.message || String(err);
         logger.error(`WhatsAppOnboardingService: Webhook subscription network error for WABA [${trimmedWabaId}]: ${errMsg}`);
-        await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
         return {
           success: false,
           tenantId: trimmedTenantId,
@@ -323,7 +338,6 @@ export class WhatsAppOnboardingService {
           status: 'FAILED',
           webhookSubscribed: false,
           registered: false,
-          connectionId: connection.id,
           error: `Webhook subscription network error: ${errMsg}`
         };
       }
@@ -359,7 +373,6 @@ export class WhatsAppOnboardingService {
             logger.info(`WhatsAppOnboardingService: Phone number [${trimmedPhoneNumberId}] is already registered with Cloud API`);
           } else {
             logger.error(`WhatsAppOnboardingService: Phone registration failed for [${trimmedPhoneNumberId}]: ${errMsg}`);
-            await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
             return {
               success: false,
               tenantId: trimmedTenantId,
@@ -370,7 +383,6 @@ export class WhatsAppOnboardingService {
               status: 'FAILED',
               webhookSubscribed: true,
               registered: false,
-              connectionId: connection.id,
               error: `Phone registration failed: ${errMsg}`
             };
           }
@@ -378,7 +390,6 @@ export class WhatsAppOnboardingService {
       } catch (err: any) {
         const errMsg = err.message || String(err);
         logger.error(`WhatsAppOnboardingService: Phone registration network error for [${trimmedPhoneNumberId}]: ${errMsg}`);
-        await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'FAILED', errMsg);
         return {
           success: false,
           tenantId: trimmedTenantId,
@@ -389,24 +400,50 @@ export class WhatsAppOnboardingService {
           status: 'FAILED',
           webhookSubscribed: true,
           registered: false,
-          connectionId: connection.id,
           error: `Phone registration network error: ${errMsg}`
         };
       }
     }
 
-    // 6. Persist mapping in database atomically with connectionId
-    await this.numberService.updateConnectionStatus(connection.id, trimmedTenantId, 'CONNECTED');
-    await this.numberService.registerNumber({
-      tenantId: trimmedTenantId,
-      accountId: trimmedAccountId,
-      phoneNumberId: trimmedPhoneNumberId,
-      wabaId: trimmedWabaId,
-      displayPhoneNumber: displayPhoneNumber?.trim() || null,
-      status: 'CONNECTED',
-      enabled: true,
-      connectionId: connection.id,
-      transport: 'META_CLOUD'
+    // Give each phone its own connection. Two numbers on one WABA must not
+    // overwrite each other's token or status, and failed reconnects must leave
+    // the currently working connection untouched.
+    const encryptedCredentials = this.secretBox.encryptJson({ accessToken: tokenToUse, registrationPin: pinToUse });
+    const connection = await this.prisma.$transaction(async tx => {
+      const numbers = this.numberService.withClient(tx);
+      const previousNumber = await tx.whatsAppBusinessNumber.findUnique({ where: { phoneNumberId: trimmedPhoneNumberId } });
+      const current = await numbers.createOrUpdateConnection({
+        tenantId: trimmedTenantId,
+        accountId: trimmedAccountId,
+        provider: 'META_CLOUD',
+        connectionKey: trimmedPhoneNumberId,
+        status: 'CONNECTED',
+        enabled: true,
+        encryptedCredentials,
+        appId: this.appId || null,
+        wabaId: trimmedWabaId,
+        lastConnectedAt: new Date(),
+        lastError: null
+      });
+      await numbers.registerNumber({
+        tenantId: trimmedTenantId,
+        accountId: trimmedAccountId,
+        phoneNumberId: trimmedPhoneNumberId,
+        wabaId: trimmedWabaId,
+        displayPhoneNumber: verifiedDisplayPhoneNumber,
+        status: 'CONNECTED',
+        enabled: true,
+        connectionId: current.id,
+        transport: 'META_CLOUD'
+      });
+      await this.retireSupersededConnections(tx, {
+        tenantId: trimmedTenantId,
+        accountId: trimmedAccountId,
+        wabaId: trimmedWabaId,
+        currentConnectionId: current.id,
+        previousConnectionId: previousNumber?.connectionId ?? null
+      });
+      return current;
     });
 
     logger.info(`WhatsAppOnboardingService: Completed onboarding for phoneNumberId [${trimmedPhoneNumberId}] under account [${trimmedAccountId}] (connection: ${connection.id})`);
@@ -417,11 +454,56 @@ export class WhatsAppOnboardingService {
       accountId: trimmedAccountId,
       phoneNumberId: trimmedPhoneNumberId,
       wabaId: trimmedWabaId,
-      displayPhoneNumber: displayPhoneNumber?.trim() || null,
+      displayPhoneNumber: verifiedDisplayPhoneNumber,
       status: 'CONNECTED',
       webhookSubscribed: true,
       registered: true,
       connectionId: connection.id
     };
+  }
+
+  /**
+   * Connections used to be keyed by wabaId; they are now keyed by phoneNumberId.
+   * After a (re)connect, any other Meta connection in the account that previously
+   * served this number (its old connectionId, or the legacy wabaId-keyed row) is
+   * disconnected and its stale token wiped — unless other numbers still route
+   * through it, in which case it stays live for them.
+   */
+  private async retireSupersededConnections(
+    tx: Prisma.TransactionClient,
+    params: { tenantId: string; accountId: string; wabaId: string; currentConnectionId: string; previousConnectionId: string | null }
+  ): Promise<void> {
+    const { tenantId, accountId, wabaId, currentConnectionId, previousConnectionId } = params;
+    const candidates = await tx.channelConnection.findMany({
+      where: {
+        tenantId,
+        accountId,
+        provider: 'META_CLOUD',
+        id: { not: currentConnectionId },
+        OR: [
+          { connectionKey: wabaId },
+          ...(previousConnectionId ? [{ id: previousConnectionId }] : [])
+        ]
+      },
+      select: { id: true }
+    });
+
+    for (const candidate of candidates) {
+      const stillServing = await tx.whatsAppBusinessNumber.count({ where: { connectionId: candidate.id } });
+      if (stillServing > 0) {
+        logger.info(`WhatsAppOnboardingService: Legacy connection [${candidate.id}] still serves ${stillServing} other number(s); leaving it active`);
+        continue;
+      }
+      await tx.channelConnection.update({
+        where: { id: candidate.id },
+        data: {
+          status: 'DISCONNECTED',
+          enabled: false,
+          encryptedCredentials: null,
+          lastError: `Superseded by connection ${currentConnectionId}`
+        }
+      });
+      logger.info(`WhatsAppOnboardingService: Disconnected superseded connection [${candidate.id}] (replaced by ${currentConnectionId})`);
+    }
   }
 }

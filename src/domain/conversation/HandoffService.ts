@@ -31,6 +31,8 @@ export class HandoffService {
       /(?:دوز|دوزو|عطيني|حولني)\s+(?:ليا|لي|لـ)\s*(?:شي\s+)?(?:موظف|بنادم|إنسان|مسؤول)/u,
       /\b(?:bghit|bghina|khassni|khasni|bdi)\s+(?:nhedar|nhder|nhdr|ndwi|ntkellem|ntwasel)\s+m3a\s+(?:chi\s+)?(?:agent|l-agent|conseiller|bnadm|insan|wahed|chi\s+7ed)\b/i,
       /\b(?:hedar|hder|hdr|dwi)\s+m3aya\s+(?:chi\s+)?(?:bnadm|agent|l-agent|insan|personne)\b/i,
+      /\b(?:3tini|atini|3tina|bghit|bghina|khassni|khasni)\s+(?:chi\s+)?(?:insan|bnadm|bnadem|wa7d|wahd|wa7ed|agent|conseiller|responsable)\b.{0,30}\b(?:nhder|nhedar|nhdr|ntkellem|ndwi)\b/i,
+      /\b(?:nhder|nhedar|nhdr|ntkellem|ndwi)\s+m3a\s+(?:chi\s+)?(?:wa7d|wahd|wa7ed|insan|bnadm)\b.{0,20}\b(?:machi|mashi)\s+(?:robot|bot|machine)\b/i,
       /\b(?:dwez|passe|passer|transferi)\s+(?:liya|lia|li)\s+(?:chi\s+)?(?:agent|l-agent|conseiller|bnadm|responsable)\b/i,
       /\b(?:parler\s+m3a\s+bnadm|hedar\s+m3a\s+bnadm)\b/i
     ]

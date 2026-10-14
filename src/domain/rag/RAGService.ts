@@ -33,6 +33,22 @@ interface QueryEmbeddingCacheEntry {
 }
 
 export class RAGService {
+  private static policyTitleMatches(intent: string, title?: string): boolean {
+    if (!title) return false;
+    const name = title.toLowerCase();
+    const patterns: Record<string, RegExp> = {
+      SHIPPING: /shipping|livraison|delivery|توصيل|شحن/u,
+      RETURNS: /return|exchange|refund|retour|échange|ارجاع|إرجاع|ترجيع|تبديل/u,
+      CARE: /care|wash|lavage|entretien|غسيل|عناية/u,
+      TRACKING: /tracking|suivi|تتبع/u,
+      PAYMENT: /payment|paiement|دفع/u,
+      SUPPORT: /support|contact|دعم|تواصل/u,
+      STORE_INFO: /store|hours|horaires|متجر|ساعات/u,
+      SIZE_GUIDE: /size|taille|مقاس/u
+    };
+    if (intent === 'SHIPPING' && /tracking|suivi|تتبع/u.test(name)) return false;
+    return Boolean(patterns[intent]?.test(name));
+  }
   public static readonly MAX_CACHE_ENTRIES = 500;
   public static readonly CACHE_TTL_MS = 3600 * 1000; // 1 hour sliding TTL
   private static readonly queryEmbeddingCache = new Map<string, QueryEmbeddingCacheEntry>();
@@ -276,7 +292,8 @@ export class RAGService {
     tenantId: string,
     query: string,
     config: BusinessConfig,
-    accountId?: string | null
+    accountId?: string | null,
+    policyIntent?: string | null
   ): Promise<RAGChunk[]> {
     if (!config.knowledge.enabled || !query || !query.trim()) {
       return [];
@@ -290,7 +307,8 @@ export class RAGService {
 
     // 2. Search repository securely scoped to tenant and account
     // Request an expanded candidate pool to allow quality re-ranking
-    const candidateLimit = Math.max(config.knowledge.topK || 4, 8);
+    const candidateLimit = policyIntent ? Math.max(config.knowledge.topK || 4, 24)
+      : Math.max(config.knowledge.topK || 4, 8);
     const minSim = typeof config.knowledge.minSimilarityScore === 'number' 
       ? config.knowledge.minSimilarityScore 
       : 0.45;
@@ -343,7 +361,14 @@ export class RAGService {
 
     // 4. Deterministic Sort: Rank by composite score descending
     // (Factual Policy strictly outranks Customer Examples and Document Headers)
-    classifiedChunks.sort((a, b) => b.score - a.score);
+    classifiedChunks.sort((a, b) => {
+      if (policyIntent) {
+        const titleDifference = Number(RAGService.policyTitleMatches(policyIntent, b.documentTitle))
+          - Number(RAGService.policyTitleMatches(policyIntent, a.documentTitle));
+        if (titleDifference) return titleDifference;
+      }
+      return b.score - a.score;
+    });
 
     return classifiedChunks.slice(0, config.knowledge.topK || 4);
   }
@@ -402,11 +427,13 @@ export class RAGService {
         totalEmbeddingCalls++;
       }
 
-      // 2. Retrieve candidates (top 6 to allow quality classification)
+      // Vector scores alone can rank a different policy a few thousandths
+      // higher. Inspect a bounded wider pool, then prefer source titles that
+      // identify the requested policy before quality ranking.
       const rawCandidates = await this.knowledgeRepository.searchSimilar(
         tenantId,
         queryEmbedding,
-        6,
+        24,
         config.knowledge.minSimilarityScore || 0.45,
         accountId
       );
@@ -438,10 +465,12 @@ export class RAGService {
         });
       }
 
-      // Sort intent candidates by composite quality score descending
-      intentCandidates.sort((a, b) => b.score - a.score);
+      const titledCandidates = intentCandidates.filter(candidate =>
+        RAGService.policyTitleMatches(intent, candidate.documentTitle));
+      const rankedCandidates = titledCandidates.length > 0 ? titledCandidates : intentCandidates;
+      rankedCandidates.sort((a, b) => b.score - a.score);
 
-      const topChunksForIntent = intentCandidates.slice(0, 2);
+      const topChunksForIntent = rankedCandidates.slice(0, 2);
 
       if (topChunksForIntent.length > 0) {
         availableIntents.push(intent);
@@ -577,9 +606,10 @@ export class RAGService {
     tenantId: string,
     query: string,
     config: BusinessConfig,
-    accountId?: string | null
+    accountId?: string | null,
+    policyIntent?: string | null
   ): Promise<RAGResult> {
-    const chunks = await this.retrieveChunks(tenantId, query, config, accountId);
+    const chunks = await this.retrieveChunks(tenantId, query, config, accountId, policyIntent);
     const context = this.formatContext(chunks, config.knowledge.maxContextSize);
     return { context, chunks };
   }

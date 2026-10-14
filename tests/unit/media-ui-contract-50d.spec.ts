@@ -263,7 +263,7 @@ describe('Phase 50D: Media UI Contract & UX Validation', () => {
       responseScript: 'latin'
     });
 
-    expect(availText).toContain('Cyber Spirit Hoodie is available for 350 MAD. (In stock: 15)');
+    expect(availText).toContain('Yes, Cyber Spirit Hoodie is available. Price: 350 MAD. In stock: 15.');
   });
 
   // K. UI Markup Validation (Static Forensics on src/dev/ui/index.html)

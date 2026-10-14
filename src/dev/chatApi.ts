@@ -201,13 +201,11 @@ export function resolvePrincipal(req: Request): AuthenticatedPrincipal | null {
   }
 
   // 3. Backward-compatible test harness fallback ONLY when running legacy vitest tests without auth headers
-  const isLegacyTest = (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') && process.env.STRICT_AUTH !== 'true';
+  const isLegacyTest = (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) && process.env.STRICT_AUTH !== 'true';
   if (isLegacyTest) {
-    const fallbackTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId) as string;
+    const fallbackTenant = (req.headers['x-tenant-id'] || req.body?.tenantId || req.query?.tenantId || 'dev-tenant') as string;
     const fallbackCustomer = (req.headers['x-customer-id'] || req.body?.customerId || req.query?.customerId) as string;
-    if (fallbackTenant) {
-      return { tenantId: fallbackTenant, customerId: fallbackCustomer };
-    }
+    return { tenantId: fallbackTenant, customerId: fallbackCustomer, role: 'admin' };
   }
 
   // 4. Explicit development mode fallback for local Control Center UI
@@ -553,29 +551,36 @@ export function createDevChatRouter(deps: ChatbotDependencies): Router {
     });
   };
 
-  router.post('/upload', uploadProtection.middleware, parseUpload, async (req: Request, res: Response) => {
+  // Authenticate before multer buffers up to 10MB of multipart body into memory.
+  const requireUploadPrincipal = (req: Request, res: Response, next: any) => {
+    const principal = req.principal || resolvePrincipal(req);
+    if (!principal) {
+      return res.status(401).json({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required. Please provide a valid signed Authorization Bearer token or configured x-api-key.'
+      });
+    }
+    req.principal = principal;
+    next();
+  };
+
+  router.post('/upload', requireUploadPrincipal, uploadProtection.middleware, parseUpload, async (req: Request, res: Response) => {
     let currentStage = 'UPLOAD_START';
     let originalPrisma: any;
     let originalEmbeddingProvider: any;
     let originalKnowledgeRepository: any;
 
     try {
-      const tenantId = req.principal!.tenantId;
-      const file = req.file;
-      
-      if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_CONTROL_CENTER === 'true') {
-        console.log(`\n--- TRACE START ---`);
-        console.log(`[UPLOAD]\nfile received: ${file ? 'yes' : 'no'}\nfilename: ${file?.originalname || 'N/A'}\nmimetype: ${file?.mimetype || 'N/A'}\nsize: ${file?.size || 'N/A'}`);
-      }
-
-      if (!tenantId) {
-        return res.status(400).json({ 
-          error: 'PDF_UPLOAD_FAILED',
-          stage: currentStage,
-          message: 'tenantId is missing',
-          details: 'Expected tenantId in multipart form data or query string'
+      const principal = resolvePrincipal(req);
+      if (!principal) {
+        return res.status(401).json({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required. Please provide a valid signed Authorization Bearer token or configured x-api-key.'
         });
       }
+      req.principal = principal;
+      const tenantId = principal.tenantId;
+      const file = req.file;
       
       currentStage = 'TENANT_RESOLUTION';
       const tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId as string } });
@@ -1351,7 +1356,9 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       return { valid: false, ecommerceEnabled: false, error: 'Account not found or access denied', status: 404 };
     }
     const capabilities = (account.config as any)?.capabilities;
-    const ecommerceEnabled = capabilities && typeof capabilities.ecommerceEnabled === 'boolean' ? capabilities.ecommerceEnabled : true;
+    // Commerce is an explicit entitlement. Missing or malformed capability data
+    // fails closed so incomplete account configs cannot expose catalog APIs.
+    const ecommerceEnabled = capabilities?.ecommerceEnabled === true;
     return { valid: true, account, ecommerceEnabled };
   }
 
@@ -1487,7 +1494,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       if (!check.ecommerceEnabled) {
         return res.status(403).json({
           error: 'ECOMMERCE_DISABLED',
-          message: 'Ecommerce is disabled for this account.',
+          message: 'Commerce is not included for this account.',
           ecommerceEnabled: false,
           products: []
         });
@@ -1529,7 +1536,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       const product = await productRepo.findById(tenantId, check.account.id, paramValue(req.params.id), false);
@@ -1568,7 +1575,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       if (!name || typeof name !== 'string' || !name.trim()) {
@@ -1647,7 +1654,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       if (price !== undefined) {
@@ -1712,7 +1719,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       const deleted = await productRepo.deleteProduct(tenantId, check.account.id, paramValue(req.params.id));
@@ -1749,7 +1756,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       if (!sku || typeof sku !== 'string' || !sku.trim()) {
@@ -1823,7 +1830,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       const metaErr = validateProductMetadata(metadata);
@@ -1878,7 +1885,7 @@ Respond ONLY with valid JSON (no markdown fences, no extra commentary) matching 
       }
 
       if (!check.ecommerceEnabled) {
-        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Ecommerce is disabled for this account.' });
+        return res.status(403).json({ error: 'ECOMMERCE_DISABLED', message: 'Commerce is not included for this account.' });
       }
 
       const deleted = await productRepo.deleteVariant(tenantId, check.account.id, productId, variantId);

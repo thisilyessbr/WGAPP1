@@ -1,10 +1,11 @@
 import { LanguageDetector, SupportedLanguage } from '../faq/FaqMatcher';
+import { BusinessQuestionScope } from '../conversation/BusinessQuestionScope';
 
 export type SupportedScript = 'latin' | 'arabic' | 'arabizi';
 
 export interface DirectRagGuardResult {
   isSafe: boolean;
-  reason: 'SAFE' | 'LANGUAGE_MISMATCH' | 'SCRIPT_MISMATCH' | 'UNSAFE_INTERNAL_CONTENT' | 'UNSUPPORTED_LANGUAGE' | 'EMPTY_CONTENT';
+  reason: 'SAFE' | 'LANGUAGE_MISMATCH' | 'SCRIPT_MISMATCH' | 'UNSAFE_INTERNAL_CONTENT' | 'UNSUPPORTED_LANGUAGE' | 'EMPTY_CONTENT' | 'QUESTION_NOT_ANSWERED';
   queryLang: SupportedLanguage;
   chunkLang: SupportedLanguage;
   queryScript: SupportedScript;
@@ -100,7 +101,8 @@ export class DirectRagGuard {
     query: string,
     chunkContent: string,
     providedQueryLang?: SupportedLanguage,
-    providedQueryScript?: SupportedScript
+    providedQueryScript?: SupportedScript,
+    coverageMode: 'all' | 'any' = 'all'
   ): DirectRagGuardResult {
     if (!chunkContent || !chunkContent.trim()) {
       return {
@@ -182,6 +184,50 @@ export class DirectRagGuard {
         queryScript,
         chunkScript
       };
+    }
+
+    // Semantic similarity can be high because a document names the same product,
+    // even when it contains no answer to the customer's pricing question.
+    const topicCount = BusinessQuestionScope.requestedTopicCount(query);
+    const asksPrice = /\b(?:price|pricing|costs?|how much (?:is|does|for)|prix|tarifs?|combien (?:co[uû]te|est)|bch[7h]al|ch[7h]al|taman)\b|(?:ثمن|السعر|التكلفة|شحال)/iu.test(query);
+    const hasPrice = /\b(?:mad|dh|dhs|eur|usd|gbp|dirhams?|euros?|dollars?|pounds?|free|gratuit\w*|costs?|price|prix|tarifs?)\b|[$€£]|(?:درهم|دراهم|مجاني|مجانا|ثمن|السعر)/iu.test(chunkContent);
+    if (asksPrice && !hasPrice && topicCount <= 1) {
+      return {
+        isSafe: false,
+        reason: 'QUESTION_NOT_ANSWERED',
+        queryLang,
+        chunkLang,
+        queryScript,
+        chunkScript
+      };
+    }
+
+    // Contact questions often name both fields. A generic paragraph that
+    // mentions "support" or "phone" is not the requested contact detail.
+    if (/\b(?:email|e-mail|courriel)\b|إيميل|ايميل/iu.test(query) && !/@/u.test(chunkContent)
+      || /\b(?:phone|telephone|téléphone|number)\b|هاتف|رقم/iu.test(query)
+        && !/(?:\+?\d[\d\s().-]{6,}\d)/u.test(chunkContent)) {
+      return { isSafe: false, reason: 'QUESTION_NOT_ANSWERED', queryLang, chunkLang, queryScript, chunkScript };
+    }
+
+    // Embedding similarity says the passage is related, not that it answers the
+    // requested business fact. Be conservative here; rejected passages can still
+    // be used as context for grounded generation.
+    // A single direct-return passage must cover every requested fact. Partial
+    // coverage is useful as LLM context, but unsafe as a complete customer answer.
+    const coversRequestedTopic = coverageMode === 'any' && topicCount > 1
+      ? BusinessQuestionScope.hasAnyCoveredTopic(query, chunkContent)
+      : BusinessQuestionScope.isCovered(query, chunkContent);
+    if (!coversRequestedTopic) {
+      return { isSafe: false, reason: 'QUESTION_NOT_ANSWERED', queryLang, chunkLang, queryScript, chunkScript };
+    }
+
+    // A size table contains several valid but distinct answers. Do not return
+    // the whole table as if it were the selected variant's recommendation.
+    const asksExactSize = /\b(?:size|taille)\s*(?:xs|s|m|l|xl|xxl|\d{2})\b/iu.test(query);
+    const listedSizes = new Set(Array.from(chunkContent.matchAll(/\b(?:size|taille)\s*(xs|s|m|l|xl|xxl|\d{2})\b/giu), m => m[1].toLowerCase()));
+    if (asksExactSize && listedSizes.size > 1) {
+      return { isSafe: false, reason: 'QUESTION_NOT_ANSWERED', queryLang, chunkLang, queryScript, chunkScript };
     }
 
     return {

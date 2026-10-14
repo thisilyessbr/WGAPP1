@@ -89,7 +89,7 @@ describe('Phase FIX-PROBLEM-4A: Post-Completion Explicit Workflow Retrigger', ()
           },
           answers: {
             en: 'Consultation costs 500 MAD.',
-            darija: 'Taman howa 500 DH.',
+            darija: 'الثمن هو 500 درهم.',
             ar: 'سعر الاستشارة 500 درهم.'
           }
         }
@@ -139,7 +139,7 @@ describe('Phase FIX-PROBLEM-4A: Post-Completion Explicit Workflow Retrigger', ()
 
   it('runs complete lifecycle: Workflow 1 complete -> FAQ -> Fallback -> Workflow 1 Retrigger -> Workflow 2 Trigger', async () => {
     // 1. Initial workflow trigger
-    const res1 = await deps.conversationEngine.handleMessage(tenantId, customerExternalId, 'بغيت نحجز');
+    const res1 = await deps.conversationEngine.handleMessage(tenantId, customerExternalId, 'book consultation');
     expect(res1).toContain('Please provide your full name:');
 
     const customer = await prisma.customer.findUnique({ where: { tenantId_externalId: { tenantId, externalId: customerExternalId } } });
@@ -170,8 +170,8 @@ describe('Phase FIX-PROBLEM-4A: Post-Completion Explicit Workflow Retrigger', ()
     const res4 = await deps.conversationEngine.handleMessage(tenantId, customerExternalId, 'Do you offer parking?');
     expect(res4.length).toBeGreaterThan(0);
 
-    // 5. Explicit same workflow re-trigger ("بغيت نحجز") -> creates a NEW ACTIVE session
-    const res5 = await deps.conversationEngine.handleMessage(tenantId, customerExternalId, 'بغيت نحجز');
+    // 5. Explicit same workflow re-trigger -> creates a NEW ACTIVE session
+    const res5 = await deps.conversationEngine.handleMessage(tenantId, customerExternalId, 'book consultation');
     expect(res5).toContain('Please provide your full name:');
 
     const session2 = await deps.conversationService.getActiveSession(tenantId, conv!.id);

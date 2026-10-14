@@ -13,9 +13,16 @@ import {
 } from './types';
 import { OutcomePublisher, NoOpOutcomePublisher } from './OutcomePublisher';
 
+export type OutcomeDatabaseClient = PrismaClient | {
+  $queryRaw: <T = any>(query: TemplateStringsArray | any, ...values: any[]) => Promise<T>;
+  $executeRaw?: (query: TemplateStringsArray | any, ...values: any[]) => Promise<number>;
+  outcomeEvent?: any;
+  account?: any;
+};
+
 export class OutcomeTrackingService {
   constructor(
-    private prisma: PrismaClient,
+    private prisma: OutcomeDatabaseClient,
     private publisher: OutcomePublisher = new NoOpOutcomePublisher()
   ) {}
 
@@ -66,41 +73,74 @@ export class OutcomeTrackingService {
         ? new Prisma.Decimal(numericValue.toFixed(2))
         : null;
       const normalizedCurrency = currency?.trim().toUpperCase();
+      const validCurrency = normalizedCurrency && /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : null;
 
-      const event = await this.prisma.outcomeEvent.create({
-        data: {
-          tenantId,
-          accountId,
-          conversationId: conversationId ?? null,
-          customerId: customerId ?? null,
-          type,
-          source,
-          value: decimalValue,
-          currency: normalizedCurrency && /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : null,
-          relatedOutcomeId: relatedOutcomeId ?? null,
-          idempotencyKey: idempotencyKey.trim(),
-          metadata: metadata || {},
-          occurredAt: occurredAt || new Date()
-        }
-      });
+      let event: OutcomeEvent | null = null;
+      if (this.prisma.outcomeEvent?.create) {
+        event = await this.prisma.outcomeEvent.create({
+          data: {
+            tenantId,
+            accountId,
+            conversationId: conversationId ?? null,
+            customerId: customerId ?? null,
+            type,
+            source,
+            value: decimalValue,
+            currency: validCurrency,
+            relatedOutcomeId: relatedOutcomeId ?? null,
+            idempotencyKey: idempotencyKey.trim(),
+            metadata: metadata || {},
+            occurredAt: occurredAt || new Date()
+          }
+        });
+      } else {
+        const id = crypto.randomUUID();
+        const occurred = occurredAt || new Date();
+        const rows = await this.prisma.$queryRaw<any[]>`
+          INSERT INTO "OutcomeEvent"(
+            id, "tenantId", "accountId", "conversationId", "customerId",
+            type, source, value, currency, "relatedOutcomeId",
+            "idempotencyKey", metadata, "occurredAt", "createdAt"
+          ) VALUES (
+            ${id}, ${tenantId}, ${accountId}, ${conversationId ?? null}, ${customerId ?? null},
+            ${type}, ${source}, ${decimalValue === null ? null : decimalValue.toString()}::numeric, ${validCurrency}, ${relatedOutcomeId ?? null},
+            ${idempotencyKey.trim()}, ${JSON.stringify(metadata || {})}::jsonb, ${occurred}, NOW()
+          )
+          RETURNING *
+        `;
+        event = rows[0] || null;
+      }
 
-      // Dispatch to external CRM publisher asynchronously (non-blocking)
-      this.publisher.publish(event).catch((err: any) => {
-        logger.error(`OutcomeTrackingService: Publisher error for event [${event.id}]: ${err.message || err}`);
-      });
+      if (event) {
+        // Dispatch to external CRM publisher asynchronously (non-blocking)
+        this.publisher.publish(event).catch((err: any) => {
+          logger.error(`OutcomeTrackingService: Publisher error for event [${event!.id}]: ${err.message || err}`);
+        });
+      }
 
       return event;
     } catch (err: any) {
       // P2002: Unique constraint failed on (accountId, idempotencyKey)
-      if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
-        const existing = await this.prisma.outcomeEvent.findUnique({
-          where: {
-            accountId_idempotencyKey: {
-              accountId,
-              idempotencyKey: idempotencyKey.trim()
+      if (err.code === 'P2002' || err.message?.includes('Unique constraint') || err.message?.includes('duplicate key')) {
+        let existing: OutcomeEvent | null = null;
+        if (this.prisma.outcomeEvent?.findUnique) {
+          existing = await this.prisma.outcomeEvent.findUnique({
+            where: {
+              accountId_idempotencyKey: {
+                accountId,
+                idempotencyKey: idempotencyKey.trim()
+              }
             }
-          }
-        });
+          });
+        } else {
+          const rows = await this.prisma.$queryRaw<any[]>`
+            SELECT * FROM "OutcomeEvent"
+            WHERE "accountId" = ${accountId} AND "idempotencyKey" = ${idempotencyKey.trim()}
+            LIMIT 1
+          `;
+          existing = rows[0] || null;
+        }
+
         if (existing) {
           logger.info(`OutcomeTrackingService: Deduplicated existing outcome event [${existing.id}] for key [${idempotencyKey}]`);
           return existing;
@@ -124,118 +164,131 @@ export class OutcomeTrackingService {
 
     const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
-    const where: Prisma.OutcomeEventWhereInput = {
-      tenantId,
-      accountId,
-      occurredAt: { gte: since }
-    };
+    let events: OutcomeEvent[];
+    let total: number;
 
-    if (type && OUTCOME_EVENT_TYPES.includes(type)) {
-      where.type = type;
+    if (this.prisma.outcomeEvent?.findMany) {
+      const where: Prisma.OutcomeEventWhereInput = {
+        tenantId,
+        accountId,
+        occurredAt: { gte: since }
+      };
+
+      if (type && OUTCOME_EVENT_TYPES.includes(type)) {
+        where.type = type;
+      }
+
+      [events, total] = await Promise.all([
+        this.prisma.outcomeEvent.findMany({
+          where,
+          orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+          take: safeLimit,
+          skip: safeOffset
+        }),
+        this.prisma.outcomeEvent.count({ where })
+      ]);
+    } else {
+      const rows = type && OUTCOME_EVENT_TYPES.includes(type)
+        ? await this.prisma.$queryRaw<any[]>`
+            SELECT * FROM "OutcomeEvent"
+            WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND type = ${type} AND "occurredAt" >= ${since}
+            ORDER BY "occurredAt" DESC, id DESC
+            LIMIT ${safeLimit} OFFSET ${safeOffset}
+          `
+        : await this.prisma.$queryRaw<any[]>`
+            SELECT * FROM "OutcomeEvent"
+            WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND "occurredAt" >= ${since}
+            ORDER BY "occurredAt" DESC, id DESC
+            LIMIT ${safeLimit} OFFSET ${safeOffset}
+          `;
+      const countRows = type && OUTCOME_EVENT_TYPES.includes(type)
+        ? await this.prisma.$queryRaw<any[]>`
+            SELECT COUNT(*)::int AS count FROM "OutcomeEvent"
+            WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND type = ${type} AND "occurredAt" >= ${since}
+          `
+        : await this.prisma.$queryRaw<any[]>`
+            SELECT COUNT(*)::int AS count FROM "OutcomeEvent"
+            WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND "occurredAt" >= ${since}
+          `;
+      events = rows;
+      total = Number(countRows[0]?.count) || 0;
     }
-
-    const [events, total] = await Promise.all([
-      this.prisma.outcomeEvent.findMany({
-        where,
-        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-        take: safeLimit,
-        skip: safeOffset
-      }),
-      this.prisma.outcomeEvent.count({ where })
-    ]);
 
     return { events, total };
   }
 
   /**
-   * Computes an account-level outcome summary over the specified window (default 30 days).
+   * Computes an account-level outcome summary via direct PostgreSQL database aggregation.
    */
   async getAccountSummary(tenantId: string, accountId: string, days = 30): Promise<AccountOutcomeSummary> {
     const safeDays = Math.max(1, Math.min(365, Number(days) || 30));
     const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
-    const events = await this.prisma.outcomeEvent.findMany({
-      where: {
-        tenantId,
-        accountId,
-        occurredAt: { gte: since }
-      },
-      select: {
-        id: true,
-        type: true,
-        value: true,
-        currency: true,
-        metadata: true,
-        occurredAt: true
-      }
-    });
+    const [rows, currencyRows] = await Promise.all([
+      this.prisma.$queryRaw<any[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE type = 'LEAD_CREATED')::int AS "leadsCreated",
+          COUNT(*) FILTER (WHERE type = 'LEAD_QUALIFIED')::int AS "leadsQualified",
+          COUNT(*) FILTER (WHERE type = 'HANDOFF_REQUESTED')::int AS "handoffsRequested",
+          COUNT(*) FILTER (WHERE type = 'HANDOFF_CLAIMED')::int AS "handoffsClaimed",
+          COUNT(*) FILTER (WHERE type = 'HANDOFF_RESOLVED')::int AS "handoffsResolved",
+          COUNT(*) FILTER (WHERE type = 'QUESTION_MISSED')::int AS "missedQuestions",
+          COUNT(*) FILTER (WHERE type = 'QUESTION_RESOLVED')::int AS "resolvedMissedQuestions",
+          COUNT(*) FILTER (WHERE type = 'BOOKING_CONFIRMED')::int AS "confirmedBookings",
+          COUNT(*) FILTER (WHERE type = 'ORDER_CONFIRMED')::int AS "confirmedOrders",
+          percentile_cont(0.5) WITHIN GROUP (
+            ORDER BY (
+              CASE
+                WHEN (metadata->>'timeFromRequestToClaimMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                THEN (metadata->>'timeFromRequestToClaimMs')::double precision / 1000.0
+                ELSE NULL
+              END
+            )
+          ) FILTER (WHERE type = 'HANDOFF_CLAIMED') AS "medianTimeToClaimSeconds",
+          percentile_cont(0.5) WITHIN GROUP (
+            ORDER BY (
+              CASE
+                WHEN COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                THEN (COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs'))::double precision / 1000.0
+                ELSE NULL
+              END
+            )
+          ) FILTER (WHERE type = 'HANDOFF_RESOLVED') AS "medianTimeToResolveSeconds"
+        FROM "OutcomeEvent"
+        WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND "occurredAt" >= ${since}
+      `,
+      this.prisma.$queryRaw<any[]>`
+        SELECT UPPER(COALESCE(currency, 'MAD')) AS currency, SUM(value)::double precision AS total
+        FROM "OutcomeEvent"
+        WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND type = 'ORDER_CONFIRMED' AND "occurredAt" >= ${since} AND value IS NOT NULL AND value > 0
+        GROUP BY UPPER(COALESCE(currency, 'MAD'))
+      `
+    ]);
 
-    let leadsCreated = 0;
-    let leadsQualified = 0;
-    let handoffsRequested = 0;
-    let handoffsClaimed = 0;
-    let handoffsResolved = 0;
-    let missedQuestions = 0;
-    let resolvedMissedQuestions = 0;
-    let confirmedBookings = 0;
-    let confirmedOrders = 0;
+    const r = rows[0] || {};
+    const leadsCreated = Number(r.leadsCreated) || 0;
+    const leadsQualified = Number(r.leadsQualified) || 0;
+    const handoffsRequested = Number(r.handoffsRequested) || 0;
+    const handoffsClaimed = Number(r.handoffsClaimed) || 0;
+    const handoffsResolved = Number(r.handoffsResolved) || 0;
+    const missedQuestions = Number(r.missedQuestions) || 0;
+    const resolvedMissedQuestions = Number(r.resolvedMissedQuestions) || 0;
+    const confirmedBookings = Number(r.confirmedBookings) || 0;
+    const confirmedOrders = Number(r.confirmedOrders) || 0;
 
-    const claimDurations: number[] = [];
-    const resolveDurations: number[] = [];
+    const medianTimeToClaimSeconds = r.medianTimeToClaimSeconds !== null && r.medianTimeToClaimSeconds !== undefined
+      ? Number(Number(r.medianTimeToClaimSeconds).toFixed(2))
+      : null;
+    const medianTimeToResolveSeconds = r.medianTimeToResolveSeconds !== null && r.medianTimeToResolveSeconds !== undefined
+      ? Number(Number(r.medianTimeToResolveSeconds).toFixed(2))
+      : null;
+
     const currencyValues: Record<string, number> = {};
-
-    for (const ev of events) {
-      switch (ev.type) {
-        case 'LEAD_CREATED':
-          leadsCreated++;
-          break;
-        case 'LEAD_QUALIFIED':
-          leadsQualified++;
-          break;
-        case 'HANDOFF_REQUESTED':
-          handoffsRequested++;
-          break;
-        case 'HANDOFF_CLAIMED': {
-          handoffsClaimed++;
-          const meta = ev.metadata as Record<string, any> | null;
-          const claimMs = Number(meta?.timeFromRequestToClaimMs);
-          if (Number.isFinite(claimMs) && claimMs >= 0) {
-            claimDurations.push(claimMs / 1000);
-          }
-          break;
-        }
-        case 'HANDOFF_RESOLVED': {
-          handoffsResolved++;
-          const meta = ev.metadata as Record<string, any> | null;
-          const totalMs = Number(meta?.totalResolutionTimeMs ?? meta?.timeFromClaimToResolutionMs);
-          if (Number.isFinite(totalMs) && totalMs >= 0) {
-            resolveDurations.push(totalMs / 1000);
-          }
-          break;
-        }
-        case 'QUESTION_MISSED':
-          missedQuestions++;
-          break;
-        case 'QUESTION_RESOLVED':
-          resolvedMissedQuestions++;
-          break;
-        case 'BOOKING_CONFIRMED':
-          confirmedBookings++;
-          break;
-        case 'ORDER_CONFIRMED': {
-          confirmedOrders++;
-          if (ev.value !== null && ev.value !== undefined) {
-            const curr = (ev.currency || 'MAD').toUpperCase();
-            const val = Number(ev.value);
-            currencyValues[curr] = (currencyValues[curr] || 0) + (Number.isFinite(val) ? val : 0);
-          }
-          break;
-        }
+    for (const cr of currencyRows) {
+      if (cr.currency) {
+        currencyValues[cr.currency] = Number(Number(cr.total || 0).toFixed(2));
       }
     }
-
-    const medianTimeToClaimSeconds = this.calculateMedian(claimDurations);
-    const medianTimeToResolveSeconds = this.calculateMedian(resolveDurations);
 
     return {
       periodDays: safeDays,
@@ -258,197 +311,277 @@ export class OutcomeTrackingService {
   }
 
   /**
-   * Computes admin summary across all accounts or filtered to a single account.
+   * Computes admin summary across all accounts or filtered to a single account via direct PostgreSQL aggregation.
    */
   async getAdminSummary(days = 30, accountIdFilter?: string): Promise<AdminOutcomeSummary> {
     const safeDays = Math.max(1, Math.min(365, Number(days) || 30));
     const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
-    const where: Prisma.OutcomeEventWhereInput = {
-      occurredAt: { gte: since }
-    };
-    if (accountIdFilter) {
-      where.accountId = accountIdFilter;
+    const totalsPromise = accountIdFilter
+      ? this.prisma.$queryRaw<any[]>`
+          SELECT
+            COUNT(*) FILTER (WHERE type = 'LEAD_CREATED')::int AS "leadsCreated",
+            COUNT(*) FILTER (WHERE type = 'LEAD_QUALIFIED')::int AS "leadsQualified",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_REQUESTED')::int AS "handoffsRequested",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_CLAIMED')::int AS "handoffsClaimed",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_RESOLVED')::int AS "handoffsResolved",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_MISSED')::int AS "missedQuestions",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_RESOLVED')::int AS "resolvedMissedQuestions",
+            COUNT(*) FILTER (WHERE type = 'BOOKING_CONFIRMED')::int AS "confirmedBookings",
+            COUNT(*) FILTER (WHERE type = 'ORDER_CONFIRMED')::int AS "confirmedOrders",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN (metadata->>'timeFromRequestToClaimMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (metadata->>'timeFromRequestToClaimMs')::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_CLAIMED') AS "medianTimeToClaimSeconds",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs'))::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_RESOLVED') AS "medianTimeToResolveSeconds"
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since} AND "accountId" = ${accountIdFilter}
+        `
+      : this.prisma.$queryRaw<any[]>`
+          SELECT
+            COUNT(*) FILTER (WHERE type = 'LEAD_CREATED')::int AS "leadsCreated",
+            COUNT(*) FILTER (WHERE type = 'LEAD_QUALIFIED')::int AS "leadsQualified",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_REQUESTED')::int AS "handoffsRequested",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_CLAIMED')::int AS "handoffsClaimed",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_RESOLVED')::int AS "handoffsResolved",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_MISSED')::int AS "missedQuestions",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_RESOLVED')::int AS "resolvedMissedQuestions",
+            COUNT(*) FILTER (WHERE type = 'BOOKING_CONFIRMED')::int AS "confirmedBookings",
+            COUNT(*) FILTER (WHERE type = 'ORDER_CONFIRMED')::int AS "confirmedOrders",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN (metadata->>'timeFromRequestToClaimMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (metadata->>'timeFromRequestToClaimMs')::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_CLAIMED') AS "medianTimeToClaimSeconds",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs'))::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_RESOLVED') AS "medianTimeToResolveSeconds"
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since}
+        `;
+
+    const totalCurrenciesPromise = accountIdFilter
+      ? this.prisma.$queryRaw<any[]>`
+          SELECT UPPER(COALESCE(currency, 'MAD')) AS currency, SUM(value)::double precision AS total
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since} AND "accountId" = ${accountIdFilter} AND type = 'ORDER_CONFIRMED' AND value IS NOT NULL AND value > 0
+          GROUP BY UPPER(COALESCE(currency, 'MAD'))
+        `
+      : this.prisma.$queryRaw<any[]>`
+          SELECT UPPER(COALESCE(currency, 'MAD')) AS currency, SUM(value)::double precision AS total
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since} AND type = 'ORDER_CONFIRMED' AND value IS NOT NULL AND value > 0
+          GROUP BY UPPER(COALESCE(currency, 'MAD'))
+        `;
+
+    const accountRowsPromise = accountIdFilter
+      ? this.prisma.$queryRaw<any[]>`
+          SELECT
+            "tenantId",
+            "accountId",
+            COUNT(*) FILTER (WHERE type = 'LEAD_CREATED')::int AS "leadsCreated",
+            COUNT(*) FILTER (WHERE type = 'LEAD_QUALIFIED')::int AS "leadsQualified",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_REQUESTED')::int AS "handoffsRequested",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_CLAIMED')::int AS "handoffsClaimed",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_RESOLVED')::int AS "handoffsResolved",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_MISSED')::int AS "missedQuestions",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_RESOLVED')::int AS "resolvedMissedQuestions",
+            COUNT(*) FILTER (WHERE type = 'BOOKING_CONFIRMED')::int AS "confirmedBookings",
+            COUNT(*) FILTER (WHERE type = 'ORDER_CONFIRMED')::int AS "confirmedOrders",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN (metadata->>'timeFromRequestToClaimMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (metadata->>'timeFromRequestToClaimMs')::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_CLAIMED') AS "medianTimeToClaimSeconds",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs'))::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_RESOLVED') AS "medianTimeToResolveSeconds"
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since} AND "accountId" = ${accountIdFilter}
+          GROUP BY "tenantId", "accountId"
+        `
+      : this.prisma.$queryRaw<any[]>`
+          SELECT
+            "tenantId",
+            "accountId",
+            COUNT(*) FILTER (WHERE type = 'LEAD_CREATED')::int AS "leadsCreated",
+            COUNT(*) FILTER (WHERE type = 'LEAD_QUALIFIED')::int AS "leadsQualified",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_REQUESTED')::int AS "handoffsRequested",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_CLAIMED')::int AS "handoffsClaimed",
+            COUNT(*) FILTER (WHERE type = 'HANDOFF_RESOLVED')::int AS "handoffsResolved",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_MISSED')::int AS "missedQuestions",
+            COUNT(*) FILTER (WHERE type = 'QUESTION_RESOLVED')::int AS "resolvedMissedQuestions",
+            COUNT(*) FILTER (WHERE type = 'BOOKING_CONFIRMED')::int AS "confirmedBookings",
+            COUNT(*) FILTER (WHERE type = 'ORDER_CONFIRMED')::int AS "confirmedOrders",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN (metadata->>'timeFromRequestToClaimMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (metadata->>'timeFromRequestToClaimMs')::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_CLAIMED') AS "medianTimeToClaimSeconds",
+            percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY (
+                CASE
+                  WHEN COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs') ~ '^[0-9]+(\.[0-9]+)?$'
+                  THEN (COALESCE(metadata->>'totalResolutionTimeMs', metadata->>'timeFromClaimToResolutionMs'))::double precision / 1000.0
+                  ELSE NULL
+                END
+              )
+            ) FILTER (WHERE type = 'HANDOFF_RESOLVED') AS "medianTimeToResolveSeconds"
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since}
+          GROUP BY "tenantId", "accountId"
+        `;
+
+    const accountCurrenciesPromise = accountIdFilter
+      ? this.prisma.$queryRaw<any[]>`
+          SELECT "accountId", UPPER(COALESCE(currency, 'MAD')) AS currency, SUM(value)::double precision AS total
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since} AND "accountId" = ${accountIdFilter} AND type = 'ORDER_CONFIRMED' AND value IS NOT NULL AND value > 0
+          GROUP BY "accountId", UPPER(COALESCE(currency, 'MAD'))
+        `
+      : this.prisma.$queryRaw<any[]>`
+          SELECT "accountId", UPPER(COALESCE(currency, 'MAD')) AS currency, SUM(value)::double precision AS total
+          FROM "OutcomeEvent"
+          WHERE "occurredAt" >= ${since} AND type = 'ORDER_CONFIRMED' AND value IS NOT NULL AND value > 0
+          GROUP BY "accountId", UPPER(COALESCE(currency, 'MAD'))
+        `;
+
+    const [totalRows, totalCurrencyRows, accountRows, accountCurrencyRows] = await Promise.all([
+      totalsPromise,
+      totalCurrenciesPromise,
+      accountRowsPromise,
+      accountCurrenciesPromise
+    ]);
+
+    const r = totalRows[0] || {};
+    const leadsCreated = Number(r.leadsCreated) || 0;
+    const leadsQualified = Number(r.leadsQualified) || 0;
+    const handoffsRequested = Number(r.handoffsRequested) || 0;
+    const handoffsClaimed = Number(r.handoffsClaimed) || 0;
+    const handoffsResolved = Number(r.handoffsResolved) || 0;
+    const missedQuestions = Number(r.missedQuestions) || 0;
+    const resolvedMissedQuestions = Number(r.resolvedMissedQuestions) || 0;
+    const confirmedBookings = Number(r.confirmedBookings) || 0;
+    const confirmedOrders = Number(r.confirmedOrders) || 0;
+
+    const medianTimeToClaimSeconds = r.medianTimeToClaimSeconds !== null && r.medianTimeToClaimSeconds !== undefined
+      ? Number(Number(r.medianTimeToClaimSeconds).toFixed(2))
+      : null;
+    const medianTimeToResolveSeconds = r.medianTimeToResolveSeconds !== null && r.medianTimeToResolveSeconds !== undefined
+      ? Number(Number(r.medianTimeToResolveSeconds).toFixed(2))
+      : null;
+
+    const totalCurrencyValues: Record<string, number> = {};
+    for (const cr of totalCurrencyRows) {
+      if (cr.currency) {
+        totalCurrencyValues[cr.currency] = Number(Number(cr.total || 0).toFixed(2));
+      }
     }
 
-    const events = await this.prisma.outcomeEvent.findMany({
-      where,
-      select: {
-        id: true,
-        tenantId: true,
-        accountId: true,
-        type: true,
-        value: true,
-        currency: true,
-        metadata: true,
-        occurredAt: true
+    const accountCurrenciesMap = new Map<string, Record<string, number>>();
+    for (const ac of accountCurrencyRows) {
+      if (!accountCurrenciesMap.has(ac.accountId)) {
+        accountCurrenciesMap.set(ac.accountId, {});
       }
-    });
-
-    let leadsCreated = 0;
-    let leadsQualified = 0;
-    let handoffsRequested = 0;
-    let handoffsClaimed = 0;
-    let handoffsResolved = 0;
-    let missedQuestions = 0;
-    let resolvedMissedQuestions = 0;
-    let confirmedBookings = 0;
-    let confirmedOrders = 0;
-
-    const claimDurations: number[] = [];
-    const resolveDurations: number[] = [];
-    const currencyValues: Record<string, number> = {};
-
-    // Grouping by account for per-client analysis
-    const accountAggs = new Map<string, {
-      tenantId: string;
-      leadsCreated: number;
-      leadsQualified: number;
-      handoffsRequested: number;
-      handoffsClaimed: number;
-      handoffsResolved: number;
-      missedQuestions: number;
-      resolvedMissedQuestions: number;
-      confirmedBookings: number;
-      confirmedOrders: number;
-      claimDurations: number[];
-      resolveDurations: number[];
-      currencyValues: Record<string, number>;
-    }>();
-
-    for (const ev of events) {
-      if (!accountAggs.has(ev.accountId)) {
-        accountAggs.set(ev.accountId, {
-          tenantId: ev.tenantId,
-          leadsCreated: 0,
-          leadsQualified: 0,
-          handoffsRequested: 0,
-          handoffsClaimed: 0,
-          handoffsResolved: 0,
-          missedQuestions: 0,
-          resolvedMissedQuestions: 0,
-          confirmedBookings: 0,
-          confirmedOrders: 0,
-          claimDurations: [],
-          resolveDurations: [],
-          currencyValues: {}
-        });
-      }
-      const acc = accountAggs.get(ev.accountId)!;
-
-      switch (ev.type) {
-        case 'LEAD_CREATED':
-          leadsCreated++;
-          acc.leadsCreated++;
-          break;
-        case 'LEAD_QUALIFIED':
-          leadsQualified++;
-          acc.leadsQualified++;
-          break;
-        case 'HANDOFF_REQUESTED':
-          handoffsRequested++;
-          acc.handoffsRequested++;
-          break;
-        case 'HANDOFF_CLAIMED': {
-          handoffsClaimed++;
-          acc.handoffsClaimed++;
-          const meta = ev.metadata as Record<string, any> | null;
-          const claimMs = Number(meta?.timeFromRequestToClaimMs);
-          if (Number.isFinite(claimMs) && claimMs >= 0) {
-            claimDurations.push(claimMs / 1000);
-            acc.claimDurations.push(claimMs / 1000);
-          }
-          break;
-        }
-        case 'HANDOFF_RESOLVED': {
-          handoffsResolved++;
-          acc.handoffsResolved++;
-          const meta = ev.metadata as Record<string, any> | null;
-          const totalMs = Number(meta?.totalResolutionTimeMs ?? meta?.timeFromClaimToResolutionMs);
-          if (Number.isFinite(totalMs) && totalMs >= 0) {
-            resolveDurations.push(totalMs / 1000);
-            acc.resolveDurations.push(totalMs / 1000);
-          }
-          break;
-        }
-        case 'QUESTION_MISSED':
-          missedQuestions++;
-          acc.missedQuestions++;
-          break;
-        case 'QUESTION_RESOLVED':
-          resolvedMissedQuestions++;
-          acc.resolvedMissedQuestions++;
-          break;
-        case 'BOOKING_CONFIRMED':
-          confirmedBookings++;
-          acc.confirmedBookings++;
-          break;
-        case 'ORDER_CONFIRMED': {
-          confirmedOrders++;
-          acc.confirmedOrders++;
-          if (ev.value !== null && ev.value !== undefined) {
-            const curr = (ev.currency || 'MAD').toUpperCase();
-            const val = Number(ev.value);
-            const validVal = Number.isFinite(val) ? val : 0;
-            currencyValues[curr] = (currencyValues[curr] || 0) + validVal;
-            acc.currencyValues[curr] = (acc.currencyValues[curr] || 0) + validVal;
-          }
-          break;
-        }
-      }
+      accountCurrenciesMap.get(ac.accountId)![ac.currency] = Number(Number(ac.total || 0).toFixed(2));
     }
 
     // Fetch account names for identified accounts
-    const accountIds = Array.from(accountAggs.keys());
-    const accounts = accountIds.length > 0
-      ? await this.prisma.account.findMany({
-          where: { id: { in: accountIds } },
-          select: { id: true, name: true }
-        })
-      : [];
-    const accountNameMap = new Map(accounts.map(a => [a.id, a.name]));
+    const accountIds = accountRows.map(a => a.accountId);
+    let accountNameMap = new Map<string, string>();
+    if (accountIds.length > 0) {
+      try {
+        const accRows = await this.prisma.$queryRaw<any[]>`
+          SELECT id, name FROM "Account" WHERE id = ANY(${accountIds}::text[])
+        `;
+        accountNameMap = new Map(accRows.map((a: any) => [a.id, a.name]));
+      } catch {
+        // Fallback if Account table lookup fails
+      }
+    }
 
     const clientsWithHighMissedQuestions: AdminOutcomeSummary['clientsWithHighMissedQuestions'] = [];
     const perClientSummaries: AdminAccountOutcomeSummary[] = [];
 
-    for (const [accId, data] of accountAggs.entries()) {
-      const resRate = this.calculateRate(data.resolvedMissedQuestions, data.missedQuestions);
+    for (const ar of accountRows) {
+      const accId = ar.accountId;
+      const accMissed = Number(ar.missedQuestions) || 0;
+      const accResolved = Number(ar.resolvedMissedQuestions) || 0;
+      const resRate = this.calculateRate(accResolved, accMissed);
+      const accName = accountNameMap.get(accId) || 'Unknown Client';
+      const currs = accountCurrenciesMap.get(accId) || {};
 
-      if (data.missedQuestions > 0) {
+      if (accMissed > 0) {
         clientsWithHighMissedQuestions.push({
           accountId: accId,
-          accountName: accountNameMap.get(accId) || 'Unknown Client',
-          tenantId: data.tenantId,
-          missedQuestions: data.missedQuestions,
-          resolvedMissedQuestions: data.resolvedMissedQuestions,
+          accountName: accName,
+          tenantId: ar.tenantId,
+          missedQuestions: accMissed,
+          resolvedMissedQuestions: accResolved,
           resolutionRate: resRate
         });
       }
 
       perClientSummaries.push({
         accountId: accId,
-        accountName: accountNameMap.get(accId) || 'Unknown Client',
-        tenantId: data.tenantId,
+        accountName: accName,
+        tenantId: ar.tenantId,
         periodDays: safeDays,
-        leadsCreated: data.leadsCreated,
-        leadsQualified: data.leadsQualified,
-        qualificationRate: this.calculateRate(data.leadsQualified, data.leadsCreated),
-        handoffsRequested: data.handoffsRequested,
-        handoffsClaimed: data.handoffsClaimed,
-        handoffsResolved: data.handoffsResolved,
-        handoffResolutionRate: this.calculateRate(data.handoffsResolved, data.handoffsRequested),
-        medianTimeToClaimSeconds: this.calculateMedian(data.claimDurations),
-        medianTimeToResolveSeconds: this.calculateMedian(data.resolveDurations),
-        missedQuestions: data.missedQuestions,
-        resolvedMissedQuestions: data.resolvedMissedQuestions,
+        leadsCreated: Number(ar.leadsCreated) || 0,
+        leadsQualified: Number(ar.leadsQualified) || 0,
+        qualificationRate: this.calculateRate(Number(ar.leadsQualified) || 0, Number(ar.leadsCreated) || 0),
+        handoffsRequested: Number(ar.handoffsRequested) || 0,
+        handoffsClaimed: Number(ar.handoffsClaimed) || 0,
+        handoffsResolved: Number(ar.handoffsResolved) || 0,
+        handoffResolutionRate: this.calculateRate(Number(ar.handoffsResolved) || 0, Number(ar.handoffsRequested) || 0),
+        medianTimeToClaimSeconds: ar.medianTimeToClaimSeconds !== null && ar.medianTimeToClaimSeconds !== undefined ? Number(Number(ar.medianTimeToClaimSeconds).toFixed(2)) : null,
+        medianTimeToResolveSeconds: ar.medianTimeToResolveSeconds !== null && ar.medianTimeToResolveSeconds !== undefined ? Number(Number(ar.medianTimeToResolveSeconds).toFixed(2)) : null,
+        missedQuestions: accMissed,
+        resolvedMissedQuestions: accResolved,
         missedQuestionResolutionRate: resRate,
-        confirmedBookings: data.confirmedBookings,
-        confirmedOrders: data.confirmedOrders,
-        confirmedOrderValueByCurrency: data.currencyValues
+        confirmedBookings: Number(ar.confirmedBookings) || 0,
+        confirmedOrders: Number(ar.confirmedOrders) || 0,
+        confirmedOrderValueByCurrency: currs
       });
     }
 
-    // Sort clients with high missed questions by count desc, then resolution rate asc
     clientsWithHighMissedQuestions.sort((a, b) => b.missedQuestions - a.missedQuestions || a.resolutionRate - b.resolutionRate);
 
     return {
@@ -461,14 +594,14 @@ export class OutcomeTrackingService {
         handoffsClaimed,
         handoffsResolved,
         handoffResolutionRate: this.calculateRate(handoffsResolved, handoffsRequested),
-        medianTimeToClaimSeconds: this.calculateMedian(claimDurations),
-        medianTimeToResolveSeconds: this.calculateMedian(resolveDurations),
+        medianTimeToClaimSeconds,
+        medianTimeToResolveSeconds,
         missedQuestions,
         resolvedMissedQuestions,
         missedQuestionResolutionRate: this.calculateRate(resolvedMissedQuestions, missedQuestions),
         confirmedBookings,
         confirmedOrders,
-        confirmedOrderValueByCurrency: currencyValues
+        confirmedOrderValueByCurrency: totalCurrencyValues
       },
       clientsWithHighMissedQuestions,
       perClientSummaries
@@ -486,28 +619,48 @@ export class OutcomeTrackingService {
   }): Promise<OutcomeEvent> {
     const { tenantId, accountId, outcomeId, actorId } = params;
 
-    const originalEvent = await this.prisma.outcomeEvent.findFirst({
-      where: {
-        id: outcomeId,
-        tenantId,
-        accountId,
-        type: 'QUESTION_MISSED'
-      }
-    });
+    let originalEvent: OutcomeEvent | null = null;
+    if (this.prisma.outcomeEvent?.findFirst) {
+      originalEvent = await this.prisma.outcomeEvent.findFirst({
+        where: {
+          id: outcomeId,
+          tenantId,
+          accountId,
+          type: 'QUESTION_MISSED'
+        }
+      });
+    } else {
+      const rows = await this.prisma.$queryRaw<any[]>`
+        SELECT * FROM "OutcomeEvent"
+        WHERE id = ${outcomeId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND type = 'QUESTION_MISSED'
+        LIMIT 1
+      `;
+      originalEvent = rows[0] || null;
+    }
 
     if (!originalEvent) {
       throw new Error(`OutcomeTrackingService: Missed question event [${outcomeId}] not found for account [${accountId}]`);
     }
 
     // Check if already resolved
-    const existingResolution = await this.prisma.outcomeEvent.findFirst({
-      where: {
-        tenantId,
-        accountId,
-        type: 'QUESTION_RESOLVED',
-        relatedOutcomeId: outcomeId
-      }
-    });
+    let existingResolution: OutcomeEvent | null = null;
+    if (this.prisma.outcomeEvent?.findFirst) {
+      existingResolution = await this.prisma.outcomeEvent.findFirst({
+        where: {
+          tenantId,
+          accountId,
+          type: 'QUESTION_RESOLVED',
+          relatedOutcomeId: outcomeId
+        }
+      });
+    } else {
+      const rows = await this.prisma.$queryRaw<any[]>`
+        SELECT * FROM "OutcomeEvent"
+        WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND type = 'QUESTION_RESOLVED' AND "relatedOutcomeId" = ${outcomeId}
+        LIMIT 1
+      `;
+      existingResolution = rows[0] || null;
+    }
 
     if (existingResolution) {
       return existingResolution;
@@ -537,7 +690,7 @@ export class OutcomeTrackingService {
   }
 
   /**
-   * Returns missed questions that do not yet have a matching resolution event.
+   * Returns missed questions that do not yet have a matching resolution event via SQL NOT EXISTS.
    */
   async getUnresolvedMissedQuestions(
     tenantId: string,
@@ -552,32 +705,41 @@ export class OutcomeTrackingService {
 
     const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
-    const where: Prisma.OutcomeEventWhereInput = {
-      tenantId,
-      accountId,
-      type: 'QUESTION_MISSED',
-      occurredAt: { gte: since },
-      resolutions: {
-        none: {
-          tenantId,
-          accountId,
-          type: 'QUESTION_RESOLVED'
-        }
-      }
-    };
-
-    const [events, total] = await Promise.all([
-      this.prisma.outcomeEvent.findMany({
-        where,
-        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-        take: safeLimit,
-        skip: safeOffset
-      }),
-      this.prisma.outcomeEvent.count({ where })
+    const [rows, countRows] = await Promise.all([
+      this.prisma.$queryRaw<any[]>`
+        SELECT id, "conversationId", "customerId", metadata, "occurredAt"
+        FROM "OutcomeEvent" m
+        WHERE m."tenantId" = ${tenantId} AND m."accountId" = ${accountId} AND m.type = 'QUESTION_MISSED' AND m."occurredAt" >= ${since}
+          AND NOT EXISTS (
+            SELECT 1 FROM "OutcomeEvent" r
+            WHERE r."tenantId" = ${tenantId} AND r."accountId" = ${accountId} AND r.type = 'QUESTION_RESOLVED' AND r."relatedOutcomeId" = m.id
+          )
+        ORDER BY m."occurredAt" DESC, m.id DESC
+        LIMIT ${safeLimit} OFFSET ${safeOffset}
+      `,
+      this.prisma.$queryRaw<any[]>`
+        SELECT COUNT(*)::int AS count
+        FROM "OutcomeEvent" m
+        WHERE m."tenantId" = ${tenantId} AND m."accountId" = ${accountId} AND m.type = 'QUESTION_MISSED' AND m."occurredAt" >= ${since}
+          AND NOT EXISTS (
+            SELECT 1 FROM "OutcomeEvent" r
+            WHERE r."tenantId" = ${tenantId} AND r."accountId" = ${accountId} AND r.type = 'QUESTION_RESOLVED' AND r."relatedOutcomeId" = m.id
+          )
+      `
     ]);
 
-    const questions: UnresolvedMissedQuestion[] = events.map(e => {
-      const meta = (e.metadata as Record<string, any>) || {};
+    const total = Number(countRows[0]?.count) || 0;
+    const questions: UnresolvedMissedQuestion[] = rows.map((e: any) => {
+      let meta = e.metadata;
+      if (typeof meta === 'string') {
+        try {
+          meta = JSON.parse(meta);
+        } catch {
+          meta = {};
+        }
+      }
+      meta = meta || {};
+      const occurredAtStr = e.occurredAt instanceof Date ? e.occurredAt.toISOString() : String(e.occurredAt);
       return {
         id: e.id,
         conversationId: e.conversationId,
@@ -585,25 +747,17 @@ export class OutcomeTrackingService {
         question: typeof meta.question === 'string' ? meta.question : 'Customer question',
         language: typeof meta.language === 'string' ? meta.language : 'unknown',
         script: typeof meta.script === 'string' ? meta.script : undefined,
-        occurredAt: e.occurredAt.toISOString()
+        occurredAt: occurredAtStr
       };
     });
 
     return { questions, total };
   }
 
-  private calculateMedian(values: number[]): number | null {
-    if (!values || values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    if (sorted.length % 2 !== 0) {
-      return Number(sorted[mid].toFixed(2));
-    }
-    return Number(((sorted[mid - 1] + sorted[mid]) / 2).toFixed(2));
-  }
-
   private calculateRate(numerator: number, denominator: number): number {
-    if (denominator <= 0) return 0;
-    return Number(Math.min(1, Math.max(0, numerator / denominator)).toFixed(4));
+    if (!denominator || denominator <= 0) return 0;
+    const raw = numerator / denominator;
+    if (!Number.isFinite(raw)) return 0;
+    return Number(Math.min(1, Math.max(0, raw)).toFixed(4));
   }
 }

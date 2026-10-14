@@ -99,9 +99,13 @@ describe('CRMService: Minimal Lead Unit Tests', () => {
     expect(leadWithCustomer!.customer.externalId).toBe('cust-phone-123');
     expect((leadWithCustomer!.customer.metadata as any).name).toBe('Alice Smith');
 
-    // Lead entity itself only contains minimal fields
+    // Customer details remain on the related Customer; lead workflow fields are first-class.
     const leadKeys = Object.keys(leadWithCustomer!).filter(k => k !== 'customer');
-    expect(leadKeys.sort()).toEqual(['accountId', 'createdAt', 'customerId', 'id', 'status', 'tenantId', 'updatedAt'].sort());
+    expect(leadKeys.sort()).toEqual([
+      'accountId', 'closedAt', 'contactedAt', 'createdAt', 'customerId',
+      'followUpAt', 'id', 'interest', 'note', 'signalReason',
+      'sourceConversationId', 'status', 'tenantId', 'updatedAt'
+    ].sort());
   });
 
   it('6. listLeads() filters by status correctly', async () => {

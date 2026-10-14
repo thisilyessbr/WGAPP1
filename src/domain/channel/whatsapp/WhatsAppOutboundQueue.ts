@@ -37,6 +37,7 @@ export interface PostgresOutboundQueueOptions {
   autoStartWorker?: boolean;
   disableWorker?: boolean;
   deliveryReceiptProcessor?: WhatsAppDeliveryReceiptProcessor;
+  receiptPollIntervalMs?: number;
 }
 
 /**
@@ -49,9 +50,12 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
   private readonly leaseSeconds: number;
   private readonly disableWorker: boolean;
   private readonly deliveryReceiptProcessor?: WhatsAppDeliveryReceiptProcessor;
+  private readonly receiptPollIntervalMs: number;
   private handler: OutboundJobHandler | null = null;
   private isShuttingDown = false;
   private pollTimer?: NodeJS.Timeout;
+  private receiptPollTimer?: NodeJS.Timeout;
+  private isReconcilingReceipts = false;
   private activeJobs = 0;
 
   constructor(
@@ -63,6 +67,7 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
     this.leaseSeconds = options.leaseSeconds ?? 60;
     this.disableWorker = Boolean(options.disableWorker);
     this.deliveryReceiptProcessor = options.deliveryReceiptProcessor ?? new WhatsAppDeliveryReceiptProcessor(this.prisma);
+    this.receiptPollIntervalMs = Math.max(250, options.receiptPollIntervalMs ?? 5000);
 
     if (options.autoStartWorker && !this.disableWorker) {
       this.startWorker();
@@ -315,24 +320,40 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
 
   startWorker(): void {
     if (this.disableWorker) return;
-    if (this.pollTimer) return;
-
-    this.pollTimer = setInterval(async () => {
-      if (this.isShuttingDown || !this.handler) return;
-      try {
-        const job = await this.claimNextJob();
-        if (job) {
-          this.activeJobs++;
-          try {
-            await this.handler(job);
-          } finally {
-            this.activeJobs--;
+    if (!this.pollTimer) {
+      this.pollTimer = setInterval(async () => {
+        if (this.isShuttingDown || !this.handler) return;
+        try {
+          const job = await this.claimNextJob();
+          if (job) {
+            this.activeJobs++;
+            try {
+              await this.handler(job);
+            } finally {
+              this.activeJobs--;
+            }
           }
+        } catch (err: any) {
+          logger.error(`PostgresOutboundQueue: Error during worker poll: ${err.message || err}`);
         }
-      } catch (err: any) {
-        logger.error(`PostgresOutboundQueue: Error during worker poll: ${err.message || err}`);
-      }
-    }, this.pollIntervalMs);
+      }, this.pollIntervalMs);
+    }
+
+    if (!this.receiptPollTimer && this.deliveryReceiptProcessor) {
+      const reconcile = async () => {
+        if (this.isShuttingDown || this.isReconcilingReceipts) return;
+        this.isReconcilingReceipts = true;
+        try {
+          await this.deliveryReceiptProcessor!.reconcilePendingReceipts(100);
+        } catch (err: any) {
+          logger.error(`PostgresOutboundQueue: Delivery receipt reconciliation failed: ${err.message || err}`);
+        } finally {
+          this.isReconcilingReceipts = false;
+        }
+      };
+      this.receiptPollTimer = setInterval(reconcile, this.receiptPollIntervalMs);
+      setImmediate(() => { void reconcile(); });
+    }
   }
 
   private pulseWorker(): void {
@@ -358,6 +379,10 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
+    }
+    if (this.receiptPollTimer) {
+      clearInterval(this.receiptPollTimer);
+      this.receiptPollTimer = undefined;
     }
     while (this.activeJobs > 0) {
       await new Promise((resolve) => setTimeout(resolve, 50));

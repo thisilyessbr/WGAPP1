@@ -23,6 +23,8 @@ export interface DeliveryReceiptRow {
 }
 
 export class WhatsAppDeliveryReceiptProcessor {
+  private reconcileCursor: { createdAt: Date; id: string } | null = null;
+
   constructor(private prisma: PrismaClient) {}
 
   /**
@@ -44,80 +46,74 @@ export class WhatsAppDeliveryReceiptProcessor {
       return { correlated: false, applied: false, reason: 'UNKNOWN_STATUS' };
     }
 
-    // Look up Message record strictly scoped by tenantId and externalId (providerMessageId / wamid)
-    const message = await this.prisma.message.findFirst({
-      where: {
-        tenantId: receipt.tenantId,
-        externalId: receipt.providerMessageId
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Serialize all status updates for a provider message. Reading metadata outside
+      // this lock allows a late SENT receipt to overwrite a concurrent READ receipt.
+      const rows = await tx.$queryRaw<any[]>`
+        SELECT id, metadata
+        FROM "Message"
+        WHERE "tenantId" = ${receipt.tenantId}
+          AND "externalId" = ${receipt.providerMessageId}
+        LIMIT 1
+        FOR UPDATE
+      `;
+      const message = rows[0];
+
+      if (!message) {
+        return { correlated: false, applied: false, reason: 'MESSAGE_NOT_YET_COMMITTED' } as const;
       }
+
+      const existingMeta = (message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata))
+        ? { ...(message.metadata as Record<string, any>) }
+        : {};
+      const currentStatus: DeliveryStatus = (existingMeta.deliveryStatus as DeliveryStatus) || 'PENDING';
+      const allowed = canTransitionDeliveryStatus(currentStatus, targetStatus);
+
+      if (!allowed) {
+        if (receipt.id) {
+          await tx.whatsAppDeliveryReceipt.update({ where: { id: receipt.id }, data: { correlated: true } });
+        }
+        return {
+          correlated: true,
+          applied: false,
+          reason: `TRANSITION_PROHIBITED_${currentStatus}_TO_${targetStatus}`
+        } as const;
+      }
+
+      const timestampMs = receipt.providerTimestamp ? receipt.providerTimestamp.getTime() : Date.now();
+      existingMeta.deliveryStatus = targetStatus;
+
+      if (targetStatus === 'SENT') {
+        existingMeta.sentAt = timestampMs;
+      } else if (targetStatus === 'DELIVERED') {
+        existingMeta.deliveredAt = timestampMs;
+        if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
+      } else if (targetStatus === 'READ') {
+        existingMeta.readAt = timestampMs;
+        if (!existingMeta.deliveredAt) existingMeta.deliveredAt = timestampMs;
+        if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
+      } else if (targetStatus === 'FAILED') {
+        existingMeta.failedAt = timestampMs;
+        if (receipt.errorCode) existingMeta.providerErrorCode = receipt.errorCode;
+        if (receipt.errorMessage) existingMeta.providerErrorMessage = receipt.errorMessage;
+        existingMeta.error = receipt.errorMessage || `WhatsApp delivery failed (code: ${receipt.errorCode ?? 'unknown'})`;
+      }
+
+      await tx.message.update({ where: { id: message.id }, data: { metadata: existingMeta } });
+      if (receipt.id) {
+        await tx.whatsAppDeliveryReceipt.update({ where: { id: receipt.id }, data: { correlated: true } });
+      }
+      return { correlated: true, applied: true, messageId: message.id } as const;
     });
 
-    if (!message) {
+    if (!result.correlated) {
       logger.info(`WhatsAppDeliveryReceiptProcessor: Unmatched receipt [${receipt.id}] for wamid [${receipt.providerMessageId}]. Retaining for reconciliation.`);
-      return { correlated: false, applied: false, reason: 'MESSAGE_NOT_YET_COMMITTED' };
+    } else if (result.applied) {
+      logger.info(`WhatsAppDeliveryReceiptProcessor: Applied status [${targetStatus}] to message [${result.messageId}] (Meta wamid: [${receipt.providerMessageId}])`);
+    } else {
+      logger.info(`WhatsAppDeliveryReceiptProcessor: Suppressed status transition for wamid [${receipt.providerMessageId}] (${result.reason})`);
     }
-
-    const existingMeta = (message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata))
-      ? { ...(message.metadata as Record<string, any>) }
-      : {};
-
-    const currentStatus: DeliveryStatus = (existingMeta.deliveryStatus as DeliveryStatus) || 'PENDING';
-
-    // Verify whether the transition is allowed
-    const allowed = canTransitionDeliveryStatus(currentStatus, targetStatus);
-
-    if (!allowed) {
-      logger.info(
-        `WhatsAppDeliveryReceiptProcessor: Suppressed status transition from [${currentStatus}] to [${targetStatus}] for message [${message.id}] (monotonic / terminal rule)`
-      );
-
-      // Even if transition was suppressed (e.g. stale 'sent' after 'read'), the receipt is correlated
-      if (receipt.id) {
-        await this.prisma.whatsAppDeliveryReceipt.update({
-          where: { id: receipt.id },
-          data: { correlated: true }
-        });
-      }
-
-      return { correlated: true, applied: false, reason: `TRANSITION_PROHIBITED_${currentStatus}_TO_${targetStatus}` };
-    }
-
-    // Apply the transition atomically
-    const timestampMs = receipt.providerTimestamp ? receipt.providerTimestamp.getTime() : Date.now();
-    existingMeta.deliveryStatus = targetStatus;
-
-    if (targetStatus === 'SENT') {
-      existingMeta.sentAt = timestampMs;
-    } else if (targetStatus === 'DELIVERED') {
-      existingMeta.deliveredAt = timestampMs;
-      if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
-    } else if (targetStatus === 'READ') {
-      existingMeta.readAt = timestampMs;
-      if (!existingMeta.deliveredAt) existingMeta.deliveredAt = timestampMs;
-      if (!existingMeta.sentAt) existingMeta.sentAt = timestampMs;
-    } else if (targetStatus === 'FAILED') {
-      existingMeta.failedAt = timestampMs;
-      if (receipt.errorCode) existingMeta.providerErrorCode = receipt.errorCode;
-      if (receipt.errorMessage) existingMeta.providerErrorMessage = receipt.errorMessage;
-      existingMeta.error = receipt.errorMessage || `WhatsApp delivery failed (code: ${receipt.errorCode ?? 'unknown'})`;
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.message.update({
-        where: { id: message.id },
-        data: { metadata: existingMeta }
-      });
-
-      if (receipt.id) {
-        await tx.whatsAppDeliveryReceipt.update({
-          where: { id: receipt.id },
-          data: { correlated: true }
-        });
-      }
-    });
-
-    logger.info(`WhatsAppDeliveryReceiptProcessor: Applied status [${targetStatus}] to message [${message.id}] (Meta wamid: [${receipt.providerMessageId}])`);
-    return { correlated: true, applied: true };
+    return result;
   }
 
   /**
@@ -150,15 +146,29 @@ export class WhatsAppDeliveryReceiptProcessor {
    */
   async reconcilePendingReceipts(limit = 100): Promise<number> {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    // Keyset cursor across sweeps: each sweep resumes after the last receipt the
+    // previous sweep inspected, so a backlog of permanently unmatched receipts
+    // can never pin the window to the same oldest `limit` rows. The cursor
+    // wraps to the start once a sweep reaches the end of the window.
+    const cursor = this.reconcileCursor && this.reconcileCursor.createdAt >= twoHoursAgo ? this.reconcileCursor : null;
 
     const pending = await this.prisma.whatsAppDeliveryReceipt.findMany({
       where: {
         correlated: false,
-        createdAt: { gte: twoHoursAgo }
+        createdAt: { gte: twoHoursAgo },
+        ...(cursor ? {
+          OR: [
+            { createdAt: { gt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { gt: cursor.id } }
+          ]
+        } : {})
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: limit
     });
+
+    const last = pending[pending.length - 1];
+    this.reconcileCursor = pending.length < limit || !last ? null : { createdAt: last.createdAt, id: last.id };
 
     let reconciledCount = 0;
     for (const receipt of pending) {

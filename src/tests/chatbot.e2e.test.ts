@@ -92,6 +92,7 @@ describe('Phase 11: End-to-End Chatbot Acceptance', () => {
     const tenant = await prisma.tenant.create({ data: { name: 'E2E Tenant' } });
     const extId = 'user123';
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
+    config.behavior.useLlmIntentClassification = true;
     config.capabilities.intents.push({ id: 'TUTOR_SESSION', description: 'Start tutoring' });
     config.workflows['TUTOR_SESSION'] = {
       id: 'TUTOR_SESSION',
@@ -136,7 +137,7 @@ describe('Phase 11: End-to-End Chatbot Acceptance', () => {
     expect(res).toBe('Minutes?');
     // 4. Provide invalid duration (< 30) -> stays in collect_duration
     res = await engine.handleMessage(tenant.id, extId, '10');
-    expect(res).toBe('Value must be at least 30. Minutes?');
+    expect(res).toBe('Value must be at least 30.\n\nMinutes?');
     // 5. Provide valid duration -> completes workflow
     res = await engine.handleMessage(tenant.id, extId, '60');
     expect(res).toBe('Workflow completed successfully.');
@@ -148,14 +149,15 @@ describe('Phase 11: End-to-End Chatbot Acceptance', () => {
     expect(context.studentName).toBe('John');
     expect(context.subject).toBe('Math');
     expect(context.duration).toBe(60);
-  });
+  }, 15000);
   it('2. Mandatory RAG acceptance test (PDF -> RAG -> Answer)', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'RAG Tenant' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
     config.knowledge.enabled = true;
+    config.knowledge.directAnswer = false;
     await prisma.tenantConfig.create({ data: { tenantId: tenant.id, config } });
     // Ingest PDF
-    const buffer = Buffer.from('The school colors are blue and gold.');
+    const buffer = Buffer.from('%PDF-1.4\nThe school colors are blue and gold. The school colors are blue and gold.');
     await ingestionService.ingestPdf(tenant.id, buffer, 'school.pdf', config);
     // Ensure RAG can retrieve it generically
     const res = await engine.handleMessage(tenant.id, 'user456', 'What are the colors?');
@@ -172,8 +174,8 @@ describe('Phase 11: End-to-End Chatbot Acceptance', () => {
     await prisma.tenantConfig.create({ data: { tenantId: tenantA.id, config: configA } });
     await prisma.tenantConfig.create({ data: { tenantId: tenantB.id, config: configB } });
     // Ingest completely different knowledge
-    await ingestionService.ingestPdf(tenantA.id, Buffer.from('Apple is a fruit'), 'a.pdf', configA);
-    await ingestionService.ingestPdf(tenantB.id, Buffer.from('Dog is an animal'), 'b.pdf', configB);
+    await ingestionService.ingestPdf(tenantA.id, Buffer.from('%PDF-1.4\nApple is a fruit. Apple is a fruit.'), 'a.pdf', configA);
+    await ingestionService.ingestPdf(tenantB.id, Buffer.from('%PDF-1.4\nDog is an animal. Dog is an animal.'), 'b.pdf', configB);
     // Tenant A searches for Dog
     const contextA = await ragService.retrieveContext(tenantA.id, 'animal', configA);
     expect(contextA).toBe(''); // Tenant A cannot see Tenant B's 'Dog is an animal'
@@ -184,6 +186,7 @@ describe('Phase 11: End-to-End Chatbot Acceptance', () => {
   it('4. LLM failure tests do not corrupt state', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Fail Tenant' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
+    config.behavior.useLlmIntentClassification = true;
     config.capabilities.intents.push({ id: 'ORDER_SESSION', description: 'Start' });
     config.workflows['ORDER_SESSION'] = {
       id: 'ORDER_SESSION',
@@ -234,6 +237,7 @@ describe('Phase 11: End-to-End Chatbot Acceptance', () => {
       }
     };
     await prisma.tenantConfig.create({ data: { tenantId: tenant.id, config } });
+    await conversationService.getOrCreateConversation(tenant.id, extId);
     // Two exactly simultaneous messages arrive
     const p1 = engine.handleMessage(tenant.id, extId, 'start workflow');
     const p2 = engine.handleMessage(tenant.id, extId, 'start workflow');

@@ -204,6 +204,14 @@ export class QrSessionManager {
     const result = await live.socket.sendMessage(jid, { text });
     return { id: result?.key?.id || null };
   }
+  async sendImage(connectionId: string, recipient: string, caption: string, imageUrl: string): Promise<{ id: string | null }> {
+    if (!this.enabled || await this.numberService.isEmergencyQrStopped()) throw new Error('QR delivery is disabled');
+    const live = this.sessions.get(connectionId);
+    if (!live) throw new Error('QR session is not active on this worker');
+    const jid = recipient.includes('@') ? recipient : `${recipient.replace(/\D/g, '')}@s.whatsapp.net`;
+    const result = await live.socket.sendMessage(jid, { image: { url: imageUrl }, caption });
+    return { id: result?.key?.id || null };
+  }
 
   async disconnect(connection: ChannelConnection): Promise<void> {
     const live = this.sessions.get(connection.id);

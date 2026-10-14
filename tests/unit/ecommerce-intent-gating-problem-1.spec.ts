@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TurnDecisionResolver } from '../../src/domain/conversation/TurnDecision';
-import { ConversationEngine } from '../../src/domain/conversation/ConversationEngine';
+import { WorkflowTriggerResolver } from '../../src/domain/conversation/WorkflowTriggerResolver';
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../../src/domain/tenant/BusinessConfig';
 
 describe('Phase FIX-PROBLEM-1: Ecommerce Intent Gating', () => {
@@ -101,8 +101,6 @@ describe('Phase FIX-PROBLEM-1: Ecommerce Intent Gating', () => {
   });
 
   it('F. consultation workflow with configured explicit intent evaluates without ecommerce collision', () => {
-    const engine = new ConversationEngine({} as any, {} as any, {} as any, {} as any, {} as any);
-
     // Resolve turn decision with isEcommerceEnabled = false
     const turnDecision = TurnDecisionResolver.resolve({
       text: 'بغيت نحجز',
@@ -111,7 +109,7 @@ describe('Phase FIX-PROBLEM-1: Ecommerce Intent Gating', () => {
     });
 
     // Workflow activation resolution
-    const trigger = (engine as any).resolveWorkflowTrigger('بغيت نحجز', consultationConfig, turnDecision);
+    const trigger = WorkflowTriggerResolver.resolve('بغيت نحجز', consultationConfig, turnDecision);
 
     expect(trigger).not.toBeNull();
     expect(trigger?.workflowId).toBe('consultation_booking');

@@ -78,6 +78,9 @@ describe('PHASE WHATSAPP-EMBEDDED-SIGNUP-ONBOARDING-AUDIT-IMPLEMENT-46: Embedded
           })
         } as Response;
       }
+      if (url.includes('/phone_numbers')) {
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: phoneId, display_phone_number: '+1 555 1234' }] }) } as Response;
+      }
       if (url.includes('/subscribed_apps')) {
         subscribedUrls.push(url);
         return { ok: true, status: 200, json: async () => ({ success: true }) } as Response;
@@ -228,6 +231,7 @@ describe('PHASE WHATSAPP-EMBEDDED-SIGNUP-ONBOARDING-AUDIT-IMPLEMENT-46: Embedded
     expect(ids).toContain(phone1);
     expect(ids).toContain(phone2);
     expect(ids).toContain(phone3);
+    expect(new Set(numbers.map(n => n.connectionId)).size).toBe(3);
   }, 25000);
 
   it('13. Re-running Embedded Signup with the same phoneNumberId is fully idempotent', async () => {
@@ -305,4 +309,21 @@ describe('PHASE WHATSAPP-EMBEDDED-SIGNUP-ONBOARDING-AUDIT-IMPLEMENT-46: Embedded
     });
     expect(record).toBeNull();
   }, 25000);
+
+  it('rejects a phone ID that Meta does not list under the authorized WABA', async () => {
+    const { tenantId, accountA } = await createTestTenant('wrong-phone');
+    const mockFetch = vi.fn(async (url: string) => url.includes('/oauth/access_token')
+      ? { ok: true, json: async () => ({ access_token: 'account-token' }) } as Response
+      : { ok: true, json: async () => ({ data: [{ id: 'different-phone' }] }) } as Response);
+    const service = new WhatsAppOnboardingService(prisma, deps.whatsAppNumberService!, {
+      appId: 'app', appSecret: 'secret', fetchFn: mockFetch as any
+    });
+    const result = await service.processEmbeddedSignupCallback({
+      tenantId, accountId: accountA.id, code: 'real-code', wabaId: 'waba', phoneNumberId: 'unrelated-phone'
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('does not belong');
+    expect(mockFetch).not.toHaveBeenCalledWith(expect.stringContaining('/subscribed_apps'), expect.anything());
+    expect(await prisma.channelConnection.findMany({ where: { accountId: accountA.id } })).toHaveLength(0);
+  });
 });

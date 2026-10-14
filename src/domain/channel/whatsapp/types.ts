@@ -17,6 +17,8 @@ export interface WhatsAppVerificationQuery {
 export interface WhatsAppWebhookOptions {
   appSecret?: string;
   verifyToken?: string;
+  expectedConnectionId?: string;
+  rejectClientOwned?: boolean;
   idempotencyTtlSeconds?: number;
   prisma?: import('@prisma/client').PrismaClient;
 }

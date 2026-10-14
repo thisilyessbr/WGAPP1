@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { prisma } from '../../src/tests/testDb';
 import { bootstrapChatbot } from '../../src/bootstrap';
 import { FaqKnowledgeAdapter } from '../../src/domain/rag/FaqKnowledgeAdapter';
+import { ensureAnimeVerseFixture } from '../helpers/animeverseFixture';
 
 const tenantId = 'animeverse';
 const accountId = 'animeverse-store';
@@ -10,6 +11,7 @@ describe('PHASE COST-FIX-37H: Guarded Generic Anaphora Bypass', () => {
   let deps: ReturnType<typeof bootstrapChatbot>;
 
   beforeAll(async () => {
+    await ensureAnimeVerseFixture();
     deps = bootstrapChatbot(prisma);
     const config = await deps.tenantConfigService.getConfig(tenantId);
     if (config.capabilities?.faq && config.capabilities.faq.length > 0) {
@@ -20,7 +22,7 @@ describe('PHASE COST-FIX-37H: Guarded Generic Anaphora Bypass', () => {
         prisma
       );
     }
-  }, 30000);
+  }, 120000);
 
   // 1. Active entity price
   it('1. Active entity price follow-up resolves accurately without redundant reformulator call', async () => {

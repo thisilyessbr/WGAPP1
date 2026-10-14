@@ -25,6 +25,8 @@ export interface BehaviorConfig {
   answerOnlyFromKnowledge: boolean;
   allowSmallTalk: boolean;
   allowHumanHandoff: boolean;
+  /** LLM fallback for workflow routing when keywords miss (e.g. Darija wording). Enabled unless explicitly false. */
+  useLlmIntentClassification?: boolean;
 }
 
 export interface LimitsConfig {
@@ -89,10 +91,10 @@ export const DEFAULT_POST_COMPLETION_MESSAGES = {
 };
 
 export const DEFAULT_HANDOFF_MESSAGES = {
-  en: "Your request for human support has been recorded.",
-  fr: "Votre demande d’assistance humaine a été enregistrée.",
-  ar: "تم تسجيل طلبك للتواصل مع أحد موظفي الدعم.",
-  darija: "Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq."
+  en: "A human agent has been notified and will assist you shortly.",
+  fr: "Un conseiller humain a été prévenu et va prendre le relais sous peu.",
+  ar: "تم إخطار أحد موظفي خدمة العملاء وسيقوم بمساعدتك قريباً.",
+  darija: "3lemna l'equipe d support w ghadi yjawbek chi wahed 9riban."
 };
 
 export const DEFAULT_IMAGE_FALLBACK_MESSAGES = {
@@ -138,6 +140,8 @@ export interface PromptsConfig {
 export interface WorkflowFieldConfig {
   name: string;
   type: 'string' | 'email' | 'phone' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
+  /** Semantic validation for text fields; legacy name fields infer person_name. */
+  semanticType?: 'person_name' | 'free_text';
   required: boolean;
   options?: string[]; // for enum
   extractionPrompt?: string;
@@ -303,6 +307,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     answerOnlyFromKnowledge: false,
     allowSmallTalk: true,
     allowHumanHandoff: false,
+    useLlmIntentClassification: true,
   },
   limits: {
     maxConversationHistory: 20,
@@ -351,7 +356,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     enabled: true,
     topK: 3,
     minSimilarityScore: 0.52,
-    maxContextSize: 4000,
+    maxContextSize: 2500,
     ingestion: {
       chunkSize: 800,
       chunkOverlap: 100,
@@ -369,7 +374,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     provider: 'deepseek',
     model: DEFAULT_DEEPSEEK_MODEL,
     temperature: 0.2,
-    maxTokens: 500,
+    maxTokens: 300,
     timeoutMs: 15000,
   }
 };

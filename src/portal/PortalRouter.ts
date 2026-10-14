@@ -11,9 +11,15 @@ import { ChatbotDependencies } from '../bootstrap';
 import { ConversationAutomationService } from '../domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
+import { ClientOwnedMetaService } from '../domain/channel/whatsapp/ClientOwnedMetaService';
 import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService';
 import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
 import { logger } from '../utils/logger';
+import { BoundedRateLimiter } from '../utils/rateLimiter';
+import { PortalProductImages } from './PortalProductImages';
+import { imageId } from './validation';
+import { outboundMediaContext, ChatMedia } from '../domain/conversation/AnswerComposer';
+import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
 export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; }
@@ -28,8 +34,14 @@ export interface PortalRouterDeps {
   [key: string]: any;
 }
 const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules });
-const clientProfile = (p: PortalProfile) => ({ accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
-  requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, autoPublish: p.autoPublish });
+const clientProfile = (p: PortalProfile) => {
+  const entitledModules = p.planSnapshot?.modules || [];
+  const commerceActive = entitledModules.includes('commerce') && p.adminConfig?.capabilities?.ecommerceEnabled !== false;
+  const effectiveModules = commerceActive ? entitledModules : entitledModules.filter(module => module !== 'commerce');
+  return { accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
+    requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen,
+    autoPublish: p.autoPublish, effectiveModules, productMode: commerceActive ? 'COMMERCE' : 'STANDARD', commerceActive };
+};
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
 function boundedQueryInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -53,9 +65,41 @@ function validateAccountChanges(changes: Record<string, any>) {
 }
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
+  const productImages = new PortalProductImages(store);
   const automationService = deps.conversationAutomationService || new ConversationAutomationService(services.store.db as any);
   const outcomeService = deps.outcomeTrackingService || new OutcomeTrackingService(services.store.db as any);
+  const portalLeads = new PortalLeads(store);
   const router = Router(), authRouter = Router(), client = Router(), admin = Router();
+  const serveImage = async (req: Request, res: Response, id: string, accountId?: string) => {
+    const validId = imageId(id), publishedOnly = !accountId;
+    // Image rows are content-addressed and never rewritten, so the stored SHA-256 is a strong validator.
+    // Revalidation still checks visibility, so suspension or unpublishing takes effect without loading bytes.
+    const conditional = req.headers['if-none-match'];
+    if (conditional) {
+      const { hash } = await productImages.read(validId, accountId, publishedOnly, true);
+      if (conditional.split(',').some(tag => tag.trim().replace(/^W\//, '') === `"${hash}"`)) {
+        res.setHeader('ETag', `"${hash}"`);
+        res.setHeader('Cache-Control', accountId ? 'private, no-store' : 'public, max-age=3600');
+        return void res.status(304).end();
+      }
+    }
+    const { bytes, hash } = await productImages.read(validId, accountId, publishedOnly);
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('ETag', `"${hash}"`);
+    // Bytes are immutable per id, but public access can be revoked (unpublish/suspension), so cap shared caching at an hour.
+    res.setHeader('Cache-Control', accountId ? 'private, no-store' : 'public, max-age=3600');
+    res.send(bytes);
+  };
+  // In-memory per-IP limiter (req.ip honours trust proxy); generous enough for Meta media fetches and catalog browsing.
+  const publicImageLimiter = new BoundedRateLimiter({ windowMs: 60000, maxRequests: 300, maxKeys: 10000 });
+  router.get('/product-images/:id', (req, res, next) => {
+    const result = publicImageLimiter.check('product-image:' + (req.ip || req.socket.remoteAddress || 'unknown'));
+    if (result.allowed) return next();
+    res.setHeader('Retry-After', String(result.retryAfterSeconds));
+    next(new PortalError(429, 'TOO_MANY_REQUESTS', 'Too many requests. Please try again later.'));
+  }, route(async (req, res) => serveImage(req, res, String(req.params.id))));
   router.use(['/auth', '/client', '/admin', '/portal'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   router.get('/portal/plans', route(async (_req, res) => send(res, { plans: (await store.plans(true)).map(publicPlan) })));
   router.get('/portal/settings', (_req, res) => send(res, { emailVerificationSkipped: auth.skipsEmail() }));
@@ -87,17 +131,38 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       (req as PortalRequest).portal = p; next();
     }).catch(next);
   });
+  // Freeze chatbot data edits without interrupting inbox, leads, or WhatsApp operations.
+  client.use((req, _res, next) => {
+    if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)|^\/product-images(?:\/|$)/.test(req.path))) return next();
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => profile.editingFrozen
+        ? next(new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.'))
+        : next()).catch(next);
+  });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
+  client.get('/product-images', route(async (req, res) => send(res, { images: await productImages.list(req.portal.accountId!) })));
+  client.get('/product-images/:id', route(async (req, res) => serveImage(req, res, String(req.params.id), req.portal.accountId!)));
+  const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
+  // Auth, CSRF and the editing-freeze check run in the router-level middleware above; throttle before multer so rejected uploads are never buffered.
+  const throttleImageUpload = (accountId: (req: PortalRequest) => Promise<string>) => (req: Request, _res: Response, next: express.NextFunction) => {
+    Promise.resolve(accountId(req as PortalRequest)).then(id => store.throttle('image-upload:' + id, 30, 3600)).then(() => next(), next);
+  };
+  client.post('/product-images', throttleImageUpload(async req => req.portal.accountId!), imageUpload, route(async (req, res) => {
+    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
+    send(res, await productImages.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
+  }));
+  client.delete('/product-images/:id', route(async (req, res) => { await productImages.remove(req.portal.user.id, req.portal.accountId!, imageId(String(req.params.id))); send(res, { success: true }); }));
   client.get('/dashboard', route(async (req, res) => {
     const accountId = req.portal.accountId!, tenantId = req.portal.tenantId!;
-    const [profile, connections, stats, portalDocuments, recentConversations] = await Promise.all([
+    const [profile, connections, stats, portalDocuments, recentConversations, leadSummary] = await Promise.all([
       store.profile(accountId, tenantId),
       store.connections(accountId, tenantId),
       store.stats(accountId, tenantId, 30),
       documents.list(accountId),
       store.db.$queryRaw<any[]>`SELECT id,status,"messageCount","humanRequested","updatedAt","customerId" FROM "Conversation"
         WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "customerId" NOT LIKE 'portal-preview:%'
-        ORDER BY "updatedAt" DESC LIMIT 6`
+        ORDER BY "updatedAt" DESC LIMIT 6`,
+      portalLeads.summary(tenantId, accountId)
     ]);
     const maskCustomer = (value: unknown) => {
       const raw = String(value || 'Customer');
@@ -107,6 +172,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       profile: clientProfile(profile),
       connections: connections.map(c => ({ id: c.id, provider: c.provider, status: c.status, enabled: c.enabled, displayPhoneNumber: c.displayPhoneNumber, numberStatus: c.numberStatus, updatedAt: c.updatedAt })),
       metrics: { totals: stats.totals, daily: stats.daily, leads: stats.leads },
+      leadSummary,
       documents: { total: portalDocuments.length, ready: portalDocuments.filter(d => d.status === 'READY').length, pending: portalDocuments.filter(d => d.status !== 'READY').length },
       recentConversations: recentConversations.map(c => ({ id: c.id, status: c.status, messageCount: c.messageCount, humanRequested: c.humanRequested, updatedAt: c.updatedAt, customerLabel: maskCustomer(c.customerId) }))
     });
@@ -136,7 +202,22 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, await documents.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
   }));
   client.delete('/documents/:id', route(async (req, res) => { await documents.remove(req.portal.user.id, req.portal.accountId!, String(req.params.id), false); send(res, { success: true }); }));
-  client.get('/whatsapp', route(async (req, res) => send(res, { connections: await store.connections(req.portal.accountId!, req.portal.tenantId!), qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()), metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID) })));
+  client.get('/whatsapp', route(async (req, res) => {
+    const [profile, accountConnections] = await Promise.all([
+      store.profile(req.portal.accountId!, req.portal.tenantId!),
+      store.connections(req.portal.accountId!, req.portal.tenantId!)
+    ]);
+    const numberLimit = profile.planSnapshot?.limits.numbers ?? 0;
+    const connectedNumberCount = accountConnections.filter(connection => connection.numberRecordId).length;
+    const canAddNumber = numberLimit === -1 || connectedNumberCount < numberLimit;
+    send(res, {
+      connections: accountConnections,
+      canAddNumber,
+      qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()),
+      metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID)
+        && (process.env.NODE_ENV !== 'production' || process.env.META_EMBEDDED_SIGNUP_ENABLED === 'true')
+    });
+  }));
   client.post('/whatsapp/start', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.begin(req.portal)); }));
   client.post('/whatsapp/qr', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.startQr(req.portal)); }));
   client.get('/whatsapp/:id/qr', route(async (req, res) => send(res, await connections.qr(req.portal, String(req.params.id)))));
@@ -665,6 +746,43 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     }, 201);
   }));
 
+  // --- Client lead workspace ---
+  client.get('/leads', route(async (req, res) => {
+    const status = String(req.query.status || 'ALL').toUpperCase();
+    const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
+    const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
+    send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset));
+  }));
+  client.get('/leads/summary', route(async (req, res) => {
+    send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!));
+  }));
+  client.get('/leads/:id', route(async (req, res) => {
+    send(res, { lead: await portalLeads.get(req.portal.tenantId!, req.portal.accountId!, String(req.params.id)) });
+  }));
+  client.patch('/leads/:id', route(async (req, res) => {
+    const body = object(req.body);
+    allowed(body, ['status', 'note', 'followUpAt']);
+    if (!Object.keys(body).length) throw new PortalError(400, 'NO_LEAD_CHANGES');
+    const changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null } = {};
+    if (body.status !== undefined) {
+      if (typeof body.status !== 'string' || !LEAD_STAGES.includes(body.status as LeadStage)) throw new PortalError(400, 'INVALID_LEAD_STAGE');
+      changes.status = body.status as LeadStage;
+    }
+    if (body.note !== undefined) {
+      if (body.note !== null && (typeof body.note !== 'string' || body.note.length > 2000)) throw new PortalError(400, 'INVALID_LEAD_NOTE');
+      changes.note = body.note?.trim() || null;
+    }
+    if (body.followUpAt !== undefined) {
+      if (body.followUpAt !== null) {
+        if (typeof body.followUpAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(body.followUpAt) || !Number.isFinite(Date.parse(body.followUpAt))) throw new PortalError(400, 'INVALID_FOLLOW_UP_DATE');
+        const [year, month, day] = body.followUpAt.slice(0, 10).split('-').map(Number);
+        if (new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) !== body.followUpAt.slice(0, 10)) throw new PortalError(400, 'INVALID_FOLLOW_UP_DATE');
+      }
+      changes.followUpAt = body.followUpAt === null ? null : new Date(body.followUpAt);
+    }
+    send(res, { lead: await portalLeads.update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id), req.portal.user.id, changes) });
+  }));
+
   // --- Client Outcome Tracking Routes ---
   client.get('/outcomes/summary', route(async (req, res) => {
     const days = boundedQueryInteger(req.query.days, 30, 1, 90);
@@ -776,6 +894,11 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, { profile: p, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
       members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id WHERE m."accountId"=${p.accountId}` });
   }));
+  admin.patch('/accounts/:id/editing-freeze', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['frozen']);
+    if (typeof body.frozen !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    send(res, { profile: await store.setEditingFrozen(req.portal.user.id, String(req.params.id), body.frozen) });
+  }));
   admin.patch('/accounts/:id', route(async (req, res) => {
     const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);
     const { revision, ...changes } = data;
@@ -804,6 +927,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.patch('/accounts/:id/connections/:connectionId', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
     if (typeof req.body?.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    if (req.body.enabled) {
+      const connection = await deps.prisma.channelConnection.findFirst({ where: { id: String(req.params.connectionId), tenantId: p.tenantId, accountId: p.accountId } });
+      if (!connection) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
+      if (connection?.connectionKey?.startsWith('CLIENT_OWNED:') && connection.status !== 'CONNECTED') {
+        throw new PortalError(409, 'WEBHOOK_NOT_VERIFIED');
+      }
+    }
     await store.transaction(async s => {
       const n = await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
       if (!n) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
@@ -819,6 +949,68 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
       WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} AND c."customerId" NOT LIKE 'portal-preview:%' ORDER BY c."updatedAt" DESC LIMIT 50`;
     send(res, { conversations: rows });
+  }));
+  admin.post('/accounts/:id/whatsapp/client-owned', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    if (!p.planSnapshot || !['APPROVED', 'ACTIVE'].includes(p.status)) throw new PortalError(409, 'PLAN_NOT_APPROVED');
+    const input = object(req.body);
+    allowed(input, ['appId', 'appSecret', 'wabaId', 'phoneNumberId', 'accessToken']);
+    const credentials = {
+      appId: text(input.appId, 30), appSecret: text(input.appSecret, 256),
+      wabaId: text(input.wabaId, 30), phoneNumberId: text(input.phoneNumberId, 30),
+      accessToken: text(input.accessToken, 4096)
+    };
+    const numbers = await store.connections(p.accountId, p.tenantId);
+    const alreadyLinked = numbers.some(c => c.phoneNumberId === credentials.phoneNumberId);
+    const limit = p.planSnapshot.limits.numbers;
+    if (!alreadyLinked && limit !== -1 && numbers.filter(c => c.numberRecordId).length >= limit) throw new PortalError(409, 'NUMBER_LIMIT_REACHED');
+    const service = new ClientOwnedMetaService(deps.prisma);
+    try {
+      const setup = await service.prepare(p.accountId, credentials);
+      await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_PREPARED', {
+        connectionId: setup.connectionId, appId: setup.appId, wabaId: setup.wabaId
+      });
+      send(res, setup, 201);
+    } catch (error: any) {
+      const code = String(error?.message || 'CONNECTION_SETUP_FAILED');
+      if (code === 'META_UNAVAILABLE' || code === 'META_CREDENTIALS_OR_ACCESS_INVALID' || code === 'META_INVALID_RESPONSE') throw new PortalError(502, code);
+      if (code === 'NUMBER_ALREADY_ASSIGNED' || code === 'META_APP_ALREADY_ASSIGNED') throw new PortalError(409, code);
+      throw new PortalError(400, code);
+    }
+  }));
+  admin.get('/accounts/:id/whatsapp/client-owned/:connectionId/setup', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    try {
+      send(res, await new ClientOwnedMetaService(deps.prisma).setup(String(req.params.connectionId), p.accountId));
+    } catch (error: any) {
+      if (error?.message === 'CONNECTION_NOT_FOUND') throw new PortalError(404, 'CONNECTION_NOT_FOUND');
+      throw error;
+    }
+  }));
+  admin.post('/accounts/:id/whatsapp/client-owned/:connectionId/activate', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    let result;
+    try { result = await new ClientOwnedMetaService(deps.prisma).activate(String(req.params.connectionId), p.accountId); }
+    catch (error: any) {
+      const code = String(error?.message || 'META_SUBSCRIPTION_FAILED');
+      if (code === 'WEBHOOK_NOT_VERIFIED') throw new PortalError(409, code);
+      if (code === 'META_SUBSCRIPTION_FAILED') throw new PortalError(502, code);
+      throw error;
+    }
+    await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_ACTIVATED', { connectionId: result.connectionId });
+    send(res, result);
+  }));
+  admin.get('/accounts/:id/product-images', route(async (req, res) => { const p = await store.profile(String(req.params.id)); send(res, { images: await productImages.list(p.accountId) }); }));
+  admin.get('/accounts/:id/product-images/:imageId', route(async (req, res) => { const p = await store.profile(String(req.params.id)); await serveImage(req, res, String(req.params.imageId), p.accountId); }));
+  admin.post('/accounts/:id/product-images', throttleImageUpload(async req => (await store.profile(String(req.params.id))).accountId), imageUpload, route(async (req, res) => {
+    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
+    const p = await store.profile(String(req.params.id));
+    send(res, await productImages.upload(req.portal.user.id, p.accountId, req.file.originalname, req.file.buffer, true), 201);
+  }));
+  admin.delete('/accounts/:id/product-images/:imageId', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    await productImages.remove(req.portal.user.id, p.accountId, imageId(String(req.params.imageId)), true);
+    send(res, { success: true });
   }));
   admin.post('/accounts/:id/conversations/:conversationId/triage', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['action']);
@@ -892,11 +1084,16 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       config = account.config;
     }
     const engine: any = deps.conversationEngine;
-    const response = typeof engine.previewMessage === 'function'
-      ? await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config)
-      : await engine.handleMessage(p.tenantId, `portal-preview:${req.portal.user.id}:${sessionId}`, message, p.accountId);
+    const preview = { media: [] as ChatMedia[] };
+    const response = await outboundMediaContext.run(preview, () => typeof engine.previewMessage === 'function'
+      ? engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config)
+      : engine.handleMessage(p.tenantId, `portal-preview:${req.portal.user.id}:${sessionId}`, message, p.accountId));
+    const media = preview.media.filter(m => m.type === 'image').flatMap(m => {
+      const match = m.url.match(/\/api\/product-images\/([a-f0-9-]{36})$/i);
+      return match ? [{ type: 'image', url: `/api/admin/accounts/${p.accountId}/product-images/${match[1]}` }] : [];
+    }).slice(0, 3);
     await store.audit(req.portal.user.id, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
-    send(res, { response, mode, sessionId });
+    send(res, { response, media, mode, sessionId });
   }));
   admin.get('/plans', route(async (_req, res) => send(res, { plans: await store.plans() })));
   admin.post('/plans', route(async (req, res) => send(res, { plan: await store.savePlan(req.portal.user.id, validatePlan(req.body)) }, 201)));

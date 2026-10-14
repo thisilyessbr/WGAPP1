@@ -196,6 +196,38 @@ export class WhatsAppOutboundAdapter {
    * 4. Immediate return for permanent errors without wasted retries.
    * 5. Conservative DELIVERY_UNKNOWN handling for network timeouts.
    */
+  async sendImageMessage(params: { phoneNumberId: string; to: string; caption: string; imageUrl: string }): Promise<OutboundSendResult> {
+    const { phoneNumberId, to, caption, imageUrl } = params;
+    const publicOrigin = process.env.PORTAL_PUBLIC_URL;
+    let validImageUrl = false;
+    try {
+      const url = new URL(imageUrl);
+      validImageUrl = Boolean(publicOrigin) && url.origin === new URL(publicOrigin!).origin && url.protocol === 'https:' &&
+        /^\/api\/product-images\/[a-f0-9-]{36}$/i.test(url.pathname) && !url.search && !url.hash;
+    } catch { /* An invalid URL cannot be sent to Meta. */ }
+    if (!publicOrigin || !/^\d+$/.test(phoneNumberId) || !/^\d+$/.test(to) ||
+      !validImageUrl) return { success: false, error: 'INVALID_PRODUCT_IMAGE_URL', isRetryable: false };
+    const token = await this.resolveToken(phoneNumberId);
+    if (!token) return { success: false, error: 'WHATSAPP_ACCESS_TOKEN is not configured', isRetryable: false };
+    try {
+      const response = await this.fetchFn(`${this.baseUrl}/${this.version}/${phoneNumberId}/messages`, {
+        method: 'POST', signal: AbortSignal.timeout(15_000),
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'image',
+          image: { link: imageUrl, caption: caption.slice(0, 1024) } })
+      });
+      if (response.ok) {
+        const receipt = await this.readReceipt(response);
+        return receipt.success ? { success: true, providerMessageId: receipt.providerMessageId, sentAt: Date.now() } : receipt;
+      }
+      const error: any = await response.json().catch(() => ({}));
+      return { success: false, error: error?.error?.message || `Meta API returned HTTP ${response.status}`,
+        errorCode: error?.error?.code || response.status, isRetryable: false };
+    } catch {
+      return { success: false, error: 'Delivery outcome unknown; reconcile before retry.', errorCode: 'DELIVERY_UNKNOWN', isRetryable: false };
+    }
+  }
+
   async sendTextMessage(params: {
     phoneNumberId: string;
     to: string;

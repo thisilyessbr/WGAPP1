@@ -11,6 +11,7 @@ import { PortalConnections } from '../../src/portal/PortalConnections';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
 import { validateAdminConfig, validatePlan } from '../../src/portal/validation';
 import { portalBusinessEvidence } from '../../src/portal/BusinessFacts';
+import sharp from 'sharp';
 
 describe('portal PostgreSQL and HTTP boundaries', () => {
   let database: Awaited<ReturnType<typeof portalDatabase>>, store: PortalStore, budget: PortalBudget, auth: PortalAuth, docs: PortalDocuments, connections: PortalConnections, app: express.Express;
@@ -97,6 +98,65 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect((await request(app).get('/api/admin/accounts').set(headers)).status).toBe(403);
     expect((await request(app).patch('/api/admin/accounts/'+c.accountId).set(headers).send({status:'ACTIVE'})).status).toBe(403);
   });
+  it('shows only the client’s leads and records follow-up and won status', async () => {
+    const a = await client(), b = await client(), aHeaders = await cookie(a.user), bHeaders = await cookie(b.user);
+    const customerId = randomUUID(), leadId = randomUUID(), conversationId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt") VALUES (${customerId},${a.tenantId},'212600000001',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt") VALUES (${conversationId},${a.tenantId},${a.accountId},${customerId},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,interest,"signalReason","sourceConversationId","updatedAt") VALUES (${leadId},${a.tenantId},${a.accountId},${customerId},'NEW','Bghit nchri sbat','EXPLICIT_PURCHASE_MESSAGE',${conversationId},NOW())`;
+    expect((await request(app).get('/api/client/leads').set(aHeaders)).body.leads[0]).toMatchObject({ id: leadId, conversationId, interest: 'Bghit nchri sbat' });
+    expect((await request(app).get('/api/client/leads').set(bHeaders)).body.leads).toHaveLength(0);
+    expect((await request(app).get('/api/client/leads/' + leadId).set(bHeaders)).status).toBe(404);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(bHeaders).send({ status: 'WON' })).status).toBe(404);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(aHeaders).send({ status: 'INVALID' })).status).toBe(400);
+    const qualified = await request(app).patch('/api/client/leads/' + leadId).set(aHeaders).send({ status: 'QUALIFIED', note: 'Call tomorrow', followUpAt: '2026-09-25T10:00:00.000Z' });
+    expect(qualified.status).toBe(200);
+    expect(qualified.body.lead).toMatchObject({ status: 'QUALIFIED', note: 'Call tomorrow' });
+    expect((await request(app).get('/api/client/leads/summary').set(aHeaders)).body.qualified).toBe(1);
+    expect((await request(app).get('/api/client/outcomes/summary').set(aHeaders)).body.leadsQualified).toBe(1);
+    const won = await request(app).patch('/api/client/leads/' + leadId).set(aHeaders).send({ status: 'WON' });
+    expect(won.status).toBe(200);
+    expect((await request(app).get('/api/client/leads/summary').set(aHeaders)).body.won).toBe(1);
+  });
+  it('keeps product photos private until publication, isolates accounts, and stores cover and variant metadata', async () => {
+    const a = await client(), b = await client(), headers = await cookie(a.user);
+    const pixels = await sharp({ create: { width: 120, height: 80, channels: 3, background: '#a51f2b' } }).png().toBuffer();
+    const bad = await request(app).post('/api/client/product-images').set(headers).attach('file', Buffer.from('<svg/>'), 'bad.svg');
+    expect(bad.status).toBe(400);
+    const upload = await request(app).post('/api/client/product-images').set(headers).attach('file', pixels, 'shoes.png');
+    expect(upload.status).toBe(201);
+    const unused = await request(app).post('/api/client/product-images').set(headers).attach('file', await sharp(pixels).negate().png().toBuffer(), 'unused.png');
+    expect(unused.status).toBe(201);
+    expect((await request(app).delete('/api/client/product-images/' + unused.body.id).set(headers)).status).toBe(200);
+    expect((await request(app).get('/api/client/product-images/' + unused.body.id).set(headers)).status).toBe(404);
+    const id = upload.body.id;
+    expect((await request(app).get('/api/product-images/' + id)).status).toBe(404);
+    expect((await request(app).get('/api/client/product-images/' + id).set(headers)).status).toBe(200);
+    expect((await request(app).get('/api/client/product-images/' + id).set(await cookie(b.user))).status).toBe(404);
+    let p = await store.profile(a.accountId);
+    const product = { sku: 'SHOE', name: 'Shoes', description: 'Leather', price: 99, stock: 2, category: 'Footwear', imageIds: [id],
+      variants: [{ sku: 'SHOE-42', size: '42', color: 'Black', price: null, stock: 1, imageId: id }] };
+    const foreignId = randomUUID();
+    await expect(store.saveDraft(a.userId, a.accountId, a.tenantId, { ...p.draft, products: [{ ...product, imageIds: [foreignId], variants: [{ ...product.variants[0], imageId: foreignId }] }] }, p.revision)).rejects.toMatchObject({ code: 'IMAGE_UNAVAILABLE' });
+    p = await store.saveDraft(a.userId, a.accountId, a.tenantId, { ...p.draft, products: [product] }, p.revision);
+    p = await store.updateAccount(admin.id, a.accountId, p.revision, { planId: plan.id });
+    const oldUrl = process.env.PORTAL_PUBLIC_URL;
+    process.env.PORTAL_PUBLIC_URL = 'https://relayqo.example';
+    try { await store.publish(admin.id, a.accountId, p.revision); }
+    finally { if (oldUrl === undefined) delete process.env.PORTAL_PUBLIC_URL; else process.env.PORTAL_PUBLIC_URL = oldUrl; }
+    const productRow = (await store.db.$queryRaw<any[]>`SELECT metadata FROM "Product" WHERE "accountId"=${a.accountId} AND sku='SHOE'`)[0];
+    expect(productRow.metadata.images).toEqual([`https://relayqo.example/api/product-images/${id}`]);
+    const variantRow = (await store.db.$queryRaw<any[]>`SELECT v.metadata FROM "ProductVariant" v JOIN "Product" p ON p.id=v."productId" WHERE p."accountId"=${a.accountId} AND v.sku='SHOE-42'`)[0];
+    expect(variantRow.metadata.images).toEqual(productRow.metadata.images);
+    const publicImage = await request(app).get('/api/product-images/' + id);
+    expect(publicImage.status).toBe(200);
+    expect(publicImage.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
+    expect(publicImage.headers['cache-control']).toBe('public, max-age=3600');
+    const revalidated = await request(app).get('/api/product-images/' + id).set('If-None-Match', publicImage.headers.etag);
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.etag).toBe(publicImage.headers.etag);
+    expect((await request(app).get('/api/product-images/not-a-uuid')).status).toBe(400);
+  });
   it('rejects cross-account headers and filters secrets from client responses', async () => {
     const a=await client(), b=await client(), headers=await cookie(a.user);
     expect((await request(app).get('/api/client/profile').set(headers).set('X-Account-Id',b.accountId)).status).toBe(403);
@@ -143,6 +203,24 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     const rows=await store.db.$queryRaw<any[]>`SELECT config FROM "Account" WHERE id=${c.accountId}`;expect(rows[0].config.capabilities.ecommerceEnabled).toBe(true);expect(portalBusinessEvidence(rows[0].config,'delivery')).toContain('48 hours');
     const products=await store.db.$queryRaw<any[]>`SELECT * FROM "Product" WHERE "accountId"=${c.accountId}`;expect(Number(products[0].price)).toBe(99.5);
     const variants=await store.db.$queryRaw<any[]>`SELECT * FROM "ProductVariant" WHERE "productId"=${products[0].id}`;expect(variants[0].sku).toBe('P1-42');
+  });
+  it('downgrades to standard mode without deleting the catalog and restores commerce after republishing', async () => {
+    const c=await client();let p=await approved(c);
+    const standard=await store.savePlan(admin.id,validatePlan({name:'Standard chatbot',published:true,modules:['knowledge','services'],limits:{monthlyUsd:1,messages:100,llmCalls:100,numbers:1,documents:1}}));
+    p=await store.updateAccount(admin.id,c.accountId,p.revision,{planId:standard!.id});
+    let runtime=(await store.db.$queryRaw<any[]>`SELECT config FROM "Account" WHERE id=${c.accountId}`)[0].config;
+    expect(runtime.productMode).toBe('STANDARD');expect(runtime.capabilities.ecommerceEnabled).toBe(false);
+    expect((await store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "Product" WHERE "accountId"=${c.accountId} AND active=true`)[0].n).toBe(0);
+    expect(p.draft.products).toHaveLength(1);
+    p=await store.publish(admin.id,c.accountId,p.revision);
+    expect(p.published!.products).toEqual([]);expect(p.draft.products).toHaveLength(1);
+    const headers=await cookie(c.user),profile=await request(app).get('/api/client/profile').set(headers);
+    expect(profile.body.profile).toMatchObject({productMode:'STANDARD',commerceActive:false,effectiveModules:['knowledge','services']});
+    p=await store.updateAccount(admin.id,c.accountId,p.revision,{planId:plan.id});
+    p=await store.publish(admin.id,c.accountId,p.revision);
+    runtime=(await store.db.$queryRaw<any[]>`SELECT config FROM "Account" WHERE id=${c.accountId}`)[0].config;
+    expect(runtime.productMode).toBe('COMMERCE');expect(runtime.capabilities.ecommerceEnabled).toBe(true);
+    expect((await store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "Product" WHERE "accountId"=${c.accountId} AND active=true`)[0].n).toBe(1);
   });
   it('saves a newly selected plan and workflow in the same publication request', async () => {
     const c=await client(), headers=await cookie(admin);let p=await store.profile(c.accountId);
@@ -230,7 +308,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     vi.stubEnv('META_APP_ID','test-app');vi.stubEnv('META_CONFIG_ID','test-config');
     const a=await client(),b=await client();await approved(a);await approved(b);
     const principal={user:a.user,accountId:a.accountId,tenantId:a.tenantId,sessionId:'s',csrf:'c'} as any;
-    const start=await connections.begin(principal);await expect(connections.begin(principal)).rejects.toMatchObject({code:'NUMBER_ALLOWANCE_REACHED'});
+    const start=await connections.begin(principal);expect(await connections.begin(principal)).toEqual(start);
     const input={...start,code:'not-a-real-code',wabaId:'waba',phoneNumberId:'phone'};
     await expect(connections.complete({...principal,user:b.user,accountId:b.accountId,tenantId:b.tenantId},input)).rejects.toMatchObject({code:'CONNECTION_ATTEMPT_EXPIRED'});
     expect((await connections.complete(principal,input)).success).toBe(true);

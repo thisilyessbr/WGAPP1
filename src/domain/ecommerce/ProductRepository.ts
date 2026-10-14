@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient, Product, ProductVariant } from '@prisma/client';
+import { CatalogMatcher } from './CatalogMatcher';
 
 export interface ProductWithVariants extends Product {
   variants: ProductVariant[];
@@ -338,7 +339,7 @@ export class ProductRepository {
           orderBy: { sku: 'asc' }
         }
       },
-      take: 50
+      take: 500
     });
 
     const localizedMatches: ProductWithVariants[] = [];
@@ -374,8 +375,46 @@ export class ProductRepository {
       }
     }
 
-    return [...directResults, ...localizedMatches].slice(0, limit);
+    // Cross-script / synonym matching (Darija, Arabic, Arabizi vs French
+    // catalog names). Best catalog matches lead; substring-only hits follow.
+    const ranked = CatalogMatcher.rank(query, allAccountProducts.filter(p => !directResults.some(d => d.id === p.id)));
+    const rankedIds = new Set(ranked.map(r => r.product.id));
+    const ordered = [
+      ...ranked.map(r => r.product),
+      ...localizedMatches.filter(p => !rankedIds.has(p.id))
+    ];
+    return [...directResults, ...ordered].slice(0, limit);
   }
+
+  /**
+   * The single active product a free-text customer message clearly refers to
+   * (any language or script), or null when nothing or several products match.
+   */
+  async matchCatalog(tenantId: string, accountId: string, text: string): Promise<ProductWithVariants | null> {
+    if (!tenantId || !accountId || !text?.trim() || !CatalogMatcher.queryTokens(text).length) return null;
+    // Runs on every customer message: score a light, briefly cached index and
+    // load the full product only for a match.
+    const key = `${tenantId}:${accountId}`;
+    let entry = ProductRepository.catalogIndex.get(key);
+    if (!entry || entry.expiresAt < Date.now()) {
+      const products = await this.prisma.product.findMany({
+        where: { tenantId, accountId, active: true },
+        select: { id: true, name: true, description: true, category: true, sku: true, nameLocalized: true },
+        take: 500
+      });
+      entry = { products, expiresAt: Date.now() + ProductRepository.CATALOG_INDEX_TTL_MS };
+      if (ProductRepository.catalogIndex.size >= 1000) ProductRepository.catalogIndex.clear();
+      ProductRepository.catalogIndex.set(key, entry);
+    }
+    const best = CatalogMatcher.best(text, entry.products);
+    return best ? this.findById(tenantId, accountId, best.id) : null;
+  }
+
+  private static readonly CATALOG_INDEX_TTL_MS = 30_000;
+  private static readonly catalogIndex = new Map<string, {
+    products: { id: string; name: string; description: string | null; category: string | null; sku: string; nameLocalized: Prisma.JsonValue }[];
+    expiresAt: number;
+  }>();
 
   async getDistinctCategories(tenantId: string, accountId: string, activeOnly = true): Promise<string[]> {
     if (!tenantId || !accountId) return [];

@@ -73,7 +73,7 @@ startxref
     });
     createdTenantIds.push(tenantId);
 
-    const token = createSignedToken({ tenantId });
+    const token = createSignedToken({ tenantId, role: 'admin' });
 
     // Upload with tenantId in query params and X-Tenant-Id header
     const res = await request(app)
@@ -157,7 +157,7 @@ startxref
     });
     createdTenantIds.push(tenantId);
 
-    const token = createSignedToken({ tenantId });
+    const token = createSignedToken({ tenantId, role: 'admin' });
 
     // First upload
     const res1 = await request(app)
@@ -194,7 +194,7 @@ startxref
     });
     createdTenantIds.push(tenantId);
 
-    const token = createSignedToken({ tenantId });
+    const token = createSignedToken({ tenantId, role: 'admin' });
 
     // Upload knowledge doc
     await request(app)

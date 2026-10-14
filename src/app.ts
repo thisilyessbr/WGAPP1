@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
+import cors, { CorsOptions } from 'cors';
 import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
@@ -10,9 +10,35 @@ import { logger } from './utils/logger';
 import { bootstrapChatbot, ChatbotDependencies, WebDependencies } from './bootstrap';
 import { createApiRouter } from './dev/chatApi';
 import { createWhatsAppWebhookRouter } from './domain/channel/whatsapp/WhatsAppWebhookRouter';
+import { createClientOwnedMetaWebhookRouter } from './domain/channel/whatsapp/ClientOwnedMetaWebhookRouter';
 import { createWhatsAppOnboardingRouter } from './domain/channel/whatsapp/WhatsAppOnboardingRouter';
 import { createPortalRouter } from './portal/PortalRouter';
 import { createChannelManagementRouter } from './domain/channel/guard/ChannelManagementRouter';
+
+export function productionCorsOptions(env: NodeJS.ProcessEnv = process.env): CorsOptions {
+  const configuredOrigins = new Set(
+    String(env.CORS_ORIGINS || '')
+      .split(',')
+      .map(origin => origin.trim())
+      .filter(Boolean)
+  );
+  const production = env.NODE_ENV === 'production';
+
+  return {
+    credentials: true,
+    maxAge: 600,
+    origin(origin, callback) {
+      // Requests without an Origin header are server-to-server traffic, such as
+      // Meta webhooks and health probes, and are not governed by browser CORS.
+      if (!origin) return callback(null, true);
+      if (!production || configuredOrigins.has(origin)) return callback(null, true);
+
+      // Omit CORS response headers for untrusted browser origins. Returning
+      // false avoids turning a blocked preflight into an application 500.
+      return callback(null, false);
+    }
+  };
+}
 
 export async function createApp(deps: ChatbotDependencies | WebDependencies): Promise<express.Application> {
   const app = express();
@@ -26,7 +52,7 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
     next();
   });
 
-  app.use(cors());
+  app.use(cors(productionCorsOptions()));
   app.use(express.json({
     limit: '15mb',
     verify: (req, _res, buf) => {
@@ -48,8 +74,7 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
       res.status(503).json({
         status: 'unhealthy',
         timestamp: new Date().toISOString(),
-        error: 'DATABASE_UNAVAILABLE',
-        message: err.message || String(err)
+        error: 'DATABASE_UNAVAILABLE'
       });
     }
   });
@@ -58,13 +83,16 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
   if (deps.whatsAppNumberService) {
     const whatsAppWebhookRouter = createWhatsAppWebhookRouter(
       deps.whatsAppNumberService,
-      {},
+      { rejectClientOwned: true },
       deps.whatsAppIdempotencyStore,
       deps.whatsAppMessageQueue,
       deps.prisma
     );
     app.use('/api/v1/webhook/whatsapp', whatsAppWebhookRouter);
     app.use('/api/webhook/whatsapp', whatsAppWebhookRouter);
+    app.use('/api/webhook/whatsapp/client', createClientOwnedMetaWebhookRouter(
+      deps.prisma, deps.whatsAppNumberService, deps.whatsAppIdempotencyStore, deps.whatsAppMessageQueue
+    ));
   }
 
   // Mount WhatsApp Onboarding & Embedded Signup Router

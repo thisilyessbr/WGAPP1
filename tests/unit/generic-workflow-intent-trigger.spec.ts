@@ -28,6 +28,10 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
 
   const multiCapabilityConfig: BusinessConfig = {
     ...DEFAULT_BUSINESS_CONFIG,
+    behavior: {
+      ...DEFAULT_BUSINESS_CONFIG.behavior,
+      useLlmIntentClassification: true
+    },
     capabilities: {
       ...DEFAULT_BUSINESS_CONFIG.capabilities,
       ecommerceEnabled: true,
@@ -496,7 +500,11 @@ describe('Generic Workflow Intent Trigger & Prompt Compatibility (PHASE WORKFLOW
 
     expect(response).toContain('Thank you John Doe! Your consultation for Muscle gain is booked.');
     expect(leadSpy).toHaveBeenCalledTimes(1);
-    expect(leadSpy).toHaveBeenCalledWith(tenantId, accountId, customerId, 'NEW');
+    expect(leadSpy).toHaveBeenCalledWith(tenantId, accountId, customerId, 'NEW', {
+      conversationId: mockConv.id,
+      interest: 'yes',
+      reason: 'COMPLETED_SALES_WORKFLOW'
+    });
   });
 
   it('8. Operational workflow completion produces ZERO CRM leads', async () => {

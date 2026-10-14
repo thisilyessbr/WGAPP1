@@ -68,7 +68,8 @@ describe('Phase 14: Dev Control Center Tests', () => {
 
     // Tenant B should not see Tenant A config
     const resB = await request(app).get(`/api/dev/config?tenantId=${TENANT_B}`);
-    expect(resB.status).toBe(500); // Because Tenant B has no config record yet
+    expect(resB.status).toBe(200);
+    expect(resB.body.identity.botName).not.toBe('Bot A');
 
     const resA = await request(app).get(`/api/dev/config?tenantId=${TENANT_A}`);
     console.log("RESA TEXT:", resA.text);

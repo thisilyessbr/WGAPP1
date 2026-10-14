@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { prisma } from '../../src/tests/testDb';
 import { bootstrapChatbot } from '../../src/bootstrap';
 import { DirectRagGuard } from '../../src/domain/rag/DirectRagGuard';
+import { ensureAnimeVerseFixture } from '../helpers/animeverseFixture';
 
 const tenantId = 'animeverse';
 const accountId = 'animeverse-store';
@@ -10,8 +11,9 @@ describe('PHASE COST-FIX-39B: Deterministic Safe Policy Return', () => {
   let deps: ReturnType<typeof bootstrapChatbot>;
 
   beforeAll(async () => {
+    await ensureAnimeVerseFixture();
     deps = bootstrapChatbot(prisma);
-  }, 30000);
+  }, 120000);
 
   // 1. Darija Arabic Policy Follow-Up (Direct Safe Return on Reused Evidence)
   describe('1. Darija Arabic Reused Policy Return', () => {

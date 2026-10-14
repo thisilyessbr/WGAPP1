@@ -9,14 +9,15 @@
  * DELIVERED or READ must NEVER later become FAILED under any circumstance.
  */
 
-export type DeliveryStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+export type DeliveryStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'DELIVERY_UNKNOWN';
 
 export const DELIVERY_STATUS_RANK: Readonly<Record<DeliveryStatus, number>> = {
   PENDING: 0,
   SENT: 1,
   DELIVERED: 2,
   READ: 3,
-  FAILED: -1
+  FAILED: -1,
+  DELIVERY_UNKNOWN: 0
 };
 
 /**
@@ -26,10 +27,10 @@ export const DELIVERY_STATUS_RANK: Readonly<Record<DeliveryStatus, number>> = {
  */
 export const ALLOWED_DELIVERY_TRANSITIONS: Readonly<Record<DeliveryStatus, ReadonlySet<DeliveryStatus>>> = {
   // PENDING can advance to SENT, fast-forward to DELIVERED / READ, or transition to FAILED
-  PENDING: new Set<DeliveryStatus>(['SENT', 'DELIVERED', 'READ', 'FAILED']),
+  PENDING: new Set<DeliveryStatus>(['SENT', 'DELIVERED', 'READ', 'FAILED', 'DELIVERY_UNKNOWN']),
 
   // SENT can advance to DELIVERED, fast-forward to READ, or transition to FAILED
-  SENT: new Set<DeliveryStatus>(['DELIVERED', 'READ', 'FAILED']),
+  SENT: new Set<DeliveryStatus>(['DELIVERED', 'READ', 'FAILED', 'DELIVERY_UNKNOWN']),
 
   // DELIVERED can ONLY advance to READ.
   // CRITICAL: DELIVERED must NEVER become FAILED, SENT, or PENDING!
@@ -39,7 +40,10 @@ export const ALLOWED_DELIVERY_TRANSITIONS: Readonly<Record<DeliveryStatus, Reado
   READ: new Set<DeliveryStatus>([]),
 
   // FAILED is terminal failure. No further state transitions are permitted.
-  FAILED: new Set<DeliveryStatus>([])
+  FAILED: new Set<DeliveryStatus>([]),
+
+  // An ambiguous transport result can be reconciled by later provider evidence.
+  DELIVERY_UNKNOWN: new Set<DeliveryStatus>(['SENT', 'DELIVERED', 'READ', 'FAILED'])
 };
 
 /**

@@ -137,6 +137,70 @@ export interface WorkerBootstrapOptions {
 }
 
 /**
+ * Resolves and validates the credentials-encryption key.
+ * Identical requirement across every process (web/worker/combined): a real
+ * key in production, a fixed test key only under NODE_ENV=test/VITEST.
+ */
+function resolveEncryptionKey(isTestEnv: boolean): string {
+  const encKey = process.env.ENCRYPTION_KEY || process.env.CREDENTIALS_ENCRYPTION_KEY || (isTestEnv ? 'test-encryption-key-32-bytes-long!' : '');
+  if (!encKey) {
+    throw new Error('SecretBox: ENCRYPTION_KEY or CREDENTIALS_ENCRYPTION_KEY environment variable is required (minimum 32 bytes).');
+  }
+  return encKey;
+}
+
+function createPortalServiceIfEnabled(prisma: PrismaClient): PortalService | undefined {
+  return process.env.PORTAL_ENABLED === 'true' ? new PortalService(prisma as unknown as PortalDb) : undefined;
+}
+
+/**
+ * Selects the embedding provider for RAG: real Gemini embeddings outside
+ * tests (or when USE_REAL_AI=true), a mock provider under test, and an
+ * explicit "unavailable" provider when GOOGLE_API_KEY is missing.
+ */
+function resolveEmbeddingProvider(isTestEnv: boolean, useRealAi: boolean, logSuffix: string): EmbeddingProvider {
+  if (!isTestEnv || useRealAi) {
+    if (process.env.GOOGLE_API_KEY) {
+      logger.info(`Using GeminiEmbeddingProvider for RAG embeddings${logSuffix}.`);
+      return new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
+    }
+    logger.warn(`GOOGLE_API_KEY missing. Knowledge retrieval and ingestion are unavailable${logSuffix}.`);
+    return new UnavailableEmbeddingProvider();
+  }
+  logger.info(`Test environment detected without USE_REAL_AI=true. Using MockEmbeddingProvider${logSuffix}.`);
+  return new MockEmbeddingProvider();
+}
+
+/**
+ * Assembles the outbound WhatsApp send path (router + policy adapter + worker)
+ * shared identically by the worker process and the combined test bootstrap.
+ */
+function buildWhatsAppRuntime(params: {
+  whatsAppNumberService: WhatsAppNumberService;
+  whatsAppOutboundAdapter: WhatsAppOutboundAdapter;
+  qrSessionManager: QrSessionManager;
+  whatsAppMessageQueue: MessageQueue<InboundQueueJob>;
+  conversationEngine: ConversationEngine;
+  clientSafetyGuard: ClientSafetyGuard;
+}): { channelRouter: ChannelRouter; whatsAppPolicyAdapter: WhatsAppPolicyAdapter; whatsAppWorker: WhatsAppWorker } {
+  const channelRouter = new ChannelRouter(params.whatsAppNumberService, [
+    new MetaCloudTransport(params.whatsAppOutboundAdapter),
+    new QrWebTransport(params.qrSessionManager)
+  ]);
+  const whatsAppPolicyAdapter = new WhatsAppPolicyAdapter();
+  const whatsAppWorker = new WhatsAppWorker(
+    params.whatsAppMessageQueue,
+    params.conversationEngine,
+    params.whatsAppOutboundAdapter,
+    params.whatsAppNumberService,
+    whatsAppPolicyAdapter,
+    channelRouter,
+    params.clientSafetyGuard
+  );
+  return { channelRouter, whatsAppPolicyAdapter, whatsAppWorker };
+}
+
+/**
  * Bootstraps dependencies strictly needed for the Web process.
  * Does NOT instantiate WhatsAppWorker, ConversationEngine, RAG, LLMFactory,
  * or background document processing loops.
@@ -152,11 +216,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
   const ecommerceService = new EcommerceService(productRepository);
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
 
-  const encKey = process.env.ENCRYPTION_KEY || process.env.CREDENTIALS_ENCRYPTION_KEY || (isTestEnv ? 'test-encryption-key-32-bytes-long!' : '');
-  if (!encKey) {
-    throw new Error('SecretBox: ENCRYPTION_KEY or CREDENTIALS_ENCRYPTION_KEY environment variable is required (minimum 32 bytes).');
-  }
-  const secretBox = new SecretBox({ key: encKey });
+  const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });
 
   const whatsAppIdempotencyStore = isMemory
     ? new MemoryIdempotencyStore()
@@ -184,7 +244,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
     ? new MemoryOutboundQueue(prisma)
     : new PostgresOutboundQueue(prisma, { autoStartWorker: false, disableWorker: true });
 
-  const portalService = process.env.PORTAL_ENABLED === 'true' ? new PortalService(prisma as unknown as PortalDb) : undefined;
+  const portalService = createPortalServiceIfEnabled(prisma);
   if (portalService) {
     portalService.attach({
       prisma,
@@ -233,7 +293,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
   const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
   const useRealAi = process.env.USE_REAL_AI === 'true';
 
-  const portalService = process.env.PORTAL_ENABLED === 'true' ? new PortalService(prisma as unknown as PortalDb) : undefined;
+  const portalService = createPortalServiceIfEnabled(prisma);
   const tenantConfigService = new TenantConfigService(prisma);
   const accountConfigService = new AccountConfigService(prisma, tenantConfigService);
   const conversationService = new ConversationService(prisma);
@@ -251,19 +311,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
   const workflowEngine = new WorkflowEngine(evaluator, undefined, responseBuilder, fieldValidator);
 
   // RAG Components
-  let embeddingProvider: EmbeddingProvider;
-  if (!isTestEnv || useRealAi) {
-    if (process.env.GOOGLE_API_KEY) {
-      logger.info('Using GeminiEmbeddingProvider for RAG embeddings in worker.');
-      embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
-    } else {
-      logger.warn('GOOGLE_API_KEY missing. Knowledge retrieval and ingestion are unavailable in worker.');
-      embeddingProvider = new UnavailableEmbeddingProvider();
-    }
-  } else {
-    logger.info('Test environment detected without USE_REAL_AI=true. Using MockEmbeddingProvider in worker.');
-    embeddingProvider = new MockEmbeddingProvider();
-  }
+  let embeddingProvider: EmbeddingProvider = resolveEmbeddingProvider(isTestEnv, useRealAi, ' in worker');
   if (portalService) embeddingProvider = portalService.budget.wrapEmbeddings(embeddingProvider);
   const knowledgeRepo = new KnowledgeRepository(prisma);
   const ragService = new RAGService(embeddingProvider, knowledgeRepo);
@@ -276,11 +324,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
   const crmService = new CRMService(prisma, outcomeTrackingService);
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
 
-  const encKey = process.env.ENCRYPTION_KEY || process.env.CREDENTIALS_ENCRYPTION_KEY || (isTestEnv ? 'test-encryption-key-32-bytes-long!' : '');
-  if (!encKey) {
-    throw new Error('SecretBox: ENCRYPTION_KEY or CREDENTIALS_ENCRYPTION_KEY environment variable is required (minimum 32 bytes).');
-  }
-  const secretBox = new SecretBox({ key: encKey });
+  const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });
 
   const isMemory = Boolean(options.useMemoryQueue);
   const whatsAppIdempotencyStore = isMemory
@@ -325,14 +369,8 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     secretBox
   );
 
-  const channelRouter = new ChannelRouter(whatsAppNumberService, [
-    new MetaCloudTransport(whatsAppOutboundAdapter),
-    new QrWebTransport(qrSessionManager)
-  ]);
-
   const conversationAutomationService = new ConversationAutomationService(prisma, outcomeTrackingService);
   const clientSafetyGuard = new ClientSafetyGuard(prisma, whatsAppNumberService, {}, conversationAutomationService);
-  const whatsAppPolicyAdapter = new WhatsAppPolicyAdapter();
 
   const whatsAppOutboundQueue: OutboundMessageQueue = isMemory
     ? new MemoryOutboundQueue(prisma)
@@ -342,15 +380,14 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
       });
   const whatsAppOutboundWorker = new WhatsAppOutboundWorker(whatsAppOutboundQueue, whatsAppOutboundAdapter);
 
-  const whatsAppWorker = new WhatsAppWorker(
+  const { channelRouter, whatsAppPolicyAdapter, whatsAppWorker } = buildWhatsAppRuntime({
+    whatsAppNumberService,
+    whatsAppOutboundAdapter,
+    qrSessionManager,
     whatsAppMessageQueue,
     conversationEngine,
-    whatsAppOutboundAdapter,
-    whatsAppNumberService,
-    whatsAppPolicyAdapter,
-    channelRouter,
     clientSafetyGuard
-  );
+  });
 
   if (portalService) {
     portalService.attach({
@@ -424,7 +461,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
  * Monolithic/Combined bootstrap for backward compatibility with existing tests.
  */
 export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
-  const portalService = process.env.PORTAL_ENABLED === 'true' ? new PortalService(prisma as unknown as PortalDb) : undefined;
+  const portalService = createPortalServiceIfEnabled(prisma);
   const tenantConfigService = new TenantConfigService(prisma);
   const conversationService = new ConversationService(prisma);
   const responseBuilder = new ResponseBuilder();
@@ -444,19 +481,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
   const useRealAi = process.env.USE_REAL_AI === 'true';
 
-  let embeddingProvider: EmbeddingProvider;
-  if (!isTestEnv || useRealAi) {
-    if (process.env.GOOGLE_API_KEY) {
-      logger.info('Using GeminiEmbeddingProvider for RAG embeddings.');
-      embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
-    } else {
-      logger.warn('GOOGLE_API_KEY missing. Knowledge retrieval and ingestion are unavailable.');
-      embeddingProvider = new UnavailableEmbeddingProvider();
-    }
-  } else {
-    logger.info('Test environment detected without USE_REAL_AI=true. Using MockEmbeddingProvider.');
-    embeddingProvider = new MockEmbeddingProvider();
-  }
+  let embeddingProvider: EmbeddingProvider = resolveEmbeddingProvider(isTestEnv, useRealAi, '');
   if (portalService) embeddingProvider = portalService.budget.wrapEmbeddings(embeddingProvider);
   const knowledgeRepo = new KnowledgeRepository(prisma);
   const ragService = new RAGService(embeddingProvider, knowledgeRepo);
@@ -494,11 +519,7 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
   );
 
   // Initialize Security and Routing
-  const encKey = process.env.ENCRYPTION_KEY || process.env.CREDENTIALS_ENCRYPTION_KEY || (isTestEnv ? 'test-encryption-key-32-bytes-long!' : '');
-  if (!encKey) {
-    throw new Error('SecretBox: ENCRYPTION_KEY or CREDENTIALS_ENCRYPTION_KEY environment variable is required (minimum 32 bytes).');
-  }
-  const secretBox = new SecretBox({ key: encKey });
+  const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });
 
   const whatsAppOutboundAdapter = new WhatsAppOutboundAdapter({
     numberService: whatsAppNumberService,
@@ -512,11 +533,6 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     secretBox
   );
 
-  const channelRouter = new ChannelRouter(whatsAppNumberService, [
-    new MetaCloudTransport(whatsAppOutboundAdapter),
-    new QrWebTransport(qrSessionManager)
-  ]);
-
   const conversationAutomationService = new ConversationAutomationService(prisma, outcomeTrackingService);
   const clientSafetyGuard = new ClientSafetyGuard(prisma, whatsAppNumberService, {}, conversationAutomationService);
 
@@ -529,17 +545,14 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     secretBox
   });
 
-  const whatsAppPolicyAdapter = new WhatsAppPolicyAdapter();
-
-  const whatsAppWorker = new WhatsAppWorker(
+  const { channelRouter, whatsAppPolicyAdapter, whatsAppWorker } = buildWhatsAppRuntime({
+    whatsAppNumberService,
+    whatsAppOutboundAdapter,
+    qrSessionManager,
     whatsAppMessageQueue,
     conversationEngine,
-    whatsAppOutboundAdapter,
-    whatsAppNumberService,
-    whatsAppPolicyAdapter,
-    channelRouter,
     clientSafetyGuard
-  );
+  });
 
   const dependencies: ChatbotDependencies = {
     prisma,

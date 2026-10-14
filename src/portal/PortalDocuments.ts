@@ -16,12 +16,14 @@ export class PortalDocuments {
     const hash = createHash('sha256').update(buffer).digest('hex');
     return this.store.transaction(async s => {
       const profile = await s.lockProfile(accountId);
+      if (profile.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       const plan = profile.planSnapshot || (profile.requestedPlanId ? await s.plan(profile.requestedPlanId) : null);
       if (!plan?.modules.includes('knowledge') || profile.status === 'SUSPENDED') throw new PortalError(403, 'KNOWLEDGE_NOT_INCLUDED');
       const existing = (await s.db.$queryRaw<any[]>`SELECT id FROM "PortalDocument" WHERE "accountId"=${accountId} AND hash=${hash}`)[0];
       if (existing) return { id: existing.id, reused: true };
       const usage = (await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS count,COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalDocument" WHERE "accountId"=${accountId}`)[0];
-      if (usage.count >= plan.limits.documents || Number(usage.bytes) + buffer.length > plan.limits.storageMb * 1048576) throw new PortalError(402, 'DOCUMENT_ALLOWANCE_REACHED');
+      const imageUsage = (await s.db.$queryRaw<any[]>`SELECT COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalProductImage" WHERE "accountId"=${accountId}`)[0];
+      if (usage.count >= plan.limits.documents || Number(usage.bytes) + Number(imageUsage.bytes) + buffer.length > plan.limits.storageMb * 1048576) throw new PortalError(402, 'DOCUMENT_ALLOWANCE_REACHED');
       const id = randomUUID();
       await s.db.$executeRaw`INSERT INTO "PortalDocument"(id,"accountId",filename,hash,bytes,size) VALUES (${id},${accountId},${name},${hash},${buffer},${buffer.length})`;
       await s.audit(actorId, accountId, 'DOCUMENT_UPLOADED', { documentId: id, size: buffer.length });
@@ -42,6 +44,7 @@ export class PortalDocuments {
       const p = await s.lockProfile(accountId);
       const d = (await s.db.$queryRaw<any[]>`SELECT * FROM "PortalDocument" WHERE id=${documentId} AND "accountId"=${accountId} FOR UPDATE`)[0];
       if (!d) throw new PortalError(404, 'DOCUMENT_NOT_FOUND');
+      if (!admin && p.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       if (['PROCESSING', 'QUEUED'].includes(d.status) || (!admin && d.sourceId)) throw new PortalError(409, 'DOCUMENT_REQUIRES_ADMIN', 'Ask your administrator to remove a published document.');
       if (d.sourceId) await s.db.$executeRaw`DELETE FROM "KnowledgeSource" WHERE id=${d.sourceId} AND "tenantId"=${p.tenantId} AND "accountId"=${accountId}`;
       await s.db.$executeRaw`DELETE FROM "PortalDocument" WHERE id=${documentId} AND "accountId"=${accountId}`;

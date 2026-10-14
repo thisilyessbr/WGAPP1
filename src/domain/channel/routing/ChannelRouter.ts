@@ -10,6 +10,7 @@ export interface RouteOutboundParams {
   to: string;
   text: string;
   template?: OutboundTemplateRequest;
+  imageUrl?: string;
 }
 
 export class ChannelRouter {
@@ -41,7 +42,7 @@ export class ChannelRouter {
    * 4. Zero cross-tenant or cross-number fallback.
    */
   async routeOutbound(params: RouteOutboundParams): Promise<OutboundSendResult> {
-    const { tenantId, accountId, phoneNumberId, to, text, template } = params;
+    const { tenantId, accountId, phoneNumberId, to, text, template, imageUrl } = params;
 
     if (!tenantId || !accountId || !phoneNumberId || !to) {
       return {
@@ -146,7 +147,8 @@ export class ChannelRouter {
       connection,
       tenantId,
       accountId,
-      template
+      template,
+      imageUrl
     });
   }
 }

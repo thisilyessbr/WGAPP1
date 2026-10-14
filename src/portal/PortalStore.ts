@@ -2,10 +2,18 @@ import { randomUUID } from 'crypto';
 import { BusinessData, EMPTY_BUSINESS, PlanLimits, PortalDb, PortalError, PortalPlan, PortalProfile, PortalUser } from './types';
 import { compileBusiness, validateBusiness, validatePlan } from './validation';
 import { localEmailBypass } from './localTesting';
+import { assertBusinessImages, businessImageIds, productImageUrl } from './PortalProductImages';
 
 const json = (value: unknown) => JSON.stringify(value);
 export class PortalStore {
   constructor(public db: PortalDb) {}
+  private planScopedBusiness(data: BusinessData, plan: PortalPlan): BusinessData {
+    const scoped = structuredClone(data);
+    if (!plan.modules.includes('commerce')) scoped.products = [];
+    if (!plan.modules.includes('services')) scoped.services = [];
+    if (!plan.modules.includes('knowledge')) scoped.faqs = [];
+    return scoped;
+  }
   transaction<T>(run: (store: PortalStore) => Promise<T>) { return this.db.$transaction(tx => run(new PortalStore(tx)), { timeout: 15000 }); }
   async audit(actorId: string, accountId: string | null, action: string, metadata: Record<string, unknown> = {}) {
     await this.db.$executeRaw`INSERT INTO "PortalAudit"(id,"actorId","accountId",action,metadata) VALUES (${randomUUID()},${actorId},${accountId},${action},${json(metadata)}::jsonb)`;
@@ -92,13 +100,24 @@ export class PortalStore {
     if (!row) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
     return row;
   }
+  async setEditingFrozen(actorId: string, accountId: string, frozen: boolean) {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.editingFrozen === frozen) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "editingFrozen"=${frozen},revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      await s.audit(actorId, accountId, frozen ? 'CLIENT_EDITING_FROZEN' : 'CLIENT_EDITING_UNFROZEN');
+      return s.profile(accountId);
+    });
+  }
   async saveDraft(actorId: string, accountId: string, tenantId: string, draft: unknown, expectedRevision: number, administrative = false) {
     return this.transaction(async s => {
       const profile = await s.lockProfile(accountId);
       if (profile.tenantId !== tenantId) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
+      if (profile.editingFrozen && !administrative) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       if (profile.revision !== expectedRevision) throw new PortalError(409, 'REVISION_CONFLICT', 'Your data changed in another window. Reload before saving.');
       const plan = profile.planSnapshot || (profile.requestedPlanId ? await s.plan(profile.requestedPlanId) : null);
       const data = validateBusiness(draft, plan, profile.draft, administrative ? [] : profile.lockedFields);
+      await assertBusinessImages(s, accountId, data);
       await s.db.$executeRaw`UPDATE "PortalProfile" SET draft=${json(data)}::jsonb,revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
       await s.audit(actorId, accountId, 'BUSINESS_DATA_SAVED', { revision: expectedRevision + 1 });
       const updated = await s.profile(accountId);
@@ -109,6 +128,7 @@ export class PortalStore {
   async submit(actorId: string, accountId: string, expectedRevision: number) {
     return this.transaction(async s => {
       const p = await s.lockProfile(accountId);
+      if (p.editingFrozen) throw new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.');
       if (p.revision !== expectedRevision) throw new PortalError(409, 'REVISION_CONFLICT');
       if (!p.draft.name || !p.draft.description || (!p.draft.email && !p.draft.phone)) throw new PortalError(400, 'INCOMPLETE_SETUP', 'Add a business description and contact details before submitting.');
       if (p.status === 'SUSPENDED') throw new PortalError(403, 'ACCOUNT_SUSPENDED');
@@ -129,7 +149,7 @@ export class PortalStore {
       if (changes.planId !== undefined) {
         const plan = await s.plan(changes.planId);
         if (!plan) throw new PortalError(400, 'PLAN_UNAVAILABLE');
-        validateBusiness(profile.draft, plan);
+        validateBusiness(s.planScopedBusiness(profile.draft, plan), plan);
         const numbers = await s.db.$queryRaw<any[]>`SELECT (SELECT COUNT(*) FROM "WhatsAppBusinessNumber" WHERE "accountId"=${accountId} AND "tenantId"=${profile.tenantId}) +
           (SELECT COUNT(*) FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND "reconnectId" IS NULL AND (status='PROCESSING' OR (status='PENDING' AND "expiresAt">NOW()))) AS n`;
         const docs = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n,COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalDocument" WHERE "accountId"=${accountId}`;
@@ -141,7 +161,7 @@ export class PortalStore {
         const { id, revision, ...current } = profile.planSnapshot;
         const adjusted = validatePlan({ name: current.name, description: current.description, price: current.price, currency: current.currency, published: current.published,
           modules: current.modules, template: current.template, limits: { ...current.limits, ...changes.limitOverrides } });
-        validateBusiness(profile.draft, { ...adjusted, id, revision });
+        validateBusiness(s.planScopedBusiness(profile.draft, { ...adjusted, id, revision }), { ...adjusted, id, revision });
         const numbers = await s.db.$queryRaw<any[]>`SELECT (SELECT COUNT(*) FROM "WhatsAppBusinessNumber" WHERE "accountId"=${accountId}) +
           (SELECT COUNT(*) FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND "reconnectId" IS NULL AND (status='PROCESSING' OR (status='PENDING' AND "expiresAt">NOW()))) AS n`;
         const docs = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n,COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalDocument" WHERE "accountId"=${accountId}`;
@@ -165,9 +185,14 @@ export class PortalStore {
         revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
       await s.db.$executeRaw`UPDATE "Account" SET enabled=${profile.status !== 'SUSPENDED'},"updatedAt"=NOW() WHERE id=${accountId} AND "tenantId"=${profile.tenantId}`;
       if ((changes.adminConfig !== undefined || changes.planId !== undefined) && profile.published) {
-        if (profile.planSnapshot) validateBusiness(profile.published, profile.planSnapshot);
+        if (profile.planSnapshot) validateBusiness(s.planScopedBusiness(profile.published, profile.planSnapshot), profile.planSnapshot);
         const cfg = this.runtimeConfig(profile.published, profile);
         await s.db.$executeRaw`UPDATE "Account" SET config=${json(cfg)}::jsonb,"updatedAt"=NOW() WHERE id=${accountId}`;
+        if (cfg.capabilities.ecommerceEnabled !== true) {
+          await s.db.$executeRaw`UPDATE "ProductVariant" SET active=false,"updatedAt"=NOW() WHERE "productId" IN
+            (SELECT id FROM "Product" WHERE "tenantId"=${profile.tenantId} AND "accountId"=${accountId})`;
+          await s.db.$executeRaw`UPDATE "Product" SET active=false,"updatedAt"=NOW() WHERE "tenantId"=${profile.tenantId} AND "accountId"=${accountId}`;
+        }
       }
       await s.audit(actorId, accountId, 'ACCOUNT_SETTINGS_UPDATED', { fields: Object.keys(changes), status: profile.status });
       if (publishData) await s.publishLocked(actorId, await s.profile(accountId));
@@ -184,32 +209,59 @@ export class PortalStore {
   }
   private runtimeConfig(data: BusinessData, profile: PortalProfile) {
     const config = compileBusiness(data, profile.planSnapshot?.template || {}, profile.adminConfig);
-    config.capabilities.ecommerceEnabled = Boolean(profile.planSnapshot?.modules.includes('commerce')) && config.capabilities.ecommerceEnabled !== false;
+    const commerceActive = Boolean(profile.planSnapshot?.modules.includes('commerce')) && config.capabilities.ecommerceEnabled !== false;
+    config.capabilities.ecommerceEnabled = commerceActive;
+    (config as any).productMode = commerceActive ? 'COMMERCE' : 'STANDARD';
+    if (!commerceActive) {
+      const workflows = (config as any).workflows || {};
+      const commerceWorkflowIds = new Set(Object.entries(workflows)
+        .filter(([, raw]: [string, any]) => raw?.outcome?.type === 'ORDER_CONFIRMED' || Object.values(raw?.states || {}).some((state: any) => state?.outcome?.type === 'ORDER_CONFIRMED'))
+        .map(([id]) => id));
+      for (const id of commerceWorkflowIds) delete workflows[id];
+      if (Array.isArray(config.capabilities?.intents)) {
+        config.capabilities.intents = config.capabilities.intents.filter((intent: any) => !commerceWorkflowIds.has(intent.workflowId || intent.id));
+      }
+    }
     config.capabilities.imageEnabled = Boolean(profile.planSnapshot?.modules.includes('images')) && config.capabilities.imageEnabled !== false;
     if (!profile.planSnapshot?.modules.includes('knowledge')) config.knowledge.enabled = false;
     return config;
   }
   private async publishLocked(actorId: string, profile: PortalProfile) {
     if (!profile.planSnapshot) throw new PortalError(400, 'PLAN_REQUIRED', 'Assign a plan before publishing.');
-    const data = validateBusiness(profile.draft, profile.planSnapshot);
+    const data = validateBusiness(this.planScopedBusiness(profile.draft, profile.planSnapshot), profile.planSnapshot);
+    await assertBusinessImages(this, profile.accountId, data);
     const config = this.runtimeConfig(data, profile);
     const accountId = profile.accountId, tenantId = profile.tenantId;
     await this.db.$executeRaw`UPDATE "Account" SET config=${json(config)}::jsonb,name=${data.name},"updatedAt"=NOW() WHERE id=${accountId} AND "tenantId"=${tenantId}`;
+    // Any workflow removed from the effective published configuration must not
+    // remain active after a plan or mode change.
+    const allowedWorkflowIds = new Set(Object.keys((config as any).workflows || {}));
+    const activeSessions = await this.db.$queryRaw<any[]>`SELECT ws.id,ws."workflowId" FROM "WorkflowSession" ws
+      JOIN "Conversation" c ON c.id=ws."conversationId" AND c."tenantId"=ws."tenantId"
+      WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId} AND ws.status='ACTIVE'`;
+    const removedSessionIds: string[] = activeSessions.filter(session => !allowedWorkflowIds.has(session.workflowId)).map(session => session.id);
+    if (removedSessionIds.length) {
+      await this.db.$executeRaw`UPDATE "WorkflowSession" SET status='CANCELLED',"updatedAt"=NOW() WHERE id = ANY(${removedSessionIds}::text[]) AND "tenantId"=${tenantId}`;
+    }
     // Retire removed catalog entries without deleting historical product references.
     await this.db.$executeRaw`UPDATE "Product" SET active=false,"updatedAt"=NOW() WHERE "tenantId"=${tenantId} AND "accountId"=${accountId}`;
     // Batch the catalog so a large client import does not perform thousands of database round trips.
-    const catalog = data.products.map(p => ({ ...p, id: randomUUID() }));
-    const rows = await this.db.$queryRaw<any[]>`INSERT INTO "Product"(id,"tenantId","accountId",sku,name,description,price,currency,stock,active,category,"updatedAt")
-      SELECT x.id,${tenantId},${accountId},x.sku,x.name,x.description,x.price,${data.currency},x.stock,true,NULLIF(x.category,''),NOW()
-      FROM jsonb_to_recordset(${json(catalog)}::jsonb) AS x(id text,sku text,name text,description text,price numeric,stock int,category text)
-      ON CONFLICT("tenantId","accountId",sku) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,price=EXCLUDED.price,currency=EXCLUDED.currency,stock=EXCLUDED.stock,active=true,category=EXCLUDED.category,"updatedAt"=NOW() RETURNING id,sku`;
+    // Standard mode preserves draft catalog data for a future upgrade while
+    // keeping every catalog row inactive and unreachable by the chatbot.
+    const catalog = config.capabilities.ecommerceEnabled === true ? data.products.map(p => ({ ...p, id: randomUUID(), metadata: { images: (p.imageIds || []).map(productImageUrl) } })) : [];
+    const rows = await this.db.$queryRaw<any[]>`INSERT INTO "Product"(id,"tenantId","accountId",sku,name,description,price,currency,stock,active,category,metadata,"updatedAt")
+      SELECT x.id,${tenantId},${accountId},x.sku,x.name,x.description,x.price,${data.currency},x.stock,true,NULLIF(x.category,''),x.metadata,NOW()
+      FROM jsonb_to_recordset(${json(catalog)}::jsonb) AS x(id text,sku text,name text,description text,price numeric,stock int,category text,metadata jsonb)
+      ON CONFLICT("tenantId","accountId",sku) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,price=EXCLUDED.price,currency=EXCLUDED.currency,stock=EXCLUDED.stock,active=true,category=EXCLUDED.category,metadata=EXCLUDED.metadata,"updatedAt"=NOW() RETURNING id,sku`;
     const ids = new Map(rows.map(p => [p.sku, p.id]));
     await this.db.$executeRaw`UPDATE "ProductVariant" SET active=false,"updatedAt"=NOW() WHERE "productId" IN (SELECT id FROM "Product" WHERE "tenantId"=${tenantId} AND "accountId"=${accountId})`;
-    const variants = data.products.flatMap(p => p.variants.map(v => ({ ...v, id: randomUUID(), productId: ids.get(p.sku) })));
-    await this.db.$executeRaw`INSERT INTO "ProductVariant"(id,"productId",sku,size,color,"priceOverride",stock,active,"updatedAt")
-      SELECT x.id,x."productId",x.sku,NULLIF(x.size,''),NULLIF(x.color,''),x.price,x.stock,true,NOW()
-      FROM jsonb_to_recordset(${json(variants)}::jsonb) AS x(id text,"productId" text,sku text,size text,color text,price numeric,stock int)
-      ON CONFLICT("productId",sku) DO UPDATE SET size=EXCLUDED.size,color=EXCLUDED.color,"priceOverride"=EXCLUDED."priceOverride",stock=EXCLUDED.stock,active=true,"updatedAt"=NOW()`;
+    const variants = data.products.flatMap(p => p.variants.map(v => ({ ...v, id: randomUUID(), productId: ids.get(p.sku), metadata: v.imageId ? { images: [productImageUrl(v.imageId)] } : {} })));
+    await this.db.$executeRaw`INSERT INTO "ProductVariant"(id,"productId",sku,size,color,"priceOverride",stock,active,metadata,"updatedAt")
+      SELECT x.id,x."productId",x.sku,NULLIF(x.size,''),NULLIF(x.color,''),x.price,x.stock,true,x.metadata,NOW()
+      FROM jsonb_to_recordset(${json(variants)}::jsonb) AS x(id text,"productId" text,sku text,size text,color text,price numeric,stock int,metadata jsonb)
+      ON CONFLICT("productId",sku) DO UPDATE SET size=EXCLUDED.size,color=EXCLUDED.color,"priceOverride"=EXCLUDED."priceOverride",stock=EXCLUDED.stock,active=true,metadata=EXCLUDED.metadata,"updatedAt"=NOW()`;
+    const publishedIds = config.capabilities.ecommerceEnabled === true ? businessImageIds(data) : [];
+    await this.db.$executeRaw`UPDATE "PortalProductImage" SET published=(id IN (SELECT jsonb_array_elements_text(${json(publishedIds)}::jsonb))) WHERE "accountId"=${accountId}`;
     const revision = profile.revision + 1;
     await this.db.$executeRaw`INSERT INTO "PortalPublication"(id,"accountId",revision,data,config,"actorId") VALUES (${randomUUID()},${accountId},${revision},${json(data)}::jsonb,${json(config)}::jsonb,${actorId})`;
     await this.db.$executeRaw`UPDATE "PortalProfile" SET published=${json(data)}::jsonb,"publishedRevision"=${revision},revision=${revision},status=CASE WHEN status IN ('ACTIVE','SUSPENDED') THEN status ELSE 'APPROVED' END,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;

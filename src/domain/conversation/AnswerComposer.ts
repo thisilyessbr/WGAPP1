@@ -7,6 +7,7 @@ import { LLMProvider, LLMRequestOptions } from '../../core/llm/LLMProvider';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { DirectRagGuard } from '../rag/DirectRagGuard';
 import { logger } from '../../utils/logger';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface ChatMedia {
   type: 'image' | 'video';
@@ -15,6 +16,7 @@ export interface ChatMedia {
   title?: string;
   alt?: string;
 }
+export const outboundMediaContext = new AsyncLocalStorage<{ media: ChatMedia[] }>();
 
 export interface AnswerContext {
   turnDecision: TurnDecision;
@@ -200,6 +202,8 @@ export class AnswerComposer {
 
   public static attachMediaToContext(media: ChatMedia[]): void {
     if (!media || media.length === 0) return;
+    const outbound = outboundMediaContext.getStore();
+    if (outbound) for (const item of media) if (!outbound.media.some(m => m.url === item.url)) outbound.media.push(item);
     try {
       // Access chatDiagnosticStorage from dev chatApi if in runtime
       const { chatDiagnosticStorage } = require('../../dev/chatApi');
@@ -242,21 +246,21 @@ export class AnswerComposer {
     const { responseLanguage, responseScript, config } = context;
 
     const defaultHandoff = responseLanguage === 'darija' && responseScript === 'arabic'
-      ? 'تسجل الطلب ديالك باش تهضر مع شي واحد من الفريق.'
+      ? 'علمنا فريق الدعم وغادي يجاوبك واحد من الموظفين قريبا.'
       : DEFAULT_HANDOFF_MESSAGES[responseLanguage as keyof typeof DEFAULT_HANDOFF_MESSAGES] || DEFAULT_HANDOFF_MESSAGES.en;
 
     if (config?.prompts?.handoff) {
       const custom = resolveLocalizedPrompt(config.prompts.handoff, responseLanguage, '', responseScript);
       if (custom && custom.trim()) {
         if (responseLanguage === 'darija' && responseScript === 'arabizi' && /[\u0600-\u06FF]/.test(custom)) {
-          return 'Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq.';
+          return DEFAULT_HANDOFF_MESSAGES.darija;
         }
         return custom;
       }
     }
 
     if (responseLanguage === 'darija' && responseScript === 'arabizi') {
-      return 'Tsjjel talab dyalek bach thder m3a chi wa7d mn l-fariq.';
+      return DEFAULT_HANDOFF_MESSAGES.darija;
     }
 
     return defaultHandoff;
@@ -292,6 +296,68 @@ export class AnswerComposer {
       return 'سمح ليا، ما عنديش هاد المعلومة حالياً.';
     }
     return 'I did not understand that. Could you rephrase?';
+  }
+
+  /** Remove a document heading when a trusted RAG chunk is returned verbatim. */
+  public static formatDirectKnowledgeAnswer(content: string): string {
+    const lines = content.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length < 2) return content.trim();
+    const heading = lines[0].replace(/^#{1,6}\s*/, '').replace(/[:：]\s*$/, '');
+    const looksLikeHeading = heading.length <= 120
+      && !/[.!?؟]$/.test(heading)
+      && /(?:\b(?:guide|manual|overview|faq|instructions|polic(?:y|ies)|catalog(?:ue)?|size chart)\b|دليل|تعليمات|سياسة|الأسئلة الشائعة)\s*$/iu.test(heading);
+    return (looksLikeHeading ? lines.slice(1) : lines).join('\n');
+  }
+
+  /** Suggest only topics backed by this business's configured data. */
+  public static composeUnknownAnswer(context: AnswerContext): string {
+    const { responseLanguage: lang, responseScript: script, config } = context;
+    const facts = config?.portalFacts || {};
+    const policies = facts.policies && typeof facts.policies === 'object' && !Array.isArray(facts.policies)
+      ? facts.policies as Record<string, unknown> : {};
+    const present = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
+    const topics: string[] = [];
+    if (config?.capabilities?.ecommerceEnabled) topics.push('products');
+    if (Array.isArray(facts.services) && facts.services.length > 0) topics.push('services');
+    if (present(policies.shipping)) topics.push('delivery');
+    if (present(policies.returns)) topics.push('returns');
+    if (present(policies.payment)) topics.push('payment');
+    if (present(config?.identity?.businessHours)) topics.push('hours');
+    if (config?.identity?.locations?.some(present)) topics.push('location');
+    if (config?.capabilities?.faq?.length) topics.push('faq');
+    const selected = topics.slice(0, 3);
+    const labels: Record<string, Record<string, string>> = {
+      en: { products: 'products', services: 'services', delivery: 'delivery', returns: 'returns', payment: 'payment methods', hours: 'opening hours', location: 'location', faq: 'common questions' },
+      fr: { products: 'les produits', services: 'les services', delivery: 'la livraison', returns: 'les retours', payment: 'les modes de paiement', hours: 'les horaires', location: 'l’adresse', faq: 'les questions fréquentes' },
+      ar: { products: 'المنتجات', services: 'الخدمات', delivery: 'التوصيل', returns: 'الإرجاع', payment: 'طرق الدفع', hours: 'ساعات العمل', location: 'العنوان', faq: 'الأسئلة الشائعة' },
+      darija: { products: 'المنتوجات', services: 'الخدمات', delivery: 'التوصيل', returns: 'الترجيع', payment: 'طرق الخلاص', hours: 'أوقات الخدمة', location: 'العنوان', faq: 'الأسئلة الشائعة' },
+      arabizi: { products: 'lmontojat', services: 'lkhedmat', delivery: 'tawsil', returns: 'trji3', payment: 'toroq lkhlas', hours: 'lw9at', location: 'l3onwan', faq: 'las2ila lmatrou7a' }
+    };
+    const key = lang === 'darija' && script === 'arabizi' ? 'arabizi' : lang;
+    const list = selected.map(topic => labels[key]?.[topic] || labels.en[topic]).join(', ');
+    if (lang === 'fr') return `Désolé, je n’ai pas cette information pour le moment. ${list ? `Je peux vous aider avec ${list}. Que souhaitez-vous savoir ?` : 'Que souhaitez-vous savoir sur cette entreprise ?'}`;
+    if (lang === 'ar') return `عذراً، لا تتوفر لدي هذه المعلومة حالياً. ${list ? `يمكنني مساعدتك بخصوص ${list}. ماذا تود أن تعرف؟` : 'ماذا تود أن تعرف عن هذا النشاط؟'}`;
+    if (lang === 'darija' && script === 'arabizi') return `Smeh liya, ma3ndich had lme3louma daba. ${list ? `N9der n3awnk f ${list}. Chno bghiti t3ref?` : 'Chno bghiti t3ref 3la had lma7al?'}`;
+    if (lang === 'darija') return `سمح ليا، ما عنديش هاد المعلومة دابا. ${list ? `نقدر نعاونك فـ ${list}. شنو بغيتي تعرف؟` : 'شنو بغيتي تعرف على هاد المحل؟'}`;
+    return `Sorry, I don't have that information right now. ${list ? `I can help with ${list}. What would you like to know?` : 'What would you like to know about this business?'}`;
+  }
+
+  /** Answer an exact, single-service price from published fields without a model call. */
+  public static composeServicePrice(context: AnswerContext): string | null {
+    const services = context.config?.portalFacts?.services;
+    const question = context.userMessage?.toLocaleLowerCase() || '';
+    if (!Array.isArray(services) || !question) return null;
+    const matches = services.filter((service: any) => typeof service?.name === 'string' && question.includes(service.name.toLocaleLowerCase()));
+    if (matches.length !== 1) return null;
+    const service = matches[0] as { name: string; price?: string | number };
+    const price = Number(service.price);
+    if (!Number.isFinite(price) || price < 0) return null;
+    const currency = context.config?.identity?.currency || 'MAD';
+    if (context.responseLanguage === 'fr') return `Le prix de ${service.name} est de ${price} ${currency}.`;
+    if (context.responseLanguage === 'ar') return `سعر ${service.name} هو ${price} ${currency}.`;
+    if (context.responseLanguage === 'darija' && context.responseScript === 'arabizi') return `Taman dyal ${service.name} howa ${price} ${currency}.`;
+    if (context.responseLanguage === 'darija') return `الثمن ديال ${service.name} هو ${price} ${currency}.`;
+    return `The price of ${service.name} is ${price} ${currency}.`;
   }
 
   private static getSafeName(fact: ProductLookupResult | null | undefined, script?: string, lang?: string): string {
@@ -527,18 +593,18 @@ export class AnswerComposer {
     const fact = Array.isArray(productFacts) ? productFacts[0] : productFacts;
     if (!fact) {
       if (responseLanguage === 'fr') {
-        return `Désolé, ce produit n'est pas disponible actuellement dans notre catalogue.`;
+        return `Je n'ai pas pu identifier le produit exact dans le catalogue. Pouvez-vous me donner son nom ou sa référence ?`;
       }
       if (responseLanguage === 'ar') {
-        return `عذراً، هذا المنتج غير متوفر حالياً في متجرنا.`;
+        return `لم أتمكن من تحديد المنتج المقصود في الكتالوج. هل يمكنك إرسال اسمه أو مرجعه؟`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
-          return `Smeh liya, had l-produit makaynch db f l-magasin dyalna.`;
+          return `Ma 9dertch n3ref chmen produit b d-debt. 3afak sifet smitou wla reference dyalou.`;
         }
-        return `سمح ليا، هاد المنتوج ما كاينش حالياً عندنا فالمحل.`;
+        return `ما قدرتش نحدد شنو هو المنتوج بالضبط. عافاك صيفط سميتو ولا المرجع ديالو.`;
       }
-      return `Sorry, that product is not currently available in our catalog.`;
+      return `I couldn't identify the exact product in the catalog. Could you send its name or reference?`;
     }
 
     const safeFactName = this.getSafeName(fact, responseScript, responseLanguage);
@@ -633,7 +699,7 @@ export class AnswerComposer {
       }
 
       // 3. Fallback to attribute family patterns if still unconfirmed
-      if (!hasEvidence && family) {
+      if (!hasEvidence && family && !kw) {
         if (family === 'PERFORMANCE') {
           hasEvidence = /(?:waterproof|water-resistant|rainproof|warm|breathable|windproof|imperm[ée]able|chaud|respirant|مقاوم|ضد الما|ضد الماء|سخون|دافئ)/iu.test(descLower);
         } else if (family === 'MATERIAL') {
@@ -763,7 +829,8 @@ export class AnswerComposer {
       return `Great choice! To order ${productSubject} (${fact.effectivePrice} ${fact.currency}), please provide your delivery address and preferred payment method (Cash on Delivery is available).`;
     }
 
-    if (turnDecision.intent === 'PRICE') {
+    // The classifier has already identified whether price and availability were both requested.
+    if (turnDecision.intent === 'PRICE' && !turnDecision.requestedAvailability) {
       const variant = fact.selectedVariant;
       const variantLabel = this.formatVariantLabel(variant?.color || turnDecision.color, variant?.size || turnDecision.size, responseLanguage, responseScript);
       const priceSubject = variantLabel ? `${safeFactName} (${variantLabel})` : safeFactName;
@@ -794,33 +861,33 @@ export class AnswerComposer {
       if (hasVariant) {
         // Variant-level in-stock response
         if (responseLanguage === 'fr') {
-          return `${safeFactName} (${variantLabel}) est disponible au prix de ${fact.effectivePrice} ${fact.currency}. (En stock : ${fact.availableStock})`;
+          return `Oui, ${safeFactName} (${variantLabel}) est disponible. Prix : ${fact.effectivePrice} ${fact.currency}. En stock : ${fact.availableStock}.`;
         }
         if (responseLanguage === 'ar') {
-          return `${safeFactName} (${variantLabel}) متوفر بسعر ${fact.effectivePrice} ${fact.currency}. (الكمية المتوفرة: ${fact.availableStock})`;
+          return `نعم، ${safeFactName} (${variantLabel}) متوفر. السعر: ${fact.effectivePrice} ${fact.currency}. الكمية المتوفرة: ${fact.availableStock}.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `${safeFactName} (${variantLabel}) kayen f stock b ${fact.effectivePrice} ${fact.currency}. (Kayen mno: ${fact.availableStock})`;
+            return `Ah, ${safeFactName} (${variantLabel}) kayen. Taman: ${fact.effectivePrice} ${fact.currency}. Kayen mno: ${fact.availableStock}.`;
           }
-          return `${safeFactName} (${variantLabel}) كاين فالمخزون بالثمن ديال ${fact.effectivePrice} ${fact.currency}. (كاين منو: ${fact.availableStock})`;
+          return `إيه، ${safeFactName} (${variantLabel}) كاين. الثمن: ${fact.effectivePrice} ${fact.currency}. كاين منو: ${fact.availableStock}.`;
         }
-        return `${safeFactName} (${variantLabel}) is available for ${fact.effectivePrice} ${fact.currency}. (In stock: ${fact.availableStock})`;
+        return `Yes, ${safeFactName} (${variantLabel}) is available. Price: ${fact.effectivePrice} ${fact.currency}. In stock: ${fact.availableStock}.`;
       } else {
         // Product-level in-stock response (unchanged)
         if (responseLanguage === 'fr') {
-          return `${safeFactName} est disponible au prix de ${fact.effectivePrice} ${fact.currency}. (En stock : ${fact.availableStock})`;
+          return `Oui, ${safeFactName} est disponible. Prix : ${fact.effectivePrice} ${fact.currency}. En stock : ${fact.availableStock}.`;
         }
         if (responseLanguage === 'ar') {
-          return `${safeFactName} متوفر بسعر ${fact.effectivePrice} ${fact.currency}. (الكمية المتوفرة: ${fact.availableStock})`;
+          return `نعم، ${safeFactName} متوفر. السعر: ${fact.effectivePrice} ${fact.currency}. الكمية المتوفرة: ${fact.availableStock}.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `${safeFactName} kayen f stock b ${fact.effectivePrice} ${fact.currency}. (Kayen mno: ${fact.availableStock})`;
+            return `Ah, ${safeFactName} kayen. Taman: ${fact.effectivePrice} ${fact.currency}. Kayen mno: ${fact.availableStock}.`;
           }
-          return `${safeFactName} كاين فالمخزون بالثمن ديال ${fact.effectivePrice} ${fact.currency}. (كاين منو: ${fact.availableStock})`;
+          return `إيه، ${safeFactName} كاين. الثمن: ${fact.effectivePrice} ${fact.currency}. كاين منو: ${fact.availableStock}.`;
         }
-        return `${safeFactName} is available for ${fact.effectivePrice} ${fact.currency}. (In stock: ${fact.availableStock})`;
+        return `Yes, ${safeFactName} is available. Price: ${fact.effectivePrice} ${fact.currency}. In stock: ${fact.availableStock}.`;
       }
     } else {
       const variantsList = fact.product.variants?.filter(v => v.stock > 0).map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean);
@@ -939,6 +1006,7 @@ export class AnswerComposer {
   ): string {
     const seenContent = new Set<string>();
     const sections: string[] = [];
+    const contentBudget = Math.min(220, Math.floor(440 / Math.max(1, policyItems.length)));
 
     for (const item of policyItems) {
       const trimmed = item.content?.trim();
@@ -948,8 +1016,8 @@ export class AnswerComposer {
       if (seenContent.has(normalizedCheck)) continue;
       seenContent.add(normalizedCheck);
 
-      let heading = item.heading;
-      if (!heading && item.intent) {
+      let heading: string | undefined;
+      if (item.intent) {
         const intentKey = item.intent.toUpperCase();
         const headingMap = this.POLICY_HEADINGS[intentKey];
         if (headingMap) {
@@ -963,10 +1031,20 @@ export class AnswerComposer {
         }
       }
 
+      if (!heading) heading = item.heading;
+      // Imported PDF titles and hard line breaks consume the mobile answer
+      // budget before the actual facts. Keep each requested policy visible.
+      const body = trimmed.replace(/^[^\n]{1,120}\n/u, '').replace(/\s+/gu, ' ').trim();
+      const shortened = body.length <= contentBudget ? body : (() => {
+        const excerpt = body.slice(0, contentBudget);
+        const boundary = Math.max(excerpt.lastIndexOf('. '), excerpt.lastIndexOf('؟ '));
+        const end = boundary >= contentBudget / 2 ? boundary + 1 : excerpt.lastIndexOf(' ');
+        return `${excerpt.slice(0, end > 0 ? end : contentBudget).trim()}…`;
+      })();
       if (heading) {
-        sections.push(`### ${heading}\n${trimmed}`);
+        sections.push(`### ${heading}\n${shortened}`);
       } else {
-        sections.push(trimmed);
+        sections.push(shortened);
       }
     }
 
@@ -992,8 +1070,8 @@ export class AnswerComposer {
     // Direct chunk return evaluation:
     // Allow raw chunk ONLY IF DirectRagGuard confirms language AND script match.
     const guardResult = DirectRagGuard.evaluate(turnDecision?.productName || '', topChunk, responseLanguage, responseScript);
-    if (guardResult.isSafe) {
-      return topChunk.trim();
+    if (guardResult.isSafe && !turnDecision?.isMultiPolicy) {
+      return this.formatDirectKnowledgeAnswer(topChunk);
     }
 
     // Otherwise, translate/synthesize using LLM
@@ -1134,7 +1212,7 @@ ${turnDecision.inputQuery || ''}
     rawResponse: string,
     turnDecision?: TurnDecision | null,
     config?: BusinessConfig,
-    options?: { maxResponseLength?: number }
+    options?: { maxResponseLength?: number; preserveTrailingWorkflowPrompt?: boolean }
   ): string {
     const lang = turnDecision?.responseLanguage || 'en';
     const script = turnDecision?.responseScript || 'latin';
@@ -1205,6 +1283,28 @@ ${turnDecision.inputQuery || ''}
 
     if (cleaned.length <= limit) {
       return cleaned;
+    }
+
+    // A side-answer during a workflow must not consume the space reserved for
+    // the pending question. Otherwise the customer sees the FAQ but loses the
+    // form prompt while the server still waits for that field.
+    if (options?.preserveTrailingWorkflowPrompt) {
+      const separator = '\n\n---\n';
+      const splitAt = cleaned.lastIndexOf(separator);
+      if (splitAt >= 0) {
+        const pendingPrompt = cleaned.slice(splitAt + separator.length).trim();
+        const answer = cleaned.slice(0, splitAt).trim();
+        if (pendingPrompt) {
+          const answerBudget = limit - pendingPrompt.length - separator.length;
+          if (answerBudget <= 0) return pendingPrompt;
+          if (answer.length <= answerBudget) return `${answer}${separator}${pendingPrompt}`;
+          const excerpt = answer.slice(0, answerBudget);
+          const lastBoundary = Math.max(excerpt.lastIndexOf('. '), excerpt.lastIndexOf('؟ '), excerpt.lastIndexOf('\n'));
+          const shortened = (lastBoundary >= answerBudget / 2 ? excerpt.slice(0, lastBoundary + 1) : excerpt)
+            .trimEnd();
+          return `${shortened}${separator}${pendingPrompt}`;
+        }
+      }
     }
 
     const candidate = cleaned.slice(0, limit);

@@ -103,7 +103,7 @@ describe('Hybrid Mid-Workflow Handling & Global Interrupts', () => {
     expect(res.nextStateId).toBe('step_plans'); // Remains in step_plans!
     expect(res.response).toContain('The Enterprise plan is $299/month and includes unlimited seats');
     expect(res.response).toContain('---');
-    expect(res.response).toContain('Which plan would you like to explore?');
+    expect(res.response).toContain('Please choose an option to continue:');
     expect(res.response).toContain('1. Starter Plan ($29/mo)');
     expect(res.response).toContain('2. Pro Plan ($99/mo)');
     expect(res.response).toContain('3. Enterprise Plan');
@@ -115,13 +115,13 @@ describe('Hybrid Mid-Workflow Handling & Global Interrupts', () => {
 
     expect(res1.isComplete).toBe(false);
     expect(res1.nextStateId).toBe('step_plans');
-    expect(res1.response).toContain("Let's finish this first — please choose one of the options above.");
+    expect(res1.response).toContain("Let's finish this first — please choose one of the options below:");
     expect(res1.response).not.toContain('The Enterprise plan is $299/month');
 
     const res2 = await workflowEngine.process(session, 'asdf', testWorkflow, testConfig);
     expect(res2.isComplete).toBe(false);
     expect(res2.nextStateId).toBe('step_plans');
-    expect(res2.response).toContain("Let's finish this first — please choose one of the options above.");
+    expect(res2.response).toContain("Let's finish this first — please choose one of the options below:");
     expect(res2.response).not.toContain('The Enterprise plan is $299/month');
   });
 });

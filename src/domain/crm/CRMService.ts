@@ -111,7 +111,7 @@ export class CRMService {
    * Upserts a minimal Lead record for a customer in a specific account.
    * Idempotent per (tenantId, accountId, customerId).
    */
-  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW'): Promise<Lead> {
+  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string }): Promise<Lead> {
     if (!tenantId || !accountId || !customerId) {
       throw new Error('CRMService: tenantId, accountId, and customerId are required for upsertLead');
     }
@@ -144,7 +144,10 @@ export class CRMService {
         tenantId,
         accountId,
         customerId,
-        status
+        status,
+        interest: signal?.interest?.slice(0, 280) || null,
+        signalReason: signal?.reason?.slice(0, 80) || null,
+        sourceConversationId: signal?.conversationId || null
       },
       update: {
         // If lead already exists, touch updatedAt without overwriting advanced pipeline status unless specified
@@ -256,6 +259,7 @@ export class CRMService {
       tenantId,
       accountId,
       customerId,
+      conversationId,
       turnDecision,
       isWorkflowCompleted,
       workflowId,
@@ -270,11 +274,13 @@ export class CRMService {
     }
 
     let isStrongSignal = false;
+    let signalReason = '';
 
     // 1. Workflow completed (sales/booking workflows only)
     if (isWorkflowCompleted && workflowId) {
       if (this.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
         isStrongSignal = true;
+        signalReason = 'COMPLETED_SALES_WORKFLOW';
       }
     }
 
@@ -283,6 +289,7 @@ export class CRMService {
       const intentUpper = (turnDecision.intent || '').toUpperCase();
       if (['BUY_INTENT', 'BOOKING_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')) {
         isStrongSignal = true;
+        signalReason = 'EXPLICIT_SALES_INTENT';
       }
     }
 
@@ -297,12 +304,19 @@ export class CRMService {
       ];
       if (buyPhrases.some(phrase => lower.includes(phrase))) {
         isStrongSignal = true;
+        signalReason = 'EXPLICIT_PURCHASE_MESSAGE';
+      } else if (/(?:\b(?:bghit|baghi|baghya)\s+(?:n(?:7jez|hjez|7جز)|rendez-vous|rdv|devis|quote)\b|\b(?:je veux|j'aimerais|i want to|i'd like to)\s+(?:book|réserver|prendre rendez-vous|request a quote|get a quote)\b|بغيت\s+(?:نحجز|موعد|ديفي|عرض ثمن)|أريد\s+(?:الحجز|موعد|عرض سعر))/iu.test(lower)
+        && !/(?:\b(?:ma\s*bghitch|don't|do not|pas\s+besoin)\b|ما\s*بغيتش)/iu.test(lower)) {
+        isStrongSignal = true;
+        signalReason = 'EXPLICIT_BOOKING_OR_QUOTE';
       }
     }
 
     if (isStrongSignal && !isActionNegated(userMessage || '', 'purchase')) {
       logger.info(`CRMService: Strong sales signal detected for customer [${customerId}] in account [${accountId}]. Upserting lead.`);
-      return this.upsertLead(tenantId, accountId, customerId, 'NEW');
+      return this.upsertLead(tenantId, accountId, customerId, 'NEW', {
+        interest: userMessage?.trim(), reason: signalReason, conversationId
+      });
     }
 
     return null;

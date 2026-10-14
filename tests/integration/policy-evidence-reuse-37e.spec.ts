@@ -4,6 +4,7 @@ import { bootstrapChatbot } from '../../src/bootstrap';
 import { FaqKnowledgeAdapter } from '../../src/domain/rag/FaqKnowledgeAdapter';
 import { PolicyEvidenceReuse } from '../../src/domain/rag/PolicyEvidenceReuse';
 import { PolicyEvidence } from '../../src/domain/rag/PolicyEvidence';
+import { ensureAnimeVerseFixture } from '../helpers/animeverseFixture';
 
 const tenantId = 'animeverse';
 const accountId = 'animeverse-store';
@@ -12,6 +13,7 @@ describe('PHASE COST-FIX-37E: Session-Scoped Policy Evidence Reuse', () => {
   let deps: ReturnType<typeof bootstrapChatbot>;
 
   beforeAll(async () => {
+    await ensureAnimeVerseFixture();
     deps = bootstrapChatbot(prisma);
     const config = await deps.tenantConfigService.getConfig(tenantId);
     if (config.capabilities?.faq && config.capabilities.faq.length > 0) {
@@ -22,7 +24,7 @@ describe('PHASE COST-FIX-37E: Session-Scoped Policy Evidence Reuse', () => {
         prisma
       );
     }
-  }, 30000);
+  }, 120000);
 
   // A. Shipping repeated follow-up
   it('A. Shipping repeated follow-up reuses cached evidence and answers accurately', async () => {
@@ -104,7 +106,9 @@ describe('PHASE COST-FIX-37E: Session-Scoped Policy Evidence Reuse', () => {
     const r2 = await deps.conversationEngine.handleMessage(tenantId, cid, 'Et le délai de livraison ?', accountId);
     expect(r2.toLowerCase()).toMatch(/24|48|heures|jours|livraison/i);
     const r3 = await deps.conversationEngine.handleMessage(tenantId, cid, 'How much is shipping to Casablanca?', accountId);
-    expect(r3).toMatch(/35/);
+    // The current AnimeVerse fixture states 30 MAD across Morocco and has no
+    // Casablanca-specific 35 MAD exception. Do not require an invented fee.
+    expect(r3).toMatch(/30/);
   }, 25000);
 
   // J. Product context switch

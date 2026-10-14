@@ -27,7 +27,7 @@ describe('Generic Multi-Tenant RAG Foundation', () => {
   it('1. Tenant A can retrieve its own knowledge', async () => {
     const tenantA = await prisma.tenant.create({ data: { name: 'A' } });
     // Create source and doc
-    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenantA.id, name: 'S1', type: 'TEXT' } });
+    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenantA.id, name: 'S1', type: 'TEXT', status: 'COMPLETED' } });
     const doc = await prisma.knowledgeDocument.create({ data: { tenantId: tenantA.id, sourceId: source.id, title: 'D1', content: 'test content' } });
     // Insert chunk using repo
     // In our mock, 'test' generates vector [1, 0, 0...]
@@ -43,7 +43,7 @@ describe('Generic Multi-Tenant RAG Foundation', () => {
   it('2. Tenant A cannot retrieve Tenant B knowledge (Strict Isolation)', async () => {
     const tenantA = await prisma.tenant.create({ data: { name: 'Tenant A' } });
     const tenantB = await prisma.tenant.create({ data: { name: 'Tenant B' } });
-    const sourceB = await prisma.knowledgeSource.create({ data: { tenantId: tenantB.id, name: 'S2', type: 'TEXT' } });
+    const sourceB = await prisma.knowledgeSource.create({ data: { tenantId: tenantB.id, name: 'S2', type: 'TEXT', status: 'COMPLETED' } });
     const docB = await prisma.knowledgeDocument.create({ data: { tenantId: tenantB.id, sourceId: sourceB.id, title: 'D2', content: 'secret B' } });
     // Insert into B's space
     const vectorB = await embedProvider.embedText('test secret b');
@@ -60,7 +60,7 @@ describe('Generic Multi-Tenant RAG Foundation', () => {
   });
   it('3. Irrelevant documents are rejected by the similarity threshold', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'C' } });
-    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenant.id, name: 'S3', type: 'TEXT' } });
+    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenant.id, name: 'S3', type: 'TEXT', status: 'COMPLETED' } });
     const doc = await prisma.knowledgeDocument.create({ data: { tenantId: tenant.id, sourceId: source.id, title: 'D3', content: 'unrelated content' } });
     // 'unrelated' generates vector [0, 1, 0...]
     const vector = await embedProvider.embedText('unrelated stuff');
@@ -76,7 +76,7 @@ describe('Generic Multi-Tenant RAG Foundation', () => {
   });
   it('4. RAG can be disabled through configuration', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'D' } });
-    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenant.id, name: 'S4', type: 'TEXT' } });
+    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenant.id, name: 'S4', type: 'TEXT', status: 'COMPLETED' } });
     const doc = await prisma.knowledgeDocument.create({ data: { tenantId: tenant.id, sourceId: source.id, title: 'D4', content: 'test content' } });
     const vector = await embedProvider.embedText('test');
     await knowledgeRepo.insertChunk(tenant.id, doc.id, 'This is a test.', vector);
@@ -87,7 +87,7 @@ describe('Generic Multi-Tenant RAG Foundation', () => {
   });
   it('5. Context size is limited by configuration', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'E' } });
-    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenant.id, name: 'S5', type: 'TEXT' } });
+    const source = await prisma.knowledgeSource.create({ data: { tenantId: tenant.id, name: 'S5', type: 'TEXT', status: 'COMPLETED' } });
     const doc = await prisma.knowledgeDocument.create({ data: { tenantId: tenant.id, sourceId: source.id, title: 'D5', content: 'test' } });
     const vector = await embedProvider.embedText('test');
     await knowledgeRepo.insertChunk(tenant.id, doc.id, 'Test paragraph 1.', vector);

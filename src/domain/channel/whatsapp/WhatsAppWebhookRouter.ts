@@ -75,8 +75,32 @@ export function createWhatsAppWebhookRouter(
 
     try {
       // 2. Safe Extraction of Messages and Asynchronous Delivery Statuses
-      const extractedMessages = WhatsAppWebhookExtractor.extractMessages(req.body);
-      const extractedStatuses = WhatsAppWebhookExtractor.extractStatuses(req.body);
+      let extractedMessages = WhatsAppWebhookExtractor.extractMessages(req.body);
+      let extractedStatuses = WhatsAppWebhookExtractor.extractStatuses(req.body);
+
+      // A valid signature for one Meta app must never authorize delivery to a
+      // number owned by a different app or client. Unauthorized entries are
+      // dropped individually (never processed) while the rest of the batch is
+      // still handled and acknowledged: a 403 would make Meta retry the whole
+      // batch and eventually disable the webhook subscription.
+      if (options.expectedConnectionId || options.rejectClientOwned) {
+        const phoneIds = new Set([...extractedMessages, ...extractedStatuses].map(event => event.phoneNumberId));
+        const unauthorized = new Set<string>();
+        for (const phoneId of phoneIds) {
+          const mapping = await numberService.resolveAccountByPhoneNumberId(phoneId, { requireEnabled: false });
+          if (!mapping || (options.expectedConnectionId && mapping.connectionId !== options.expectedConnectionId)
+            || (options.rejectClientOwned && mapping.connection?.connectionKey.startsWith('CLIENT_OWNED:'))) {
+            unauthorized.add(phoneId);
+          }
+        }
+        if (unauthorized.size > 0) {
+          const before = extractedMessages.length + extractedStatuses.length;
+          extractedMessages = extractedMessages.filter(event => !unauthorized.has(event.phoneNumberId));
+          extractedStatuses = extractedStatuses.filter(event => !unauthorized.has(event.phoneNumberId));
+          const dropped = before - extractedMessages.length - extractedStatuses.length;
+          logger.warn(`WhatsAppWebhookRouter: Dropped ${dropped} webhook event(s) for phoneNumberIds not authorized on this route [${[...unauthorized].join(', ')}]`);
+        }
+      }
 
       let processedStatuses = 0;
       if (extractedStatuses.length > 0) {

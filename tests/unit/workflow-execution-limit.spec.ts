@@ -23,6 +23,10 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
   const baseConfig: BusinessConfig = {
     ...DEFAULT_BUSINESS_CONFIG,
+    behavior: {
+      ...DEFAULT_BUSINESS_CONFIG.behavior,
+      useLlmIntentClassification: true
+    },
     capabilities: {
       ...DEFAULT_BUSINESS_CONFIG.capabilities,
       ecommerceEnabled: false,
@@ -277,6 +281,11 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
         findMany: async () => messages
       },
       lead: {
+        findUnique: async ({ where }: any) => leads.find(x =>
+          x.tenantId === where.tenantId_accountId_customerId?.tenantId
+          && x.accountId === where.tenantId_accountId_customerId?.accountId
+          && x.customerId === where.tenantId_accountId_customerId?.customerId
+        ) || null,
         upsert: async ({ where, create, update }: any) => {
           let l = leads.find(x => x.tenantId === where.tenantId_accountId_customerId?.tenantId && x.accountId === where.tenantId_accountId_customerId?.accountId && x.customerId === where.tenantId_accountId_customerId?.customerId);
           if (!l) {
@@ -329,9 +338,9 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     // Run 2
     await conversationEngine.handleMessage(tenantId, 'c1', 'I want to book a session', accountId);
-    await conversationEngine.handleMessage(tenantId, 'c1', 'User A again', accountId);
+    await conversationEngine.handleMessage(tenantId, 'c1', 'User B', accountId);
     const end2 = await conversationEngine.handleMessage(tenantId, 'c1', '+212600000002', accountId);
-    expect(end2).toContain('Thank you User A again! Your session is booked.');
+    expect(end2).toContain('Thank you User B! Your session is booked.');
 
     const count = await conversationService.countCompletedWorkflowSessions(tenantId, 'c1', 'fitness_consultation', accountId);
     expect(count).toBe(2);
@@ -400,9 +409,9 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     // Run 2
     await conversationEngine.handleMessage(tenantId, 'c4', 'I want to book a session', accountId);
-    await conversationEngine.handleMessage(tenantId, 'c4', 'John 2', accountId);
+    await conversationEngine.handleMessage(tenantId, 'c4', 'John Smith', accountId);
     const end2 = await conversationEngine.handleMessage(tenantId, 'c4', '+212600000002', accountId);
-    expect(end2).toContain('Thank you John 2! Your session is booked.');
+    expect(end2).toContain('Thank you John Smith! Your session is booked.');
 
     const count = await conversationService.countCompletedWorkflowSessions(tenantId, 'c4', 'fitness_consultation', accountId);
     expect(count).toBe(2);
@@ -427,7 +436,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     // Run 2
     await conversationEngine.handleMessage(tenantId, 'c5', 'I want to book a session', accountId);
-    await conversationEngine.handleMessage(tenantId, 'c5', 'John 2', accountId);
+    await conversationEngine.handleMessage(tenantId, 'c5', 'John Smith', accountId);
     await conversationEngine.handleMessage(tenantId, 'c5', '+212600000002', accountId);
 
     // Run 3 (blocked)
@@ -598,7 +607,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
     vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(noLimitConfig);
 
     await conversationEngine.handleMessage(tenantId, 'c12', 'I want to book a session', accountId);
-    await conversationEngine.handleMessage(tenantId, 'c12', 'User 1', accountId);
+    await conversationEngine.handleMessage(tenantId, 'c12', 'User A', accountId);
     await conversationEngine.handleMessage(tenantId, 'c12', '+212600000000', accountId);
 
     const r2 = await conversationEngine.handleMessage(tenantId, 'c12', 'I want to book a session', accountId);
@@ -713,9 +722,10 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     for (let i = 1; i <= 3; i++) {
       await conversationEngine.handleMessage(tenantId, 'c17', 'I want to book a session', accountId);
-      await conversationEngine.handleMessage(tenantId, 'c17', `User ${i}`, accountId);
+      const customerName = ['User One', 'User Two', 'User Three'][i - 1];
+      await conversationEngine.handleMessage(tenantId, 'c17', customerName, accountId);
       const res = await conversationEngine.handleMessage(tenantId, 'c17', `+21260000000${i}`, accountId);
-      expect(res).toContain(`Thank you User ${i}! Your session is booked.`);
+      expect(res).toContain(`Thank you ${customerName}! Your session is booked.`);
     }
 
     const count = await conversationService.countCompletedWorkflowSessions(tenantId, 'c17', 'fitness_consultation', accountId);

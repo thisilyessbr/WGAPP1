@@ -68,7 +68,7 @@ describe('Phase 45G: Generic Config-Driven Workflow Activation & Interruption', 
           id: 'lead_inquiry',
           description: 'Submit an inquiry or request lead qualification',
           workflowId: 'lead_intake_workflow',
-          keywords: ['request consultation', 'lead inquiry', 'submit inquiry']
+          keywords: ['request consultation', 'lead inquiry', 'submit inquiry', 'submit an inquiry']
         }
       ],
       faq: [

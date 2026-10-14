@@ -12,16 +12,17 @@ vi.mock('pdf-parse', () => {
   return {
     default: vi.fn().mockImplementation(async (buffer: Buffer) => {
       const content = buffer.toString('utf8');
-      if (content === 'MALFORMED') {
+      if (content.includes('MALFORMED')) {
         throw new Error('Invalid PDF structure');
       }
-      if (content === 'EMPTY') {
+      if (content.includes('EMPTY')) {
         return { text: '   \n  ', numpages: 1 };
       }
-      return { text: content, numpages: 1 };
+      return { text: content.replace('%PDF-1.4\n', ''), numpages: 1 };
     })
   };
 });
+const makePdf = (content: string) => Buffer.from(`%PDF-1.4\n${content}`);
 let ingestionService: PdfIngestionService;
 let knowledgeRepo: KnowledgeRepository;
 let embedProvider: MockEmbeddingProvider;
@@ -50,7 +51,15 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
     config.knowledge.ingestion.chunkSize = 10;
     config.knowledge.ingestion.chunkOverlap = 2;
-    const buffer = Buffer.from('This is a valid PDF document with some text to extract and chunk appropriately.');
+    const buffer = makePdf([
+      'This is the first sentence for chunking.',
+      'This is the second sentence for chunking.',
+      'This is the third sentence for chunking.',
+      'This is the fourth sentence for chunking.',
+      'This is the fifth sentence for chunking.',
+      'This is the sixth sentence for chunking.',
+      'This is the seventh sentence for chunking.'
+    ].join(' '));
     const sourceId = await ingestionService.ingestPdf(tenant.id, buffer, 'test.pdf', config);
     expect(sourceId).toBeDefined();
     const source = await prisma.knowledgeSource.findUnique({ where: { id: sourceId } });
@@ -69,7 +78,7 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
   it('2. Re-ingesting the same document is idempotent', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Idempotency Tenant' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
-    const buffer = Buffer.from('Idempotency Test Document');
+    const buffer = makePdf('Idempotency Test Document');
     const sourceId1 = await ingestionService.ingestPdf(tenant.id, buffer, 'doc.pdf', config);
     const sourceId2 = await ingestionService.ingestPdf(tenant.id, buffer, 'doc.pdf', config);
     // Should return the exact same source ID
@@ -84,7 +93,7 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
   it('3. An invalid PDF fails safely (Status FAILED)', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Fail Tenant' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
-    const buffer = Buffer.from('MALFORMED');
+    const buffer = makePdf('MALFORMED');
     await expect(ingestionService.ingestPdf(tenant.id, buffer, 'bad.pdf', config)).rejects.toThrow();
     const sources = await prisma.knowledgeSource.findMany({ where: { tenantId: tenant.id } });
     expect(sources.length).toBe(1);
@@ -95,7 +104,7 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
   it('4. Empty extractable text fails safely', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Empty Tenant' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
-    const buffer = Buffer.from('EMPTY'); // Mocks to empty whitespace
+    const buffer = makePdf('EMPTY'); // Mocks to empty whitespace
     await expect(ingestionService.ingestPdf(tenant.id, buffer, 'empty.pdf', config)).rejects.toThrow(/contains no extractable text/);
   });
   it('5. Tenant A cannot retrieve Tenant B PDF content via RAG', async () => {
@@ -103,7 +112,7 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
     const tenantB = await prisma.tenant.create({ data: { name: 'RAG B' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
     config.knowledge.enabled = true;
-    const buffer = Buffer.from('Tenant B confidential quarterly report. Password is XYZ.');
+    const buffer = makePdf('Tenant B confidential quarterly report. Password is XYZ.');
     await ingestionService.ingestPdf(tenantB.id, buffer, 'secret.pdf', config);
     // A searches for the secret
     const contextA = await ragService.retrieveContext(tenantA.id, 'confidential', config);
@@ -115,7 +124,7 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
   it('6. Embedding failure does not leave document marked COMPLETED', async () => {
     const tenant = await prisma.tenant.create({ data: { name: 'Embed Fail Tenant' } });
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
-    const buffer = Buffer.from('Will fail on embed');
+    const buffer = makePdf('Will fail on embed');
     // Inject a transient mock failure to the provider
     vi.spyOn(embedProvider, 'embedText').mockRejectedValueOnce(new Error('API Timeout'));
     await expect(ingestionService.ingestPdf(tenant.id, buffer, 'timeout.pdf', config)).rejects.toThrow('API Timeout');
@@ -127,7 +136,19 @@ describe('Generic Multi-Tenant PDF Ingestion', () => {
     const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
     config.knowledge.ingestion.chunkSize = 5;
     config.knowledge.ingestion.maxChunks = 2; // Very strict limit
-    const buffer = Buffer.from('This document is too long for the chunk limit.');
+    const buffer = makePdf([
+      'This is the first sentence that is long enough to be preserved.',
+      'This is the second sentence that is long enough to be preserved.',
+      'This is the third sentence that is long enough to be preserved.'
+    ].join(' '));
     await expect(ingestionService.ingestPdf(tenant.id, buffer, 'long.pdf', config)).rejects.toThrow(/exceeding the limit/);
+  });
+  it('8. File without valid PDF header signature (%PDF-) fails fast before creating records', async () => {
+    const tenant = await prisma.tenant.create({ data: { name: 'Non-PDF Tenant' } });
+    const config = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
+    const invalidBuffer = Buffer.from('NOT A PDF FILE');
+    await expect(ingestionService.ingestPdf(tenant.id, invalidBuffer, 'notpdf.txt', config)).rejects.toThrow(/valid PDF header signature/);
+    const sources = await prisma.knowledgeSource.findMany({ where: { tenantId: tenant.id } });
+    expect(sources.length).toBe(0);
   });
 });

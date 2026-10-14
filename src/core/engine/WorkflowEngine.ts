@@ -5,7 +5,9 @@ import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { DirectRagGuard } from '../../domain/rag/DirectRagGuard';
 import { FieldValidator } from './FieldValidator';
-import { FaqMatcher, LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { WorkflowTurnGate } from './WorkflowTurnGate';
+import { LanguageDetector } from '../../domain/faq/FaqMatcher';
+import { FaqAnswerPolicy } from '../../domain/faq/FaqAnswerPolicy';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
@@ -106,6 +108,15 @@ export class WorkflowCancellationDetector {
       return true;
     }
 
+    // Allow polite framing around an explicit command, not arbitrary substrings:
+    // "safi bghit nlghi" cancels, "wach n9der nlghi?" asks about policy.
+    const command = normalized
+      .replace(/^(?:(?:safi|3afak|afak|صافي|سافي|عفاك)\s+)+/u, '')
+      .replace(/\s+(?:(?:3afak|afak|عفاك)\s*)+$/u, '');
+    if (/^(?:bghit\s+(?:nlghi|n7bes|nhbes)|nlghi|بغيت\s+(?:نلغي|نحبس)|نلغي)(?:\s+(?:had\s+)?(?:rdv|talab|rendez vous|هاد\s+الطلب|الطلب|الموعد))?$/u.test(command)) {
+      return true;
+    }
+
     // Check bounded direct cancellation phrases (all in normalized form)
     const directPhrases = [
       'cancel please',
@@ -137,6 +148,9 @@ export const DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES = {
 };
 
 export class WorkflowEngine {
+  /** Re-prompts for an UNCLEAR collect reply before it is validated as an answer. */
+  static readonly MAX_UNCLEAR_REPROMPTS = 2;
+
   constructor(
     private evaluator: WorkflowStateEvaluator,
     private defaultLlm?: LLMProvider,
@@ -475,7 +489,8 @@ export class WorkflowEngine {
             
             // Layer 2: High-confidence FAQ match check (cheap-first in-memory, 0 LLM calls, 0 network API calls)
             if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-              const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq);
+              const faqMatch = FaqAnswerPolicy.match(message, businessConfig, lang as any,
+                { responseLanguage: lang as any, responseScript: script as any });
               if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
                 matchedAnswer = faqMatch.answer;
                 logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] (${faqMatch.matchType} confidence: ${faqMatch.confidence}) in state [${currentStateId}]`);
@@ -633,15 +648,53 @@ export class WorkflowEngine {
           });
         }
 
+        // Decide whether the reply fills the pending field before looking up
+        // FAQs. A description of the customer's business may share words with
+        // an FAQ, but the pending form question gives it a different meaning.
+        const turnKind = await WorkflowTurnGate.classify(
+          trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
+        );
+        const isQuestion = turnKind === 'CUSTOMER_QUESTION';
+        if (turnKind === 'UNCLEAR') {
+          // UNCLEAR counts toward the same unmatched limit as unanswered
+          // questions. The first re-prompt is plain, the next one explains,
+          // and after that the reply goes through ordinary field validation so
+          // a customer repeating an answer is never stuck in a loop.
+          const unclearCount = (currentContext['_consecutiveUnmatched'] || 0) + 1;
+          if (unclearCount <= WorkflowEngine.MAX_UNCLEAR_REPROMPTS) {
+            currentContext['_consecutiveUnmatched'] = unclearCount;
+            let unclearResponse = currentCollectPrompt;
+            if (unclearCount > 1) {
+              const defaultCollectFallback = getWorkflowMessage('collectFallback', lang, script);
+              const defaultCollectVals = Object.values(DEFAULT_WORKFLOW_MESSAGES.collectFallback);
+              const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
+              const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
+                ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
+                : defaultCollectFallback;
+              unclearResponse = `${fallbackMsg}\n\n${currentCollectPrompt}`;
+            }
+            return finishAndReturn({
+              updatedContext: currentContext,
+              nextStateId: currentStateId,
+              response: unclearResponse,
+              isComplete: false,
+              updatedStateHistory: history,
+              updatedCollectedData: collectedData
+            });
+          }
+          logger.info(`WorkflowEngine: ${unclearCount} consecutive unclear replies in [${currentStateId}] -> validating reply as field answer`);
+        }
+
         // 5. Off-script FAQ / PDF / RAG check side-path
         const consecutive = currentContext['_consecutiveUnmatched'] || 0;
         let matchedFaqAnswer: string | null = null;
         const allowsInterruption = workflowConfig.allowInterruption !== false;
 
         // Layer 1: Fast deterministic FAQ check (in-memory, 0 AI)
-        if (allowsInterruption && consecutive < 2) {
+        if (isQuestion && allowsInterruption && consecutive < 2) {
           if (businessConfig.capabilities?.faq && businessConfig.capabilities.faq.length > 0) {
-            const faqMatch = FaqMatcher.match(message, businessConfig.capabilities.faq, lang as any);
+            const faqMatch = FaqAnswerPolicy.match(message, businessConfig, lang as any,
+              { responseLanguage: lang as any, responseScript: script as any });
             if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
               matchedFaqAnswer = faqMatch.answer;
               logger.info(`WorkflowEngine: Mid-workflow FAQ match [${faqMatch.entry.id}] during collect step [${currentStateId}]`);
@@ -662,17 +715,43 @@ export class WorkflowEngine {
           });
         }
 
-        // 6. Question indicator detection & Field validation check
-        const isQuestion = GreetingRouter.hasQuestionIndicator(trimmedMsg, normMsg);
+        // 6. Field validation check
         let fieldValidationErr: string | null = null;
-        if (stateConfig.field && typeof stateConfig.field === 'object') {
-          fieldValidationErr = this.fieldValidator.validate(trimmedMsg, stateConfig.field);
+        let extractedVal: any = trimmedMsg;
+
+        if (!isQuestion) {
+          if (llm && stateConfig.field && typeof stateConfig.field === 'object'
+            && stateConfig.field.type !== 'string' && typeof (llm as any).extractField === 'function') {
+            try {
+              const prompt = businessConfig.prompts?.fieldExtraction
+                ? businessConfig.prompts.fieldExtraction.replace('{{fieldType}}', (stateConfig.field as any)?.type || 'string')
+                : `Extract field of type ${(stateConfig.field as any)?.type || 'string'}`;
+              const result = await (llm as any).extractField(prompt, trimmedMsg, (stateConfig.field as any)?.type || 'string', llmOptions);
+              if (result !== null && result !== undefined) {
+                extractedVal = result;
+              }
+            } catch (extractionErr: any) {
+              logger.warn(`WorkflowEngine: Field extraction failed or crashed: ${extractionErr.message || extractionErr}`);
+              return finishAndReturn({
+                updatedContext: currentContext,
+                nextStateId: currentStateId,
+                response: currentCollectPrompt,
+                isComplete: false,
+                updatedStateHistory: history,
+                updatedCollectedData: collectedData
+              });
+            }
+          }
+
+          if (stateConfig.field && typeof stateConfig.field === 'object') {
+            fieldValidationErr = this.fieldValidator.validate(extractedVal, stateConfig.field);
+          }
         }
 
-        // Fast-path: Valid field value and NOT a question -> store text into collectedData immediately (0 RAG, 0 Embedding, 0 LLM)
+        // Fast-path: Valid field value and NOT a question -> store text into collectedData immediately
         if (!isQuestion && !fieldValidationErr) {
-          collectedData[fieldName] = trimmedMsg;
-          currentContext[fieldName] = trimmedMsg;
+          collectedData[fieldName] = extractedVal;
+          currentContext[fieldName] = extractedVal;
           currentContext['_consecutiveUnmatched'] = 0;
 
           const newHistory = [...history, currentStateId];

@@ -9,7 +9,7 @@ describe('Phase 45N: Dev Chat Reset Customer Resolution', () => {
   const deps = bootstrapChatbot(prisma);
   const tenantId = 'test-reset-tenant';
   const accountId = 'test-reset-account';
-  const authToken = createSignedToken({ tenantId });
+  const authToken = createSignedToken({ tenantId, role: 'admin' });
 
   const app = express();
   app.use(express.json());

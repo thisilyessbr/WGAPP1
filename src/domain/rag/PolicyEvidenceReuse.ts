@@ -8,6 +8,9 @@
 import { PolicyEvidence } from './PolicyEvidence';
 import { RAGChunk } from './RAGService';
 import { BusinessConfig, ShippingScopeConfig } from '../tenant/BusinessConfig';
+import { DirectRagGuard, SupportedScript } from './DirectRagGuard';
+import { ChunkClassifier } from './ChunkQuality';
+import { SupportedLanguage } from '../faq/FaqMatcher';
 
 export const CANONICAL_POLICY_INTENTS = [
   'SHIPPING',
@@ -412,6 +415,56 @@ export class PolicyEvidenceReuse {
 
     existingMap[intent] = currentList;
     return existingMap;
+  }
+
+  /**
+   * Deterministically evaluates whether a set of candidate chunks safely answers
+   * EVERY one of the requested policy intents (0 LLM calls). Used identically for
+   * freshly-retrieved chunks and for session-reused evidence — both call sites
+   * must agree on what counts as a safe multi-policy direct match, since this
+   * previously existed as two independently-maintained copies that had already
+   * drifted (different `allIntentsSafe` initial values for the same situation).
+   */
+  public static findDeterministicMultiMatch(
+    targetPolicies: string[],
+    chunks: RAGChunk[],
+    query: string,
+    effectiveLang: SupportedLanguage,
+    responseScript?: SupportedScript
+  ): { matched: boolean; selectedPolicyItems: Array<{ intent: string; heading?: string; content: string }> } {
+    const selectedPolicyItems: Array<{ intent: string; heading?: string; content: string }> = [];
+    let allIntentsSafe = targetPolicies.length > 1;
+
+    for (const pol of targetPolicies) {
+      const candidateChunks = chunks.filter(c =>
+        (c as any).intent === pol ||
+        (c.documentTitle && c.documentTitle.toLowerCase().includes(pol.toLowerCase())) ||
+        c.content.toLowerCase().includes(pol.toLowerCase())
+      );
+      const bestChunk = candidateChunks[0];
+
+      if (!bestChunk || !bestChunk.content) {
+        allIntentsSafe = false;
+        break;
+      }
+
+      const similarity = bestChunk.similarity ?? 0.8;
+      const isFactual = (bestChunk.chunkType === 'FACTUAL_POLICY' || ChunkClassifier.classify(bestChunk.content).type === 'FACTUAL_POLICY');
+      const guardRes = DirectRagGuard.evaluate(query, bestChunk.content, effectiveLang, responseScript, 'any');
+
+      if (similarity < 0.75 || !isFactual || !guardRes.isSafe) {
+        allIntentsSafe = false;
+        break;
+      }
+
+      selectedPolicyItems.push({
+        intent: pol,
+        heading: bestChunk.documentTitle,
+        content: bestChunk.content.trim()
+      });
+    }
+
+    return { matched: allIntentsSafe && selectedPolicyItems.length === targetPolicies.length, selectedPolicyItems };
   }
 }
 

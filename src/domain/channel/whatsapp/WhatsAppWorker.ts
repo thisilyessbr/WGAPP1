@@ -8,6 +8,7 @@ import { MetaCloudTransport } from '../routing/MetaCloudTransport';
 import { ClientSafetyGuard } from '../guard/ClientSafetyGuard';
 import { logger } from '../../../utils/logger';
 import { IncomingMessagePayload } from '../../conversation/CapabilityRouter';
+import { outboundMediaContext } from '../../conversation/AnswerComposer';
 
 export interface WhatsAppWorkerResult {
   jobId: string;
@@ -146,13 +147,16 @@ export class WhatsAppWorker {
     }
 
     // 2. Execute ConversationEngine turn (with turn idempotency)
-    const response = await this.conversationEngine.handleMessage(
+    const response = await outboundMediaContext.run({ media: [] }, () => this.conversationEngine.handleMessage(
       job.tenantId,
       job.waId,
       contentInput,
       job.accountId,
       { externalMessageId: job.wamid }
-    );
+    ));
+    const productImage = this.conversationEngine.getOutboundProductImage
+      ? await this.conversationEngine.getOutboundProductImage(job.tenantId, job.accountId, job.wamid)
+      : null;
 
     // If response is empty (e.g. human active, automation capped, or suppressed), go silent
     if (!response || !response.trim()) {
@@ -233,7 +237,8 @@ export class WhatsAppWorker {
           accountId: job.accountId,
           phoneNumberId: job.phoneNumberId,
           to: job.waId,
-          text: policyDecision.text || response
+          text: policyDecision.text || response,
+          ...(productImage && /^https:\/\/[^/]+\/api\/product-images\/[a-f0-9-]{36}$/i.test(productImage) ? { imageUrl: productImage } : {})
         });
       } else if (policyDecision.action === 'SEND_TEMPLATE' && policyDecision.template) {
         await job.beforeDelivery?.();

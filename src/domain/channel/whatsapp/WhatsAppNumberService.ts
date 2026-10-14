@@ -1,4 +1,4 @@
-import { PrismaClient, WhatsAppBusinessNumber, ChannelConnection } from '@prisma/client';
+import { Prisma, PrismaClient, WhatsAppBusinessNumber, ChannelConnection } from '@prisma/client';
 
 export interface RegisterWhatsAppNumberParams {
   tenantId: string;
@@ -46,6 +46,11 @@ export interface CreateOrUpdateConnectionParams {
 
 export class WhatsAppNumberService {
   constructor(private prisma: PrismaClient) {}
+
+  /** Returns a service bound to another client, e.g. an interactive transaction. */
+  withClient(client: Prisma.TransactionClient | PrismaClient): WhatsAppNumberService {
+    return new WhatsAppNumberService(client as PrismaClient);
+  }
 
   /**
    * Registers or updates a WhatsApp Business Phone Number mapping to a specific Account.

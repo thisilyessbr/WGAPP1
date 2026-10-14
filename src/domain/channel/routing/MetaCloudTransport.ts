@@ -9,7 +9,7 @@ export class MetaCloudTransport implements ChannelTransport {
   constructor(private outboundAdapter: WhatsAppOutboundAdapter) {}
 
   async sendText(params: SendMessageParams): Promise<OutboundSendResult> {
-    const { to, text, number, connection, tenantId, accountId, template } = params;
+    const { to, text, number, connection, tenantId, accountId, template, imageUrl } = params;
 
     // Verify connection matches tenant and account
     if (connection && (connection.tenantId !== tenantId || connection.accountId !== accountId)) {
@@ -28,6 +28,8 @@ export class MetaCloudTransport implements ChannelTransport {
         template
       });
     }
+
+    if (imageUrl) return this.outboundAdapter.sendImageMessage({ phoneNumberId: number.phoneNumberId, to, caption: text, imageUrl });
 
     return this.outboundAdapter.sendTextMessage({
       phoneNumberId: number.phoneNumberId,

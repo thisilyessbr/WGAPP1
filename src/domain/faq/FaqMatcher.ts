@@ -10,11 +10,12 @@ export class LanguageDetector {
     'fayn', 'fin', 'kayn', 'kayna', 'daba', 'hadi', 'hada', 'homa', 'chokran', 'shukran',
     'salam', 'ahlan', 'mzyan', 'mezyan', 'khass', 'khesni', 'khasni', '3ndkom', '3ndek', '3ndi',
     'shhar', 'chhar', 'nsowl', 'nswl', 'nswlo', 'swal', 'soual', 'fhad', 'hadchi', '3afak',
-    'afak', 'ila', 'walakin', 'chof', 'sbah', 'nour', 'enour', 'ennour', 'labas', 'lkhir',
+    'afak', 'ila', 'walakin', 'chof', 'sbah', 'sba7', 'labas', 'lkhir',
     'kidayr', 'kidayra', 'rje3', 'arja3', 'wakha', 'iyih', 'wah', 'flous', 'flousi', 'zwin',
     'zwina', 'bzzaf', 'bzaf', 'n3ref', 'n3raf', 't9dro', 't3awnoni', 'katkhedmo', 'taman',
     'khedma', 'ndir', 'bach', 'mouchkil', 'baghi', 'baghya', 'nchri', 'nshri', 'ncommandi',
-    'mabghitch', 'mabghitsh', 'makaynch', 'machi', 'bghitch', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al'
+    'mabghitch', 'mabghitsh', 'makaynch', 'machi', 'bghitch', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al',
+    'bchhal', 'bchehal', 'bche7al', 'bshal', 'safi', 'nlghi', 'n7jez', 'mn', 'ach', 'achno', 'msawb', 'msawba', 'wla', 'mazal', 'ba9i', 'tswira', 'tsawer', 'sift', 'mrakch', 'twslo', 'katwslo', 'twsalni', 'nkhles', 'ntb3', 'ntbe3', 'fabor', 'fabour', 'batel', 'b7al'
   ]);
 
   private static FRENCH_WORDS = new Set([
@@ -29,7 +30,8 @@ export class LanguageDetector {
     'oui', 'non', 'garantie', 'garanties', 'compte', 'comptes', 'facture', 'factures',
     'commande', 'commandes', 'livraison', 'livraisons', 'paiement', 'paiements',
     'remboursements', 'bonsoir', 'reclamation', 'reclamations', 'bureaux', 'ouverts',
-    'ouvert', 'ouverte', 'ouvertes', 'partir', 'fermeture', 'fermetures', 'reunion', 'reunions'
+    'ouvert', 'ouverte', 'ouvertes', 'partir', 'fermeture', 'fermetures', 'reunion', 'reunions',
+    'je', 'veux', 'voudrais', 'souhaite', 'reserver', 'reservation', 'rendez', 'prendre'
   ]);
 
   private static ENGLISH_WORDS = new Set([
@@ -135,6 +137,9 @@ export class LanguageDetector {
         englishWordCount++;
       }
     }
+
+    // "sbah nour" is a Darija greeting; "Nour" alone is usually a name (e.g. a product).
+    if (/\b(?:sba[h7]|msa)\s+(?:e?n+our)\b/i.test(trimmed)) darijaWordCount++;
 
     // Valid Arabizi: either recognized Darija Latin words or Arabizi digit words with lexical support or distinct Arabizi word
     if (darijaWordCount >= 1 || (arabiziDigitCount >= 1 && (darijaWordCount >= 1 || (frenchWordCount === 0 && englishWordCount === 0)))) {
@@ -268,7 +273,7 @@ export class FaqMatcher {
    * If detected language is non-English, strictly requires a localized answer
    * and never silently falls back to an unlocalized English answer.
    */
-  private static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage): string | null {
+  static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage): string | null {
     if (lang === 'en') {
       const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language || !entry.answers ? entry.answer : null);
       return enAns && typeof enAns === 'string' && enAns.trim() ? enAns.trim() : null;

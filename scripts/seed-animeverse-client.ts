@@ -88,7 +88,7 @@ function getPrismaClient(connectionUrl: string | undefined, schema?: string): { 
   return { prisma, pool };
 }
 
-async function seedAnimeVerse(prisma: PrismaClient, label: string) {
+export async function seedAnimeVerse(prisma: PrismaClient, label: string, testEmbeddingProvider?: EmbeddingProvider) {
   console.log(`\n--- Seeding dedicated AnimeVerse Client Tenant in [${label}] ---`);
 
   const tenantId = 'animeverse';
@@ -392,7 +392,9 @@ async function seedAnimeVerse(prisma: PrismaClient, label: string) {
   // 6. Ingest standard AnimeVerse Knowledge Base PDFs via PdfIngestionService
   try {
     let embeddingProvider: EmbeddingProvider;
-    if (process.env.GOOGLE_API_KEY) {
+    if (testEmbeddingProvider) {
+      embeddingProvider = testEmbeddingProvider;
+    } else if (process.env.GOOGLE_API_KEY) {
       embeddingProvider = new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY);
     } else {
       embeddingProvider = new MockEmbeddingProvider();
@@ -474,4 +476,9 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+if (require.main === module) {
+  main().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

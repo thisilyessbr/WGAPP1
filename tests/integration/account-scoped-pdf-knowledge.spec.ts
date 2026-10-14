@@ -133,7 +133,7 @@ startxref
       }
     });
 
-    const token = createSignedToken({ tenantId });
+    const token = createSignedToken({ tenantId, role: 'admin' });
 
     return { tenantId, accountA, accountB, token };
   }
@@ -398,11 +398,11 @@ startxref
     expect(source).toBeNull();
   });
 
-  it('11. Reject delete of another account document with 403 FORBIDDEN', async () => {
+  it('11. Reject non-admin deletion of another account document with 403 FORBIDDEN', async () => {
     const { tenantId, accountA, accountB } = await createTestEnv();
 
     // Upload to Account A
-    const tokenA = createSignedToken({ tenantId, role: 'user', accountId: accountA.id });
+    const tokenA = createSignedToken({ tenantId, role: 'admin', accountId: accountA.id });
     const uploadRes = await request(app)
       .post(`/api/dev/upload?tenantId=${tenantId}&accountId=${accountA.id}`)
       .set('Authorization', `Bearer ${tokenA}`)
@@ -418,7 +418,7 @@ startxref
 
     expect(delRes.status).toBe(403);
     expect(delRes.body.error).toBe('FORBIDDEN');
-    expect(delRes.body.message).toContain('Cannot delete a document belonging to another account');
+    expect(delRes.body.message).toContain('Administrator permission is required');
 
     // Verify document was NOT deleted
     const source = await prisma.knowledgeSource.findUnique({ where: { id: sourceId } });

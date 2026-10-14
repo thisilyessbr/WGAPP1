@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
-import { DirectRagGuard } from '../../src/domain/rag/DirectRagGuard';
-import { ChunkClassifier } from '../../src/domain/rag/ChunkQuality';
+import { PolicyEvidenceReuse } from '../../src/domain/rag/PolicyEvidenceReuse';
+import { RAGChunk } from '../../src/domain/rag/RAGService';
 import { TurnDecision } from '../../src/domain/conversation/TurnDecision';
 import { DEFAULT_BUSINESS_CONFIG } from '../../src/domain/tenant/BusinessConfig';
 
@@ -77,39 +77,20 @@ describe('Phase COST-FIX-46L: Deterministic Multi-Policy Composition', () => {
       return { canBypass: false, response: null };
     }
 
-    const selectedItems: Array<{ intent: string; heading?: string; content: string }> = [];
-    let allIntentsSafe = true;
-
-    for (const pol of targetPolicies) {
-      const candidateChunks = chunks.filter(c => c.intent === pol || c.content?.toLowerCase().includes(pol.toLowerCase()));
-      const bestChunk = candidateChunks[0] || chunks.find(c => !selectedItems.some(item => item.content === c.content?.trim()));
-
-      if (!bestChunk || !bestChunk.content) {
-        allIntentsSafe = false;
-        break;
-      }
-
-      const similarity = bestChunk.similarity ?? 0.8;
-      const isFactual = (bestChunk.chunkType === 'FACTUAL_POLICY' || ChunkClassifier.classify(bestChunk.content).type === 'FACTUAL_POLICY');
-      const guardRes = DirectRagGuard.evaluate(query, bestChunk.content, effectiveLang as any, effectiveScript as any);
-
-      if (similarity < 0.75 || !isFactual || !guardRes.isSafe) {
-        allIntentsSafe = false;
-        break;
-      }
-
-      selectedItems.push({
-        intent: pol,
-        heading: bestChunk.heading,
-        content: bestChunk.content.trim()
-      });
-    }
-
-    if (!allIntentsSafe || selectedItems.length !== targetPolicies.length) {
+    const match = PolicyEvidenceReuse.findDeterministicMultiMatch(
+      targetPolicies,
+      chunks.map((chunk, index) => ({
+        id: String(index), documentId: 'test-policy-document',
+        content: chunk.content, score: chunk.similarity ?? 0.8,
+        similarity: chunk.similarity ?? 0.8, chunkType: chunk.chunkType as RAGChunk['chunkType'],
+        documentTitle: chunk.heading, intent: chunk.intent
+      })) as RAGChunk[],
+      query, effectiveLang as any, effectiveScript as any
+    );
+    if (!match.matched) {
       return { canBypass: false, response: null };
     }
-
-    const composedText = AnswerComposer.composeMultiPolicyDeterministic(selectedItems, effectiveLang, effectiveScript);
+    const composedText = AnswerComposer.composeMultiPolicyDeterministic(match.selectedPolicyItems, effectiveLang, effectiveScript);
     const finalized = AnswerComposer.finalizeResponse(composedText, turnDecision as any, DEFAULT_BUSINESS_CONFIG);
     return { canBypass: true, response: finalized };
   }

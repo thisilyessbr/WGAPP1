@@ -46,6 +46,9 @@ export interface TurnDecision {
   maxPrice?: number | null;
   compareProductNames?: string[] | null;
   requestedMediaType?: 'image' | 'video' | null;
+  /** Catalog product the customer named in this message, in any language or script. */
+  catalogProductId?: string | null;
+  requestedAvailability?: boolean;
   isMultiPolicy?: boolean;
   policyIntents?: string[] | null;
   secondaryIntents?: string[];
@@ -82,10 +85,12 @@ export interface TurnDecisionInput {
   isGreeting?: boolean;
   isHandoff?: boolean;
   isWorkflow?: boolean;
+  /** Catalog product the message clearly names (CatalogMatcher), resolved by the caller. */
+  catalogProductId?: string | null;
   isSafetyViolation?: boolean;
   isHybrid?: boolean;
   isEcommerceEnabled?: boolean;
-  responseSource?: 'FAQ' | 'RAG' | 'LLM' | 'WORKFLOW' | 'IMAGE' | 'FALLBACK' | 'GREETING' | 'CAP' | 'ECOMMERCE' | 'HANDOFF' | 'HUMAN_AGENT' | 'SAFETY_GUARD';
+  responseSource?: 'FAQ' | 'SERVICE' | 'RAG' | 'LLM' | 'WORKFLOW' | 'IMAGE' | 'FALLBACK' | 'GREETING' | 'CAP' | 'ECOMMERCE' | 'HANDOFF' | 'HUMAN_AGENT' | 'SAFETY_GUARD';
   confidence?: number;
 }
 
@@ -96,24 +101,28 @@ export interface PolicySignals {
   isMultiPolicy: boolean;
 }
 
+const PHOTO_CUE = /(?:^|[\s.,!?;:()،؟'’])(?:images?|pictures?|pics?|photos?|tof|tsawer|tswira|tsawir|tswer|صور|صورة|تصويرة|تصاور|تصوير|الصورة|الصور)(?=$|[\s.,!?;:()،؟])/iu;
+/** A message about a named product that asks something answerable from the catalog. */
+const COMMERCE_CUE = /(?:price|cost|how\s+much|prix|combien|co[uû]te?|tarif|available|in\s+stock|stock|disponible|dispo|encore|existe?|exists|dos+yous+have|vouss+avez|size|taille|pointure|colou?r|couleur|order|buy|acheter|commander|photo|picture|image|bch7al|ch7al|bchhal|chhal|taman|kayn|kayna|mazal|ba9i|3ndkom|3andkom|tswira|tsawer|bghit|ncommandi|nchri|nakhod|شحال|بشحال|بكم|كم|سعر|ثمن|متوفر|متاح|متاحا|كاين|كاينة|باقي|مازال|عندكم|يوجد|مقاس|نمرة|قياس|لون|صورة|تصويرة|تصاور|بغيت|نطلب|نشري|أطلب|اطلب|أشتري)/iu;
+
 export class TurnDecisionResolver {
-  private static readonly RETURNS_TERMS = /(?:return|returns|returning|returned|retour|retours|retourner|remboursement|rembourser|remboursé|rendre|reprise|échange|échanges|échanger|echange|echanger|exchange|exchanges|exchanging|exchanged|refund|refunds|refunding|refunded|send\s+back|money\s+back|استرجاع|استبدال|إرجاع|ارجاع|الإرجاع|الارجاع|الاسترجاع|الاستبدال|ترجيع|الترجيع|تبديل|التبديل|نرجع|نرجعو|نرجعها|نرجعوا|نرجعوه|نرجعهم|نبدل|نبدلو|نبدلها|نبدلوه|نبدلوا|رجع|بدل|يرجع|يبدل|ترجع|تبدل|rje3|nrje3|rje3o|nrje3o|rje3ha|nrje3ha|bdel|nbdel|bdelo|nbdelo|nbdelha|tabdil|tarji3|istirja3|istibdal)/iu;
+  private static readonly RETURNS_TERMS = /(?:katbdlo|katbedlo|nbedel|nbdel|nbedl|tbdil|tbdal|كتبدلو|نبدل|نبدلها|نبدلو|return|returns|returning|returned|retour|retours|retourner|remboursement|rembourser|remboursé|rendre|reprise|échange|échanges|échanger|echange|echanger|exchange|exchanges|exchanging|exchanged|refund|refunds|refunding|refunded|send\s+back|money\s+back|استرجاع|استبدال|إرجاع|ارجاع|الإرجاع|الارجاع|الاسترجاع|الاستبدال|ترجيع|الترجيع|تبديل|التبديل|نرجع|نرجعو|نرجعها|نرجعوا|نرجعوه|نرجعهم|نبدل|نبدلو|نبدلها|نبدلوه|نبدلوا|رجع|بدل|يرجع|يبدل|ترجع|تبدل|rje3|nrje3|rje3o|nrje3o|rje3ha|nrje3ha|bdel|nbdel|bdelo|nbdelo|nbdelha|tabdil|tarji3|istirja3|istibdal)/iu;
 
   private static readonly RETURNS_WINDOW_PATTERNS = /(?:combien\s+de\s+temps\s+pour\s+(?:le\s+|l\s+)?(?:retourner|échanger|echange|changer)|délai\s+de\s+retour|delai\s+de\s+retour|délai\s+d['’]échange|delai\s+d['’]echange|how\s+long\s+(?:do\s+i\s+have\s+to|can\s+i)\s+(?:return|exchange)|how\s+many\s+days\s+(?:to|for)\s+(?:return|exchange)|return\s+window|exchange\s+window|return\s+period|exchange\s+period|شحال\s+عندي\s+من\s+الوقت\s+باش\s+نرجع|شحال\s+عندي\s+من\s+الوقت\s+باش\s+نبدل|شحال\s+ديال\s+الوقت\s+باش\s+نرجع|شحال\s+ديال\s+الوقت\s+باش\s+نبدل|قداش\s+بقا\s+ليا\s+باش\s+نبدل|قداش\s+بقا\s+ليا\s+باش\s+نرجع|قداش\s+عندي\s+من\s+الوقت\s+باش\s+نرجع|قداش\s+عندي\s+من\s+الوقت\s+باش\s+نبدل|مدة\s+الإرجاع|مدة\s+الاسترجاع|مدة\s+التبديل|أجل\s+الإرجاع|أجل\s+الاسترجاع|أجل\s+التبديل|مهلة\s+الإرجاع|مهلة\s+الاسترجاع|مهلة\s+التبديل|chhal\s+3ndi\s+dlwa9t\s+bach\s+nrje3|chhal\s+3ndi\s+dlwa9t\s+bach\s+nbdel|chhal\s+d\s+lwa9t\s+bach\s+nrje3|chhal\s+d\s+lwa9t\s+bach\s+nbdel|9adach\s+b9a\s+lia\s+bach\s+nbdel|9adach\s+b9a\s+lia\s+bach\s+nrje3|qadach\s+b9a\s+lia|9eddach\s+b9a\s+lia|9dach\s+b9a\s+lia|combien\s+de\s+temps\s+pour\s+retourner)/iu;
 
-  private static readonly CARE_TERMS = /(?:care|wash|washing|how\s+to\s+wash|care\s+instructions|cleaning|maintenance|entretien|lavage|laver|comment\s+laver|nettoyage|غسيل|الغسيل|طريقة\s+الغسيل|كيفاش\s+نغسل|كيفية\s+الغسيل|نغسل|نغسلو|نغسلها|تصبين|التصبين|نصبن|نصبنو|نعتني|عناية|العناية|تنظيف|التنظيف|nghsel|nghslo|nghselha|ghsil|lghsil|tghsel|tasbin|nsben|nsbno)/iu;
+  private static readonly CARE_TERMS = /(?:care|wash|washing|\biron\b|\bironing\b|\bbleach\b|how\s+to\s+wash|care\s+instructions|cleaning|maintenance|entretien|lavage|laver|comment\s+laver|nettoyage|غسيل|الغسيل|طريقة\s+الغسيل|كيفاش\s+نغسل|كيفية\s+الغسيل|نغسل|نغسلو|نغسلها|تصبين|التصبين|نصبن|نصبنو|نعتني|عناية|العناية|تنظيف|التنظيف|nghsel|nghslo|nghselha|ghsil|lghsil|tghsel|tasbin|nsben|nsbno)/iu;
 
-  private static readonly SHIPPING_TERMS = /(?:ship|shipping|delivery|deliver|deliveries|delivered|livraison|livrer|livrez|livré|expédition|expédier|envoi|envoyer|توصيل|التوصيل|شحن|الشحن|مصاريف\s+الشحن|ثمن\s+التوصيل|سعر\s+التوصيل|وقت\s+التوصيل|مدة\s+التوصيل|توصل|توصلو|كيوصل|كتوصل|يوصل|يوصلو|توصلني|يوصلني|tewsil|tawsil|tawseel|twsil|ywsl|twsl|kiwsl|kitwsl|ywsal|twsal|katwssl|ktwssl|twssl|katwsslo|ktwsslo|twsslo)/iu;
+  private static readonly SHIPPING_TERMS = /(?:ship|shipping|delivery|deliver|deliveries|delivered|livraison|livrer|livrez|livré|expédition|expédier|envoi|envoyer|توصيل|التوصيل|ليفريزون|الليفريزون|ليفريزو|livrezon|livrison|lifrizon|شحن|الشحن|مصاريف\s+الشحن|ثمن\s+التوصيل|سعر\s+التوصيل|وقت\s+التوصيل|مدة\s+التوصيل|توصل|توصلو|كيوصل|كتوصل|يوصل|يوصلو|توصلني|يوصلني|tewsil|tawsil|tawseel|twsil|ywsl|twsl|kiwsl|kitwsl|ywsal|twsal|katwssl|ktwssl|twssl|katwsslo|ktwsslo|twsslo)/iu;
 
-  private static readonly TRACKING_TERMS = /(?:tracking|suivi|suivre|suis\s+ma\s+commande|trace|track|track\s+order|order\s+status|where\s+is\s+my\s+order|où\s+est\s+ma\s+commande|ou\s+est\s+ma\s+commande|تتبع|التتبع|تتبع\s+الطلب|تتبع\s+طلبي|فين\s+وصل|فين\s+واصل|فين\s+كاين\s+الطلب|نتبع\s+طلبي|نتبع\s+الطلب|فين\s+وصل\s+الطلب|فين\s+وصل\s+طلبي|fin\s+wsel|fin\s+wsl)/iu;
+  private static readonly TRACKING_TERMS = /(?:tracking|\bsms\b|tracking\s+link|suivi|suivre|suis\s+ma\s+commande|trace|track|track\s+order|order\s+status|where\s+is\s+my\s+order|où\s+est\s+ma\s+commande|ou\s+est\s+ma\s+commande|تتبع|التتبع|تتبع\s+الطلب|تتبع\s+طلبي|فين\s+وصل|فين\s+واصل|فين\s+كاين\s+الطلب|نتبع\s+طلبي|نتبع\s+الطلب|فين\s+وصل\s+الطلب|فين\s+وصل\s+طلبي|fin\s+wsel|fin\s+wsl)/iu;
 
   private static readonly WARRANTY_TERMS = /(?:warranty|guarantee|garantie|garantir|ضمان|الضمان|daman|ldaman)/iu;
 
   private static readonly PAYMENT_TERMS = /(?:payment|paiement|payer|cash\s+on\s+delivery|cod|moyen\s+de\s+paiement|modes\s+de\s+paiement|دفع|الدفع|طريقة\s+الدفع|طرق\s+الدفع|الدفع\s+عند\s+الاستلام|الدفع\s+عند\s+التسليم|خلاص|الخلاص|نخلص|نخلصو|باش\s+نخلص|khalas|l5las|n5les|daf3|dafa3)/iu;
 
-  private static readonly STORE_INFO_TERMS = /(?:hours|opening\s+hours|business\s+hours|horaires|heures\s+d['’]ouverture|store\s+location|locations|branch|branches|boutique|magasin|magasins|أوقات\s+العمل|ساعات\s+العمل|مواعيد|فرع|فروع|محل|محلات|موقعكم|فين\s+كاينين|عنوان|العنوان|frou3|fara3|politique)/iu;
+  private static readonly STORE_INFO_TERMS = /(?:hours|opening\s+hours|business\s+hours|\bopen\b|\bclosed\b|\bsaturdays?\b|\bweekends?\b|horaires|heures\s+d['’]ouverture|store\s+location|locations|branch|branches|boutique|magasin|magasins|أوقات\s+العمل|ساعات\s+العمل|مواعيد|فرع|فروع|محل|محلات|موقعكم|فين\s+كاينين|عنوان|العنوان|frou3|fara3|politique|\bfin\s+kaynin\b|\bfach\s+katseddo\b|\bnhar\s+l7ed\b|physical\s+(?:store|shop)|\b(?:your|the)\s+(?:store|shop)\b|where\s+(?:is|are)\s+you\b|\blboutique\b|\blmagasin\b|\blma7al\b|\bfin\s+jat\b|\bfin\s+jaya\b|فين\s+جاين|فين\s+جات|متجركم|المحل\s+ديالكم)/iu;
 
-  private static readonly SUPPORT_TERMS = /(?:support\s+email|support\s+phone|phone\s+number|contact\s+support|email\s+support|contactez|contacter|comment\s+contacter|how\s+to\s+contact|how\s+to\s+reach|numéro|numero|téléphone|telephone|رقم\s+الهاتف|إيميل\s+الدعم|ايميل\s+الدعم|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|تواصل\s+مع|اتصال\s+ب)/iu;
+  private static readonly SUPPORT_TERMS = /(?:customer\s+service|service\s+client|support\s+email|support\s+phone|phone\s+number|contact\s+support|email\s+support|contactez|contacter|comment\s+contacter|how\s+to\s+contact|how\s+to\s+reach|numéro|numero|téléphone|telephone|رقم\s+الهاتف|إيميل\s+الدعم|ايميل\s+الدعم|إيميل|ايميل|نمرة|السيبور|nemra|sipo?rt|تواصل\s+مع|اتصال\s+ب)/iu;
 
   private static readonly SIZE_GUIDE_TERMS = /(?:size\s+guide|size\s+chart|size\s+recommendation|which\s+size|what\s+size|which\s+size\s+fits|what\s+fits|size\s+should|guide\s+des\s+tailles|guide\s+de\s+taille|tableau\s+des\s+tailles|quelle\s+taille|quelle\s+est\s+ma\s+taille|choisir\s+(?:sa\s+|une\s+)?taille|دليل\s+المقاسات|جدول\s+المقاسات|المقاس\s+المناسب|أي\s+مقاس|اي\s+مقاس|ما\s+هو\s+المقاس|شكون\s+لاطاي|شنو\s+هي\s+لاطاي|شمن\s+طاي|شمن\s+لاطاي|la\s+taille\s+li\s+tji|la\s+taille\s+li\s+mzyana|ashna\s+hiya\s+la\s+taille|tour\s+de\s+poitrine|chest\s+measurement|body\s+measurement|chest\s+size|\bchest\b.*?\b(?:cm|fits?|size)\b|\b(?:cm|fits?|size)\b.*?\bchest\b|محيط\s+الصدر|قياس\s+الصدر|مقاس\s+الصدر|\bالصدر\b.*?\b(?:سم|cm|مقاس|يناسب|واش|ناخد|ناخذ)\b|(?:سم|cm).*?\b(?:الصدر|صدر)\b|\b(?:الصدر|صدر)\b.*?(?:سم|cm)|f\s+(?:l-)?sder|f-sder|sder.*?(?:cm|taille|size)|\d+\s*(?:cm|سم).*?(?:chest|poitrine|sder|صدر|الصدر|taille|size|fits?)|(?:chest|poitrine|sder|صدر|الصدر|taille|size|fits?).*?\d+\s*(?:cm|سم))/iu;
 
@@ -125,7 +134,14 @@ export class TurnDecisionResolver {
 
     const isReturns = matchesPolicyPhrase(lower, this.RETURNS_TERMS) || matchesPolicyPhrase(lower, this.RETURNS_WINDOW_PATTERNS);
     const isCare = matchesPolicyPhrase(lower, this.CARE_TERMS);
-    const isShipping = matchesPolicyPhrase(lower, this.SHIPPING_TERMS);
+    // "Envoyez-moi une photo" / "send me a picture" / "صيفط ليا تصويرة" ask for
+    // media, not delivery: drop the send verb before looking for shipping terms.
+    const shippingText = PHOTO_CUE.test(lower)
+      ? lower.replace(/(?:m['’]\s*)?envoy\S*|\benvoi\b|\bsend\b|صيفط\S*|سيفط\S*|\bsift\b|\bsifet\b|أرسل\S*|ارسل\S*/giu, ' ')
+      : lower;
+    const isShipping = matchesPolicyPhrase(shippingText, this.SHIPPING_TERMS)
+      && !(/(?:cash\s+on\s+delivery|pay\s+on\s+delivery)/iu.test(lower)
+        && !/(?:ship|shipping|livraison|deliver(?:y|ies)|توصيل|شحن)/iu.test(lower.replace(/(?:cash\s+on\s+delivery|pay\s+on\s+delivery)/giu, '')));
     const isTracking = matchesPolicyPhrase(lower, this.TRACKING_TERMS);
     const isWarranty = matchesPolicyPhrase(lower, this.WARRANTY_TERMS);
     const isPayment = matchesPolicyPhrase(lower, this.PAYMENT_TERMS);
@@ -268,8 +284,19 @@ export class TurnDecisionResolver {
 
     const isEcommerceEnabled = input.isEcommerceEnabled !== false;
 
+    // A question about a store-wide promotion is not a product search. The
+    // catalog parser otherwise treats colloquial "chi reduction" as a missing
+    // product and incorrectly replies that the item is out of stock.
+    if (/\b(?:discount|discounts|reduction|réduction|remise|promo(?:tion)?)\b|تخفيض|خصم/iu.test(text)
+      && !/\b(?:bch7al|ch7al|price|prix|taman)\b|ثمن|سعر/iu.test(text)) {
+      return {
+        domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM',
+        responseLanguage: language, responseScript, confidence: 0.9
+      };
+    }
+
     // 6. Parse ecommerce params if not supplied and ecommerce is enabled
-    const ecomParams = isEcommerceEnabled
+    let ecomParams = isEcommerceEnabled
       ? (input.ecommerceParams !== undefined
           ? input.ecommerceParams
           : EcommerceIntentParser.parse(text, input.productContext, language as any, {
@@ -282,6 +309,48 @@ export class TurnDecisionResolver {
 
     // 7. Policy / Knowledge / Hybrid Detection
     const policySignals = this.detectPolicySignals(text);
+    if (!policySignals.isPolicy && input.activePolicyEvidence?.RETURNS?.length
+      && /\b(?:unworn|worn|tags?|labels?|[eé]tiquettes?)\b|غير ملبوس|ما ملبوس|البطاقات|التيكيت/iu.test(text)) {
+      policySignals.isPolicy = true;
+      policySignals.intent = 'RETURNS';
+      policySignals.matchedCategories = ['RETURNS'];
+    }
+    // A message that names a real catalog product (any script) and asks a
+    // catalog question is a product question, even when the parser could not
+    // extract the name or a weak policy word ("نمرة", "taille") fired.
+    const catalogProductId = isEcommerceEnabled ? (input.catalogProductId || null) : null;
+    const asksCatalog = Boolean(catalogProductId) && COMMERCE_CUE.test(text);
+    if (asksCatalog && policySignals.isPolicy) {
+      const weak = new Set(['SUPPORT', 'STORE_INFO', ...(ecomParams?.size || PHOTO_CUE.test(text) ? ['SIZE_GUIDE'] : [])]);
+      if (policySignals.matchedCategories.every(category => weak.has(category))) {
+        policySignals.isPolicy = false;
+        policySignals.matchedCategories = [];
+        policySignals.isMultiPolicy = false;
+      }
+    }
+    if (asksCatalog && !policySignals.isPolicy) {
+      const wantsPhoto = PHOTO_CUE.test(text);
+      const ecommerceIntents = ['BUY_INTENT', 'PRODUCT_SEARCH', 'PRODUCT_DETAIL', 'ATTRIBUTE_QUERY', 'PRICE', 'AVAILABILITY', 'VARIANT_SELECTION'];
+      let intent = ecomParams?.intent && ecommerceIntents.includes(ecomParams.intent) ? ecomParams.intent : null;
+      // A category-style search for a product the catalog identifies uniquely
+      // is a question about that product.
+      if (!intent || intent === 'PRODUCT_SEARCH' || intent === 'ATTRIBUTE_QUERY') {
+        intent = wantsPhoto ? 'PRODUCT_DETAIL'
+          : /(?:bghit|ncommandi|nchri|nakhod|order|buy|acheter|commander|بغيت|نطلب|نشري|أطلب|اطلب|أشتري)/iu.test(text) ? 'BUY_INTENT'
+          : (ecomParams?.size || ecomParams?.color) ? 'AVAILABILITY'
+          : /(?:price|cost|how\s+much|prix|combien|co[uû]te?|tarif|bch7al|ch7al|bchhal|chhal|taman|شحال|بشحال|بكم|كم|سعر|ثمن)/iu.test(text) ? 'PRICE'
+          : /(?:available|stock|disponible|dispo|encore|existe?|exists|dos+yous+have|vouss+avez|kayn|kayna|mazal|ba9i|3ndkom|متوفر|متاح|كاين|باقي|مازال|عندكم|يوجد)/iu.test(text) ? 'AVAILABILITY'
+          : 'PRODUCT_DETAIL';
+      }
+      ecomParams = {
+        ...(ecomParams || {}),
+        intent: intent as any,
+        productName: undefined,
+        searchKeywords: undefined,
+        category: undefined,
+        requestedMediaType: wantsPhoto ? 'image' : ecomParams?.requestedMediaType
+      } as any;
+    }
     const isPolicyQuery = policySignals.isPolicy;
     const policyIntent = policySignals.intent;
     const isMultiPolicy = policySignals.isMultiPolicy;
@@ -324,16 +393,20 @@ export class TurnDecisionResolver {
       input.resolvedSearchResults?.[0]?.product?.id ||
       null;
 
+    // A product the customer names in this message starts a fresh selection:
+    // its size/colour come from this message only, never from the previous turn.
+    const namedInMessage = Boolean(catalogProductId);
+
     const resolvedVariantId = input.resolvedProductFact?.selectedVariant?.id ||
-      (isPolicyQuery ? (hasProductMention ? (input.productContext?.selectedVariantId || null) : null) : resolvedContext.variantId) ||
+      (namedInMessage ? null : (isPolicyQuery ? (hasProductMention ? (input.productContext?.selectedVariantId || null) : null) : resolvedContext.variantId)) ||
       null;
 
     const resolvedColor = (input.resolvedProductFact?.selectedVariant?.color ||
-      (isPolicyQuery ? (hasProductMention ? (input.productContext?.selectedColor || null) : null) : resolvedContext.color) ||
+      (namedInMessage ? (ecomParams?.color || null) : (isPolicyQuery ? (hasProductMention ? (input.productContext?.selectedColor || null) : null) : resolvedContext.color)) ||
       null) as string | null;
 
     const resolvedSize = (input.resolvedProductFact?.selectedVariant?.size ||
-      (isPolicyQuery ? (hasProductMention ? (input.productContext?.selectedSize || null) : null) : resolvedContext.size) ||
+      (namedInMessage ? (ecomParams?.size || null) : (isPolicyQuery ? (hasProductMention ? (input.productContext?.selectedSize || null) : null) : resolvedContext.size)) ||
       null) as string | null;
 
     const isComparative = isEcommerceEnabled && Boolean(
@@ -438,6 +511,7 @@ export class TurnDecisionResolver {
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
         requestedMediaType: ecomParams?.requestedMediaType ?? null,
+        catalogProductId,
         isMultiPolicy,
         policyIntents,
         isComparative,
@@ -466,6 +540,7 @@ export class TurnDecisionResolver {
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
         requestedMediaType: ecomParams?.requestedMediaType ?? null,
+        catalogProductId,
         isMultiPolicy,
         policyIntents,
         isComparative,
@@ -502,6 +577,8 @@ export class TurnDecisionResolver {
         maxPrice: ecomParams?.maxPrice ?? null,
         compareProductNames: ecomParams?.compareProductNames || null,
         requestedMediaType: ecomParams?.requestedMediaType ?? null,
+        catalogProductId,
+        requestedAvailability: ecomParams?.requestedAvailability ?? false,
         isComparative,
         isPluralReference,
         isScopeExpansion,
@@ -531,6 +608,7 @@ export class TurnDecisionResolver {
       maxPrice: ecomParams?.maxPrice ?? null,
       compareProductNames: ecomParams?.compareProductNames || null,
       requestedMediaType: ecomParams?.requestedMediaType ?? null,
+      catalogProductId,
       isComparative,
       isPluralReference,
       isScopeExpansion,
@@ -590,7 +668,7 @@ export class TurnDecisionResolver {
     const isExplicit = Boolean(
       (extracted?.sku && !EcommerceIntentParser.isNonProductReference(extracted.sku, catalogCategories, customCategoryAliases)) ||
       (extracted?.productName && !EcommerceIntentParser.isNonProductReference(extracted.productName, catalogCategories, customCategoryAliases)) ||
-      (extracted?.category && !context?.selectedProductId) ||
+      extracted?.category ||
       (extracted?.intent === 'PRODUCT_SEARCH' && extracted?.searchKeywords && !EcommerceIntentParser.isNonProductReference(extracted.searchKeywords, catalogCategories, customCategoryAliases)) ||
       (extracted?.intent === 'RECOMMENDATION') ||
       (extracted?.ordinalIndex !== undefined && extracted?.ordinalIndex !== null && !context?.selectedProductId)

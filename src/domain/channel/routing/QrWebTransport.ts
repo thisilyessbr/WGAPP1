@@ -16,7 +16,9 @@ export class QrWebTransport implements ChannelTransport {
       return { success: false, error: 'Templates are supported only by the official Meta transport', isRetryable: false };
     }
     try {
-      const sent = await this.sessions.send(params.connection.id, params.to, params.text);
+      const sent = params.imageUrl
+        ? await this.sessions.sendImage(params.connection.id, params.to, params.text, params.imageUrl)
+        : await this.sessions.send(params.connection.id, params.to, params.text);
       return { success: true, providerMessageId: sent.id, sentAt: Date.now() };
     } catch (error: any) {
       return { success: false, error: error.message || String(error), isRetryable: true };

@@ -17,6 +17,7 @@ export interface SendMessageParams {
   tenantId: string;
   accountId: string;
   template?: OutboundTemplateRequest;
+  imageUrl?: string;
 }
 
 export interface ChannelTransport {

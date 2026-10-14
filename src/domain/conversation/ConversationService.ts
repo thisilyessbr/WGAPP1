@@ -235,18 +235,24 @@ export class ConversationService {
     });
   }
 
-  async createSession(tenantId: string, conversationId: string, workflowId: string, stateId: string): Promise<WorkflowSession> {
+  async createSession(
+    tenantId: string,
+    conversationId: string,
+    workflowId: string,
+    stateId: string,
+    seed?: { stateHistory: string[]; collectedData: Record<string, string>; contextData: Record<string, string> }
+  ): Promise<WorkflowSession> {
     return this.prisma.workflowSession.create({
       data: {
         tenantId,
         conversationId,
         workflowId,
         stateId,
-        stateHistory: [],
-        collectedData: {},
+        stateHistory: seed?.stateHistory || [],
+        collectedData: seed?.collectedData || {},
         humanRequested: false,
         status: 'ACTIVE',
-        contextData: {}
+        contextData: seed?.contextData || {}
       }
     });
   }
@@ -383,6 +389,19 @@ export class ConversationService {
     return assistantMsg ? assistantMsg.content : null;
   }
 
+  async getOutboundProductImage(tenantId: string, accountId: string, inboundExternalId: string): Promise<string | null> {
+    const user = await this.prisma.message.findFirst({
+      where: { tenantId, externalId: inboundExternalId, conversation: { accountId } }, select: { id: true, conversationId: true }
+    });
+    if (!user) return null;
+    const reply = await this.prisma.message.findFirst({
+      where: { tenantId, conversationId: user.conversationId, role: 'ASSISTANT', metadata: { path: ['replyToMessageId'], equals: user.id } },
+      select: { metadata: true }
+    });
+    const image = (reply?.metadata as any)?.outboundMedia?.find((m: any) => m?.type === 'image' && typeof m.url === 'string');
+    return image?.url || null;
+  }
+
   async commitConversationTurn(params: {
     tenantId: string;
     conversationId: string;
@@ -408,6 +427,7 @@ export class ConversationService {
     newStatus?: string;
     closeConversation?: boolean;
     responseType?: string;
+    outboundMedia?: { type: string; url: string }[];
   }): Promise<{
     success: boolean;
     userMessage?: Message;
@@ -472,7 +492,7 @@ export class ConversationService {
             conversationId: params.conversationId,
             role: 'ASSISTANT',
             content: params.assistantMessage,
-            metadata: { replyToMessageId: userMsg.id, externalMessageId: params.externalMessageId || null, responseType: params.responseType || null }
+            metadata: { replyToMessageId: userMsg.id, externalMessageId: params.externalMessageId || null, responseType: params.responseType || null, outboundMedia: params.outboundMedia || [] }
           }
         });
       }

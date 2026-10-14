@@ -11,6 +11,7 @@ describe('Phase CRM-WORKFLOW-FIX-04 — CRM Workflow Lead Classification Unit Te
   beforeEach(() => {
     mockPrisma = {
       lead: {
+        findUnique: vi.fn().mockResolvedValue(null),
         upsert: vi.fn().mockImplementation(async ({ create, update, where }: any) => ({
           id: 'lead-uuid-1',
           tenantId: where.tenantId_accountId_customerId.tenantId,
@@ -26,6 +27,18 @@ describe('Phase CRM-WORKFLOW-FIX-04 — CRM Workflow Lead Classification Unit Te
       }
     };
     crmService = new CRMService(mockPrisma);
+  });
+
+  it('captures an explicit Darija appointment request with its conversation and reason', async () => {
+    await crmService.processTurnSignal({ tenantId, accountId, customerId, conversationId: 'conversation-1', userMessage: 'bghit rendez-vous ghdda' });
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ interest: 'bghit rendez-vous ghdda', signalReason: 'EXPLICIT_BOOKING_OR_QUOTE', sourceConversationId: 'conversation-1' })
+    }));
+  });
+
+  it('does not count a simple price question as a lead', async () => {
+    await crmService.processTurnSignal({ tenantId, accountId, customerId, userMessage: 'bch7al had sbat?' });
+    expect(mockPrisma.lead.upsert).not.toHaveBeenCalled();
   });
 
   describe('1. Sales / Booking Workflows (Expected: TRUE -> Lead Created)', () => {

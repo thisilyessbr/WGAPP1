@@ -131,14 +131,21 @@ export class PortalBudget {
     };
   }
   wrapEmbeddings(inner: EmbeddingProvider): EmbeddingProvider {
-    return { embedText: async text => {
-      const ctx = this.context.getStore(); if (!ctx) return inner.embedText(text);
-      const ceiling = ctx.allowInactive ? 500 : 4;
-      if (++ctx.embedding > ceiling) throw new PortalError(402, 'EMBEDDING_LIMIT');
-      const id = await this.reserve('embedding', Math.ceil((Buffer.byteLength(text, 'utf8') + 64) * 0.15));
-      try { return await inner.embedText(text); }
-      finally { await this.finish(id, null, { provider: 'gemini', model: 'gemini-embedding-001', inputBytes: Buffer.byteLength(text, 'utf8'), tokenSource: 'unknown', priceBasis: 'Conservative byte estimate at $0.15/M tokens' }); }
-    } };
+    const wrapper: EmbeddingProvider & { inner?: EmbeddingProvider } = {
+      inner,
+      embedText: async text => {
+        const ctx = this.context.getStore(); if (!ctx) return inner.embedText(text);
+        const ceiling = ctx.allowInactive ? 500 : 4;
+        if (++ctx.embedding > ceiling) throw new PortalError(402, 'EMBEDDING_LIMIT');
+        const id = await this.reserve('embedding', Math.ceil((Buffer.byteLength(text, 'utf8') + 64) * 0.15));
+        try { return await inner.embedText(text); }
+        finally { await this.finish(id, null, { provider: 'gemini', model: 'gemini-embedding-001', inputBytes: Buffer.byteLength(text, 'utf8'), tokenSource: 'unknown', priceBasis: 'Conservative byte estimate at $0.15/M tokens' }); }
+      }
+    };
+    if (inner && typeof inner === 'object') {
+      Object.setPrototypeOf(wrapper, Object.getPrototypeOf(inner));
+    }
+    return wrapper;
   }
   wrapImages(inner: ImageCapabilityGateway): ImageCapabilityGateway {
     const budget = this;

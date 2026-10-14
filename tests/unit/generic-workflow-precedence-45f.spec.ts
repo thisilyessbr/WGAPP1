@@ -101,7 +101,7 @@ describe('Generic Global Workflow Precedence & Question Guard (Phase 45F)', () =
           },
           answers: {
             ar: 'مدة كل جلسة هي 45 دقيقة.',
-            darija: 'Kola jalssa fiha 45 d9i9a.',
+            darija: 'كل جلسة كتدوم 45 دقيقة.',
             en: 'Each session is 45 minutes.'
           }
         }
@@ -168,7 +168,7 @@ describe('Generic Global Workflow Precedence & Question Guard (Phase 45F)', () =
     const custId = `test-faq-dar-${Date.now()}`;
     const res = await deps.conversationEngine.handleMessage(tenantId, custId, 'شحال كتدوم الاستشارة؟', accountId);
     
-    expect(res).toContain('Kola jalssa fiha 45 d9i9a');
+    expect(res).toContain('كل جلسة كتدوم 45 دقيقة');
     expect(res).not.toContain('Please enter your full name:');
 
     const sessions = await prisma.workflowSession.findMany({ where: { tenantId } });

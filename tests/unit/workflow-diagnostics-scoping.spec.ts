@@ -22,6 +22,10 @@ describe('Workflow Diagnostics & Session Scoping (PHASE WORKFLOW-DIAGNOSTICS-AUD
 
   const fitnessConfig: BusinessConfig = {
     ...DEFAULT_BUSINESS_CONFIG,
+    behavior: {
+      ...DEFAULT_BUSINESS_CONFIG.behavior,
+      useLlmIntentClassification: true
+    },
     capabilities: {
       ...DEFAULT_BUSINESS_CONFIG.capabilities,
       ecommerceEnabled: false,

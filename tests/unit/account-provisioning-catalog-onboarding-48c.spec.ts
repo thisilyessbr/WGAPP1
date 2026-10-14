@@ -90,7 +90,8 @@ describe('PHASE ARCH-FIX-48C — Account Provisioning & Catalog Metadata Ingesti
     const acc = await prisma.account.create({
       data: {
         tenantId: tenantA,
-        name: 'Casablanca Store'
+        name: 'Casablanca Store',
+        config: { capabilities: { ecommerceEnabled: true } }
       }
     });
 

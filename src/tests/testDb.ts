@@ -43,6 +43,9 @@ const testSchema = process.env.TEST_DATABASE_SCHEMA || 'test';
 if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(testSchema)) {
   throw new Error('FATAL: TEST_DATABASE_SCHEMA contains invalid characters.');
 }
+if (testSchema.toLowerCase() === 'public') {
+  throw new Error('FATAL: Tests must not run in the public database schema.');
+}
 
 // Configure search_path during the PostgreSQL startup handshake. Running an
 // asynchronous query from Pool's `connect` event races the first Prisma query

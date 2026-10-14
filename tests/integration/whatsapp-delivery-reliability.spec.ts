@@ -165,6 +165,16 @@ describe('Phase 4B: WhatsApp Delivery Reliability Integration Tests', () => {
       expect(canTransitionDeliveryStatus('FAILED', 'PENDING')).toBe(false);
       expect(ALLOWED_DELIVERY_TRANSITIONS['FAILED'].size).toBe(0);
     });
+
+    it('reconciles DELIVERY_UNKNOWN only from later provider evidence', () => {
+      expect(canTransitionDeliveryStatus('PENDING', 'DELIVERY_UNKNOWN')).toBe(true);
+      expect(canTransitionDeliveryStatus('SENT', 'DELIVERY_UNKNOWN')).toBe(true);
+      expect(canTransitionDeliveryStatus('DELIVERY_UNKNOWN', 'SENT')).toBe(true);
+      expect(canTransitionDeliveryStatus('DELIVERY_UNKNOWN', 'DELIVERED')).toBe(true);
+      expect(canTransitionDeliveryStatus('DELIVERY_UNKNOWN', 'READ')).toBe(true);
+      expect(canTransitionDeliveryStatus('DELIVERED', 'DELIVERY_UNKNOWN')).toBe(false);
+      expect(canTransitionDeliveryStatus('READ', 'DELIVERY_UNKNOWN')).toBe(false);
+    });
   });
 
   describe('Directive 3: Verified Meta Cloud API Error Codes', () => {
@@ -548,6 +558,30 @@ describe('Phase 4B: WhatsApp Delivery Reliability Integration Tests', () => {
   });
 
   describe('Race Condition 2: Out-of-Order Delivery Receipts', () => {
+    it('serializes concurrent receipts so an older delivery state cannot overwrite READ', async () => {
+      const { tenantId, conversation } = await createFixture('concurrent-order');
+      const providerMessageId = `wamid.concurrent.${randomUUID()}`;
+      const message = await prisma.message.create({
+        data: {
+          tenantId,
+          conversationId: conversation.id,
+          role: 'ASSISTANT',
+          content: 'Concurrent receipt message',
+          externalId: providerMessageId,
+          metadata: { deliveryStatus: 'SENT' }
+        }
+      });
+      const processor = new WhatsAppDeliveryReceiptProcessor(prisma);
+
+      await Promise.all([
+        processor.applyReceipt({ tenantId, providerMessageId, status: 'READ', providerTimestamp: new Date() }),
+        processor.applyReceipt({ tenantId, providerMessageId, status: 'DELIVERED', providerTimestamp: new Date(Date.now() - 1000) })
+      ]);
+
+      const updated = await prisma.message.findUnique({ where: { id: message.id } });
+      expect((updated?.metadata as any)?.deliveryStatus).toBe('READ');
+    });
+
     it('does not regress status when DELIVERED arrives after READ', async () => {
       const { tenantId, conversation } = await createFixture('order-race');
       const providerMessageId = `wamid.order.${randomUUID()}`;
@@ -617,6 +651,52 @@ describe('Phase 4B: WhatsApp Delivery Reliability Integration Tests', () => {
 
       const checkMsg = await prisma.message.findUnique({ where: { id: message.id } });
       expect((checkMsg?.metadata as any)?.deliveryStatus).toBe('DELIVERED'); // Must NOT become FAILED!
+    });
+  });
+
+  describe('Durable Background Reconciliation', () => {
+    it('applies a normal webhook receipt that arrives after the provider ID was committed', async () => {
+      const { tenantId, accountId, conversation } = await createFixture('normal-reconcile');
+      const providerMessageId = `wamid.normal.${randomUUID()}`;
+      const message = await prisma.message.create({
+        data: {
+          tenantId,
+          conversationId: conversation.id,
+          role: 'ASSISTANT',
+          content: 'Normal delivery message',
+          externalId: providerMessageId,
+          metadata: { deliveryStatus: 'SENT' }
+        }
+      });
+      await prisma.whatsAppDeliveryReceipt.create({
+        data: {
+          dedupeKey: createHash('sha256').update(`${tenantId}:${providerMessageId}:DELIVERED`).digest('hex'),
+          tenantId,
+          accountId,
+          phoneNumberId: 'phone-normal',
+          providerMessageId,
+          recipientWaId: '+15550009999',
+          status: 'DELIVERED',
+          providerTimestamp: new Date(),
+          correlated: false
+        }
+      });
+
+      const queue = new PostgresOutboundQueue(prisma, {
+        autoStartWorker: true,
+        receiptPollIntervalMs: 250
+      });
+      try {
+        let deliveryStatus = 'SENT';
+        for (let attempt = 0; attempt < 20 && deliveryStatus !== 'DELIVERED'; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const current = await prisma.message.findUnique({ where: { id: message.id } });
+          deliveryStatus = String((current?.metadata as any)?.deliveryStatus || '');
+        }
+        expect(deliveryStatus).toBe('DELIVERED');
+      } finally {
+        await queue.shutdown();
+      }
     });
   });
 

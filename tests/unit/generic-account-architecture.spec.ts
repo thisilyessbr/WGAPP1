@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../../src/app';
 import { bootstrapChatbot } from '../../src/bootstrap';
-import { createSignedToken } from '../../src/dev/chatApi';
 import { prisma } from '../../src/tests/testDb';
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../../src/domain/tenant/BusinessConfig';
 import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
@@ -12,10 +11,11 @@ describe('PHASE ACCOUNT-ARCHITECTURE-FIX-17: Generic Account Architecture', () =
   let deps: any;
   let mockLlm: LLMMockProvider;
   const createdTenantIds: string[] = [];
-  const adminToken = createSignedToken({ tenantId: 'admin-tenant', role: 'admin' });
+  const adminToken = 'test-only-platform-admin-key-for-tenant-provisioning';
   const authHeader = { 'Authorization': `Bearer ${adminToken}` };
 
   beforeEach(async () => {
+    vi.stubEnv('DEV_API_KEY', adminToken);
     deps = bootstrapChatbot(prisma);
     mockLlm = new LLMMockProvider();
     deps.llmFactory.registerProvider('mock', 'mock-model', mockLlm);
@@ -34,6 +34,7 @@ describe('PHASE ACCOUNT-ARCHITECTURE-FIX-17: Generic Account Architecture', () =
       await prisma.tenantConfig.deleteMany({ where: { tenantId } });
       await prisma.tenant.deleteMany({ where: { id: tenantId } });
     }
+    vi.unstubAllEnvs();
   });
 
   it('1. New tenant creation automatically provisions a default generic Account named "Main"', async () => {
@@ -94,6 +95,10 @@ describe('PHASE ACCOUNT-ARCHITECTURE-FIX-17: Generic Account Architecture', () =
 
     const config: BusinessConfig = {
       ...DEFAULT_BUSINESS_CONFIG,
+      behavior: {
+        ...DEFAULT_BUSINESS_CONFIG.behavior,
+        useLlmIntentClassification: true
+      },
       identity: {
         botName: 'Atlas Bot',
         businessName: 'Atlas Gym',

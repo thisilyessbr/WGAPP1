@@ -286,6 +286,10 @@ describe('Phase CRM-D-FIX — Purchase Intent & Lead Flow Contract (52A)', () =>
       mockLeads = new Map();
       mockPrisma = {
         lead: {
+          findUnique: async ({ where }: any) => {
+            const key = `${where.tenantId_accountId_customerId.tenantId}_${where.tenantId_accountId_customerId.accountId}_${where.tenantId_accountId_customerId.customerId}`;
+            return mockLeads.get(key) || null;
+          },
           upsert: async ({ where, create, update }: any) => {
             const key = `${where.tenantId_accountId_customerId.tenantId}_${where.tenantId_accountId_customerId.accountId}_${where.tenantId_accountId_customerId.customerId}`;
             if (mockLeads.has(key)) {

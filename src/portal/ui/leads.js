@@ -1,0 +1,57 @@
+(() => {
+  const stages = ['ALL', 'NEW', 'CONTACTED', 'QUALIFIED', 'WON', 'LOST'];
+  const labels = { ALL: 'All', NEW: 'New', CONTACTED: 'Contacted', QUALIFIED: 'Qualified', WON: 'Won', LOST: 'Lost' };
+  const signalLabels = { COMPLETED_SALES_WORKFLOW: 'Completed sales request', EXPLICIT_SALES_INTENT: 'Sales request', EXPLICIT_PURCHASE_MESSAGE: 'Purchase request', EXPLICIT_BOOKING_OR_QUOTE: 'Booking or quote request' };
+  const date = value => value ? new Date(value).toLocaleString() : '—';
+  const toLocalDateTimeValue = value => {
+    if (!value) return '';
+    const dateValue = new Date(value);
+    if (!Number.isFinite(dateValue.getTime())) return '';
+    return new Date(dateValue.getTime() - dateValue.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const nameOf = lead => lead.customerMetadata?.name || lead.customerMetadata?.pushName || lead.customerPhone || 'Customer';
+
+  async function renderLeads(ctx) {
+    const { root, shell, header, escape: esc, toast, api, bind, go, path } = ctx;
+    const id = path.startsWith('/app/leads/') ? path.slice('/app/leads/'.length) : null;
+    if (id) {
+      const { lead } = await api('/client/leads/' + encodeURIComponent(id));
+      const followUpValue = toLocalDateTimeValue(lead.followUpAt);
+      root.innerHTML = shell(header('Lead details', 'Follow up with this customer and record the result.', '<a class="btn secondary" href="/app/leads" data-route>All leads</a>') +
+        `<div class="lead-detail-grid"><article class="card lead-profile"><p class="eyebrow">Customer</p><h2>${esc(nameOf(lead))}</h2><p>${esc(lead.customerPhone || '')}</p><div class="lead-facts"><div><span>Interest</span><strong>${esc(lead.interest || 'Not recorded')}</strong></div><div><span>Detected from</span><strong>${esc(signalLabels[lead.signalReason] || 'Sales conversation')}</strong></div><div><span>First seen</span><strong>${esc(date(lead.createdAt))}</strong></div></div>${lead.conversationId ? `<a class="btn" href="/app/inbox/${encodeURIComponent(lead.conversationId)}" data-route>Open conversation ›</a>` : '<p class="small muted">Conversation unavailable.</p>'}</article>
+        <article class="card"><h2>Next action</h2><p>Update the stage after you speak with the customer. Mark Won only when the sale is confirmed.</p><form id="lead-form"><div class="field"><label for="lead-stage">Stage</label><select id="lead-stage">${stages.filter(s => s !== 'ALL').map(s => `<option value="${s}" ${lead.status === s ? 'selected' : ''}>${labels[s]}</option>`).join('')}</select></div><div class="field"><label for="lead-followup">Follow up at</label><input id="lead-followup" type="datetime-local" value="${esc(followUpValue)}"></div><div class="field"><label for="lead-note">Internal note</label><textarea id="lead-note" maxlength="2000" rows="5">${esc(lead.note || '')}</textarea></div><button class="btn" type="submit">Save lead</button></form><p class="small muted">Last updated ${esc(date(lead.updatedAt))}</p></article></div>`, false, 'Leads');
+      document.querySelector('#lead-form').onsubmit = async event => {
+        event.preventDefault();
+        const button = event.target.querySelector('button[type=submit]'); button.disabled = true;
+        try {
+          const rawFollowUp = document.querySelector('#lead-followup').value;
+          await api('/client/leads/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({
+            status: document.querySelector('#lead-stage').value,
+            note: document.querySelector('#lead-note').value,
+            followUpAt: rawFollowUp ? new Date(rawFollowUp).toISOString() : null
+          }) });
+          toast('Lead updated.'); await renderLeads(ctx);
+        } catch (error) { toast(error.message, true); button.disabled = false; }
+      };
+      bind(); return;
+    }
+
+    const selected = new URLSearchParams(location.search).get('stage') || 'ALL';
+    const status = stages.includes(selected) ? selected : 'ALL';
+    const offset = Math.max(0, Number(new URLSearchParams(location.search).get('offset') || 0) || 0);
+    const [{ leads, pagination }, summary] = await Promise.all([
+      api('/client/leads?status=' + status + '&limit=20&offset=' + offset),
+      api('/client/leads/summary')
+    ]);
+    const filters = stages.map(stage => `<button type="button" class="lead-filter ${status === stage ? 'is-active' : ''}" data-stage="${stage}">${labels[stage]}</button>`).join('');
+    const rows = leads.map(lead => `<a class="lead-row" href="/app/leads/${encodeURIComponent(lead.id)}" data-route><span class="lead-avatar">${esc(nameOf(lead).slice(0, 2).toUpperCase())}</span><span class="lead-row-main"><strong>${esc(nameOf(lead))}</strong><small>${esc(lead.interest || 'Sales inquiry')}</small>${lead.lastCustomerMessage && lead.lastCustomerMessage !== lead.interest ? `<small>Latest: ${esc(lead.lastCustomerMessage)}</small>` : ''}</span><span class="lead-row-meta"><span class="badge ${lead.status === 'WON' ? 'green' : lead.status === 'LOST' ? 'red' : lead.status === 'NEW' ? 'orange' : 'blue'}">${labels[lead.status] || esc(lead.status)}</span><small>${lead.followUpAt ? 'Follow up ' + esc(date(lead.followUpAt)) : esc(date(lead.updatedAt))}</small></span><b aria-hidden="true">›</b></a>`).join('');
+    root.innerHTML = shell(header('Leads', 'Sales opportunities found in customer conversations.') +
+      `<div class="lead-stat-grid"><article class="card"><p>New</p><strong>${Number(summary.new || 0)}</strong></article><article class="card"><p>Follow-ups due</p><strong>${Number(summary.dueFollowUps || 0)}</strong></article><article class="card"><p>Qualified</p><strong>${Number(summary.qualified || 0)}</strong></article><article class="card"><p>Won</p><strong>${Number(summary.won || 0)}</strong></article></div>
+      <article class="card lead-list-card"><div class="card-title"><div><h2>Lead queue</h2><p>New and qualified leads appear first.</p></div><span class="badge blue">${pagination.total} leads</span></div><div class="lead-filters" aria-label="Filter lead stage">${filters}</div><div class="lead-rows">${rows || '<p class="empty compact">No leads in this stage yet. New sales inquiries will appear here.</p>'}</div><div class="lead-pagination">${offset > 0 ? '<button class="btn secondary" data-page="previous">Previous</button>' : ''}${pagination.hasMore ? '<button class="btn secondary" data-page="next">Next</button>' : ''}</div></article>`, false, 'Leads');
+    document.querySelectorAll('[data-stage]').forEach(button => button.onclick = () => go('/app/leads?stage=' + button.dataset.stage));
+    document.querySelectorAll('[data-page]').forEach(button => button.onclick = () => go('/app/leads?stage=' + status + '&offset=' + (button.dataset.page === 'next' ? offset + 20 : Math.max(0, offset - 20))));
+    bind();
+  }
+
+  window.RelayqoLeads = { renderLeads, toLocalDateTimeValue };
+})();
