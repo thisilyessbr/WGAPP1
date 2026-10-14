@@ -738,7 +738,7 @@ export class AnswerComposer {
         if (family === 'PERFORMANCE') {
           hasEvidence = /(?:waterproof|water-resistant|rainproof|warm|breathable|windproof|imperm[ée]able|chaud|respirant|مقاوم|ضد الما|ضد الماء|سخون|دافئ)/iu.test(descLower);
         } else if (family === 'MATERIAL') {
-          hasEvidence = /(?:cotton|polyester|leather|fleece|wool|silk|linen|denim|nylon|coton|cuir|molleton|molletonn|crêpe|soie|acier|mesh|laine|lin|mati[èe]re|tissu|composition|قطن|جلد|قماش|ثوب|صوف|حرير|توب)/iu.test(descLower);
+          hasEvidence = /(?:cotton|polyester|leather|fleece|wool|silk|linen|denim|nylon|coton|cuir|molleton|molletonn|crêpe|soie|acier|mesh|laine|lin|satin|velours|velvet|viscose|jersey|daim|suede|suède|métal|metal|argent|silver|gold|plaqué|bois|wood|céramique|ساتان|قطيفة|حرير|mati[èe]re|tissu|composition|قطن|جلد|قماش|ثوب|صوف|حرير|توب)/iu.test(descLower);
         } else if (family === 'FIT') {
           hasEvidence = /(?:fit|oversize|oversized|slim|regular|loose|coupe|large|ajust[ée]e|واسع|عريض|مزير|فصالة)/iu.test(descLower);
         } else if (family === 'WEIGHT') {

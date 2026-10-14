@@ -3034,10 +3034,16 @@ Check again: the business-owner evidence above lists the business's policies, se
     }
 
     if (responseSource === 'LLM' || responseSource === 'RAG') {
-      const currentEvidence = groundingEvidence || [
+      // On a follow-up the answer may reuse facts from the bot's own previous
+      // replies ("free delivery, so the 520 MAD sneakers ship free"); those
+      // replies already passed this check.
+      const ownRecentReplies = GroundedPromptBuilder.isFollowupQuestion(content)
+        ? (conversationContext.recentTurns || []).slice(-2).filter(turn => turn.role.toLowerCase() === 'assistant').map(turn => turn.content).join('\n')
+        : '';
+      const currentEvidence = (groundingEvidence || [
         ...(ragResult?.chunks || []).map((chunk: { content?: string }) => chunk.content || ''),
         (portalBusinessEvidence(config, understoodService ? `${content} ${understoodService}` : content, { includeFaq: true }))
-      ].join('\n');
+      ].join('\n')) + (ownRecentReplies ? `\n${ownRecentReplies}` : '');
       const claimCheck = GroundedAnswerGuard.evaluate(response, currentEvidence, {
         question: content,
         services: config.portalFacts?.services,
