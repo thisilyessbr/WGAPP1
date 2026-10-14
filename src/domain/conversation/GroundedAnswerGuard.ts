@@ -20,8 +20,9 @@ const FALSE_ACTION = [
   /(?:\b(?:your|the)\s+(?:booking|appointment|order)\s+(?:is|has been)\s+confirmed\b|\b(?:i|we)\s+(?:have|already)\s+(?:booked|placed|cancelled|refunded)\b|(?:votre|la)\s+(?:réservation|commande|rendez-vous)\s+(?:est|a été)\s+confirmé|(?:تم|لقد)\s+(?:تأكيد|حجز|إلغاء)\s+(?:طلبك|موعدك|حجزك))/iu,
   // French past participle without the auxiliary: "Réservation confirmée !"
   /(?<![\p{L}])(?:réservation|reservation|commande|rendez-vous|rdv)\s+(?:bien\s+)?(?:confirmée?|enregistrée?|validée?)(?![\p{L}])/iu,
-  // Darija in Arabic script, in either word order.
-  /(?<![\p{L}])(?:راه\s+)?(?:تم\s+)?(?:تأكد|تاكد|تأكدات|تاكدات|تسجل|تسجلات|تسجيل|تأكيد|تاكيد)\s+(?:ليك\s+)?(?:ال)?(?:حجز|طلب|موعد|رونديفو|كوموند)(?:ك|كم)?(?![\p{L}])/u,
+  // Darija in Arabic script, in either word order. "الفرقة تأكد ليك الموعد"
+  // (the team will confirm your appointment) is a next step, not a claim.
+  /(?<![\p{L}])(?<!(?:الفرقة|الفريق|فريقنا|الفرقة\s+ديالنا|الفريق\s+ديالنا|الإدارة|المسؤولة?|غادي|غا|باش|حتى|ملي|منين|و?نقدرو|تقدر|يقدر)\s+)(?:راه\s+)?(?:تم\s+)?(?:تأكد|تاكد|تأكدات|تاكدات|تسجل|تسجلات|تسجيل|تأكيد|تاكيد)\s+(?:ليك\s+)?(?:ال)?(?:حجز|طلب|موعد|رونديفو|كوموند)(?:ك|كم)?(?![\p{L}])/u,
   /(?<![\p{L}])(?:ال)?(?:حجز|طلب|موعد|رونديفو|كوموند)\s+(?:ديالك|ديالكم)\s+(?:راه\s+|را\s+)?(?:تأكد|تاكد|تأكدات|تاكدات|تسجل|تسجلات|مأكد|مسجل)(?![\p{L}])/u,
   // Arabizi, also in either word order. "bach t2akkad" (in order to confirm)
   // is an instruction, not a completed action.

@@ -9,6 +9,8 @@ import { PolicyEvidenceReuse } from '../../domain/rag/PolicyEvidenceReuse';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
+import { CatalogMatcher } from '../../domain/ecommerce/CatalogMatcher';
+import { AnswerComposer } from '../../domain/conversation/AnswerComposer';
 import { LanguageDetector } from '../../domain/faq/FaqMatcher';
 import { FaqAnswerPolicy } from '../../domain/faq/FaqAnswerPolicy';
 import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
@@ -206,6 +208,8 @@ export class WorkflowEngine {
     private responseBuilder: ResponseBuilder = new ResponseBuilder(),
     private fieldValidator: FieldValidator = new FieldValidator()
   ) {}
+
+  private static readonly PRICE_QUESTION = /combien|prix|tarif|co[uû]te?|how much|price|cost|ch7al|chhal|bch7al|taman|thaman|شحال|بشحال|بكم|كم سعر|سعر|ثمن|الثمن|تمن/iu;
 
   private answerUsesRequestedScript(answer: string, lang: string, script: string): boolean {
     const hasArabic = /[\u0621-\u064A]/u.test(answer);
@@ -958,6 +962,16 @@ export class WorkflowEngine {
             } catch (err) {
               logger.warn('WorkflowEngine: Mid-form business answer failed', { err });
             }
+          }
+          // The model gave no usable answer: a price question about one menu
+          // service is still answered from the menu itself.
+          if (allowsInterruption && WorkflowEngine.PRICE_QUESTION.test(questionText)) {
+            const menu = (Array.isArray(businessConfig.portalFacts?.services) ? businessConfig.portalFacts!.services as any[] : [])
+              .filter(s => s && typeof s.name === 'string' && s.name.trim() && s.price !== undefined && s.price !== '')
+              .map((s, index) => ({ id: String(index), name: String(s.name), description: typeof s.description === 'string' ? s.description : '', price: s.price }));
+            const service = menu.length ? CatalogMatcher.best(questionText, menu) : null;
+            const answer = service && AnswerComposer.namedServicePrice(service.name, (service as any).price, businessConfig.identity?.currency || 'MAD', lang, script);
+            if (answer) return answerAndContinue(answer);
           }
 
           // No safe factual answer: do not guess or lose the form's place.

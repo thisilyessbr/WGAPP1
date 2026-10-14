@@ -43,7 +43,8 @@ export class LanguageDetector {
     'مزيان', 'خدام', 'راه', 'ماشي', 'باش', 'غادي', 'واخا', 'بزاف', 'بزااف', 'هاد',
     'زوين', 'زوينة', 'فلوس', 'فلوسي', 'فلوسنا', 'فلوسكم', 'كتبيعو', 'دبا', 'ديل',
     'هادي', 'هادو', 'فين', 'عاود', 'بلاتي', 'شكون', 'وقتاش', 'فوقاش', 'كيفاش',
-    'باغي', 'باغية', 'مابغيتش', 'بغيتش', 'باغيش', 'باغياش', 'نشري', 'نشريه'
+    'باغي', 'باغية', 'مابغيتش', 'بغيتش', 'باغيش', 'باغياش', 'نشري', 'نشريه',
+    'عافاك', 'عليا', 'ليا', 'نقدر', 'تقدر', 'كنقدر', 'علاش', 'مازال', 'صافي', 'ديما', 'حيت', 'دغيا', 'كنبغي', 'نبدل', 'نبدلها', 'نبدلو', 'كتوصلو'
   ];
 
   /**
@@ -68,6 +69,8 @@ export class LanguageDetector {
         .replace(/ى/g, 'ي');
 
       const words = normalizedArabic.split(/\s+/).map(w => w.replace(/[^\u0600-\u06FF]/g, '')).filter(w => w.length > 0);
+      // The Darija negation "ما...ش" (ماجاتش, ماكاينش) is not Modern Standard Arabic.
+      const hasDarijaNegation = words.some(w => w.length >= 5 && w.startsWith("ما") && w.endsWith("ش"));
       const hasDarijaMarker = this.DARIJA_ARABIC_MARKERS.some(marker => {
         const normMarker = marker.replace(/[إأآا]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
         const dedupMarker = normMarker.replace(/(.)\1+/g, '$1');
@@ -86,7 +89,7 @@ export class LanguageDetector {
         });
       });
 
-      return hasDarijaMarker ? 'darija' : 'ar';
+      return hasDarijaMarker || hasDarijaNegation ? 'darija' : 'ar';
     }
 
     // 2. Check for Latin-script Darija (Arabizi / 3rbizi) vs French vs English

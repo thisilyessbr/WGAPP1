@@ -220,7 +220,7 @@ describe('Phase 50D: Media UI Contract & UX Validation', () => {
 
     expect(text).toContain('Standard Notebook');
     expect(text).toContain('Price: 25 MAD');
-    expect(text).toContain('Availability: In stock');
+    expect(text).not.toContain('In stock');
   });
 
   // I. Stock Count Hidden Normally
@@ -241,12 +241,12 @@ describe('Phase 50D: Media UI Contract & UX Validation', () => {
       responseScript: 'latin'
     });
 
-    expect(recText).toBe('We recommend Cyber Spirit Hoodie (350 MAD): In stock.');
+    expect(recText).toBe("I'd recommend Cyber Spirit Hoodie, at 350 MAD.");
     expect(recText).not.toContain('15 available');
   });
 
   // J. Stock Shown on Explicit Availability Query
-  it('J. Shows exact stock count only when user asks for availability', async () => {
+  it('J. Availability answers never reveal the stock count', async () => {
     const decisionAvail: TurnDecision = {
       domain: 'ECOMMERCE',
       intent: 'AVAILABILITY',
@@ -263,7 +263,7 @@ describe('Phase 50D: Media UI Contract & UX Validation', () => {
       responseScript: 'latin'
     });
 
-    expect(availText).toContain('Yes, Cyber Spirit Hoodie is available. Price: 350 MAD. In stock: 15.');
+    expect(availText).toContain('Yes, Cyber Spirit Hoodie is available, at 350 MAD.'); expect(availText).not.toContain('15');
   });
 
   // K. UI Markup Validation (Static Forensics on src/dev/ui/index.html)

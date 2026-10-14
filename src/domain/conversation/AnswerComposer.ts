@@ -276,6 +276,25 @@ export class AnswerComposer {
   }
 
   /**
+   * A customer sent their order or booking details (name, phone, address) to
+   * a business without a form: the conversation is passed to the team. The
+   * owner's own handoff text wins when set.
+   */
+  public static composeDetailsHandoff(context: AnswerContext, kind: 'order' | 'booking'): string {
+    const { responseLanguage: lang, responseScript: script, config } = context;
+    const owner = config?.prompts?.handoff as unknown;
+    const defaults = new Set<string>([...Object.values(DEFAULT_HANDOFF_MESSAGES), 'علمنا فريق الدعم وغادي يجاوبك واحد من الموظفين قريبا.']);
+    const ownerTexts = typeof owner === 'string' ? [owner] : owner && typeof owner === 'object' ? Object.values(owner as Record<string, unknown>) : [];
+    if (ownerTexts.some(text => typeof text === 'string' && text.trim() && !defaults.has(text.trim()))) return AnswerComposer.composeHandoff(context);
+    const order = kind === 'order';
+    if (lang === 'fr') return `Merci ! J'ai transmis vos coordonnées à notre équipe, qui va vous confirmer ${order ? 'la commande et la livraison' : 'le rendez-vous'} ici très bientôt.`;
+    if (lang === 'ar') return `شكراً لك! أرسلت معلوماتك إلى فريقنا، وسيؤكد لك ${order ? 'الطلب والتوصيل' : 'الموعد'} هنا قريباً.`;
+    if (lang === 'darija' && script === 'arabizi') return `Chokran! Sifet lma3lomat dyalek l lfari9 dyalna, w ghadi y2akked m3ak ${order ? 'lcommande w tawsil' : 'lmaw3id'} hna 9riban.`;
+    if (lang === 'darija') return `شكراً! صيفطت المعلومات ديالك للفريق ديالنا، وغادي يأكد معاك ${order ? 'الكوموند والتوصيل' : 'الموعد'} هنا قريباً.`;
+    return `Thank you! I've passed your details to our team, who will confirm ${order ? 'your order and delivery' : 'your appointment'} with you here shortly.`;
+  }
+
+  /**
    * Composes localized Fallback response strictly respecting language and script.
    */
   public static composeFallback(context: AnswerContext): string {
@@ -364,12 +383,19 @@ export class AnswerComposer {
     const service = matches[0] as { name: string; price?: string | number };
     const price = Number(service.price);
     if (!Number.isFinite(price) || price < 0) return null;
-    const currency = context.config?.identity?.currency || 'MAD';
-    if (context.responseLanguage === 'fr') return `Le prix de ${service.name} est de ${price} ${currency}.`;
-    if (context.responseLanguage === 'ar') return `سعر ${service.name} هو ${price} ${currency}.`;
-    if (context.responseLanguage === 'darija' && context.responseScript === 'arabizi') return `Taman dyal ${service.name} howa ${price} ${currency}.`;
-    if (context.responseLanguage === 'darija') return `الثمن ديال ${service.name} هو ${price} ${currency}.`;
-    return `The price of ${service.name} is ${price} ${currency}.`;
+    return AnswerComposer.namedServicePrice(service.name, price, context.config?.identity?.currency || 'MAD', context.responseLanguage, context.responseScript);
+  }
+
+  /** "The price of <service> is <price>", from a menu price such as 150 or "150 MAD". */
+  public static namedServicePrice(name: string, rawPrice: string | number, currency: string, lang: string, script?: string): string | null {
+    const text = String(rawPrice ?? '').trim();
+    const amount = /^\d+(?:[.,]\d+)?$/.test(text) ? `${text} ${currency}` : text;
+    if (!/\d/.test(amount) || amount.length > 40) return null;
+    if (lang === 'fr') return `Le prix de ${name} est de ${amount}.`;
+    if (lang === 'ar') return `سعر ${name} هو ${amount}.`;
+    if (lang === 'darija' && script === 'arabizi') return `Taman dyal ${name} howa ${amount}.`;
+    if (lang === 'darija') return `الثمن ديال ${name} هو ${amount}.`;
+    return `The price of ${name} is ${amount}.`;
   }
 
   private static getSafeName(fact: ProductLookupResult | null | undefined, script?: string, lang?: string): string {
@@ -493,19 +519,22 @@ export class AnswerComposer {
     if (turnDecision.intent === 'COMPARE') {
       const facts = Array.isArray(productFacts) ? productFacts : (productFacts ? [productFacts] : []);
       if (facts.length >= 2) {
+        // Stock counts stay internal; only an unavailable item is flagged.
+        const off = this.unavailableNote(responseLanguage, responseScript);
+        const line = (c: ProductLookupResult) => `- ${this.getSafeName(c, responseScript)} : ${c.effectivePrice} ${c.currency}${c.inStock ? '' : ` (${off})`}`;
         if (responseLanguage === 'fr') {
-          return `Comparaison des produits :\n` + facts.map(c => `- ${this.getSafeName(c, responseScript)} : ${c.effectivePrice} ${c.currency} (${c.inStock ? `En stock: ${c.availableStock}` : 'Rupture'})`).join('\n');
+          return `Voici les deux en un coup d'œil :\n` + facts.map(line).join('\n');
         }
         if (responseLanguage === 'ar') {
-          return `مقارنة المنتجات:\n` + facts.map(c => `- ${this.getSafeName(c, responseScript)}: ${c.effectivePrice} ${c.currency} (${c.inStock ? `متوفر: ${c.availableStock}` : 'غير متوفر'})`).join('\n');
+          return `إليك المقارنة:\n` + facts.map(c => line(c).replace(' : ', ': ')).join('\n');
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `Mo9arana:\n` + facts.map(c => `- ${this.getSafeName(c, responseScript)}: ${c.effectivePrice} ${c.currency} (${c.inStock ? `Kayen: ${c.availableStock}` : 'Msali'})`).join('\n');
+            return `Hahoma b jouj:\n` + facts.map(c => line(c).replace(' : ', ': ')).join('\n');
           }
-          return `مقارنة:\n` + facts.map(c => `- ${this.getSafeName(c, responseScript)}: ${c.effectivePrice} ${c.currency} (${c.inStock ? `كاين: ${c.availableStock}` : 'مسالي'})`).join('\n');
+          return `ها هوما بجوج:\n` + facts.map(c => line(c).replace(' : ', ': ')).join('\n');
         }
-        return `Product Comparison:\n` + facts.map(c => `- ${this.getSafeName(c, responseScript)}: ${c.effectivePrice} ${c.currency} (${c.inStock ? `In stock: ${c.availableStock}` : 'Out of stock'})`).join('\n');
+        return `Here they are side by side:\n` + facts.map(c => line(c).replace(' : ', ': ')).join('\n');
       } else {
         if (responseLanguage === 'fr') {
           return `Désolé, impossible de trouver tous les produits demandés pour la comparaison.`;
@@ -529,19 +558,20 @@ export class AnswerComposer {
       if (facts.length > 0) {
         const top = facts[0];
         const topName = this.getSafeName(top, responseScript);
+        const off = top.inStock ? '' : ` (${this.unavailableNote(responseLanguage, responseScript)})`;
         if (responseLanguage === 'fr') {
-          return `Nous vous recommandons ${topName} (${top.effectivePrice} ${top.currency}) : ${top.inStock ? 'En stock' : 'Rupture'}.`;
+          return `Je vous conseille ${topName}, à ${top.effectivePrice} ${top.currency}${off}.`;
         }
         if (responseLanguage === 'ar') {
-          return `نوصيك بـ ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'متوفر' : 'غير متوفر'}.`;
+          return `أنصحك بـ ${topName}، بسعر ${top.effectivePrice} ${top.currency}${off}.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `Kansehok b ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'Kayen' : 'Msali'}.`;
+            return `Kan nsa7ek b ${topName}, b ${top.effectivePrice} ${top.currency}${off}.`;
           }
-          return `كننصحوك بـ ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'متوفر' : 'مسالي'}.`;
+          return `كننصحك بـ ${topName}، بـ ${top.effectivePrice} ${top.currency}${off}.`;
         }
-        return `We recommend ${topName} (${top.effectivePrice} ${top.currency}): ${top.inStock ? 'In stock' : 'Out of stock'}.`;
+        return `I'd recommend ${topName}, at ${top.effectivePrice} ${top.currency}${off}.`;
       } else {
         if (responseLanguage === 'fr') {
           return `Désolé, nous n'avons pas assez d'informations dans notre catalogue pour faire une recommandation fiable.`;
@@ -572,15 +602,8 @@ export class AnswerComposer {
               : "Here are the matching products:"));
 
         const listStr = facts.map((r, i) => {
-          const stockLabel = responseLanguage === 'fr'
-            ? (r.inStock ? 'En stock' : 'Rupture')
-            : (responseLanguage === 'ar'
-              ? (r.inStock ? 'متوفر' : 'غير متوفر')
-              : (responseLanguage === 'darija'
-                ? (responseScript === 'arabizi' ? (r.inStock ? 'Kayen' : 'Msali') : (r.inStock ? 'كاين' : 'مسالي'))
-                : (r.inStock ? 'In stock' : 'Out of stock')));
           const pName = this.getSafeName(r, responseScript);
-          return `${i + 1}. ${pName} — ${r.effectivePrice} ${r.currency} (${stockLabel})`;
+          return `${i + 1}. ${pName} — ${r.effectivePrice} ${r.currency}${r.inStock ? '' : ` (${this.unavailableNote(responseLanguage, responseScript)})`}`;
         }).join('\n');
         return `${header}\n\n${listStr}`;
       } else {
@@ -711,11 +734,11 @@ export class AnswerComposer {
       }
 
       // 3. Fallback to attribute family patterns if still unconfirmed
-      if (!hasEvidence && family && (!kw || /^(material|matière|matiere|composition|fabric|fit|weight|dimensions|features?)$/i.test(kw))) {
+      if (!hasEvidence && family && (!kw || /^(?:material|matière|matiere|matériau|composition|fabric|tissu|tissue|fit|weight|dimensions|features?|ثوب|الثوب|القماش|قماش|الخامة|خامة|المادة|الصنعة|tob|ttob|9mach|lq?mach)$/iu.test(kw))) {
         if (family === 'PERFORMANCE') {
           hasEvidence = /(?:waterproof|water-resistant|rainproof|warm|breathable|windproof|imperm[ée]able|chaud|respirant|مقاوم|ضد الما|ضد الماء|سخون|دافئ)/iu.test(descLower);
         } else if (family === 'MATERIAL') {
-          hasEvidence = /(?:cotton|polyester|leather|fleece|wool|silk|linen|denim|nylon|coton|cuir|mati[èe]re|tissu|composition|قطن|جلد|قماش|ثوب|صوف|حرير|توب)/iu.test(descLower);
+          hasEvidence = /(?:cotton|polyester|leather|fleece|wool|silk|linen|denim|nylon|coton|cuir|molleton|molletonn|crêpe|soie|acier|mesh|laine|lin|satin|velours|velvet|viscose|jersey|daim|suede|suède|métal|metal|argent|silver|gold|plaqué|bois|wood|céramique|ساتان|قطيفة|حرير|mati[èe]re|tissu|composition|قطن|جلد|قماش|ثوب|صوف|حرير|توب)/iu.test(descLower);
         } else if (family === 'FIT') {
           hasEvidence = /(?:fit|oversize|oversized|slim|regular|loose|coupe|large|ajust[ée]e|واسع|عريض|مزير|فصالة)/iu.test(descLower);
         } else if (family === 'WEIGHT') {
@@ -727,20 +750,21 @@ export class AnswerComposer {
         }
       }
 
+      // Say plainly what is known and offer the team, instead of "the details do not specify".
       if (!hasEvidence && safeFactDesc) {
         if (responseLanguage === 'fr') {
-          return `Les informations disponibles pour ${safeFactName} ne mentionnent pas cette caractéristique spécifique (${safeFactDesc}).`;
+          return `Je n'ai pas cette précision pour ${safeFactName}. Sa description : ${safeFactDesc} Notre équipe peut vous confirmer le reste ici.`;
         }
         if (responseLanguage === 'ar') {
-          return `المعلومات المتوفرة لـ ${safeFactName} لا تشير إلى هذه الخاصية تحديداً (${safeFactDesc}).`;
+          return `ليست لدي هذه المعلومة عن ${safeFactName}. وصفه: ${safeFactDesc} يمكن لفريقنا تأكيد الباقي لك هنا.`;
         }
         if (responseLanguage === 'darija') {
           if (responseScript === 'arabizi') {
-            return `Had l-ma3loma ma kaynach f l-wasf dyal ${safeFactName} (${safeFactDesc}).`;
+            return `Ma 3ndich had lma3loma 3la ${safeFactName}. Lwasf dyalo: ${safeFactDesc} Lfari9 dyalna y9der y2ekked lik hna.`;
           }
-          return `المعلومات المتوفرة على ${safeFactName} ما فيهاش هاد الخاصية بالضبط (${safeFactDesc}).`;
+          return `ما عنديش هاد المعلومة على ${safeFactName}. الوصف ديالو: ${safeFactDesc} الفريق ديالنا يقدر يأكد ليك هنا.`;
         }
-        return `The product details for ${safeFactName} do not specify this particular feature (${safeFactDesc}).`;
+        return `I don't have that detail for ${safeFactName}. Its description: ${safeFactDesc} Our team can confirm the rest here.`;
       }
 
       if (metadataValue) {
@@ -788,31 +812,38 @@ export class AnswerComposer {
         if (size && !list.includes(size)) list.push(size);
         bySize.set(color, list);
       }
-      const options = [...bySize.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${sizes.join(sep)})` : color || sizes.join(sep)).join(' · ');
+      const options = [...bySize.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${AnswerComposer.sortSizes(sizes).join(sep)})` : color || AnswerComposer.sortSizes(sizes).join(sep)).join(' · ');
       // The merchant's description is quoted only when it is in the reply's language/script.
       const descArabic = /[؀-ۿ]/.test(safeFactDesc);
       const descFrench = !descArabic && (safeFactDesc.match(/(?:^|\s)(?:en|de|des|du|le|la|les|avec|pour|et|à)(?=\s)/giu) || []).length >= 1
         && !/\b(?:the|with|and|for)\b/i.test(safeFactDesc);
       const keepDesc = safeFactDesc && (arabicScript ? descArabic : responseLanguage === 'fr' ? !descArabic : !descArabic && !descFrench);
       const descLine = keepDesc ? `\n${safeFactDesc}` : '';
+      const photo = media.some(item => item.type === 'image');
+      const lead = !photo ? '' : responseLanguage === 'fr' ? 'Voici la photo : '
+        : responseLanguage === 'ar' ? 'إليك الصورة: '
+        : responseLanguage === 'darija' ? (responseScript === 'arabizi' ? 'Hahiya tswira: ' : 'ها هي التصويرة: ')
+        : "Here's the photo: ";
+      // Available items need no stock line; only an unavailable one says so.
+      const offLine = fact.inStock ? '' : `\n${this.unavailableSentence(responseLanguage, responseScript)}`;
       if (responseLanguage === 'fr') {
         const variantsText = options ? `\nTailles disponibles : ${options}` : '';
-        return `${safeFactName}${descLine}\nPrix : ${fact.effectivePrice} ${fact.currency}${variantsText}\nDisponibilité : ${fact.inStock ? 'En stock' : 'Rupture de stock'}`;
+        return `${lead}${safeFactName}${descLine}\nPrix : ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
       }
       if (responseLanguage === 'ar') {
         const variantsText = options ? `\nالمقاسات المتوفرة: ${options}` : '';
-        return `${safeFactName}${descLine}\nالسعر: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالحالة: ${fact.inStock ? 'متوفر' : 'غير متوفر حالياً'}`;
+        return `${lead}${safeFactName}${descLine}\nالسعر: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
           const variantsText = options ? `\nTailles li kaynin: ${options}` : '';
-          return `${safeFactName}${descLine}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}\nStock: ${fact.inStock ? 'Kayen' : 'Msali db'}`;
+          return `${lead}${safeFactName}${descLine}\nTaman: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
         }
         const variantsText = options ? `\nالمقاسات اللي كاينين: ${options}` : '';
-        return `${safeFactName}${descLine}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}\nالمخزون: ${fact.inStock ? 'كاين' : 'مسالي حالياً'}`;
+        return `${lead}${safeFactName}${descLine}\nالثمن: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
       }
       const variantsText = options ? `\nAvailable sizes: ${options}` : '';
-      return `${safeFactName}${descLine}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}\nAvailability: ${fact.inStock ? 'In stock' : 'Out of stock'}`;
+      return `${lead}${safeFactName}${descLine}\nPrice: ${fact.effectivePrice} ${fact.currency}${variantsText}${offLine}`;
     }
 
     if (turnDecision.intent === 'BUY_INTENT') {
@@ -821,34 +852,23 @@ export class AnswerComposer {
       const productSubject = variantLabel ? `${safeFactName} (${variantLabel})` : safeFactName;
 
       if (!fact.inStock) {
-        if (responseLanguage === 'fr') {
-          return `Désolé, ${productSubject} est actuellement en rupture de stock.`;
-        }
-        if (responseLanguage === 'ar') {
-          return `عذراً، ${productSubject} غير متوفر حالياً في المخزون.`;
-        }
-        if (responseLanguage === 'darija') {
-          if (responseScript === 'arabizi') {
-            return `Smeh liya, ${productSubject} msali db f l-stock.`;
-          }
-          return `سمح ليا، ${productSubject} مسالي حالياً فالمخزون.`;
-        }
-        return `Sorry, ${productSubject} is currently out of stock.`;
+        return `${this.unavailableSentence(responseLanguage, responseScript, productSubject)}${this.inStockOptions(fact, responseLanguage, responseScript)}`;
       }
 
+      // Payment terms come from the store's own policies, never assumed here.
       if (responseLanguage === 'fr') {
-        return `Parfait ! Pour commander ${productSubject} (${fact.effectivePrice} ${fact.currency}), veuillez indiquer votre adresse de livraison et votre mode de paiement préféré (paiement à la livraison disponible).`;
+        return `Avec plaisir ! ${productSubject} est à ${fact.effectivePrice} ${fact.currency}. Pour la commande, envoyez-moi votre nom complet, votre adresse avec la ville et votre numéro de téléphone.`;
       }
       if (responseLanguage === 'ar') {
-        return `ممتاز! لطلب ${productSubject} (${fact.effectivePrice} ${fact.currency})، يرجى تزويدنا بعنوان التوصيل وطريقة الدفع المفضلة (الدفع عند الاستلام متوفر).`;
+        return `بكل سرور! ${productSubject} بسعر ${fact.effectivePrice} ${fact.currency}. لإتمام الطلب، أرسل لي اسمك الكامل وعنوانك مع المدينة ورقم هاتفك.`;
       }
       if (responseLanguage === 'darija') {
         if (responseScript === 'arabizi') {
-          return `Mzyan bzaf! Bach tcommandi ${productSubject} (${fact.effectivePrice} ${fact.currency}), 3tina l-3onwan d l-livraison w tari9at l-khalas li katfeddel (kayn l-khalas 3nd l-istilam).`;
+          return `Mrehba! ${productSubject} b ${fact.effectivePrice} ${fact.currency}. Bach ndiro lcommande, sift liya smitek kamla, l3onwan m3a lmdina w nmra dyal tilifoun.`;
         }
-        return `مزيان بزاف! باش تكموندي ${productSubject} (${fact.effectivePrice} ${fact.currency})، عطينا العنوان ديال التوصيل وطريقة الخلاص اللي كتفضل (كاين الخلاص عند الاستلام).`;
+        return `مرحبا! ${productSubject} بـ ${fact.effectivePrice} ${fact.currency}. باش نديرو الكوموند، صيفط ليا سميتك كاملة، العنوان مع المدينة ونمرة التيليفون.`;
       }
-      return `Great choice! To order ${productSubject} (${fact.effectivePrice} ${fact.currency}), please provide your delivery address and preferred payment method (Cash on Delivery is available).`;
+      return `With pleasure! ${productSubject} is ${fact.effectivePrice} ${fact.currency}. To place the order, send me your full name, your address with the city, and your phone number.`;
     }
 
     if (turnDecision.intent === 'PRICE' && !turnDecision.requestedAvailability) {
@@ -857,7 +877,7 @@ export class AnswerComposer {
       const priceSubject = variantLabel ? `${safeFactName} (${variantLabel})` : safeFactName;
 
       if (responseLanguage === 'fr') {
-        return `Le prix de ${priceSubject} est de ${fact.effectivePrice} ${fact.currency}.`;
+        return `${priceSubject} est à ${fact.effectivePrice} ${fact.currency}.`;
       }
       if (responseLanguage === 'ar') {
         return `سعر ${priceSubject} هو ${fact.effectivePrice} ${fact.currency}.`;
@@ -868,7 +888,7 @@ export class AnswerComposer {
         }
         return `الثمن ديال ${priceSubject} هو ${fact.effectivePrice} ${fact.currency}.`;
       }
-      return `The price for ${priceSubject} is ${fact.effectivePrice} ${fact.currency}.`;
+      return `${priceSubject} is ${fact.effectivePrice} ${fact.currency}.`;
     }
 
     // AVAILABILITY or VARIANT_SELECTION
@@ -878,77 +898,71 @@ export class AnswerComposer {
     const hasVariant = !!(resolvedColor || resolvedSize);
     const variantLabel = hasVariant ? this.formatVariantLabel(resolvedColor, resolvedSize, responseLanguage, responseScript) : '';
 
+    // A shop assistant says whether it is available and the price, never how
+    // many pieces are left in stock.
+    const subject = hasVariant ? `${safeFactName} (${variantLabel})` : safeFactName;
     if (fact.inStock) {
-      if (hasVariant) {
-        // Variant-level in-stock response
-        if (responseLanguage === 'fr') {
-          return `Oui, ${safeFactName} (${variantLabel}) est disponible. Prix : ${fact.effectivePrice} ${fact.currency}. En stock : ${fact.availableStock}.`;
-        }
-        if (responseLanguage === 'ar') {
-          return `نعم، ${safeFactName} (${variantLabel}) متوفر. السعر: ${fact.effectivePrice} ${fact.currency}. الكمية المتوفرة: ${fact.availableStock}.`;
-        }
-        if (responseLanguage === 'darija') {
-          if (responseScript === 'arabizi') {
-            return `Ah, ${safeFactName} (${variantLabel}) kayen. Taman: ${fact.effectivePrice} ${fact.currency}. Kayen mno: ${fact.availableStock}.`;
-          }
-          return `إيه، ${safeFactName} (${variantLabel}) كاين. الثمن: ${fact.effectivePrice} ${fact.currency}. كاين منو: ${fact.availableStock}.`;
-        }
-        return `Yes, ${safeFactName} (${variantLabel}) is available. Price: ${fact.effectivePrice} ${fact.currency}. In stock: ${fact.availableStock}.`;
-      } else {
-        // Product-level in-stock response (unchanged)
-        if (responseLanguage === 'fr') {
-          return `Oui, ${safeFactName} est disponible. Prix : ${fact.effectivePrice} ${fact.currency}. En stock : ${fact.availableStock}.`;
-        }
-        if (responseLanguage === 'ar') {
-          return `نعم، ${safeFactName} متوفر. السعر: ${fact.effectivePrice} ${fact.currency}. الكمية المتوفرة: ${fact.availableStock}.`;
-        }
-        if (responseLanguage === 'darija') {
-          if (responseScript === 'arabizi') {
-            return `Ah, ${safeFactName} kayen. Taman: ${fact.effectivePrice} ${fact.currency}. Kayen mno: ${fact.availableStock}.`;
-          }
-          return `إيه، ${safeFactName} كاين. الثمن: ${fact.effectivePrice} ${fact.currency}. كاين منو: ${fact.availableStock}.`;
-        }
-        return `Yes, ${safeFactName} is available. Price: ${fact.effectivePrice} ${fact.currency}. In stock: ${fact.availableStock}.`;
+      if (responseLanguage === 'fr') return `Oui, ${subject} est disponible, à ${fact.effectivePrice} ${fact.currency}.`;
+      if (responseLanguage === 'ar') return `نعم، ${subject} متوفر بسعر ${fact.effectivePrice} ${fact.currency}.`;
+      if (responseLanguage === 'darija') {
+        if (responseScript === 'arabizi') return `Ah, ${subject} kayn, b ${fact.effectivePrice} ${fact.currency}.`;
+        return `إيه، ${subject} كاين، بـ ${fact.effectivePrice} ${fact.currency}.`;
       }
-    } else {
-      const variantsList = fact.product.variants?.filter(v => v.stock > 0).map(v => `${v.color || ''} ${v.size || ''}`.trim()).filter(Boolean);
-      if (hasVariant) {
-        // Variant-level out-of-stock response
-        if (responseLanguage === 'fr') {
-          const availStr = variantsList?.length ? ` (Options disponibles : ${variantsList.join(', ')})` : '';
-          return `Désolé, ${safeFactName} (${variantLabel}) est actuellement en rupture de stock.${availStr}`;
-        }
-        if (responseLanguage === 'ar') {
-          const availStr = variantsList?.length ? ` (الخيارات المتوفرة: ${variantsList.join('، ')})` : '';
-          return `عذراً، ${safeFactName} (${variantLabel}) غير متوفر حالياً في المخزون.${availStr}`;
-        }
-        if (responseLanguage === 'darija') {
-          if (responseScript === 'arabizi') {
-            const availStr = variantsList?.length ? ` (Kheyarat li kaynin: ${variantsList.join(', ')})` : '';
-            return `Smeh liya, ${safeFactName} (${variantLabel}) msali db mn stock.${availStr}`;
-          }
-          const availStr = variantsList?.length ? ` (الخيارات اللي كاينين: ${variantsList.join('، ')})` : '';
-          return `سمح ليا، ${safeFactName} (${variantLabel}) مسالي حالياً من المخزون.${availStr}`;
-        }
-        const availStr = variantsList?.length ? ` (Available options: ${variantsList.join(', ')})` : '';
-        return `Sorry, ${safeFactName} (${variantLabel}) is currently out of stock.${availStr}`;
-      } else {
-        // Product-level out-of-stock response (unchanged)
-        if (responseLanguage === 'fr') {
-          return `Désolé, ${safeFactName} est actuellement en rupture de stock.`;
-        }
-        if (responseLanguage === 'ar') {
-          return `عذراً، ${safeFactName} غير متوفر حالياً في المخزون.`;
-        }
-        if (responseLanguage === 'darija') {
-          if (responseScript === 'arabizi') {
-            return `Smeh liya, ${safeFactName} msali db mn stock.`;
-          }
-          return `سمح ليا، ${safeFactName} مسالي حالياً من المخزون.`;
-        }
-        return `Sorry, ${safeFactName} is currently out of stock.`;
-      }
+      return `Yes, ${subject} is available, at ${fact.effectivePrice} ${fact.currency}.`;
     }
+    return `${this.unavailableSentence(responseLanguage, responseScript, subject)}${hasVariant ? this.inStockOptions(fact, responseLanguage, responseScript) : ''}`;
+  }
+
+  /** XS, S, M, L, XL… then numbers ascending; anything else keeps its order. */
+  private static sortSizes(sizes: string[]): string[] {
+    const letter = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '4XL', '5XL'];
+    const rank = (size: string) => {
+      const index = letter.indexOf(size.toUpperCase());
+      if (index >= 0) return index;
+      const number = Number(size.replace(',', '.'));
+      return Number.isFinite(number) ? 100 + number : 10000;
+    };
+    return [...sizes].sort((a, b) => rank(a) - rank(b));
+  }
+
+  /** "unavailable" as a short note after a price, in the reply's language. */
+  private static unavailableNote(lang: string, script?: string): string {
+    if (lang === 'fr') return 'indisponible pour le moment';
+    if (lang === 'ar') return 'غير متوفر حالياً';
+    if (lang === 'darija') return script === 'arabizi' ? 'ma b9ach daba' : 'ما بقاش حالياً';
+    return 'currently unavailable';
+  }
+
+  /** "Sorry, <item> is not available right now." */
+  private static unavailableSentence(lang: string, script?: string, subject?: string): string {
+    if (lang === 'fr') return subject ? `Désolé, ${subject} n'est plus disponible pour le moment.` : `Cet article n'est plus disponible pour le moment.`;
+    if (lang === 'ar') return subject ? `عذراً، ${subject} غير متوفر حالياً.` : 'هذا المنتج غير متوفر حالياً.';
+    if (lang === 'darija') {
+      if (script === 'arabizi') return subject ? `Smeh liya, ${subject} ma b9ach daba.` : 'Had lproduit ma b9ach daba.';
+      return subject ? `سمح ليا، ${subject} ما بقاش حالياً.` : 'هاد المنتوج ما بقاش حالياً.';
+    }
+    return subject ? `Sorry, ${subject} is not available right now.` : 'This item is not available right now.';
+  }
+
+  /** The options still available, grouped by colour: " Still available: Noir (52, 56)." */
+  private static inStockOptions(fact: ProductLookupResult, lang: string, script?: string): string {
+    const arabicScript = lang === 'ar' || (lang === 'darija' && script !== 'arabizi');
+    const sep = arabicScript ? '، ' : ', ';
+    const byColor = new Map<string, string[]>();
+    for (const v of fact.product.variants || []) {
+      if ((v as any).active === false || !(Number(v.stock) > 0)) continue;
+      const color = (v.color || '').trim(), size = (v.size || '').trim();
+      if (!color && !size) continue;
+      const list = byColor.get(color) || [];
+      if (size && !list.includes(size)) list.push(size);
+      byColor.set(color, list);
+    }
+    const options = [...byColor.entries()].map(([color, sizes]) => color && sizes.length ? `${color} (${AnswerComposer.sortSizes(sizes).join(sep)})` : color || AnswerComposer.sortSizes(sizes).join(sep)).join(' · ');
+    if (!options) return '';
+    if (lang === 'fr') return ` Encore disponible : ${options}.`;
+    if (lang === 'ar') return ` المتوفر حالياً: ${options}.`;
+    if (lang === 'darija') return script === 'arabizi' ? ` Ba9i kayn: ${options}.` : ` باقي كاين: ${options}.`;
+    return ` Still available: ${options}.`;
   }
 
   public static readonly POLICY_HEADINGS: Record<string, Record<string, string>> = {
@@ -1166,7 +1180,7 @@ Live Store Catalog Fact (Authoritative - DO NOT ALTER):
 Product: ${fact.displayName}
 SKU: ${fact.product.sku}
 Price: ${fact.effectivePrice} ${fact.currency}
-Stock: ${fact.inStock ? `In stock (${fact.availableStock})` : 'Out of stock'}
+Availability: ${fact.inStock ? 'Available' : 'Currently unavailable'} (never state stock quantities to the customer)
 Description: ${fact.displayDescription}
 ` : '';
 
@@ -1218,10 +1232,10 @@ ${turnDecision.inputQuery || ''}
         // If LLM claimed out of stock when product is actually in stock:
         if (fact.inStock && (answer.toLowerCase().includes('out of stock') || answer.toLowerCase().includes('rupture de stock') || answer.includes('غير متوفر') || answer.includes('مسالي'))) {
           answer = answer
-            .replace(/out of stock/gi, `in stock (${fact.availableStock} available)`)
-            .replace(/rupture de stock/gi, `en stock (${fact.availableStock} disponibles)`)
-            .replace(/غير متوفر حالياً/g, `متوفر في المخزون (${fact.availableStock} قطع)`)
-            .replace(/مسالي حالياً/g, `كاين فالمخزون (${fact.availableStock} بياسات)`);
+            .replace(/out of stock/gi, 'available')
+            .replace(/rupture de stock/gi, 'disponible')
+            .replace(/غير متوفر حالياً/g, 'متوفر')
+            .replace(/مسالي حالياً/g, 'كاين');
         }
       }
 

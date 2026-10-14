@@ -291,7 +291,7 @@ describe('Ecommerce Attribute Semantic Contract (RC-ECOM-2)', () => {
         responseScript: 'latin'
       });
 
-      expect(response).toContain('do not specify this particular feature');
+      expect(response).toContain("I don't have that detail");
     });
   });
 });

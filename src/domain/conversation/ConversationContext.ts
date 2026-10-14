@@ -22,6 +22,9 @@ export interface ConversationTurn {
 
 import { SupportedLanguage, LanguageDetector } from '../faq/FaqMatcher';
 
+/** Words that mark Modern Standard Arabic rather than Darija. */
+const MSA_MARKERS = /(?<![\p{L}])(?:هل|أريد|اريد|نريد|لماذا|ماذا|كيف|أين|متى|اسمي|عنواني|هاتفي|رقمي|الذي|التي|سوف|ليس|لست|نعم|لكم|من فضلك|لو سمحت|يمكنني|يمكنك|أستطيع|هذا|هذه|ذلك|تلك|أيضا|أيضاً|جداً|جدا)(?![\p{L}])/u;
+
 export interface ProductContext {
   selectedProductId?: string | null;
   selectedVariantId?: string | null;
@@ -157,6 +160,9 @@ export function buildConversationContext(params: BuildConversationContextParams)
   if (previousLang && isAmbiguous) {
     effectiveLanguage = previousLang;
   } else if (detectedLang === 'ar' && (previousLang || accountLang) === 'darija' && /^(?:سلام|السلام عليكم|مرحبا)[.!؟\s]*$/u.test(params.currentMessageText || '')) {
+    effectiveLanguage = 'darija';
+  } else if (detectedLang === 'ar' && previousLang === 'darija' && !MSA_MARKERS.test(params.currentMessageText || '')) {
+    // A name, address or number in Arabic script is not a switch to MSA.
     effectiveLanguage = 'darija';
   } else {
     effectiveLanguage = detectedLang || previousLang || accountLang || 'en';

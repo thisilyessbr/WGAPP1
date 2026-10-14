@@ -20,6 +20,9 @@ export function resolveGroundedAnswer(raw: string, question: string, language: s
   if (!match) return /^(?:CLARIFY|UNCONFIRMED)\b/u.test(text) ? 'UNANSWERABLE' : text;
   const phrase=match[2].trim();
   if (!phrase || phrase.length>160 || !question.toLocaleLowerCase().includes(phrase.toLocaleLowerCase())) return 'UNANSWERABLE';
+  // Quoting the whole question back ("what do you mean by 'and how long?'") is not a clarification.
+  const bare=(value: string) => value.replace(/[sp{P}]+/gu,'').toLocaleLowerCase();
+  if (bare(phrase).length >= bare(question).length*0.8) return 'UNANSWERABLE';
   if (match[1]==='CLARIFY') {
     if (language==='fr') return `Que voulez-vous dire par « ${phrase} » ?`;
     if (language==='ar') return `ما الذي تقصده بعبارة «${phrase}»؟`;
@@ -27,9 +30,9 @@ export function resolveGroundedAnswer(raw: string, question: string, language: s
     if (language==='darija') return `شنو كتعني بـ «${phrase}»؟ ممكن توضح ليا؟`;
     return `What do you mean by “${phrase}”?`;
   }
-  if (language==='fr') return `Je ne peux pas confirmer « ${phrase} » avec les informations disponibles. Notre équipe peut vérifier avec vous ici.`;
-  if (language==='ar') return `لا أستطيع تأكيد «${phrase}» بالمعلومات المتوفرة. يمكن لفريقنا التحقق معك هنا.`;
-  if (language==='darija' && script==='arabizi') return `Ma n9drch n2ekked "${phrase}" b lma3lomat li 3ndi. L-equipe t9der t2ekked m3ak hna.`;
-  if (language==='darija') return `ما نقدرش نأكد «${phrase}» بالمعلومات اللي عندي. الفريق يقدر يتأكد معاك هنا.`;
-  return `I cannot confirm “${phrase}” from the available information. Our team can check with you here.`;
+if (language==='fr') return `Je ne trouve pas « ${phrase} » dans notre liste. Notre équipe peut vous le confirmer ici.`;
+  if (language==='ar') return `لم أجد «${phrase}» ضمن قائمتنا. يمكن لفريقنا تأكيد ذلك لك هنا.`;
+  if (language==='darija' && script==='arabizi') return `Ma l9itch "${phrase}" f la liste dyalna. Lfari9 dyalna y9der y2ekked lik hna.`;
+  if (language==='darija') return `ما لقيتش «${phrase}» فاللائحة ديالنا. الفريق ديالنا يقدر يأكد ليك هنا.`;
+  return `I can't find “${phrase}” in our list. Our team can confirm it for you here.`;
 }

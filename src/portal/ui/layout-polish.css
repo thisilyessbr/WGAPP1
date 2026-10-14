@@ -1,0 +1,33 @@
+/* Layout polish for the client workspace and the admin console. Loaded last. */
+
+/* Outcome cards: icon and label, then a clear number, then the note. */
+.outcome-card .outcome-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}
+.outcome-metric{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"icon label" "value value" "note note";align-items:center;column-gap:10px;row-gap:4px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--raised);min-width:0}
+.outcome-metric .metric-symbol{grid-area:icon;position:static;display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--soft);color:var(--green);font-size:14px}
+.outcome-metric>p{grid-area:label;margin:0;font-size:12px;font-weight:650;color:var(--muted);line-height:1.3}
+.outcome-metric>strong{grid-area:value;margin-top:10px;font-size:28px;font-weight:750;letter-spacing:-.03em;line-height:1.05;color:var(--text)}
+.outcome-metric>small{grid-area:note;font-size:11px;color:var(--muted);line-height:1.4}
+
+/* Compact filters (admin outcomes) look like the other controls. */
+.admin-outcome-controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.small-select{min-height:36px;min-width:120px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer}
+.small-select:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+
+/* Inbox filters wrap instead of being cut off. */
+.inbox-filter-bar{flex-wrap:wrap;overflow:visible}
+
+/* Admin client page: header actions sit on one line when there is room. */
+.admin-account-page .page-heading .actions{max-width:none;flex-wrap:wrap;gap:10px}
+.page-heading .actions .btn{white-space:nowrap}
+
+/* Activity rows read as sentences, not codes. */
+.activity-item p{text-transform:none;font-weight:600}
+
+@media(max-width:760px){
+  .outcome-card .outcome-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .outcome-metric{padding:14px}
+  .outcome-metric>strong{font-size:24px}
+  .admin-outcome-controls{justify-content:flex-start;width:100%}
+  .small-select{flex:1;min-width:0}
+  .admin-account-page .page-heading .actions{justify-content:flex-start}
+}
