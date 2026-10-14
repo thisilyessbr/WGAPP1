@@ -183,10 +183,14 @@ describe('PHASE WHATSAPP-DURABLE-QUEUE-AUDIT-FIX-40: PostgreSQL Durable Queue In
 
     await queue.enqueue(job, job.partitionKey);
 
+    // A deliberately short per-job limit still reaches the terminal state.
+    await prisma.whatsAppMessageJob.update({ where: { wamid }, data: { maxAttempts: 3 } });
+
     // Attempt 1
     const claim1 = await queue.claimNextJob();
     expect(claim1).not.toBeNull();
     await queue.failJob(claim1!.id, new Error('Temporary API error'), 0); // 0s backoff for test
+    await prisma.whatsAppMessageJob.update({ where: { wamid }, data: { availableAt: new Date(0) } });
 
     let record = await prisma.whatsAppMessageJob.findUnique({ where: { wamid } });
     expect(record?.status).toBe('PENDING');
@@ -196,6 +200,7 @@ describe('PHASE WHATSAPP-DURABLE-QUEUE-AUDIT-FIX-40: PostgreSQL Durable Queue In
     const claim2 = await queue.claimNextJob();
     expect(claim2).not.toBeNull();
     await queue.failJob(claim2!.id, new Error('Temporary API error'), 0);
+    await prisma.whatsAppMessageJob.update({ where: { wamid }, data: { availableAt: new Date(0) } });
 
     record = await prisma.whatsAppMessageJob.findUnique({ where: { wamid } });
     expect(record?.status).toBe('PENDING');
@@ -209,6 +214,36 @@ describe('PHASE WHATSAPP-DURABLE-QUEUE-AUDIT-FIX-40: PostgreSQL Durable Queue In
     record = await prisma.whatsAppMessageJob.findUnique({ where: { wamid } });
     expect(record?.status).toBe('FAILED');
     expect(record?.lastError).toBe('Final failure');
+  });
+
+  it('keeps a waiting question after three temporary failures and resumes it after restart', async () => {
+    const { tenantId, accountA } = await createTestFixture('extended-recovery');
+    const wamid = `wamid.recover.${Date.now()}`;
+    const job = makeJob(tenantId, accountA.id, 'user-recovery', wamid, 'Waiting question');
+    await queue.enqueue(job, job.partitionKey);
+    // Match the production migration even when the isolated test schema has the old default.
+    await prisma.whatsAppMessageJob.update({ where: { wamid }, data: { maxAttempts: 32 } });
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const claimed = await queue.claimNextJob();
+      expect(claimed?.wamid).toBe(wamid);
+      await queue.failJob(claimed!.id, 'Temporary provider outage', 0);
+      await prisma.whatsAppMessageJob.update({ where: { wamid }, data: { availableAt: new Date(0) } });
+    }
+
+    const waiting = await prisma.whatsAppMessageJob.findUnique({ where: { wamid } });
+    expect(waiting?.status).toBe('PENDING');
+    expect(waiting?.maxAttempts).toBe(32);
+
+    const restarted = new PostgresMessageQueue(prisma, { workerId: 'restarted-worker' });
+    const resumed = await restarted.claimNextJob();
+    expect(resumed?.wamid).toBe(wamid);
+    await restarted.completeJob(resumed!.id, { response: 'Recovered answer', outboundStatus: 'SENT' });
+
+    const completed = await prisma.whatsAppMessageJob.findUnique({ where: { wamid } });
+    expect(completed?.status).toBe('COMPLETED');
+    expect(completed?.response).toBe('Recovered answer');
+    expect(await prisma.whatsAppMessageJob.count({ where: { wamid } })).toBe(1);
   });
 
   it('7. Stale worker crash: uncompleted PROCESSING job recovers after lease expiration', async () => {

@@ -133,6 +133,7 @@ export class DeepSeekProvider implements LLMProvider {
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.apiKey },
           body: JSON.stringify({
             model, messages, temperature, max_tokens: maxTokens,
+            ...(options?.responseFormat === 'json_object' ? { response_format: { type: 'json_object' } } : {}),
             // Customer support classification and short grounded answers do not need
             // the current API's default high-effort thinking mode.
             thinking: { type: 'disabled' }

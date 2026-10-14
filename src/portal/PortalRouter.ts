@@ -5,31 +5,35 @@ import { PortalStore } from './PortalStore';
 import { PortalAuth, hashPassword, hashToken } from './PortalAuth';
 import { PortalConnections } from './PortalConnections';
 import { PortalDocuments } from './PortalDocuments';
+import { PortalProductImages } from './PortalProductImages';
 import { EMPTY_BUSINESS, PortalError, PortalPrincipal, PortalProfile, PortalPlan } from './types';
 import { allowed, compileBusiness, email, integer, list, object, text, validateAdminConfig, validatePlan } from './validation';
-import { ChatbotDependencies } from '../bootstrap';
-import { ConversationAutomationService } from '../domain/conversation/ConversationAutomationService';
+import { ConversationEngine } from '../domain/conversation/ConversationEngine';
+import { responseMediaStorage } from '../domain/conversation/ResponseMediaContext';
+import { AutomationTransitionError, ConversationAutomationService, ownershipStateFromSnapshot } from '../domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue } from '../domain/channel/whatsapp/WhatsAppOutboundQueue';
 import { WhatsAppNumberService } from '../domain/channel/whatsapp/WhatsAppNumberService';
 import { ClientOwnedMetaService } from '../domain/channel/whatsapp/ClientOwnedMetaService';
+import { voiceProviderConfigured, voiceTranscriptionAvailable } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
+import { logger } from '../utils/logger';
+import { InstagramService } from '../domain/channel/instagram/InstagramService';
+import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
+import { PortalStaffActions } from './PortalStaffActions';
 import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService';
 import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
-import { logger } from '../utils/logger';
 import { BoundedRateLimiter } from '../utils/rateLimiter';
-import { PortalProductImages } from './PortalProductImages';
 import { imageId } from './validation';
-import { outboundMediaContext, ChatMedia } from '../domain/conversation/AnswerComposer';
-import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
 export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; }
 export interface PortalRouterDeps {
   prisma: any;
-  conversationEngine?: any;
+  conversationEngine?: Pick<ConversationEngine, 'previewMessage'>;
   qrSessionManager?: any;
   conversationAutomationService?: ConversationAutomationService;
   whatsAppOutboundQueue?: OutboundMessageQueue;
   whatsAppNumberService?: WhatsAppNumberService;
+  instagramService?: InstagramService;
   outcomeTrackingService?: OutcomeTrackingService;
   [key: string]: any;
 }
@@ -37,10 +41,14 @@ const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.
 const clientProfile = (p: PortalProfile) => {
   const entitledModules = p.planSnapshot?.modules || [];
   const commerceActive = entitledModules.includes('commerce') && p.adminConfig?.capabilities?.ecommerceEnabled !== false;
-  const effectiveModules = commerceActive ? entitledModules : entitledModules.filter(module => module !== 'commerce');
   return { accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
-    requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null, reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen,
-    autoPublish: p.autoPublish, effectiveModules, productMode: commerceActive ? 'COMMERCE' : 'STANDARD', commerceActive };
+  requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null,
+  commerceActive, productMode: commerceActive ? 'COMMERCE' : 'STANDARD',
+  effectiveModules: commerceActive ? entitledModules : entitledModules.filter(module => module !== 'commerce'),
+  reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
+  voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
+  qrAllowed:p.qrAllowed,qrConsentAt:p.qrConsentAt,
+  voiceNotesAvailable: p.voiceNotesAllowed && voiceTranscriptionAvailable(p.voiceTranscriptionProvider) };
 };
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
@@ -65,25 +73,24 @@ function validateAccountChanges(changes: Record<string, any>) {
 }
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
-  const productImages = new PortalProductImages(store);
-  const automationService = deps.conversationAutomationService || new ConversationAutomationService(services.store.db as any);
-  const outcomeService = deps.outcomeTrackingService || new OutcomeTrackingService(services.store.db as any);
   const portalLeads = new PortalLeads(store);
-  const router = Router(), authRouter = Router(), client = Router(), admin = Router();
+  const staffActions = new PortalStaffActions(store);
+  const photos = new PortalProductImages(store);
+  const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
   const serveImage = async (req: Request, res: Response, id: string, accountId?: string) => {
     const validId = imageId(id), publishedOnly = !accountId;
     // Image rows are content-addressed and never rewritten, so the stored SHA-256 is a strong validator.
     // Revalidation still checks visibility, so suspension or unpublishing takes effect without loading bytes.
     const conditional = req.headers['if-none-match'];
     if (conditional) {
-      const { hash } = await productImages.read(validId, accountId, publishedOnly, true);
+      const { hash } = await photos.read(validId, accountId, publishedOnly, true);
       if (conditional.split(',').some(tag => tag.trim().replace(/^W\//, '') === `"${hash}"`)) {
         res.setHeader('ETag', `"${hash}"`);
         res.setHeader('Cache-Control', accountId ? 'private, no-store' : 'public, max-age=3600');
         return void res.status(304).end();
       }
     }
-    const { bytes, hash } = await productImages.read(validId, accountId, publishedOnly);
+    const { bytes, hash } = await photos.read(validId, accountId, publishedOnly);
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', 'inline');
@@ -92,6 +99,22 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     res.setHeader('Cache-Control', accountId ? 'private, no-store' : 'public, max-age=3600');
     res.send(bytes);
   };
+  // Throttle before multer so rejected uploads are never buffered.
+  const throttlePhotoUpload = (accountId: (req: PortalRequest) => string) => (req: Request, _res: Response, next: express.NextFunction) => {
+    Promise.resolve().then(() => store.throttle('photo-upload:' + accountId(req as PortalRequest), 50, 3600)).then(() => next(), next);
+  };
+  const automationService = deps.conversationAutomationService || new ConversationAutomationService(services.store.db as any);
+  // Created on first use: a router built without a store (e.g. the app shell)
+  // must not dereference the database at construction time.
+  let outcomeServiceInstance: OutcomeTrackingService | undefined = deps.outcomeTrackingService;
+  const outcomeService = new Proxy({} as OutcomeTrackingService, {
+    get: (_target, prop) => {
+      outcomeServiceInstance ??= new OutcomeTrackingService(services.store.db as any);
+      const value = (outcomeServiceInstance as any)[prop];
+      return typeof value === 'function' ? value.bind(outcomeServiceInstance) : value;
+    }
+  });
+  const router = Router(), authRouter = Router(), client = Router(), admin = Router();
   // In-memory per-IP limiter (req.ip honours trust proxy); generous enough for Meta media fetches and catalog browsing.
   const publicImageLimiter = new BoundedRateLimiter({ windowMs: 60000, maxRequests: 300, maxKeys: 10000 });
   router.get('/product-images/:id', (req, res, next) => {
@@ -105,7 +128,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   router.get('/portal/settings', (_req, res) => send(res, { emailVerificationSkipped: auth.skipsEmail() }));
   authRouter.use((req, _res, next) => { try { if (!['GET', 'HEAD'].includes(req.method)) auth.checkOrigin(req); next(); } catch (error) { next(error); } });
   authRouter.post('/signup', route(async (req, res) => {
-    const input = object(req.body); allowed(input, ['email', 'name', 'password', 'planId']);
+    const input = object(req.body); allowed(input, ['email', 'name', 'password']);
     send(res, await auth.signup(input, req.ip || 'unknown'), 201);
   }));
   authRouter.post('/login', route(async (req, res) => { const input = object(req.body); allowed(input, ['email', 'password']); send(res, await auth.login(input, req.ip || 'unknown', res)); }));
@@ -131,7 +154,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       (req as PortalRequest).portal = p; next();
     }).catch(next);
   });
-  // Freeze chatbot data edits without interrupting inbox, leads, or WhatsApp operations.
+  // Freeze only chatbot data edits; inbox, leads, plans and WhatsApp remain usable.
   client.use((req, _res, next) => {
     if (['GET', 'HEAD'].includes(req.method) || !(/^\/business$|^\/submit$|^\/documents(?:\/|$)|^\/product-images(?:\/|$)/.test(req.path))) return next();
     store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
@@ -139,19 +162,27 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         ? next(new PortalError(403, 'CLIENT_EDITING_FROZEN', 'Chatbot information is locked by the administrator.'))
         : next()).catch(next);
   });
+  client.use('/leads', (req, _res, next) => {
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => profile.planSnapshot?.modules.some(module => module === 'services' || module === 'commerce')
+        ? next()
+        : next(new PortalError(403, 'REQUESTS_NOT_INCLUDED')))
+      .catch(next);
+  });
   client.get('/profile', route(async (req, res) => send(res, { profile: clientProfile(await store.profile(req.portal.accountId!, req.portal.tenantId!)) })));
-  client.get('/product-images', route(async (req, res) => send(res, { images: await productImages.list(req.portal.accountId!) })));
-  client.get('/product-images/:id', route(async (req, res) => serveImage(req, res, String(req.params.id), req.portal.accountId!)));
-  const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
-  // Auth, CSRF and the editing-freeze check run in the router-level middleware above; throttle before multer so rejected uploads are never buffered.
-  const throttleImageUpload = (accountId: (req: PortalRequest) => Promise<string>) => (req: Request, _res: Response, next: express.NextFunction) => {
-    Promise.resolve(accountId(req as PortalRequest)).then(id => store.throttle('image-upload:' + id, 30, 3600)).then(() => next(), next);
-  };
-  client.post('/product-images', throttleImageUpload(async req => req.portal.accountId!), imageUpload, route(async (req, res) => {
-    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
-    send(res, await productImages.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
+  client.get('/actions', route(async (req, res) => send(res, await staffActions.queue(req.portal.tenantId!, req.portal.accountId!))));
+  client.post('/conversations/:id/answer-feedback', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['messageId', 'note']);
+    const result = await staffActions.report(req.portal.tenantId!, req.portal.accountId!, String(req.params.id),
+      text(body.messageId, 100), req.portal.user.id, text(body.note, 1000));
+    send(res, { feedback: result }, 201);
   }));
-  client.delete('/product-images/:id', route(async (req, res) => { await productImages.remove(req.portal.user.id, req.portal.accountId!, imageId(String(req.params.id))); send(res, { success: true }); }));
+  client.patch('/voice-notes', route(async (req, res) => {
+    const input = object(req.body); allowed(input, ['enabled']);
+    if (typeof input.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    if (input.enabled && !voiceTranscriptionAvailable((await store.profile(req.portal.accountId!, req.portal.tenantId!)).voiceTranscriptionProvider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Voice notes are not configured yet.');
+    send(res, { profile: clientProfile(await store.setVoiceNotesEnabled(req.portal.user.id, req.portal.accountId!, req.portal.tenantId!, input.enabled)) });
+  }));
   client.get('/dashboard', route(async (req, res) => {
     const accountId = req.portal.accountId!, tenantId = req.portal.tenantId!;
     const [profile, connections, stats, portalDocuments, recentConversations, leadSummary] = await Promise.all([
@@ -160,7 +191,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       store.stats(accountId, tenantId, 30),
       documents.list(accountId),
       store.db.$queryRaw<any[]>`SELECT id,status,"messageCount","humanRequested","updatedAt","customerId" FROM "Conversation"
-        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "customerId" NOT LIKE 'portal-preview:%'
+        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
+          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
         ORDER BY "updatedAt" DESC LIMIT 6`,
       portalLeads.summary(tenantId, accountId)
     ]);
@@ -177,6 +209,93 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       recentConversations: recentConversations.map(c => ({ id: c.id, status: c.status, messageCount: c.messageCount, humanRequested: c.humanRequested, updatedAt: c.updatedAt, customerLabel: maskCustomer(c.customerId) }))
     });
   }));
+  const leadRows = async (accountId: string, tenantId: string, limit = 1000, offset = 0, status = '') => store.db.$queryRaw<any[]>`
+    SELECT l.id,l.status,l.interest,l.note,l.details,l."followUpAt",l."createdAt",l."updatedAt",c."externalId" AS "contact",
+      COALESCE(l."sourceConversationId",conv.id) AS "conversationId",ws."collectedData" AS "orderDetails",ws."workflowId"
+    FROM "Lead" l JOIN "Customer" c ON c.id=l."customerId" AND c."tenantId"=l."tenantId"
+    LEFT JOIN LATERAL (SELECT id FROM "Conversation" WHERE "tenantId"=l."tenantId"
+      AND "accountId"=l."accountId" AND "customerId"=l."customerId"
+      AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%') ORDER BY "updatedAt" DESC LIMIT 1) conv ON true
+    LEFT JOIN "WorkflowSession" ws ON ws.id=l."sourceWorkflowSessionId"
+      AND ws."tenantId"=l."tenantId" AND ws."conversationId"=COALESCE(l."sourceConversationId",conv.id)
+      AND ws.status='COMPLETED'
+      AND (ws."workflowId" !~* '(checkout|cash_on_delivery|cod_order)'
+        OR ws."collectedData"->>'_confirmed'='true'
+        OR (ws."collectedData"->>'_confirmed' IS NULL AND ws."stateId"='done'))
+    WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND (${status}='' OR l.status=${status})
+      AND (c."externalId" IS NULL OR c."externalId" NOT LIKE 'portal-preview:%')
+    ORDER BY l."updatedAt" DESC,l.id DESC LIMIT ${limit} OFFSET ${offset}`;
+  client.get('/team', route(async (req, res) => send(res, { members: await store.db.$queryRaw<any[]>`
+    SELECT u.id,u.name FROM "PortalMembership" pm JOIN "PortalUser" u ON u.id=pm."userId"
+    WHERE pm."tenantId"=${req.portal.tenantId!} AND pm."accountId"=${req.portal.accountId!} AND u.disabled=false
+    ORDER BY u.name LIMIT 50` })));
+  client.get('/leads', route(async (req, res) => {
+    const status = String(req.query.status || 'ALL').toUpperCase();
+    const view = String(req.query.view || 'ALL').toUpperCase();
+    const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
+    const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
+    send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset, view));
+  }));
+  client.get('/leads/summary', route(async (req, res) =>
+    send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!))));
+  client.patch('/leads/:id', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['status', 'note', 'followUpAt', 'details', 'assignedToUserId']);
+    if (!Object.keys(body).length) throw new PortalError(400, 'NO_LEAD_CHANGES');
+    const changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null; details?: Record<string, string>; assignedToUserId?: string | null } = {};
+    if (body.assignedToUserId !== undefined) {
+      if (body.assignedToUserId !== null && (typeof body.assignedToUserId !== 'string' || body.assignedToUserId.length > 100)) throw new PortalError(400, 'INVALID_ASSIGNEE');
+      changes.assignedToUserId = body.assignedToUserId || null;
+    }
+    if (body.status !== undefined) {
+      if (typeof body.status !== 'string' || !LEAD_STAGES.includes(body.status as LeadStage)) throw new PortalError(400, 'INVALID_LEAD_STAGE');
+      changes.status = body.status as LeadStage;
+    }
+    if (body.note !== undefined) {
+      if (body.note !== null && (typeof body.note !== 'string' || body.note.length > 2000)) throw new PortalError(400, 'INVALID_LEAD_NOTE');
+      changes.note = body.note?.trim() || null;
+    }
+    if (body.followUpAt !== undefined) {
+      if (body.followUpAt !== null) {
+        if (typeof body.followUpAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(body.followUpAt) || !Number.isFinite(Date.parse(body.followUpAt))) throw new PortalError(400, 'INVALID_FOLLOW_UP_DATE');
+        const [year, month, day] = body.followUpAt.slice(0, 10).split('-').map(Number);
+        if (new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) !== body.followUpAt.slice(0, 10)) throw new PortalError(400, 'INVALID_FOLLOW_UP_DATE');
+      }
+      changes.followUpAt = body.followUpAt === null ? null : new Date(body.followUpAt);
+    }
+    if (body.details !== undefined) {
+      const details = object(body.details);
+      allowed(details, ['customerName', 'request', 'service', 'product', 'quantity', 'city', 'address', 'preferredTime']);
+      changes.details = Object.fromEntries(Object.entries(details).map(([key, value]) => [key, text(value, key === 'address' || key === 'request' ? 500 : 150)]));
+    }
+    send(res, { lead: await portalLeads.update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id), req.portal.user.id, changes) });
+  }));
+  client.get('/leads/export.csv', route(async (req, res) => {
+    const cell = (value: unknown) => {
+      const raw = String(value ?? '').replace(/^[\s]*[=+\-@]/, "'$&");
+      return '"' + raw.replace(/"/g, '""') + '"';
+    };
+    const headers = ['Contact', 'Status', 'Request', 'Customer name', 'Service', 'Product', 'Quantity', 'City', 'Address', 'Preferred time', 'Payment', 'Follow up at', 'Note', 'Created', 'Updated', 'Conversation'];
+    await store.audit(req.portal.user.id, req.portal.accountId!, 'LEADS_EXPORTED', {});
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="relayqo-leads.csv"');
+    res.write('\uFEFF' + headers.map(cell).join(',') + '\r\n');
+    for (let offset = 0; ; offset += 1000) {
+      const rows = await leadRows(req.portal.accountId!, req.portal.tenantId!, 1000, offset);
+      for (const row of rows) {
+        const d = row.orderDetails && typeof row.orderDetails === 'object' && !Array.isArray(row.orderDetails) ? row.orderDetails : {};
+        const ticket = row.details && typeof row.details === 'object' && !Array.isArray(row.details) ? row.details : {};
+        res.write([row.contact, row.status, ticket.request || row.interest || '', ticket.customerName || d.customer_name || d.name || '',
+          ticket.service || d.service || '', ticket.product || d.product || d.produit || d.product_name || '', ticket.quantity || d.quantity || d.quantite || '',
+          ticket.city || d.city || d.ville || d.delivery_city || '', ticket.address || d.address || d.adresse || d.delivery_address || '',
+          ticket.preferredTime || d.preferred_time || d.date || '', d.payment || d.payment_method || (String(row.workflowId || '').startsWith('checkout_') ? 'Cash on delivery' : ''),
+          row.followUpAt?.toISOString?.(), row.note || '', row.createdAt?.toISOString?.(), row.updatedAt?.toISOString?.(), row.conversationId || ''].map(cell).join(',') + '\r\n');
+      }
+      if (rows.length < 1000) break;
+    }
+    res.end();
+  }));
+  client.get('/leads/:id', route(async (req, res) =>
+    send(res, { lead: await portalLeads.get(req.portal.tenantId!, req.portal.accountId!, String(req.params.id)) })));
   client.put('/business', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['data', 'revision']);
     send(res, { profile: clientProfile(await store.saveDraft(req.portal.user.id, req.portal.accountId!, req.portal.tenantId!, body.data, integer(body.revision, 1))) });
@@ -184,6 +303,24 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   client.post('/submit', route(async (req, res) => send(res, { profile: clientProfile(await store.submit(req.portal.user.id, req.portal.accountId!, integer(req.body?.revision, 1))) })));
   client.post('/plan-request', route(async (req, res) => { await store.requestPlan(req.portal.user.id, req.portal.accountId!, text(req.body?.planId, 100)); send(res, { success: true }); }));
   client.get('/documents', route(async (req, res) => send(res, { documents: await documents.list(req.portal.accountId!) })));
+  client.get('/product-images/:id', route(async (req, res) => serveImage(req, res, String(req.params.id), req.portal.accountId!)));
+  client.post('/product-images', throttlePhotoUpload(req => req.portal.accountId!), photoUpload, route(async (req, res) => {
+    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
+    send(res, await photos.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
+  }));
+  client.delete('/product-images/:id', route(async (req, res) => {
+    await photos.remove(req.portal.user.id, req.portal.accountId!, imageId(String(req.params.id)));
+    send(res, { success: true });
+  }));
+  admin.get('/accounts/:id/product-images/:imageId', route(async (req, res) => serveImage(req, res, String(req.params.imageId), String(req.params.id))));
+  admin.post('/accounts/:id/product-images', throttlePhotoUpload(req => String(req.params.id)), photoUpload, route(async (req, res) => {
+    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
+    send(res, await photos.upload(req.portal.user.id, String(req.params.id), req.file.originalname, req.file.buffer, true), 201);
+  }));
+  admin.delete('/accounts/:id/product-images/:imageId', route(async (req, res) => {
+    await photos.remove(req.portal.user.id, String(req.params.id), imageId(String(req.params.imageId)), true);
+    send(res, { success: true });
+  }));
   const downloadDocument = async (res: Response, actorId: string, accountId: string, id: string) => {
     const doc = (await store.db.$queryRaw<any[]>`SELECT filename,bytes FROM "PortalDocument" WHERE id=${id} AND "accountId"=${accountId}`)[0];
     if (!doc) throw new PortalError(404, 'DOCUMENT_NOT_FOUND');
@@ -209,21 +346,32 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     ]);
     const numberLimit = profile.planSnapshot?.limits.numbers ?? 0;
     const connectedNumberCount = accountConnections.filter(connection => connection.numberRecordId).length;
-    const canAddNumber = numberLimit === -1 || connectedNumberCount < numberLimit;
     send(res, {
       connections: accountConnections,
-      canAddNumber,
-      qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()),
+      canAddNumber: numberLimit === -1 || connectedNumberCount < numberLimit,
+      qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()) && profile.qrAllowed && Boolean(profile.planSnapshot?.modules.includes('qr')) && ['APPROVED','ACTIVE'].includes(profile.status),
       metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID)
         && (process.env.NODE_ENV !== 'production' || process.env.META_EMBEDDED_SIGNUP_ENABLED === 'true')
     });
   }));
-  client.post('/whatsapp/start', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.begin(req.portal)); }));
-  client.post('/whatsapp/qr', route(async (req, res) => { await store.throttle('wa-start:' + req.portal.accountId!, 5, 900); send(res, await connections.startQr(req.portal)); }));
+  client.post('/whatsapp/start', route(async (req, res) => { send(res, await connections.begin(req.portal)); }));
+  client.post('/whatsapp/discover', route(async (req, res) => {
+    const input = object(req.body); allowed(input, ['attemptId', 'stateToken', 'code']);
+    for (const key of ['attemptId', 'stateToken', 'code']) input[key] = text(input[key], key === 'code' ? 4096 : 2048);
+    if (!input.attemptId || !input.stateToken || !input.code) throw new PortalError(400, 'MISSING_META_CODE');
+    send(res, await connections.discover(req.portal, input as { attemptId: string; stateToken: string; code: string }));
+  }));
+  client.post('/whatsapp/qr', route(async (req, res) => {
+    const body=object(req.body);allowed(body,['riskAccepted']);
+    await store.throttle('wa-start:' + req.portal.accountId!, 5, 900);send(res,await connections.startQr(req.portal,body.riskAccepted));
+  }));
+  client.post('/whatsapp/:id/qr-disconnect',route(async(req,res)=>{await connections.disconnectQr(req.portal,String(req.params.id));send(res,{success:true});}));
   client.get('/whatsapp/:id/qr', route(async (req, res) => send(res, await connections.qr(req.portal, String(req.params.id)))));
   client.post('/whatsapp/complete', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['attemptId', 'stateToken', 'code', 'wabaId', 'phoneNumberId', 'displayPhoneNumber', 'pin']);
-    for (const key of ['attemptId', 'stateToken', 'code', 'wabaId', 'phoneNumberId']) input[key] = text(input[key], key === 'code' ? 4096 : 2048);
+    for (const key of ['attemptId', 'stateToken', 'wabaId', 'phoneNumberId']) input[key] = text(input[key]);
+    if (input.code !== undefined) input.code = text(input.code, 4096);
+    if (!input.attemptId || !input.stateToken || !input.wabaId || !input.phoneNumberId) throw new PortalError(400, 'MISSING_META_NUMBER');
     if (input.pin !== undefined) { input.pin = text(input.pin, 6); if (!/^\d{6}$/.test(input.pin)) throw new PortalError(400, 'INVALID_PIN'); }
     if (input.displayPhoneNumber !== undefined) input.displayPhoneNumber = text(input.displayPhoneNumber, 100);
     send(res, await connections.complete(req.portal, input));
@@ -250,8 +398,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
           c.status,
           c."contextData",
           c."messageCount",
+          c."automationCapped",
+          c."postCompletionCapped",
           c."humanRequested",
           c."humanRequestedAt",
+          cas."botEnabled" AS "botEnabled",
+          cas."humanTakeover" AS "humanTakeover",
+          cas."pausedUntil" AS "pausedUntil",
           c."lastMerchantViewedAt",
           c."createdAt",
           c."updatedAt",
@@ -291,10 +444,11 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
             LIMIT 1
           ) AS "lastMessageCreatedAt"
         FROM "Conversation" c
+        LEFT JOIN "ConversationAutomationState" cas ON cas."conversationId"=c.id AND cas."tenantId"=c."tenantId"
         JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
         WHERE c."tenantId" = ${tenantId}
           AND c."accountId" = ${accountId}
-          AND c."customerId" NOT LIKE 'portal-preview:%'
+          AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
       )
       SELECT *
       FROM conv_stats
@@ -302,14 +456,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     `;
 
     const filtered = rows.filter(r => {
-      let state: 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED' = 'AI_ACTIVE';
-      if (r.status === 'HUMAN_ACTIVE' || r.contextData?._portalHandoff?.ownerId) {
-        state = 'HUMAN_ACTIVE';
-      } else if (r.status === 'HANDOFF_REQUESTED' || r.humanRequested) {
-        state = 'HUMAN_REQUIRED';
-      } else if (r.status === 'RESOLVED') {
-        state = 'RESOLVED';
-      }
+      const state = ownershipStateFromSnapshot(r, r);
 
       if (statusFilter === 'open' && state === 'RESOLVED') return false;
       if (statusFilter === 'needs_human' && state !== 'HUMAN_REQUIRED') return false;
@@ -337,20 +484,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const paginated = filtered.slice(offset, offset + limit);
 
     const conversations = paginated.map(r => {
-      let state: 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED' = 'AI_ACTIVE';
-      if (r.status === 'HUMAN_ACTIVE' || r.contextData?._portalHandoff?.ownerId) {
-        state = 'HUMAN_ACTIVE';
-      } else if (r.status === 'HANDOFF_REQUESTED' || r.humanRequested) {
-        state = 'HUMAN_REQUIRED';
-      } else if (r.status === 'RESOLVED') {
-        state = 'RESOLVED';
-      }
+      const state = ownershipStateFromSnapshot(r, r);
 
       const isUnread = r.lastCustomerMessageAt !== null &&
         (!r.lastMerchantViewedAt || new Date(r.lastCustomerMessageAt) > new Date(r.lastMerchantViewedAt));
 
       return {
         id: r.id,
+        channel: String(r.customerPhone || '').startsWith('instagram:') ? 'INSTAGRAM' : 'WHATSAPP',
         status: state,
         rawStatus: r.status,
         ownership: {
@@ -362,7 +503,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         customer: {
           id: r.customerId,
           name: r.customerMetadata?.name || null,
-          phone: r.customerPhone || r.customerId
+          phone: String(r.customerPhone || '').startsWith('instagram:') ? `Instagram · ${String(r.customerPhone).split(':').at(-1)}` : (r.customerPhone || r.customerId)
         },
         lastMessage: r.lastMessageId ? {
           id: r.lastMessageId,
@@ -396,14 +537,18 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const tenantId = req.portal.tenantId!;
     const accountId = req.portal.accountId!;
     const conversationId = String(req.params.id);
-    const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
+    const requestedLimit = Number(req.query.limit || 50);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 50;
+    const beforeMessageId = typeof req.query.before === 'string' ? req.query.before : null;
 
     const convRows = await store.db.$queryRaw<any[]>`
-      SELECT c.*, cu."externalId" AS "customerPhone", cu.metadata AS "customerMetadata"
+      SELECT c.*, cas."botEnabled" AS "botEnabled",cas."humanTakeover" AS "humanTakeover",cas."pausedUntil" AS "pausedUntil",
+        cu."externalId" AS "customerPhone", cu.metadata AS "customerMetadata"
       FROM "Conversation" c
+      LEFT JOIN "ConversationAutomationState" cas ON cas."conversationId"=c.id AND cas."tenantId"=c."tenantId"
       JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
       WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId} AND c."accountId" = ${accountId}
-        AND c."customerId" NOT LIKE 'portal-preview:%'
+        AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
     `;
     const conv = convRows[0];
     if (!conv) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
@@ -416,14 +561,24 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     `;
 
     const messageRows = await store.db.$queryRaw<any[]>`
-      SELECT id, role, content, metadata, "externalId", "createdAt"
+      SELECT id, role, content, metadata, "externalId", "createdAt",
+        (SELECT f.status FROM "PortalAnswerFeedback" f
+          WHERE f."messageId"="Message".id AND f."tenantId"=${tenantId}
+            AND f."accountId"=${accountId} AND f."conversationId"=${conversationId}) AS "feedbackStatus"
       FROM "Message"
       WHERE "conversationId" = ${conversationId} AND "tenantId" = ${tenantId}
-      ORDER BY "createdAt" ASC
-      LIMIT ${limit}
+        AND (${beforeMessageId}::text IS NULL OR ("createdAt",id) < (
+          SELECT "createdAt",id FROM "Message" WHERE id=${beforeMessageId}
+            AND "conversationId"=${conversationId} AND "tenantId"=${tenantId}
+        ))
+      ORDER BY "createdAt" DESC,id DESC
+      LIMIT ${limit + 1}
     `;
-
-    const latestUserMsg = [...messageRows].reverse().find(m => m.role === 'USER');
+    const hasOlderMessages = messageRows.length > limit;
+    const pageMessages = messageRows.slice(0, limit).reverse();
+    const latestUserMsg = (await store.db.$queryRaw<any[]>`SELECT "createdAt" FROM "Message"
+      WHERE "conversationId"=${conversationId} AND "tenantId"=${tenantId} AND role='USER'
+      ORDER BY "createdAt" DESC,id DESC LIMIT 1`)[0];
     let canSendFreeform = false;
     let windowExpiresAt: Date | null = null;
     let secondsRemaining = 0;
@@ -439,18 +594,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       }
     }
 
-    let state: 'AI_ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_ACTIVE' | 'RESOLVED' = 'AI_ACTIVE';
-    if (conv.status === 'HUMAN_ACTIVE' || conv.contextData?._portalHandoff?.ownerId) {
-      state = 'HUMAN_ACTIVE';
-    } else if (conv.status === 'HANDOFF_REQUESTED' || conv.humanRequested) {
-      state = 'HUMAN_REQUIRED';
-    } else if (conv.status === 'RESOLVED') {
-      state = 'RESOLVED';
-    }
+    const state = ownershipStateFromSnapshot(conv, conv);
 
     send(res, {
       conversation: {
         id: conv.id,
+        channel: String(conv.customerPhone || '').startsWith('instagram:') ? 'INSTAGRAM' : 'WHATSAPP',
         status: state,
         rawStatus: conv.status,
         ownership: {
@@ -462,7 +611,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         customer: {
           id: conv.customerId,
           name: conv.customerMetadata?.name || null,
-          phone: conv.customerPhone || conv.customerId
+          phone: String(conv.customerPhone || '').startsWith('instagram:') ? `Instagram · ${String(conv.customerPhone).split(':').at(-1)}` : (conv.customerPhone || conv.customerId)
         },
         lastMerchantViewedAt: viewedAt,
         humanRequested: Boolean(conv.humanRequested),
@@ -476,12 +625,15 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
           secondsRemaining
         }
       },
-      messages: messageRows.map(m => ({
+      hasOlderMessages,
+      nextBefore: hasOlderMessages ? pageMessages[0]?.id : null,
+      messages: pageMessages.map(m => ({
         id: m.id,
         role: m.role,
         content: m.content,
         externalId: m.externalId,
         metadata: m.metadata || {},
+        feedbackStatus: m.feedbackStatus || null,
         createdAt: m.createdAt
       }))
     });
@@ -495,7 +647,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -531,7 +683,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -567,7 +719,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -603,7 +755,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const convRows = await store.db.$queryRaw<any[]>`
       SELECT id FROM "Conversation"
       WHERE id = ${conversationId} AND "tenantId" = ${tenantId} AND "accountId" = ${accountId}
-        AND "customerId" NOT LIKE 'portal-preview:%'
+        AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
     `;
     if (!convRows.length) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
 
@@ -643,7 +795,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       FROM "Conversation" c
       JOIN "Customer" cu ON cu.id = c."customerId" AND cu."tenantId" = c."tenantId"
       WHERE c.id = ${conversationId} AND c."tenantId" = ${tenantId} AND c."accountId" = ${accountId}
-        AND c."customerId" NOT LIKE 'portal-preview:%'
+        AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
     `;
     const conv = convRows[0];
     if (!conv) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
@@ -669,6 +821,20 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const lastUserTime = new Date(latestUserMsg.createdAt).getTime();
     if (Date.now() - lastUserTime > 24 * 60 * 60 * 1000) {
       throw new PortalError(400, 'CUSTOMER_SERVICE_WINDOW_EXPIRED', 'Customer service window has expired (24h). Free-form messages cannot be sent.');
+    }
+
+    if (String(conv.customerPhone || '').startsWith('instagram:')) {
+      if (!deps.instagramService) throw new PortalError(503, 'INSTAGRAM_UNAVAILABLE');
+      const providerId = await deps.instagramService.sendManual(accountId, tenantId, conv.customerPhone, messageText);
+      const now = new Date();
+      const messageId = randomUUID();
+      await (store.db as any).message.create({ data: { id: messageId, tenantId, conversationId, role: 'ASSISTANT', content: messageText,
+        externalId: `instagram:${providerId}`, metadata: { deliveryStatus: 'SENT', manual: true,
+          authorId: req.portal.user.id, authorName: req.portal.user.name } } });
+      await (store.db as any).conversation.update({ where: { id: conversationId }, data: { lastMerchantViewedAt: now, messageCount: { increment: 1 } } });
+      send(res, { success: true, message: { id: messageId, role: 'ASSISTANT', content: messageText, status: 'SENT',
+        metadata: { deliveryStatus: 'SENT', manual: true }, createdAt: now } }, 201);
+      return;
     }
 
     // Precondition 3: Resolve connected WhatsApp number
@@ -746,43 +912,6 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     }, 201);
   }));
 
-  // --- Client lead workspace ---
-  client.get('/leads', route(async (req, res) => {
-    const status = String(req.query.status || 'ALL').toUpperCase();
-    const limit = boundedQueryInteger(req.query.limit, 20, 1, 100);
-    const offset = boundedQueryInteger(req.query.offset, 0, 0, 1_000_000);
-    send(res, await portalLeads.list(req.portal.tenantId!, req.portal.accountId!, status, limit, offset));
-  }));
-  client.get('/leads/summary', route(async (req, res) => {
-    send(res, await portalLeads.summary(req.portal.tenantId!, req.portal.accountId!));
-  }));
-  client.get('/leads/:id', route(async (req, res) => {
-    send(res, { lead: await portalLeads.get(req.portal.tenantId!, req.portal.accountId!, String(req.params.id)) });
-  }));
-  client.patch('/leads/:id', route(async (req, res) => {
-    const body = object(req.body);
-    allowed(body, ['status', 'note', 'followUpAt']);
-    if (!Object.keys(body).length) throw new PortalError(400, 'NO_LEAD_CHANGES');
-    const changes: { status?: LeadStage; note?: string | null; followUpAt?: Date | null } = {};
-    if (body.status !== undefined) {
-      if (typeof body.status !== 'string' || !LEAD_STAGES.includes(body.status as LeadStage)) throw new PortalError(400, 'INVALID_LEAD_STAGE');
-      changes.status = body.status as LeadStage;
-    }
-    if (body.note !== undefined) {
-      if (body.note !== null && (typeof body.note !== 'string' || body.note.length > 2000)) throw new PortalError(400, 'INVALID_LEAD_NOTE');
-      changes.note = body.note?.trim() || null;
-    }
-    if (body.followUpAt !== undefined) {
-      if (body.followUpAt !== null) {
-        if (typeof body.followUpAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(body.followUpAt) || !Number.isFinite(Date.parse(body.followUpAt))) throw new PortalError(400, 'INVALID_FOLLOW_UP_DATE');
-        const [year, month, day] = body.followUpAt.slice(0, 10).split('-').map(Number);
-        if (new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) !== body.followUpAt.slice(0, 10)) throw new PortalError(400, 'INVALID_FOLLOW_UP_DATE');
-      }
-      changes.followUpAt = body.followUpAt === null ? null : new Date(body.followUpAt);
-    }
-    send(res, { lead: await portalLeads.update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id), req.portal.user.id, changes) });
-  }));
-
   // --- Client Outcome Tracking Routes ---
   client.get('/outcomes/summary', route(async (req, res) => {
     const days = boundedQueryInteger(req.query.days, 30, 1, 90);
@@ -844,12 +973,12 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS conversations,COUNT(DISTINCT (c."accountId",c."customerId"))::int AS contacts,
         COUNT(*) FILTER(WHERE c."humanRequested"=true)::int AS handoffs FROM "Conversation" c
         JOIN "PortalProfile" p ON p."accountId"=c."accountId" AND p."tenantId"=c."tenantId"
-        WHERE c."customerId" NOT LIKE 'portal-preview:%' AND c."createdAt">NOW()-INTERVAL '30 days'`,
+        WHERE NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%') AND c."createdAt">NOW()-INTERVAL '30 days'`,
       store.db.$queryRaw<any[]>`SELECT date_trunc('day',m."createdAt") AS day,
         COUNT(*) FILTER(WHERE m.role='USER')::int AS inbound,COUNT(*) FILTER(WHERE m.role='ASSISTANT')::int AS outbound
         FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId"
         JOIN "PortalProfile" p ON p."accountId"=c."accountId" AND p."tenantId"=c."tenantId"
-        WHERE c."customerId" NOT LIKE 'portal-preview:%' AND m."createdAt">NOW()-INTERVAL '14 days'
+        WHERE NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%') AND m."createdAt">NOW()-INTERVAL '14 days'
         GROUP BY day ORDER BY day`,
       store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS connected FROM "WhatsAppBusinessNumber" n
         JOIN "PortalProfile" p ON p."accountId"=n."accountId" AND p."tenantId"=n."tenantId"
@@ -884,71 +1013,16 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       JOIN "Account" a ON a.id=p."accountId" AND a."tenantId"=p."tenantId"
       LEFT JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
       LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
-      WHERE c."humanRequested"=true AND c.status IN ('HANDOFF_REQUESTED','HUMAN_ACTIVE') AND c."customerId" NOT LIKE 'portal-preview:%'
+      WHERE c."humanRequested"=true AND c.status IN ('HANDOFF_REQUESTED','HUMAN_ACTIVE') AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
       ORDER BY c."humanRequestedAt" ASC NULLS LAST LIMIT 100`;
     send(res, { conversations });
   }));
   admin.get('/accounts', route(async (req, res) => send(res, { accounts: await store.accounts(text(req.query.search, 160), Number(req.query.offset || 0) || 0) })));
   admin.get('/accounts/:id', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    send(res, { profile: p, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
-      members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id WHERE m."accountId"=${p.accountId}` });
-  }));
-  admin.patch('/accounts/:id/editing-freeze', route(async (req, res) => {
-    const body = object(req.body); allowed(body, ['frozen']);
-    if (typeof body.frozen !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
-    send(res, { profile: await store.setEditingFrozen(req.portal.user.id, String(req.params.id), body.frozen) });
-  }));
-  admin.patch('/accounts/:id', route(async (req, res) => {
-    const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);
-    const { revision, ...changes } = data;
-    validateAccountChanges(changes);
-    send(res, { profile: await store.updateAccount(req.portal.user.id, String(req.params.id), integer(revision, 1), changes) });
-  }));
-  admin.put('/accounts/:id/business', route(async (req, res) => {
-    const p = await store.profile(String(req.params.id));
-    // Admin edits use the same validated facts contract; technical controls have their own endpoint.
-    send(res, { profile: await store.saveDraft(req.portal.user.id, p.accountId, p.tenantId, req.body?.data, integer(req.body?.revision, 1), true) });
-  }));
-  admin.post('/accounts/:id/publish', route(async (req, res) => {
-    const body = object(req.body); allowed(body, ['revision','changes']);
-    const revision = integer(body.revision, 1), id = String(req.params.id);
-    const profile = body.changes === undefined
-      ? await store.publish(req.portal.user.id, id, revision)
-      : await store.updateAccount(req.portal.user.id, id, revision, validateAccountChanges(object(body.changes)), true);
-    send(res, { profile });
-  }));
-  admin.post('/accounts/:id/restore', route(async (req, res) => send(res, { profile: await store.restore(req.portal.user.id, String(req.params.id), text(req.body?.publicationId, 100), integer(req.body?.revision, 1)) })));
-  admin.get('/accounts/:id/stats', route(async (req, res) => { const p = await store.profile(String(req.params.id)); send(res, await store.stats(p.accountId, p.tenantId, Math.max(1, Math.min(90, Number(req.query.days || 30))))); }));
-  admin.get('/accounts/:id/activity', route(async (req, res) => { const p = await store.profile(String(req.params.id)); send(res, { events: await store.auditHistory(p.accountId) }); }));
-  admin.post('/accounts/:id/documents/:docId/publish', route(async (req, res) => { await store.profile(String(req.params.id)); await documents.queue(req.portal.user.id, String(req.params.id), String(req.params.docId)); send(res, { queued: true }); }));
-  admin.get('/accounts/:id/documents/:docId/download', route(async (req, res) => { const p = await store.profile(String(req.params.id)); await downloadDocument(res, req.portal.user.id, p.accountId, String(req.params.docId)); }));
-  admin.delete('/accounts/:id/documents/:docId', route(async (req, res) => { await documents.remove(req.portal.user.id, String(req.params.id), String(req.params.docId), true); send(res, { success: true }); }));
-  admin.patch('/accounts/:id/connections/:connectionId', route(async (req, res) => {
-    const p = await store.profile(String(req.params.id));
-    if (typeof req.body?.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
-    if (req.body.enabled) {
-      const connection = await deps.prisma.channelConnection.findFirst({ where: { id: String(req.params.connectionId), tenantId: p.tenantId, accountId: p.accountId } });
-      if (!connection) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
-      if (connection?.connectionKey?.startsWith('CLIENT_OWNED:') && connection.status !== 'CONNECTED') {
-        throw new PortalError(409, 'WEBHOOK_NOT_VERIFIED');
-      }
-    }
-    await store.transaction(async s => {
-      const n = await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
-      if (!n) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
-      await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE "connectionId"=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
-      await s.audit(req.portal.user.id, p.accountId, 'CONNECTION_TOGGLED', { enabled: req.body.enabled });
-    }); send(res, { success: true });
-  }));
-  admin.get('/accounts/:id/conversations', route(async (req, res) => {
-    const p = await store.profile(String(req.params.id));
-    const rows = await store.db.$queryRaw<any[]>`SELECT c.id,c.status,COALESCE(cu."externalId",c."customerId") AS "customerId",c."messageCount",c."humanRequested",c."updatedAt",
-      c."contextData"->'_portalHandoff'->>'ownerId' AS "ownerId",u.name AS "ownerName" FROM "Conversation" c
-      LEFT JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
-      LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
-      WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} AND c."customerId" NOT LIKE 'portal-preview:%' ORDER BY c."updatedAt" DESC LIMIT 50`;
-    send(res, { conversations: rows });
+    send(res, { profile: { ...p, voiceNotesAvailable: voiceTranscriptionAvailable(p.voiceTranscriptionProvider), availableVoiceProviders: { groq: voiceProviderConfigured('groq'), deepgram: voiceProviderConfigured('deepgram') } }, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
+      members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id
+        WHERE m."accountId"=${p.accountId} AND m."tenantId"=${p.tenantId} AND u.role='CLIENT' ORDER BY u."createdAt",u.id` });
   }));
   admin.post('/accounts/:id/whatsapp/client-owned', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
@@ -1000,17 +1074,90 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     await store.audit(req.portal.user.id, p.accountId, 'CLIENT_OWNED_META_ACTIVATED', { connectionId: result.connectionId });
     send(res, result);
   }));
-  admin.get('/accounts/:id/product-images', route(async (req, res) => { const p = await store.profile(String(req.params.id)); send(res, { images: await productImages.list(p.accountId) }); }));
-  admin.get('/accounts/:id/product-images/:imageId', route(async (req, res) => { const p = await store.profile(String(req.params.id)); await serveImage(req, res, String(req.params.imageId), p.accountId); }));
-  admin.post('/accounts/:id/product-images', throttleImageUpload(async req => (await store.profile(String(req.params.id))).accountId), imageUpload, route(async (req, res) => {
-    if (!req.file) throw new PortalError(400, 'IMAGE_REQUIRED');
-    const p = await store.profile(String(req.params.id));
-    send(res, await productImages.upload(req.portal.user.id, p.accountId, req.file.originalname, req.file.buffer, true), 201);
+  admin.patch('/accounts/:id/editing-freeze', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['frozen']);
+    if (typeof body.frozen !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    send(res, { profile: await store.setEditingFrozen(req.portal.user.id, String(req.params.id), body.frozen) });
   }));
-  admin.delete('/accounts/:id/product-images/:imageId', route(async (req, res) => {
+  admin.patch('/accounts/:id/voice-notes', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['allowed']);
+    if (typeof body.allowed !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    if (body.allowed && !voiceTranscriptionAvailable((await store.profile(String(req.params.id))).voiceTranscriptionProvider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure the transcription provider before allowing voice notes.');
+    send(res, { profile: await store.setVoiceNotesAllowed(req.portal.user.id, String(req.params.id), body.allowed) });
+  }));
+  admin.patch('/accounts/:id/qr-access',route(async(req,res)=>{
+    const body=object(req.body);allowed(body,['allowed']);if(typeof body.allowed!=='boolean')throw new PortalError(400,'INVALID_SETTING');
+    send(res,{profile:await store.setQrAllowed(req.portal.user.id,String(req.params.id),body.allowed)});
+  }));
+  admin.patch('/accounts/:id/voice-provider', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['provider']);
+    if (body.provider !== 'groq' && body.provider !== 'deepgram') throw new PortalError(400, 'INVALID_VOICE_PROVIDER');
+    if (!voiceProviderConfigured(body.provider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure this transcription provider before selecting it.');
+    send(res, { profile: await store.setVoiceTranscriptionProvider(req.portal.user.id, String(req.params.id), body.provider) });
+  }));
+  admin.patch('/accounts/:id', route(async (req, res) => {
+    const data = object(req.body); allowed(data, ['revision', 'status', 'planId', 'limitOverrides', 'adminConfig', 'autoPublish', 'lockedFields', 'reviewNote']);
+    const { revision, ...changes } = data;
+    validateAccountChanges(changes);
+    send(res, { profile: await store.updateAccount(req.portal.user.id, String(req.params.id), integer(revision, 1), changes) });
+  }));
+  admin.put('/accounts/:id/business', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    await productImages.remove(req.portal.user.id, p.accountId, imageId(String(req.params.imageId)), true);
+    // Admin edits use the same validated facts contract; technical controls have their own endpoint.
+    send(res, { profile: await store.saveDraft(req.portal.user.id, p.accountId, p.tenantId, req.body?.data, integer(req.body?.revision, 1), true) });
+  }));
+  admin.post('/accounts/:id/publish', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['revision','changes']);
+    const revision = integer(body.revision, 1), id = String(req.params.id);
+    const profile = body.changes === undefined
+      ? await store.publish(req.portal.user.id, id, revision)
+      : await store.updateAccount(req.portal.user.id, id, revision, validateAccountChanges(object(body.changes)), true);
+    send(res, { profile });
+  }));
+  admin.post('/accounts/:id/restore', route(async (req, res) => send(res, { profile: await store.restore(req.portal.user.id, String(req.params.id), text(req.body?.publicationId, 100), integer(req.body?.revision, 1)) })));
+  admin.get('/accounts/:id/stats', route(async (req, res) => { const p = await store.profile(String(req.params.id)); send(res, await store.stats(p.accountId, p.tenantId, Math.max(1, Math.min(90, Number(req.query.days || 30))))); }));
+  admin.get('/accounts/:id/activity', route(async (req, res) => { const p = await store.profile(String(req.params.id)); send(res, { events: await store.auditHistory(p.accountId) }); }));
+  admin.post('/accounts/:id/documents/:docId/publish', route(async (req, res) => { await store.profile(String(req.params.id)); await documents.queue(req.portal.user.id, String(req.params.id), String(req.params.docId)); send(res, { queued: true }); }));
+  admin.get('/accounts/:id/documents/:docId/download', route(async (req, res) => { const p = await store.profile(String(req.params.id)); await downloadDocument(res, req.portal.user.id, p.accountId, String(req.params.docId)); }));
+  admin.delete('/accounts/:id/documents/:docId', route(async (req, res) => { await documents.remove(req.portal.user.id, String(req.params.id), String(req.params.docId), true); send(res, { success: true }); }));
+  admin.patch('/accounts/:id/connections/:connectionId', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    if (typeof req.body?.enabled !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    const scopedConnection = await deps.prisma.channelConnection.findUnique({ where: { id: String(req.params.connectionId) } });
+    if (!scopedConnection || scopedConnection.tenantId!==p.tenantId || scopedConnection.accountId!==p.accountId) throw new PortalError(404,'CONNECTION_NOT_FOUND');
+    const isQr=scopedConnection.provider==='QR_WEB';
+    if(isQr && req.body.enabled && (!p.qrAllowed || !p.qrConsentAt || !p.planSnapshot?.modules.includes('qr') || !['APPROVED','ACTIVE'].includes(p.status) || !deps.qrSessionManager?.isEnabled())) throw new PortalError(403,'QR_NOT_INCLUDED');
+    if (req.body.enabled) {
+      if (scopedConnection.connectionKey?.startsWith('CLIENT_OWNED:') && scopedConnection.status !== 'CONNECTED') {
+        throw new PortalError(409, 'WEBHOOK_NOT_VERIFIED');
+      }
+    }
+    await store.transaction(async s => {
+      const n = isQr
+        ? await s.db.$executeRaw`UPDATE "ChannelConnection" SET "botEnabled"=${req.body.enabled},enabled=CASE WHEN ${req.body.enabled} THEN true ELSE enabled END,
+            status=CASE WHEN ${req.body.enabled} AND status IN ('PAUSED','FAILED','DISCONNECTED') THEN 'PENDING' ELSE status END,"updatedAt"=NOW()
+            WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`
+        : await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=${req.body.enabled},"updatedAt"=NOW() WHERE id=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
+      if (!n) throw new PortalError(404, 'CONNECTION_NOT_FOUND');
+      await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=${isQr ? req.body.enabled && scopedConnection.enabled && scopedConnection.status === 'CONNECTED' : req.body.enabled},"updatedAt"=NOW()
+        WHERE "connectionId"=${String(req.params.connectionId)} AND "tenantId"=${p.tenantId} AND "accountId"=${p.accountId}`;
+      await s.audit(req.portal.user.id, p.accountId, 'CONNECTION_TOGGLED', { enabled: req.body.enabled });
+    });
+    if(isQr && req.body.enabled && (!scopedConnection.enabled || scopedConnection.status !== 'CONNECTED')) await deps.qrSessionManager!.start(scopedConnection.id);
     send(res, { success: true });
+  }));
+  admin.get('/accounts/:id/conversations', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const rows = await store.db.$queryRaw<any[]>`SELECT c.id,c.status,COALESCE(cu."externalId",c."customerId") AS "customerId",
+      cu.metadata->>'name' AS "customerName",c."messageCount",c."humanRequested",c."updatedAt",
+      last_message.content AS "lastMessage",last_message.role AS "lastMessageRole",
+      c."contextData"->'_portalHandoff'->>'ownerId' AS "ownerId",u.name AS "ownerName" FROM "Conversation" c
+      LEFT JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+      LEFT JOIN "PortalUser" u ON u.id=c."contextData"->'_portalHandoff'->>'ownerId'
+      LEFT JOIN LATERAL (SELECT m.content,m.role FROM "Message" m WHERE m."conversationId"=c.id AND m."tenantId"=c."tenantId"
+        ORDER BY m."createdAt" DESC,m.id DESC LIMIT 1) last_message ON true
+      WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%') ORDER BY c."updatedAt" DESC LIMIT 50`;
+    send(res, { conversations: rows });
   }));
   admin.post('/accounts/:id/conversations/:conversationId/triage', route(async (req, res) => {
     const body = object(req.body); allowed(body, ['action']);
@@ -1018,52 +1165,41 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (!['claim','release','resolve'].includes(action)) throw new PortalError(400, 'INVALID_HANDOFF_ACTION');
     const p = await store.profile(String(req.params.id));
     const conversationId = String(req.params.conversationId);
-    const conversation = await store.transaction(async s => {
-      const rows = await s.db.$queryRaw<any[]>`SELECT id,status,"humanRequested","humanRequestedAt","contextData" FROM "Conversation"
-        WHERE id=${conversationId} AND "accountId"=${p.accountId} AND "tenantId"=${p.tenantId} AND "customerId" NOT LIKE 'portal-preview:%' FOR UPDATE`;
-      const c = rows[0];
-      if (!c) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
-      if (!c.humanRequested || !['HANDOFF_REQUESTED','HUMAN_ACTIVE'].includes(c.status)) throw new PortalError(409, 'HANDOFF_NOT_PENDING');
-      const context = c.contextData && typeof c.contextData === 'object' && !Array.isArray(c.contextData) ? c.contextData : {};
-      const ownerId = context._portalHandoff?.ownerId;
-      if (ownerId && ownerId !== req.portal.user.id) throw new PortalError(409, 'HANDOFF_OWNED_BY_ANOTHER_ADMIN');
-      if (action !== 'claim' && ownerId !== req.portal.user.id) throw new PortalError(409, 'CLAIM_HANDOFF_FIRST');
-      const updatedContext = { ...context };
-      if (action === 'claim') updatedContext._portalHandoff = { ownerId: req.portal.user.id, claimedAt: context._portalHandoff?.claimedAt || new Date().toISOString() };
-      else delete updatedContext._portalHandoff;
-      const status = action === 'claim' ? 'HUMAN_ACTIVE' : action === 'release' ? 'HANDOFF_REQUESTED' : 'ACTIVE';
-      await s.db.$executeRaw`UPDATE "Conversation" SET status=${status},"humanRequested"=${action !== 'resolve'},
-        "humanRequestedAt"=${action === 'resolve' ? null : c.humanRequestedAt},"contextData"=${JSON.stringify(updatedContext)}::jsonb,"updatedAt"=NOW()
-        WHERE id=${conversationId} AND "accountId"=${p.accountId} AND "tenantId"=${p.tenantId}`;
-      await (s.db as any).conversationAutomationState.upsert({
-        where: { conversationId },
-        create: {
-          tenantId: p.tenantId,
-          accountId: p.accountId,
-          conversationId,
-          humanTakeover: action === 'claim',
-          botEnabled: action !== 'claim',
-          pauseReason: action === 'release' ? 'HANDOFF_REQUESTED' : null,
-          updatedBy: req.portal.user.id
-        },
-        update: {
-          humanTakeover: action === 'claim',
-          botEnabled: action !== 'claim',
-          pauseReason: action === 'release' ? 'HANDOFF_REQUESTED' : null,
-          updatedBy: req.portal.user.id
-        }
+    let conversation;
+    try {
+      conversation = await automationService.portalTriage({
+        tenantId: p.tenantId, accountId: p.accountId, conversationId,
+        actorId: req.portal.user.id, action: action as 'claim' | 'release' | 'resolve',
+        auditPortal: tx => new PortalStore(tx).audit(req.portal.user.id,p.accountId,'HANDOFF_'+action.toUpperCase(),{ conversationId })
       });
-      await s.audit(req.portal.user.id,p.accountId,'HANDOFF_'+action.toUpperCase(),{ conversationId });
-      return { id: conversationId, status, humanRequested: action !== 'resolve', ownerId: action === 'claim' ? req.portal.user.id : null };
-    });
+    } catch (error) {
+      if (error instanceof AutomationTransitionError) {
+        throw new PortalError(error.code === 'CONVERSATION_NOT_FOUND' ? 404 : 409, error.code);
+      }
+      throw error;
+    }
     send(res, { conversation });
   }));
   admin.get('/accounts/:id/conversations/:conversationId', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m."createdAt" FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId"
-      WHERE c.id=${String(req.params.conversationId)} AND c."tenantId"=${p.tenantId} AND m."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId} ORDER BY m."createdAt" DESC LIMIT 100`;
+    const conversationId = String(req.params.conversationId);
+    const conversation = (await store.db.$queryRaw<any[]>`SELECT c.id,c."messageCount" FROM "Conversation" c
+      WHERE c.id=${conversationId} AND c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId}
+      AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id=c."customerId" AND preview."tenantId"=c."tenantId" AND preview."externalId" LIKE 'portal-preview:%')`)[0];
+    if (!conversation) throw new PortalError(404, 'CONVERSATION_NOT_FOUND');
+    const offset = Math.max(0, Math.min(100000, Math.floor(Number(req.query.offset) || 0)));
+    const rows = await store.db.$queryRaw<any[]>`SELECT m.id,m.role,m.content,m.metadata,m."createdAt" FROM "Message" m
+      WHERE m."conversationId"=${conversationId} AND m."tenantId"=${p.tenantId}
+      ORDER BY m."createdAt" DESC,m.id DESC LIMIT 101 OFFSET ${offset}`;
     await store.audit(req.portal.user.id, p.accountId, 'CONVERSATION_VIEWED', { conversationId: String(req.params.conversationId) });
-    send(res, { messages: rows.reverse() });
+    send(res, { messages: rows.slice(0,100).reverse(), hasMore: rows.length > 100, offset });
+  }));
+  admin.post('/accounts/:id/conversations/:conversationId/answer-feedback', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const body = object(req.body); allowed(body, ['messageId', 'note']);
+    const result = await staffActions.report(p.tenantId, p.accountId, String(req.params.conversationId),
+      text(body.messageId, 100), req.portal.user.id, text(body.note, 1000));
+    send(res, { feedback: result }, 201);
   }));
   admin.post('/accounts/:id/preview', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
@@ -1083,22 +1219,82 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       if (!p.published || !account.config) throw new PortalError(400, 'PUBLISH_FIRST', 'Publish this account before testing the published version.');
       config = account.config;
     }
-    const engine: any = deps.conversationEngine;
-    const preview = { media: [] as ChatMedia[] };
-    const response = await outboundMediaContext.run(preview, () => typeof engine.previewMessage === 'function'
-      ? engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config)
-      : engine.handleMessage(p.tenantId, `portal-preview:${req.portal.user.id}:${sessionId}`, message, p.accountId));
-    const media = preview.media.filter(m => m.type === 'image').flatMap(m => {
-      const match = m.url.match(/\/api\/product-images\/([a-f0-9-]{36})$/i);
-      return match ? [{ type: 'image', url: `/api/admin/accounts/${p.accountId}/product-images/${match[1]}` }] : [];
-    }).slice(0, 3);
+    const engine = deps.conversationEngine;
+    if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE', 'Chatbot preview is temporarily unavailable.');
+    const responseMedia = { media: [] as import('../domain/conversation/AnswerComposer').ChatMedia[] };
+    const response = await responseMediaStorage.run(responseMedia, () =>
+      engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config));
+    const previewConversation = (await store.db.$queryRaw<Array<{ status: string; humanRequested: boolean }>>`
+      SELECT c.status, c."humanRequested" FROM "Conversation" c
+      JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+      WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId}
+        AND cu."externalId"=${`portal-preview:${req.portal.user.id}:${sessionId}`}
+      ORDER BY c."updatedAt" DESC LIMIT 1`)[0];
+    const automationState = previewConversation?.humanRequested ||
+      ['HANDOFF_REQUESTED', 'HUMAN_ACTIVE'].includes(previewConversation?.status || '')
+      ? 'waiting_for_team' : 'active';
     await store.audit(req.portal.user.id, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
-    send(res, { response, media, mode, sessionId });
+    send(res, { response, media: responseMedia.media, automationState, mode, sessionId });
+  }));
+  admin.get('/accounts/:id/actions', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    send(res, await staffActions.queue(p.tenantId, p.accountId));
+  }));
+  admin.get('/accounts/:id/answer-feedback', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    send(res, { feedback: await staffActions.feedback(p.tenantId, p.accountId) });
+  }));
+  admin.post('/accounts/:id/answer-feedback/:feedbackId/retest', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    await store.throttle('feedback-retest:' + p.accountId, 10, 60);
+    const feedbackId = String(req.params.feedbackId);
+    const flagged = (await staffActions.feedback(p.tenantId, p.accountId)).find((item: any) => item.id === feedbackId && item.status === 'OPEN');
+    if (!flagged) throw new PortalError(404, 'FEEDBACK_NOT_FOUND');
+    if (!flagged.question) throw new PortalError(400, 'ORIGINAL_QUESTION_UNAVAILABLE');
+    const body = object(req.body); allowed(body, ['mode']);
+    const mode = text(body.mode, 20, 'draft');
+    if (!['draft', 'published'].includes(mode)) throw new PortalError(400, 'INVALID_PREVIEW_MODE');
+    const account = (await store.db.$queryRaw<any[]>`SELECT config FROM "Account" WHERE id=${p.accountId} AND "tenantId"=${p.tenantId}`)[0];
+    if (!account) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
+    if (mode === 'published' && !p.published) throw new PortalError(400, 'PUBLISH_FIRST');
+    const config = mode === 'draft'
+      ? compileBusiness(p.draft, p.planSnapshot?.template || {}, p.adminConfig || {}, account.config || {})
+      : account.config;
+    const engine = deps.conversationEngine;
+    if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE');
+    const response = await engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:feedback-${feedbackId}-${randomUUID()}`, flagged.question, config);
+    const answer = typeof response === 'string' ? response : JSON.stringify(response);
+    await staffActions.retest(p.tenantId, p.accountId, feedbackId, req.portal.user.id, mode, answer);
+    send(res, { answer, mode });
+  }));
+  admin.post('/accounts/:id/answer-feedback/:feedbackId/resolve', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    const body = object(req.body); allowed(body, ['resolutionNote']);
+    await staffActions.resolve(p.tenantId, p.accountId, String(req.params.feedbackId), req.portal.user.id, text(body.resolutionNote, 1000));
+    send(res, { success: true });
   }));
   admin.get('/plans', route(async (_req, res) => send(res, { plans: await store.plans() })));
-  admin.post('/plans', route(async (req, res) => send(res, { plan: await store.savePlan(req.portal.user.id, validatePlan(req.body)) }, 201)));
+  admin.post('/plans', route(async (req, res) => {
+    const plan = validatePlan(req.body);
+    if (plan.modules.includes('commerce') && plan.modules.includes('services')) throw new PortalError(400, 'MIXED_PLAN_NOT_SUPPORTED', 'Choose either services or commerce for a new plan.');
+    send(res, { plan: await store.savePlan(req.portal.user.id, plan) }, 201);
+  }));
   admin.put('/plans/:id', route(async (req, res) => send(res, { plan: await store.savePlan(req.portal.user.id, validatePlan(req.body), String(req.params.id), integer(req.body?.revision, 1)) })));
   admin.get('/users', route(async (_req, res) => send(res, { users: await store.db.$queryRaw<any[]>`SELECT id,email,name,role,"verifiedAt",disabled,"createdAt" FROM "PortalUser" ORDER BY "createdAt" DESC LIMIT 100` })));
+  admin.patch('/users/:id/name', route(async (req, res) => {
+    const input = object(req.body); allowed(input, ['name']);
+    const name = text(input.name, 100).trim();
+    if (!name) throw new PortalError(400, 'INVALID_USER_NAME', 'Enter a client name.');
+    const user = await store.transaction(async s => {
+      const target = await s.userById(String(req.params.id));
+      if (!target) throw new PortalError(404, 'USER_NOT_FOUND');
+      if (target.role !== 'CLIENT') throw new PortalError(403, 'ADMIN_ACCOUNT_PROTECTED');
+      await s.db.$executeRaw`UPDATE "PortalUser" SET name=${name} WHERE id=${target.id}`;
+      await s.audit(req.portal.user.id, null, 'USER_NAME_UPDATED', { userId: target.id, oldName: target.name, name });
+      return { id: target.id, name };
+    });
+    send(res, { user });
+  }));
   admin.patch('/users/:id', route(async (req, res) => {
     if (typeof req.body?.disabled !== 'boolean' || String(req.params.id) === req.portal.user.id) throw new PortalError(400, 'INVALID_USER_CHANGE');
     await store.transaction(async s => {
@@ -1141,7 +1337,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   router.use((error: any, _req: Request, res: Response, next: express.NextFunction) => {
     if (res.headersSent) return next(error);
     if (error instanceof PortalError) return send(res, { error: error.code, message: error.message }, error.status);
-    if (error instanceof multer.MulterError) return send(res, { error: 'UPLOAD_LIMIT', message: 'Choose one PDF up to 10 MB.' }, 400);
+    if (error instanceof multer.MulterError) return send(res, { error: 'UPLOAD_LIMIT', message: 'Choose one PDF up to 10 MB or one photo up to 5 MB.' }, 400);
     if (error?.code === '42P01' || error?.meta?.code === '42P01') return send(res, { error: 'PORTAL_MIGRATION_REQUIRED', message: 'Portal setup is not complete. Apply the database migration before enabling registration.' }, 503);
     if (error?.code === '23505' || error?.meta?.code === '23505') return send(res, { error: 'ALREADY_EXISTS', message: 'This record already exists. Reload and try again.' }, 409);
     logger.error('Portal request failed', {

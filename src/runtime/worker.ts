@@ -32,6 +32,7 @@ export async function startWorkerProcess(): Promise<WorkerRuntimeInstance> {
     if (deps.portalService) {
       deps.portalService.stop();
     }
+    await deps.qrSessionManager.shutdown();
     logger.info('[WORKER] Disconnecting database pool...');
     await prisma.$disconnect();
     await pool.end();

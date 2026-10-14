@@ -11,28 +11,38 @@ import { PortalConnections } from '../../src/portal/PortalConnections';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
 import { validateAdminConfig, validatePlan } from '../../src/portal/validation';
 import { portalBusinessEvidence } from '../../src/portal/BusinessFacts';
+import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
 import sharp from 'sharp';
 
 describe('portal PostgreSQL and HTTP boundaries', () => {
   let database: Awaited<ReturnType<typeof portalDatabase>>, store: PortalStore, budget: PortalBudget, auth: PortalAuth, docs: PortalDocuments, connections: PortalConnections, app: express.Express;
   let passwordHash: string, admin: any, plan: any;
   const password = 'Portal-test-password-2026!', delivered: { email: string; kind: string; url: string }[] = [];
-  const onboarding = { generateSignupState: () => randomUUID(), processEmbeddedSignupCallback: vi.fn(async () => ({ success: true })) };
+  const onboarding = { generateSignupState: () => randomUUID(), prepareSignup: vi.fn(async () => ({
+    encryptedToken: 'encrypted-test-token', candidates: [{ wabaId: 'waba-a', phoneNumberId: 'phone-a', displayPhoneNumber: '+212 600000001' }]
+  })), processEmbeddedSignupCallback: vi.fn(async () => ({ success: true })) };
   beforeAll(async () => {
     database = await portalDatabase(); store = new PortalStore(database.db); budget = new PortalBudget(store);
     auth = new PortalAuth(store, { publicUrl: 'http://localhost', sendLink: async (email, kind, url) => { delivered.push({ email, kind, url }); } });
     docs = new PortalDocuments(store, budget, { ingestPdf: vi.fn(async () => 'source-test') } as any, { getEffectiveConfig: vi.fn(async () => ({})) } as any);
     connections = new PortalConnections(store, { whatsAppOnboardingService: onboarding, qrSessionManager: { isEnabled: () => false } } as any);
-    app = express(); app.use(express.json()); app.use('/api', createPortalRouter({ store, auth, documents: docs, connections }, { conversationEngine: { handleMessage: vi.fn(async () => 'Preview reply') } } as any));
+    app = express(); app.use(express.json()); app.use('/api', createPortalRouter({ store, auth, documents: docs, connections }, { conversationEngine: { previewMessage: vi.fn(async (_tenantId, _accountId, _sessionId, message) => {
+      if (message.includes('photo')) AnswerComposer.attachMediaToContext([{ type: 'image', url: 'https://example.test/product.jpg' }]);
+      return 'Preview reply';
+    }) } } as any));
     passwordHash = await hashPassword(password);
     const id = randomUUID(); await store.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash",role,"verifiedAt") VALUES (${id},'admin@portal.test','Admin',${passwordHash},'ADMIN',NOW())`;
     admin = await store.userById(id);
     plan = await store.savePlan(id, validatePlan({ name: 'Test plan', published: true, modules: ['commerce','knowledge','services'], limits: { monthlyUsd: 1, messages: 2, llmCalls: 2, numbers: 1, documents: 1 } }));
   }, 60000);
   afterAll(async () => { budget?.dispose(); await database?.pg.close(); });
-  async function client() {
+  async function client(assignPlan = false) {
     const result = await store.register(randomUUID()+'@portal.test', 'Test business', passwordHash, plan.id);
     await store.db.$executeRaw`UPDATE "PortalUser" SET "verifiedAt"=NOW() WHERE id=${result.userId}`;
+    if (assignPlan) {
+      const p = await store.profile(result.accountId);
+      await store.updateAccount(admin.id, result.accountId, p.revision, { planId: plan.id });
+    }
     return { ...result, user: await store.userById(result.userId) };
   }
   async function cookie(user: any) {
@@ -51,6 +61,153 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId",status,"updatedAt") VALUES (${randomUUID()},${c.tenantId},${c.accountId},${randomUUID()},'CONNECTED',NOW())`;
     return store.updateAccount(admin.id,c.accountId,p.revision,{status:'ACTIVE'});
   }
+  it('lets an administrator rename a client user without changing access or email', async () => {
+    const owner = await client();
+    const endpoint = '/api/admin/users/' + owner.userId + '/name';
+    expect((await request(app).patch(endpoint).set(await cookie(owner.user)).send({ name: 'Relayqo' })).status).toBe(403);
+    expect((await request(app).patch(endpoint).set(await cookie(admin)).send({ name: '   ' })).status).toBe(400);
+    const renamed = await request(app).patch(endpoint).set(await cookie(admin)).send({ name: '  Relayqo  ' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.user).toEqual({ id: owner.userId, name: 'Relayqo' });
+    const saved = await store.userById(owner.userId);
+    expect(saved.name).toBe('Relayqo');
+    expect(saved.email).toBe(owner.user.email);
+    expect(saved.disabled).toBe(false);
+    expect((await request(app).patch('/api/admin/users/' + admin.id + '/name').set(await cookie(admin)).send({ name: 'Changed' })).status).toBe(403);
+  });
+  it('keeps the voice transcription provider scoped to each client account', async () => {
+    const moroccan = await client(), international = await client();
+    expect((await store.profile(moroccan.accountId)).voiceTranscriptionProvider).toBe('groq');
+    expect((await store.profile(international.accountId)).voiceTranscriptionProvider).toBe('groq');
+    vi.stubEnv('DEEPGRAM_API_KEY', 'test-key');
+    try {
+      const response = await request(app).patch('/api/admin/accounts/' + moroccan.accountId + '/voice-provider')
+        .set(await cookie(admin)).send({ provider: 'deepgram' });
+      expect(response.status).toBe(200);
+      expect((await store.profile(moroccan.accountId)).voiceTranscriptionProvider).toBe('deepgram');
+      expect((await store.profile(international.accountId)).voiceTranscriptionProvider).toBe('groq');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('authenticates photo uploads and rejects cross-account reads and frozen writes',async()=>{
+    const owner=await client(true), stranger=await client(true);
+    const bytes=await sharp({create:{width:20,height:20,channels:3,background:'#0000ff'}}).png().toBuffer();
+    expect((await request(app).post('/api/client/product-images').attach('file',bytes,'test.png')).status).toBe(401);
+    const headers=await cookie(owner.user);
+    expect((await request(app).post('/api/client/product-images').set('Cookie',headers.Cookie).attach('file',bytes,'test.png')).status).toBe(403);
+    const upload=await request(app).post('/api/client/product-images').set(headers).attach('file',bytes,'test.png');
+    expect(upload.status).toBe(201);
+    expect((await request(app).get('/api/client/product-images/'+upload.body.id).set(headers)).headers['content-type']).toContain('image/jpeg');
+    expect((await request(app).get('/api/client/product-images/'+upload.body.id).set(await cookie(stranger.user))).status).toBe(404);
+    expect((await request(app).get('/api/product-images/'+upload.body.id)).status).toBe(404);
+    await store.setEditingFrozen(admin.id,owner.accountId,true);
+    expect((await request(app).post('/api/client/product-images').set(headers).attach('file',bytes,'test.png')).status).toBe(403);
+  });
+  it('denies request management when the assigned plan has no service or commerce module',async()=>{
+    const owner=await client();
+    const headers=await cookie(owner.user);
+    for(const path of ['/api/client/leads','/api/client/leads/export.csv']){
+      const response=await request(app).get(path).set(headers);
+      expect(response.status).toBe(403);expect(response.body.error).toBe('REQUESTS_NOT_INCLUDED');
+    }
+  });
+  it('keeps lead management and CSV export inside the client account', async () => {
+    const owner = await client(true), stranger = await client(true);
+    const customerId = randomUUID(), leadId = randomUUID(), conversationId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      VALUES (${customerId},${owner.tenantId},${'=447700900123'},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      VALUES (${leadId},${owner.tenantId},${owner.accountId},${customerId},'NEW',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
+      VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
+    const workflowSessionId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
+      VALUES (${workflowSessionId},${owner.tenantId},${conversationId},'checkout_test','done','COMPLETED',${JSON.stringify({city:'Rabat',address:'Rue 12',product:'Sneakers',quantity:'2'})}::jsonb,NOW())`;
+    await store.db.$executeRaw`UPDATE "Lead" SET "sourceWorkflowSessionId"=${workflowSessionId},"sourceConversationId"=${conversationId} WHERE id=${leadId}`;
+    const cancelledCustomerId = randomUUID(), cancelledConversationId = randomUUID(), cancelledLeadId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      VALUES (${cancelledCustomerId},${owner.tenantId},${'cancelled-cod'},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      VALUES (${cancelledLeadId},${owner.tenantId},${owner.accountId},${cancelledCustomerId},'NEW',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
+      VALUES (${cancelledConversationId},${owner.tenantId},${owner.accountId},${cancelledCustomerId},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${cancelledConversationId},'checkout_cancelled','confirm','COMPLETED',${JSON.stringify({_confirmed:false,city:'CANCELLED CITY',address:'CANCELLED ADDRESS'})}::jsonb,NOW())`;
+    const ownerHeaders = await cookie(owner.user), strangerHeaders = await cookie(stranger.user);
+    const own = await request(app).get('/api/client/leads').set(ownerHeaders);
+    expect(own.status).toBe(200);
+    expect(own.body.leads.some((lead: any) => lead.id === leadId)).toBe(true);
+    expect(own.body.leads.find((lead: any) => lead.id === leadId).orderDetails.city).toBe('Rabat');
+    expect(own.body.leads.find((lead: any) => lead.id === cancelledLeadId).orderDetails).toBeNull();
+    expect((await request(app).get('/api/client/leads').set(strangerHeaders)).body.leads).toEqual([]);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(strangerHeaders).send({status:'WON'})).status).toBe(404);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(ownerHeaders).send({status:'INVALID'})).status).toBe(400);
+    expect((await request(app).patch('/api/client/leads/' + leadId).set(ownerHeaders).send({status:'QUALIFIED'})).body.lead.status).toBe('QUALIFIED');
+    const csv = await request(app).get('/api/client/leads/export.csv').set(ownerHeaders);
+    expect(csv.status).toBe(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(csv.text).toContain("'=447700900123");
+    expect(csv.text).toContain('Rabat');
+    expect(csv.text).toContain('Cash on delivery');
+    expect(csv.text).not.toContain('CANCELLED CITY');
+    expect(csv.text).not.toContain('CANCELLED ADDRESS');
+    expect((await request(app).get('/api/client/leads/export.csv').set(strangerHeaders)).text).not.toContain('447700900123');
+  });
+  it('exports more than one batch with Arabic, French, quotes and spreadsheet-safe cells', async () => {
+    const owner = await client(true), stranger = await client(true);
+    await database.pg.query(`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      SELECT gen_random_uuid()::text,$1,'csv-stress:' || n,NOW() FROM generate_series(1,1002) AS n`,[owner.tenantId]);
+    await database.pg.query(`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      SELECT gen_random_uuid()::text,$1,$2,id,'NEW',NOW() FROM "Customer"
+      WHERE "tenantId"=$1 AND "externalId" LIKE 'csv-stress:%'`,[owner.tenantId,owner.accountId]);
+    const customerId = randomUUID(), conversationId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt")
+      VALUES (${customerId},${owner.tenantId},${'+212 600000000'},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Lead"(id,"tenantId","accountId","customerId",status,"updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${owner.accountId},${customerId},'QUALIFIED',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt")
+      VALUES (${conversationId},${owner.tenantId},${owner.accountId},${customerId},NOW())`;
+    await store.db.$executeRaw`INSERT INTO "WorkflowSession"(id,"tenantId","conversationId","workflowId","stateId",status,"collectedData","updatedAt")
+      VALUES (${randomUUID()},${owner.tenantId},${conversationId},'checkout_stress','done','COMPLETED',${JSON.stringify({city:'الدار البيضاء',address:'12, Rue "Atlas"',product:'=SUM(1,1)',quantity:'2',payment:'Paiement à la livraison'})}::jsonb,NOW())`;
+    await store.db.$executeRaw`UPDATE "Lead" SET "sourceConversationId"=${conversationId},"sourceWorkflowSessionId"=(SELECT id FROM "WorkflowSession" WHERE "conversationId"=${conversationId} LIMIT 1) WHERE "customerId"=${customerId}`;
+    const response = await request(app).get('/api/client/leads/export.csv').set(await cookie(owner.user));
+    expect(response.status).toBe(200);
+    expect(response.text.startsWith('\uFEFF"Contact","Status"')).toBe(true);
+    expect((response.text.match(/csv-stress:/g) || [])).toHaveLength(1002);
+    expect(response.text).toContain("\"'+212 600000000\"");
+    expect(response.text).toContain('"الدار البيضاء"');
+    expect(response.text).toContain('"12, Rue ""Atlas"""');
+    expect(response.text).toContain('"\'=SUM(1,1)"');
+    expect(response.text).toContain('"Paiement à la livraison"');
+    const other = await request(app).get('/api/client/leads/export.csv').set(await cookie(stranger.user));
+    expect(other.text).not.toContain('csv-stress:');
+    expect(other.text).not.toContain('الدار البيضاء');
+  }, 30000);
+  it('freezes and unfreezes one client without blocking admin edits or plan requests', async () => {
+    const c = await client(), other = await client();
+    const adminHeaders = await cookie(admin), clientHeaders = await cookie(c.user);
+    const original = await store.profile(c.accountId);
+    const frozen = await request(app).patch('/api/admin/accounts/' + c.accountId + '/editing-freeze')
+      .set(adminHeaders).send({ frozen: true });
+    expect(frozen.status).toBe(200);
+    expect((await store.profile(c.accountId)).editingFrozen).toBe(true);
+    expect((await store.profile(other.accountId)).editingFrozen).toBe(false);
+    expect((await request(app).put('/api/client/business').set(clientHeaders)
+      .send({ data: original.draft, revision: frozen.body.profile.revision })).status).toBe(403);
+    expect((await request(app).post('/api/client/documents').set(clientHeaders).send()).status).toBe(403);
+    expect((await request(app).post('/api/client/plan-request').set(clientHeaders).send({ planId: plan.id })).status).toBe(200);
+    const current = await store.profile(c.accountId);
+    expect((await request(app).put('/api/admin/accounts/' + c.accountId + '/business').set(adminHeaders)
+      .send({ data: { ...current.draft, description: 'Admin update while frozen' }, revision: current.revision })).status).toBe(200);
+    expect((await request(app).patch('/api/admin/accounts/' + c.accountId + '/editing-freeze').set(clientHeaders)
+      .send({ frozen: false })).status).toBe(403);
+    expect((await request(app).patch('/api/admin/accounts/' + c.accountId + '/editing-freeze').set(adminHeaders)
+      .send({ frozen: false })).status).toBe(200);
+    const editable = await store.profile(c.accountId);
+    expect((await request(app).put('/api/client/business').set(clientHeaders)
+      .send({ data: editable.draft, revision: editable.revision })).status).toBe(200);
+  });
   it('signup creates an isolated draft account, without granting privileges', async () => {
     const r=await request(app).post('/api/auth/signup').set('Origin','http://localhost').send({email:'signup@portal.test',name:'New client',password,role:'ADMIN'});expect(r.status).toBe(400);
     const signup=await request(app).post('/api/auth/signup').send({email:'signup@portal.test',name:'New client',password});expect(signup.status).toBe(201);
@@ -61,11 +218,83 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect((await request(app).post('/api/auth/verify-email').send({token})).status).toBe(400);
     const ok=await request(app).post('/api/auth/login').send({email:user!.email,password});expect(ok.status).toBe(200);expect(ok.headers['set-cookie'][0]).toContain('HttpOnly');expect(JSON.stringify(ok.body)).not.toContain('passwordHash');
   });
-  it('requires email confirmation for every administrator login', async () => {
-    const r=await request(app).post('/api/auth/login').send({email:admin.email,password});expect(r.body.requiresEmailConfirmation).toBe(true);expect(r.headers['set-cookie']).toBeUndefined();
-    const link=delivered.findLast(d=>d.kind==='ADMIN_LOGIN')!;const token=new URLSearchParams(new URL(link.url).hash.slice(1)).get('token');
-    expect((await request(app).post('/api/auth/admin-confirm').send({token})).body.redirect).toBe('/admin');
-    expect((await request(app).post('/api/auth/admin-confirm').send({token})).status).toBe(400);
+  it('creates accounts without a signup plan and lets admins find the owner by name or email', async () => {
+    const address = randomUUID() + '@portal.test';
+    const signup = await request(app).post('/api/auth/signup').send({ email: address, name: 'Layla Owner', password, planId: plan.id });
+    expect(signup.status).toBe(400);
+    expect((await request(app).post('/api/auth/signup').send({ email: address, name: 'Layla Owner', password })).status).toBe(201);
+    const user = await store.userByEmail(address);
+    const memberships = await store.memberships(user!.id);
+    const found = (await store.accounts('Layla Owner')).find(a => a.accountId === memberships[0].accountId);
+    expect(found).toMatchObject({ clientName: 'Layla Owner', clientEmail: address, planId: null });
+    expect((await store.accounts(address)).some(a => a.accountId === found.accountId)).toBe(true);
+  });
+  it('rejects signup when email delivery is unavailable after the temporary launch window', async () => {
+    vi.stubEnv('RESEND_API_KEY', '');
+    vi.stubEnv('PORTAL_MAIL_WEBHOOK_URL', '');
+    vi.stubEnv('PORTAL_MAIL_WEBHOOK_SECRET', '');
+    vi.stubEnv('PORTAL_DEV_SKIP_EMAIL', 'false');
+    const noMailAuth = new PortalAuth(store, { publicUrl: 'http://localhost' });
+    try {
+      const address = randomUUID() + '@portal.test';
+      await expect(noMailAuth.signup({ email: address, name: 'No mail test', password }, 'signup-test-ip'))
+        .rejects.toMatchObject({ code: 'EMAIL_SETUP_REQUIRED' });
+      expect(await store.userByEmail(address)).toBeNull();
+      const unverifiedAddress = randomUUID() + '@portal.test';
+      await store.register(unverifiedAddress, 'Earlier signup', passwordHash, null);
+      await expect(noMailAuth.signup({ email: unverifiedAddress, name: 'Earlier signup', password }, 'signup-test-ip'))
+        .rejects.toMatchObject({ code: 'EMAIL_SETUP_REQUIRED' });
+      expect((await store.userByEmail(unverifiedAddress))?.verifiedAt).toBeNull();
+      const response = { cookie: vi.fn() } as any;
+      await expect(noMailAuth.login({ email: unverifiedAddress, password }, 'login-test-ip', response)).rejects.toMatchObject({ code: 'EMAIL_NOT_VERIFIED' });
+    } finally { vi.restoreAllMocks(); vi.unstubAllEnvs(); }
+  });
+  it('shows only account-scoped admin conversation transcripts', async () => {
+    const c = await client(), other = await client(), headers = await cookie(admin);
+    const customerId = randomUUID(), conversationId = randomUUID(), messageId = randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt") VALUES (${customerId},${c.tenantId},'+212600000001',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","messageCount","updatedAt") VALUES (${conversationId},${c.tenantId},${c.accountId},${customerId},1,NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content) VALUES (${messageId},${c.tenantId},${conversationId},'USER','Hello, do you deliver?')`;
+    const list = await request(app).get('/api/admin/accounts/' + c.accountId + '/conversations').set(headers);
+    expect(list.status).toBe(200);
+    expect(list.body.conversations.find((row: any) => row.id === conversationId)).toMatchObject({ customerId: '+212600000001', lastMessage: 'Hello, do you deliver?' });
+    const detail = await request(app).get('/api/admin/accounts/' + c.accountId + '/conversations/' + conversationId).set(headers);
+    expect(detail.body).toMatchObject({ hasMore: false, messages: [{ content: 'Hello, do you deliver?' }] });
+    expect((await request(app).get('/api/admin/accounts/' + other.accountId + '/conversations/' + conversationId).set(headers)).status).toBe(404);
+  });
+  it('opens the newest transcript, pages older messages, and uses the actual latest customer turn for the reply window', async () => {
+    const c=await client(), other=await client(), headers=await cookie(c.user);
+    const customerId=randomUUID(), conversationId=randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt") VALUES (${customerId},${c.tenantId},'transcript-test',NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","messageCount","updatedAt") VALUES (${conversationId},${c.tenantId},${c.accountId},${customerId},30,NOW())`;
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content,"createdAt")
+      SELECT 'transcript-'||${conversationId}||'-'||i::text,${c.tenantId},${conversationId},'ASSISTANT',i::text,NOW()-INTERVAL '3 days'+i*INTERVAL '1 second' FROM generate_series(1,60) i`;
+    const latest=randomUUID();
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content,"createdAt") VALUES (${latest},${c.tenantId},${conversationId},'USER','Live WhatsApp test',NOW())`;
+    const first=await request(app).get('/api/client/conversations/'+conversationId).set(headers);
+    expect(first.status).toBe(200);expect(first.body.messages).toHaveLength(50);
+    expect(first.body.messages.at(-1).id).toBe(latest);expect(first.body.messages[0].content).toBe('12');
+    expect(first.body.hasOlderMessages).toBe(true);expect(first.body.conversation.customerServiceWindow.canSendFreeform).toBe(true);
+    const reportedId=first.body.messages[0].id;
+    const report=await request(app).post('/api/client/conversations/'+conversationId+'/answer-feedback').set(headers).send({messageId:reportedId,note:'The answer gave incorrect opening hours.'});
+    expect(report.status).toBe(201);expect(report.body.feedback.status).toBe('OPEN');
+    const reported=await request(app).get('/api/client/conversations/'+conversationId).set(headers);
+    const reportedMessage=reported.body.messages.find((m:any)=>m.id===reportedId);
+    expect(reportedMessage.feedbackStatus).toBe('OPEN');expect(reportedMessage).not.toHaveProperty('resolutionNote');
+    expect((await request(app).get('/api/client/answer-feedback').set(headers)).status).toBe(404);
+    const older=await request(app).get('/api/client/conversations/'+conversationId).query({before:first.body.nextBefore}).set(headers);
+    expect(older.body.messages.map((m:any)=>m.content)).toEqual(Array.from({length:11},(_,i)=>String(i+1)));
+    expect(older.body.hasOlderMessages).toBe(false);expect(older.body.conversation.customerServiceWindow.canSendFreeform).toBe(true);
+    expect((await request(app).get('/api/client/conversations/'+conversationId).set(await cookie(other.user))).status).toBe(404);
+    expect((await request(app).get('/api/client/conversations/'+conversationId+'?limit=bad').set(headers)).status).toBe(200);
+  });
+  it('signs in a verified administrator with the correct password without another email', async () => {
+    const sent=delivered.length;
+    const invalid=await request(app).post('/api/auth/login').send({email:admin.email,password:'wrong-password'});
+    expect(invalid.status).toBe(401);expect(invalid.headers['set-cookie']).toBeUndefined();
+    const r=await request(app).post('/api/auth/login').send({email:admin.email,password});
+    expect(r.status).toBe(200);expect(r.body.redirect).toBe('/admin');expect(r.headers['set-cookie']).toBeDefined();
+    expect(r.body).not.toHaveProperty('requiresEmailConfirmation');expect(delivered).toHaveLength(sent);
   });
   it('skips email locally without verifying users, bypassing passwords or widening roles', async () => {
     vi.stubEnv('PORTAL_DEV_SKIP_EMAIL', 'true');
@@ -99,7 +328,7 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect((await request(app).patch('/api/admin/accounts/'+c.accountId).set(headers).send({status:'ACTIVE'})).status).toBe(403);
   });
   it('shows only the client’s leads and records follow-up and won status', async () => {
-    const a = await client(), b = await client(), aHeaders = await cookie(a.user), bHeaders = await cookie(b.user);
+    const a = await client(true), b = await client(true), aHeaders = await cookie(a.user), bHeaders = await cookie(b.user);
     const customerId = randomUUID(), leadId = randomUUID(), conversationId = randomUUID();
     await store.db.$executeRaw`INSERT INTO "Customer"(id,"tenantId","externalId","updatedAt") VALUES (${customerId},${a.tenantId},'212600000001',NOW())`;
     await store.db.$executeRaw`INSERT INTO "Conversation"(id,"tenantId","accountId","customerId","updatedAt") VALUES (${conversationId},${a.tenantId},${a.accountId},${customerId},NOW())`;
@@ -179,6 +408,10 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     const preview=await request(app).post('/api/admin/accounts/'+c.accountId+'/preview').set(adminHeaders)
       .send({message:'Salam, chno katbi3o?',mode:'draft',sessionId:'draftsession01'});
     expect(preview.status).toBe(200);expect(preview.body).toMatchObject({response:'Preview reply',mode:'draft',sessionId:'draftsession01'});
+    const imagePreview=await request(app).post('/api/admin/accounts/'+c.accountId+'/preview').set(adminHeaders)
+      .send({message:'Can I see a photo?',mode:'draft',sessionId:'draftimage01'});
+    expect(imagePreview.status).toBe(200);
+    expect(imagePreview.body.media).toEqual([{type:'image',url:'https://example.test/product.jpg'}]);
     const afterPreview=await request(app).get('/api/admin/overview').set(adminHeaders);
     expect(afterPreview.body.traffic).toEqual(adminOverview.body.traffic);
     const published=await request(app).post('/api/admin/accounts/'+c.accountId+'/preview').set(adminHeaders)
@@ -315,6 +548,26 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     await expect(connections.complete(principal,input)).rejects.toMatchObject({code:'CONNECTION_ATTEMPT_EXPIRED'});expect(onboarding.processEmbeddedSignupCallback).toHaveBeenCalledTimes(1);
     vi.unstubAllEnvs();
   });
+  it('recovers code-only Meta signup without exposing the token or crossing accounts', async () => {
+    vi.stubEnv('META_APP_ID','test-app');vi.stubEnv('META_CONFIG_ID','test-config');
+    try {
+      const a=await client(),b=await client();await approved(a);await approved(b);
+      const principal={user:a.user,accountId:a.accountId,tenantId:a.tenantId,sessionId:'s',csrf:'c'} as any;
+      const other={user:b.user,accountId:b.accountId,tenantId:b.tenantId,sessionId:'s',csrf:'c'} as any;
+      const start=await connections.begin(principal);
+      await expect(connections.discover(other,{...start,code:'oauth-code'})).rejects.toMatchObject({code:'CONNECTION_ATTEMPT_EXPIRED'});
+      const discovered=await connections.discover(principal,{...start,code:'oauth-code'});
+      expect(discovered).toEqual({candidates:[{wabaId:'waba-a',phoneNumberId:'phone-a',displayPhoneNumber:'+212 600000001'}]});
+      expect(JSON.stringify(discovered)).not.toContain('encrypted-test-token');
+      await expect(connections.complete(principal,{...start,wabaId:'waba-a',phoneNumberId:'another-phone'})).rejects.toMatchObject({code:'META_NUMBER_NOT_GRANTED'});
+      expect((await connections.complete(principal,{...start,wabaId:'waba-a',phoneNumberId:'phone-a'})).success).toBe(true);
+      expect(onboarding.processEmbeddedSignupCallback).toHaveBeenLastCalledWith(expect.objectContaining({
+        accountId:a.accountId,phoneNumberId:'phone-a',encryptedMetaToken:'encrypted-test-token'
+      }));
+      const rows=await store.db.$queryRaw<any[]>`SELECT "encryptedMetaToken","metaCandidates" FROM "PortalConnectionAttempt" WHERE id=${start.attemptId}`;
+      expect(rows[0].encryptedMetaToken).toBeNull();expect(rows[0].metaCandidates).toBeNull();
+    } finally { vi.unstubAllEnvs(); }
+  });
   it('returns real SQL statistics and admin usage without credentials', async () => {
     const c=await client();await active(c);const headers=await cookie(admin);
     for(const path of ['/api/admin/overview','/api/admin/usage','/api/admin/accounts/'+c.accountId+'/stats','/api/admin/accounts/'+c.accountId]){
@@ -343,14 +596,21 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(()=>validateAdminConfig({workflows:{a:{initialState:'a',states:{a:{type:'message',next:'missing'}}}}})).toThrow();
   });
   it('serves portal pages and APIs through the main server alongside existing channel routes', async () => {
+      vi.stubEnv('ENCRYPTION_KEY', '12345678901234567890123456789012');
+      vi.stubEnv('CORS_ORIGINS', 'https://app.relayqo.test');
     const { createApp } = await import('../../src/app');
     const main = await createApp({ prisma: database.db, portalService: { store, auth, documents: docs, connections },
       conversationEngine: {}, whatsAppNumberService: {}, whatsAppOnboardingService: onboarding, clientSafetyGuard: {} } as any);
     for (const path of ['/signup','/login','/app/business','/admin/clients']) {
-      const r=await request(main).get(path);expect(r.status).toBe(200);expect(r.text).toContain('/portal-assets/portal.js');
+      const r=await request(main).get(path);expect(r.status, path).toBe(200);expect(r.text).toContain('/portal-assets/portal.js');
       expect(r.headers['content-security-policy']).toContain("default-src 'self'");
     }
     expect((await request(main).get('/portal-assets/portal.js')).status).toBe(200);
+      const allowedOrigin = await request(main).get('/health').set('Origin','https://app.relayqo.test');
+      expect(allowedOrigin.headers['access-control-allow-origin']).toBe('https://app.relayqo.test');
+      expect(allowedOrigin.headers['access-control-allow-credentials']).toBe('true');
+      const deniedOrigin = await request(main).get('/health').set('Origin','https://unrelated.test');
+      expect(deniedOrigin.headers['access-control-allow-origin']).toBeUndefined();
     expect((await request(main).get('/api/portal/plans')).status).toBe(200);
     expect((await request(main).get('/api/auth/session')).status).toBe(401);
     expect((await request(main).get('/api/admin/accounts').set(await cookie(admin))).status).toBe(200);

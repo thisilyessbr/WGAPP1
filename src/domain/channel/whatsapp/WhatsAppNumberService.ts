@@ -36,6 +36,7 @@ export interface CreateOrUpdateConnectionParams {
   connectionKey?: string;
   status?: string;
   enabled?: boolean;
+  botEnabled?: boolean;
   encryptedCredentials?: string | null;
   appId?: string | null;
   wabaId?: string | null;
@@ -208,6 +209,7 @@ export class WhatsAppNumberService {
       connectionKey,
       status = 'PENDING',
       enabled = true,
+      botEnabled,
       encryptedCredentials,
       appId,
       wabaId,
@@ -231,6 +233,7 @@ export class WhatsAppNumberService {
     const updateData: any = {
       status,
       enabled,
+      ...(botEnabled !== undefined ? { botEnabled } : {}),
       ...(encryptedCredentials !== undefined ? { encryptedCredentials } : {}),
       ...(appId !== undefined ? { appId } : {}),
       ...(wabaId !== undefined ? { wabaId } : {}),
@@ -269,6 +272,7 @@ export class WhatsAppNumberService {
         connectionKey: resolvedConnectionKey,
         status,
         enabled,
+        botEnabled: botEnabled ?? true,
         encryptedCredentials: encryptedCredentials || null,
         appId: appId || null,
         wabaId: wabaId || null,

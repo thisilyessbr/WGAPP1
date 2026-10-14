@@ -64,8 +64,8 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
 };
 
 const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESSAGES, string> = {
-  missingField: 'عفاك عطينا: {{fieldName}}',
-  confirmation: "عفاك أكد هاد المعلومات:\n{{summary}}\n\n(جاوب بواخا باش تأكد، أو لا باش تلغي)",
+  missingField: 'عفاك عطينا {{fieldName}}.',
+  confirmation: "هادو هما المعلومات اللي عطيتينا:\n{{summary}}\n\nواش نسجلو طلب الديمو؟ جاوب بـ «واخا» أو «لا».",
   choice: 'عفاك اختار واحد من هاد الاختيارات:',
   choiceReprompt: 'عفاك اختار واحد من هاد الاختيارات باش نكملو:',
   fallback: 'سمح ليا، ما فهمتش مزيان. عفاك عاود شرح ليا.',
@@ -101,21 +101,40 @@ function darijaFieldQuestion(fieldName: string, script?: string): string | undef
 }
 
 export class ResponseBuilder {
+  private fieldLabel(fieldName: string, state: WorkflowStateConfig | undefined, lang: string, script?: string): string {
+    if (state?.label?.trim()) return state.label.trim();
+    const labels: Record<string, Record<string, string>> = {
+      fullName: { en: 'your full name', fr: 'votre nom complet', ar: 'الاسم الكامل', darija: 'smitk kamla', darija_arabic: 'السمية الكاملة' },
+      name: { en: 'your name', fr: 'votre nom', ar: 'الاسم الكامل', darija: 'smitk', darija_arabic: 'السميّة ديالك' },
+      businessNeed: { en: 'what you need the chatbot for', fr: 'votre besoin', ar: 'احتياجك', darija: '3lach bghiti chatbot', darija_arabic: 'شنو بغيتي الشات بوت يعاونك فيه' },
+      preferredDemoTime: { en: 'your preferred day and time', fr: 'le jour et l\'heure qui vous conviennent', ar: 'اليوم والوقت المناسبين', darija: 'nhar w lwe9t li ynasbk', darija_arabic: 'النهار والوقت اللي كيناسبوك' },
+      phone: { en: 'your phone number', fr: 'votre numéro de téléphone', ar: 'رقم الهاتف', darija: 'nemra dyal telephone', darija_arabic: 'نمرة التليفون' }
+    };
+    const key = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
+    return labels[fieldName]?.[key] || state?.name?.trim() || fieldName;
+  }
+
   buildMissingFieldResponse(state: WorkflowStateConfig, config: BusinessConfig, lang: string = 'en', script?: string): string {
     const field = state.field;
-    const fieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
+    const rawFieldName = typeof field === 'string' ? field : (field?.name || 'missing information');
+    const fieldName = this.fieldLabel(rawFieldName, state, lang, script);
     const fieldFallback = getWorkflowMessage('missingField', lang, script).replace('{{fieldName}}', fieldName);
     if (state.prompt) {
       // Merchants usually write the Darija question in Arabic script only. For
-      // a Darija customer in the other script, the merchant's own French
-      // (Arabizi readers) or Arabic question beats a raw field key such as
-      // "3afak 3tina: size".
-      const sameScriptQuestion = (lang === 'darija' ? darijaFieldQuestion(fieldName, script) : undefined)
+      // a Darija customer in the other script, a natural per-field Darija
+      // question (or the merchant's own French / Arabic question) beats a raw
+      // field key such as "3afak 3tina: size".
+      const darijaQuestion = lang === 'darija'
+        ? (darijaFieldQuestion(rawFieldName, script) ?? darijaFieldQuestion(fieldName, script))
+        : undefined;
+      const sameScriptQuestion = darijaQuestion
         ?? (typeof state.prompt === 'object'
           ? (script === 'arabizi' ? state.prompt.fr : script === 'arabic' ? state.prompt.ar : undefined)
           : undefined);
       const darijaDefault = typeof sameScriptQuestion === 'string' && sameScriptQuestion.trim() ? sameScriptQuestion : fieldFallback;
-      const defaultP = lang === 'darija' && script ? darijaDefault : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      const defaultP = lang === 'darija' && script
+        ? darijaDefault
+        : (typeof state.prompt === 'string' && lang !== 'ar' ? state.prompt : fieldFallback);
       return resolveLocalizedPrompt(state.prompt, lang, defaultP, script);
     }
     if (typeof field !== 'string' && field?.extractionPrompt) {
@@ -135,6 +154,58 @@ export class ResponseBuilder {
     }
 
     return template.replace('{{fieldName}}', fieldName);
+  }
+
+  buildValidationErrorResponse(error: string, lang: string = 'en', script?: string): string {
+    if (lang === 'en') return error;
+    const languageKey = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
+    const values = error.match(/-?\d+(?:\.\d+)?/g) || [];
+    const firstValue = values[0] || '';
+    const options = error.match(/^Value must be one of: (.+)\.$/)?.[1] || '';
+    const messages: Record<string, Record<string, string>> = {
+      fr: {
+        string: 'Veuillez saisir un texte valide.', number: 'Veuillez saisir un nombre valide.', boolean: 'Veuillez choisir oui ou non.',
+        email: 'Veuillez saisir une adresse e-mail valide.', phone: 'Veuillez saisir un numéro de téléphone valide.', time: 'Veuillez saisir une heure valide.',
+        enum: `Veuillez choisir parmi ces options : ${options}.`, minLength: `La réponse doit contenir au moins ${firstValue} caractères.`,
+        maxLength: `La réponse ne doit pas dépasser ${firstValue} caractères.`, min: `La valeur doit être au moins ${firstValue}.`,
+        max: `La valeur ne doit pas dépasser ${firstValue}.`, date: 'Veuillez saisir une date valide.', format: 'Le format de la réponse est invalide.'
+      },
+      ar: {
+        string: 'يرجى إدخال نص صحيح.', number: 'يرجى إدخال رقم صحيح.', boolean: 'يرجى اختيار نعم أو لا.',
+        email: 'يرجى إدخال بريد إلكتروني صحيح.', phone: 'يرجى إدخال رقم هاتف صحيح.', time: 'يرجى إدخال وقت صحيح.',
+        enum: `يرجى الاختيار من بين هذه الخيارات: ${options}.`, minLength: `يجب ألا تقل الإجابة عن ${firstValue} أحرف.`,
+        maxLength: `يجب ألا تتجاوز الإجابة ${firstValue} أحرف.`, min: `يجب ألا تقل القيمة عن ${firstValue}.`,
+        max: `يجب ألا تتجاوز القيمة ${firstValue}.`, date: 'يرجى إدخال تاريخ صحيح.', format: 'صيغة الإجابة غير صحيحة.'
+      },
+      darija: {
+        string: '3afak kteb jawab s7i7.', number: '3afak kteb ra9m s7i7.', boolean: '3afak khtar ih wla la.',
+        email: '3afak kteb email s7i7.', phone: '3afak kteb nemra dyal telephone s7i7a.', time: '3afak kteb lwe9t b tari9a s7i7a.',
+        enum: `3afak khtar mn had l-ikhtiyarat: ${options}.`, minLength: `l-jawab khaso ykoun fih 3la l-a9al ${firstValue} 7orof.`,
+        maxLength: `l-jawab ma khasoch yfout ${firstValue} 7orof.`, min: `l-9ima khas-ha tkoun 3la l-a9al ${firstValue}.`,
+        max: `l-9ima ma khas-hach tfout ${firstValue}.`, date: '3afak kteb tarikh s7i7.', format: 'had format ma s7i7ch.'
+      },
+      darija_arabic: {
+        string: 'عفاك كتب جواب صحيح.', number: 'عفاك كتب رقم صحيح.', boolean: 'عفاك اختار «واخا» أو «لا».',
+        email: 'عفاك كتب إيميل صحيح.', phone: 'عفاك كتب نمرة تليفون صحيحة.', time: 'عفاك كتب الوقت بطريقة صحيحة.',
+        enum: `عفاك اختار من هاد الاختيارات: ${options}.`, minLength: `الجواب خاصو يكون فيه على الأقل ${firstValue} حروف.`,
+        maxLength: `الجواب ما خاصوش يفوت ${firstValue} حروف.`, min: `القيمة خاصها تكون على الأقل ${firstValue}.`,
+        max: `القيمة ما خاصهاش تفوت ${firstValue}.`, date: 'عفاك كتب تاريخ صحيح.', format: 'هاد الصيغة ما صحيحةش.'
+      }
+    };
+    const key = error === 'Value must be a string.' ? 'string'
+      : error === 'Value must be a number.' ? 'number'
+      : error === 'Value must be a boolean.' ? 'boolean'
+      : error === 'Value must be a valid email address.' ? 'email'
+      : error === 'Value must be a valid phone number.' ? 'phone'
+      : error === 'Value must be a valid time.' ? 'time'
+      : error.startsWith('Value must be one of:') ? 'enum'
+      : error.startsWith('Length must be at least') ? 'minLength'
+      : error.startsWith('Length must be at most') ? 'maxLength'
+      : error.startsWith('Value must be at least') ? 'min'
+      : error.startsWith('Value must be at most') ? 'max'
+      : error === 'Value must be a valid date.' ? 'date'
+      : 'format';
+    return messages[languageKey]?.[key] || error;
   }
 
   /**
@@ -165,9 +236,17 @@ export class ResponseBuilder {
     lang: string = 'en',
     script?: string
   ): string {
+    const checkoutLabels: Record<string, Record<string, string>> = {
+      en: { product: 'Product', quantity: 'Quantity', customer_name: 'Customer name', fullName: 'Full name', businessNeed: 'Need', preferredDemoTime: 'Preferred demo time', phone: 'Phone', city: 'City', address: 'Address' },
+      fr: { product: 'Produit', quantity: 'Quantité', customer_name: 'Nom', fullName: 'Nom complet', businessNeed: 'Besoin', preferredDemoTime: 'Créneau souhaité', phone: 'Téléphone', city: 'Ville', address: 'Adresse' },
+      ar: { product: 'المنتج', quantity: 'الكمية', customer_name: 'الاسم', fullName: 'الاسم الكامل', businessNeed: 'الاحتياج', preferredDemoTime: 'الموعد المفضل', phone: 'الهاتف', city: 'المدينة', address: 'العنوان' },
+      darija: { product: 'Lproduit', quantity: 'L3adad', customer_name: 'Smiya', fullName: 'Smiya kamla', businessNeed: 'Chno bghiti chatbot y3awnek fih', preferredDemoTime: 'Nhar w lwe9t li ynasbk', phone: 'Téléphone', city: 'Lmdina', address: 'L3onwan' },
+      darija_arabic: { product: 'المنتوج', quantity: 'العدد', customer_name: 'السمية', fullName: 'السمية', businessNeed: 'الاحتياج', preferredDemoTime: 'الموعد المفضل', phone: 'نمرة التليفون', city: 'المدينة', address: 'العنوان' }
+    };
+    const labelLanguage = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
     const summary = Object.entries(contextData)
       .filter(([key]) => !key.startsWith('_'))
-      .map(([key, val]) => `${key}: ${val}`)
+      .map(([key, val]) => `${checkoutLabels[labelLanguage]?.[key] || key}: ${val}`)
       .join('\n');
 
     const interpolationData: Record<string, unknown> = {

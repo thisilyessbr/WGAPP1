@@ -78,9 +78,8 @@ describe('PHASE WHATSAPP-EMBEDDED-SIGNUP-ONBOARDING-AUDIT-IMPLEMENT-46: Embedded
           })
         } as Response;
       }
-      if (url.includes('/phone_numbers')) {
-        return { ok: true, status: 200, json: async () => ({ data: [{ id: phoneId, display_phone_number: '+1 555 1234' }] }) } as Response;
-      }
+      if (url.includes('/phone_numbers')) return { ok: true, status: 200,
+        json: async () => ({ data: [{ id: phoneId, display_phone_number: '+1 555 1234' }] }) } as Response;
       if (url.includes('/subscribed_apps')) {
         subscribedUrls.push(url);
         return { ok: true, status: 200, json: async () => ({ success: true }) } as Response;

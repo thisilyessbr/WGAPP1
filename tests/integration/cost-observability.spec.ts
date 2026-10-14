@@ -64,7 +64,7 @@ describe('Phase 29B: Cost Optimization & Token Observability', () => {
 
     const mockConversationService: any = {
       prisma: mockPrisma,
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'conv-1',
         tenantId: 'animeverse',
         customerId: 'cust-1',
@@ -142,7 +142,7 @@ describe('Phase 29B: Cost Optimization & Token Observability', () => {
     };
 
     const mockConversationService: any = {
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'conv-rag-1',
         tenantId: 'tenant-rag',
         customerId: 'cust-1',
@@ -212,7 +212,7 @@ describe('Phase 29B: Cost Optimization & Token Observability', () => {
     };
 
     const mockConversationService: any = {
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'conv-llm-1',
         tenantId: 'tenant-llm',
         customerId: 'cust-1',
@@ -277,7 +277,7 @@ describe('Phase 29B: Cost Optimization & Token Observability', () => {
     };
 
     const mockConversationService: any = {
-      getOrCreateConversation: vi.fn().mockResolvedValue({
+      getMessageCount: async () => 0, getOrCreateConversation: vi.fn().mockResolvedValue({
         id: 'conv-faq-1',
         tenantId: 'tenant-faq',
         customerId: 'cust-1',

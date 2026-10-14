@@ -32,6 +32,87 @@ it('accepts a retry after enqueue throws', async () => {
   expect(enqueue).toHaveBeenCalledTimes(2);
 });
 
+it('asks Meta to retry a delivery receipt when persistence fails', async () => {
+  const create = vi.fn().mockRejectedValueOnce(new Error('temporary database failure')).mockResolvedValue({});
+  const app = express();
+  app.use(express.json({ verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+  app.use('/webhook', createWhatsAppWebhookRouter({
+    resolveAccountByPhoneNumberId: vi.fn().mockResolvedValue({ tenantId: 't', accountId: 'a' })
+  } as any, { appSecret: 'audit-only-webhook-secret' }, new MemoryIdempotencyStore(), undefined,
+  { whatsAppDeliveryReceipt: { create } } as any));
+  const payload = JSON.stringify({ entry: [{ changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: 'number-a' },
+    statuses: [{ id: 'wamid.receipt-retry', recipient_id: 'customer-a', status: 'delivered', timestamp: '1789258500' }]
+  } }] }] });
+  const signature = 'sha256=' + createHmac('sha256', 'audit-only-webhook-secret').update(payload).digest('hex');
+  const send = () => request(app).post('/webhook').set('Content-Type', 'application/json')
+    .set('X-Hub-Signature-256', signature).send(payload);
+
+  expect((await send()).status).toBe(500);
+  const retry = await send();
+  expect(retry.status).toBe(200);
+  expect(retry.body.processed).toBe(1);
+  expect(create).toHaveBeenCalledTimes(2);
+});
+
+it('does not enqueue messages from a mixed webhook until its receipt is durable', async () => {
+  const create = vi.fn().mockRejectedValueOnce(new Error('temporary database failure')).mockResolvedValue({});
+  const enqueue = vi.fn().mockResolvedValue(true);
+  const app = express();
+  app.use(express.json({ verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+  app.use('/webhook', createWhatsAppWebhookRouter({
+    resolveAccountByPhoneNumberId: vi.fn().mockResolvedValue({ tenantId: 't', accountId: 'a' })
+  } as any, { appSecret: 'audit-only-webhook-secret' }, new MemoryIdempotencyStore(), { enqueue } as any,
+  { whatsAppDeliveryReceipt: { create } } as any));
+  const payload = JSON.stringify({ entry: [{ changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: 'number-a' },
+    statuses: [{ id: 'wamid.receipt-mixed', recipient_id: 'customer-a', status: 'delivered', timestamp: '1789258500' }],
+    messages: [{ id: 'wamid.message-mixed', from: 'customer-a', timestamp: '1789258500', type: 'text', text: { body: 'hello' } }]
+  } }] }] });
+  const signature = 'sha256=' + createHmac('sha256', 'audit-only-webhook-secret').update(payload).digest('hex');
+  const send = () => request(app).post('/webhook').set('Content-Type', 'application/json')
+    .set('X-Hub-Signature-256', signature).send(payload);
+
+  expect((await send()).status).toBe(500);
+  expect(enqueue).not.toHaveBeenCalled();
+  expect((await send()).status).toBe(200);
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(enqueue).toHaveBeenCalledTimes(1);
+});
+
+it('retries a partially saved receipt batch without duplicating earlier receipts', async () => {
+  const saved = new Set<string>();
+  let failSecondOnce = true;
+  const create = vi.fn().mockImplementation(async ({ data }) => {
+    if (data.providerMessageId === 'wamid.second' && failSecondOnce) {
+      failSecondOnce = false;
+      throw new Error('temporary database failure');
+    }
+    if (saved.has(data.dedupeKey)) throw Object.assign(new Error('Unique constraint'), { code: 'P2002' });
+    saved.add(data.dedupeKey);
+  });
+  const app = express();
+  app.use(express.json({ verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+  app.use('/webhook', createWhatsAppWebhookRouter({
+    resolveAccountByPhoneNumberId: vi.fn().mockResolvedValue({ tenantId: 't', accountId: 'a' })
+  } as any, { appSecret: 'audit-only-webhook-secret' }, new MemoryIdempotencyStore(), undefined,
+  { whatsAppDeliveryReceipt: { create } } as any));
+  const payload = JSON.stringify({ entry: [{ changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: 'number-a' },
+    statuses: ['wamid.first', 'wamid.second'].map(id =>
+      ({ id, recipient_id: 'customer-a', status: 'delivered', timestamp: '1789258500' }))
+  } }] }] });
+  const signature = 'sha256=' + createHmac('sha256', 'audit-only-webhook-secret').update(payload).digest('hex');
+  const send = () => request(app).post('/webhook').set('Content-Type', 'application/json')
+    .set('X-Hub-Signature-256', signature).send(payload);
+
+  expect((await send()).status).toBe(500);
+  const retry = await send();
+  expect(retry.status).toBe(200);
+  expect(retry.body.processed).toBe(1);
+  expect(saved.size).toBe(2);
+});
+
 // Regression tests for the September audit findings.
 it('allows ordinary users through to chat validation while protecting channels', async () => {
   vi.stubEnv('AUTH_SECRET', 'audit-only-signing-secret-32-bytes-long');
@@ -86,8 +167,13 @@ it('resumes a HUMAN_ACTIVE conversation atomically', async () => {
     channelAuditEvent: { create: vi.fn().mockResolvedValue({}) }
   };
   db.$transaction = vi.fn(async (fn) => fn(db));
-  const guard = new ClientSafetyGuard(db);
+  const automationService = { mayAutomatedAssistantReply: vi.fn().mockResolvedValue(true), reopen: vi.fn().mockImplementation(async () => {
+    state = { humanTakeover: false, botEnabled: true };
+    conversation.status = 'ACTIVE';
+  }) };
+  const guard = new ClientSafetyGuard(db, undefined, {}, automationService as any);
   await guard.setHumanTakeover('tenant-a', 'conv-a', false);
+  expect(automationService.reopen).toHaveBeenCalledWith({ tenantId: 'tenant-a', conversationId: 'conv-a', actorId: 'human-agent' });
   const result = await guard.evaluateOutbound({ tenantId: 'tenant-a', accountId: 'account-a', phoneNumberId: 'number-a', recipientWaId: 'customer-a', conversationId: 'conv-a' });
   expect(state.botEnabled).toBe(true);
   expect(result.code).toBe('ALLOWED');

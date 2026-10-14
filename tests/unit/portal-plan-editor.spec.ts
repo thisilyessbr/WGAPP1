@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
+
+describe('plan editor presets', () => {
+  it('shows separate service and sales offers as unpublished drafts without changing saved plans', async () => {
+    const dom = new JSDOM('<div id="root"></div>', {url:'https://app.relayqo.online/admin/plans',runScripts:'outside-only'});
+    dom.window.eval(readFileSync('src/portal/ui/plans.js','utf8'));
+    const root = dom.window.document.querySelector('#root')!;
+    const created: any[] = [];
+    const savedPlan = {id:'existing',name:'p1',description:'Existing offer',price:200,currency:'MAD',published:true,modules:['knowledge'],limits:{messages:1000,numbers:1,monthlyUsd:5}};
+    await (dom.window as any).RelayqoPlans.renderAdmin({root,
+      shell:(html: string) => html, header:(title: string, _text: string, actions = '') => `<h1>${title}</h1>${actions}`,
+      escape:(value: unknown) => String(value), toast:() => {}, bind:() => {}, go:() => {},
+      api:async (path: string, options?: any) => {
+        if(path === '/admin/plans' && !options)return {plans:[savedPlan]};
+        created.push(JSON.parse(options.body));return {plan:{id:'new'}};
+      }
+    });
+    expect(root.textContent).toContain('Suggested · not saved');
+    expect(root.textContent).toContain('COD order workflow can be added per client');
+    expect(root.textContent).toContain('No COD workflow is activated just by creating a plan.');
+    (root.querySelector('#save-suggested') as HTMLButtonElement).click();
+    await new Promise(resolve => setTimeout(resolve,0));
+    expect(created.map(plan => plan.name).sort()).toEqual(['Service Assistant','Sales Assistant','Service Assistant · Instagram','Sales Assistant · Instagram','Service Assistant · QR Pilot','Sales Assistant · QR Pilot'].sort());
+    expect(created.every(plan => plan.published === false)).toBe(true);
+    expect(created.find(plan=>plan.name==='Service Assistant').modules).toEqual(['knowledge','services']);
+    expect(created.find(plan=>plan.name==='Sales Assistant').modules).toEqual(['knowledge','commerce','images']);
+    expect(created.find(plan=>plan.name==='Service Assistant · Instagram').modules).toEqual(['knowledge','services','instagram']);
+    expect(created.find(plan=>plan.name==='Sales Assistant · Instagram').modules).toEqual(['knowledge','commerce','images','instagram']);
+    expect(created.find(plan=>plan.name==='Service Assistant · QR Pilot').modules).toEqual(['knowledge','services','qr']);
+    expect(created.find(plan=>plan.name==='Sales Assistant · QR Pilot').modules).toEqual(['knowledge','commerce','images','qr']);
+    expect(savedPlan.name).toBe('p1');
+    dom.window.close();
+  });
+  it('creates an unpublished commerce offer with distinct customer and AI limits', async () => {
+    const dom = new JSDOM('<div id="root"></div>', {url:'https://app.relayqo.online/admin/plans',runScripts:'outside-only'});
+    dom.window.eval(readFileSync('src/portal/ui/plans.js','utf8'));
+    const root = dom.window.document.querySelector('#root')!;
+    let saved: any;
+    await (dom.window as any).RelayqoPlans.renderAdmin({root,
+      shell:(html: string) => html, header:(title: string, _text: string, actions = '') => `<h1>${title}</h1>${actions}`,
+      escape:(value: unknown) => String(value), toast:() => {}, bind:() => {}, go:() => {},
+      api:async (path: string, options?: any) => {
+        if(path === '/admin/plans' && !options)return {plans:[]};
+        saved = JSON.parse(options.body);return {plan:{id:'saved'}};
+      }
+    });
+    (root.querySelector('#new-plan') as HTMLButtonElement).click();
+    const preset = root.querySelector('#plan-preset') as HTMLSelectElement;
+    preset.value = 'commerce';
+    preset.dispatchEvent(new dom.window.Event('change'));
+    expect((root.querySelector('#plan-price') as HTMLInputElement).value).toBe('649');
+    expect((root.querySelector('[data-module="commerce"]') as HTMLInputElement).checked).toBe(true);
+    expect((root.querySelector('[data-module="qr"]') as HTMLInputElement).checked).toBe(false);
+    await (root.querySelector('#plan-form') as any).onsubmit({preventDefault() {}});
+    expect(saved.published).toBe(false);
+    expect(saved.limits.monthlyUsd).toBeGreaterThan(0);
+    expect(saved.limits.messages).toBeGreaterThan(saved.limits.llmCalls);
+    dom.window.close();
+  });
+  it('shows client-facing features without exposing internal AI budgets', async () => {
+    const dom = new JSDOM('<div id="root"></div>', {url:'https://app.relayqo.online/app/plans',runScripts:'outside-only'});
+    dom.window.eval(readFileSync('src/portal/ui/plans.js','utf8'));
+    const root = dom.window.document.querySelector('#root')!;
+    await (dom.window as any).RelayqoPlans.renderClient({root,shell:(html:string)=>html,
+      header:(title:string)=>`<h1>${title}</h1>`,escape:(value:unknown)=>String(value),toast:()=>{},bind:()=>{},
+      api:async (path:string)=>path==='/portal/plans' ? {plans:[{id:'one',name:'Commerce',description:'Shop',price:649,currency:'MAD',modules:['commerce','images']}]} : {profile:{plan:null}}
+    });
+    expect(root.textContent).toContain('Product catalog');
+    expect(root.textContent).toContain('Sales leads and CSV export');
+    expect(root.textContent).not.toContain('AI spend ceiling');
+    expect(root.textContent).not.toContain('llmCalls');
+    dom.window.close();
+  });
+});

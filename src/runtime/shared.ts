@@ -73,6 +73,9 @@ export async function initDatabase(options: DatabaseInitOptions): Promise<Databa
  * Enforces fail-closed rules in production without exposing sensitive secret values.
  */
 export function validateProcessConfig(runtime: 'web' | 'worker', env: string | undefined = process.env.NODE_ENV): void {
+  if (process.env.ENABLE_QR_CHANNELS === 'true' && (runtime !== 'web' || process.env.RUN_WORKER_IN_WEB !== 'true')) {
+    throw new ConfigurationError('QR channels require a single always-on web process with RUN_WORKER_IN_WEB=true.');
+  }
   if (env !== 'production') {
     return;
   }

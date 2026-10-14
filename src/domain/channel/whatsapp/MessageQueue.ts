@@ -1,5 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../../../utils/logger';
+import { ConversationService } from '../../conversation/ConversationService';
+import { WhatsAppDeliveryReceiptProcessor } from './WhatsAppDeliveryReceiptProcessor';
+
+const PROVIDER_LINK_PENDING = 'PROVIDER_LINK_PENDING';
 
 export interface InboundQueueJob {
   id: string; // wamid or unique job ID
@@ -27,6 +31,7 @@ export interface MessageQueue<T = InboundQueueJob> {
   getPendingCount(partitionKey?: string): Promise<number> | number;
   getActiveCount(): Promise<number> | number;
   startWorker?(): void;
+  isWorkerRunning?(): boolean;
   shutdown(): Promise<void>;
 }
 
@@ -164,6 +169,8 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
   private readonly disableWorker: boolean;
   private persistenceFailureBackoffUntil = 0;
   private lastPersistenceFailureLogAt = 0;
+  private lastLinkReconcileAt = 0;
+  private linkReconcileRunning = false;
 
   constructor(
     private prisma: PrismaClient,
@@ -186,6 +193,10 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
       throw new Error('PostgresMessageQueue: Cannot register handler on producer-only queue');
     }
     this.handler = handler;
+  }
+
+  isWorkerRunning(): boolean {
+    return !this.disableWorker && !this.isShuttingDown && Boolean(this.handler && this.pollTimer);
   }
 
   /**
@@ -316,17 +327,58 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
     const opts = typeof options === 'string' ? { response: options } : (options || {});
     const attempts = opts.leaseAttempt ?? this.claims.get(jobId);
     if (attempts === undefined) throw new Error('LEASE_NOT_OWNED');
-    await this.prisma.whatsAppMessageJob.updateMany({
+    const linkPending = opts.outboundStatus === 'SENT' && Boolean(opts.outboundMessageId);
+    const updated = await this.prisma.whatsAppMessageJob.updateMany({
       where: { id: jobId, lockedBy: this.workerId, attempts, status: 'PROCESSING' },
       data: {
         status: opts.outboundStatus === 'UNKNOWN' ? 'FAILED' : 'COMPLETED',
         response: opts.response ?? null,
         outboundStatus: opts.outboundStatus ?? 'SENT',
         outboundMessageId: opts.outboundMessageId ?? null,
-        outboundError: opts.outboundError ?? null,
+        outboundError: linkPending ? PROVIDER_LINK_PENDING : opts.outboundError ?? null,
         completedAt: new Date()
       }
     });
+    if (updated.count !== 1) return; // A reclaimed lease owns the final result.
+    // The provider has already accepted the message. Never resend it merely
+    // because the local assistant-message link is temporarily unavailable.
+    if (linkPending) await this.linkCompletedOutboundMessage(jobId);
+  }
+
+  private async linkCompletedOutboundMessage(jobId: string): Promise<void> {
+    try {
+      const job = await this.prisma.whatsAppMessageJob.findUnique({ where: { id: jobId } });
+      if (!job || job.status !== 'COMPLETED' || job.outboundError !== PROVIDER_LINK_PENDING || !job.outboundMessageId) return;
+      const alreadyLinked = await this.prisma.message.findFirst({
+        where: { tenantId: job.tenantId, externalId: job.outboundMessageId, role: 'ASSISTANT' }
+      });
+      const linked = alreadyLinked || await new ConversationService(this.prisma).updateOutboundAssistantMessage({
+        tenantId: job.tenantId, inboundExternalId: job.wamid, providerMessageId: job.outboundMessageId
+      });
+      if (!linked) {
+        logger.error(`PostgresMessageQueue: Assistant message missing for sent job [${jobId}]; link remains pending`);
+        return;
+      }
+      if (alreadyLinked) {
+        await new WhatsAppDeliveryReceiptProcessor(this.prisma).reconcileReceiptsForProviderId(job.tenantId, job.outboundMessageId);
+      }
+      await this.prisma.whatsAppMessageJob.updateMany({
+        where: { id: jobId, status: 'COMPLETED', outboundError: PROVIDER_LINK_PENDING },
+        data: { outboundError: null }
+      });
+    } catch (err: any) {
+      logger.error(`PostgresMessageQueue: Provider link reconciliation failed for job [${jobId}]: ${err.message || err}`);
+    }
+  }
+
+  /** Retry links saved after a successful provider send, including after restarts. */
+  async reconcilePendingOutboundLinks(limit = 100): Promise<number> {
+    const jobs = await this.prisma.whatsAppMessageJob.findMany({
+      where: { status: 'COMPLETED', outboundError: PROVIDER_LINK_PENDING, outboundMessageId: { not: null } },
+      orderBy: { completedAt: 'asc' }, take: limit, select: { id: true }
+    });
+    for (const job of jobs) await this.linkCompletedOutboundMessage(job.id);
+    return jobs.length;
   }
 
   async failJob(jobId: string, error: Error | string, backoffSeconds = 5, leaseAttempt?: number): Promise<void> {
@@ -365,6 +417,14 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
     if (result.count !== 1) throw new Error('LEASE_LOST');
   }
 
+  /** Spread retries over the customer-service window instead of exhausting them during an outage. */
+  private retryDelaySeconds(attempt: number, providerDelay?: number): number {
+    const exponential = Math.min(3600, 5 * 3 ** Math.min(Math.max(attempt - 1, 0), 8));
+    const requested = typeof providerDelay === 'number' && Number.isFinite(providerDelay)
+      ? Math.max(1, Math.min(3600, Math.ceil(providerDelay))) : 0;
+    return Math.max(exponential, requested);
+  }
+
   startWorker(): void {
     if (this.disableWorker) {
       logger.warn('PostgresMessageQueue: Worker is disabled in producer-only mode');
@@ -380,6 +440,14 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
   private pulseWorkers(): void {
     if (this.disableWorker || this.isShuttingDown || !this.handler) return;
     if (Date.now() < this.persistenceFailureBackoffUntil) return;
+
+    if (!this.linkReconcileRunning && Date.now() - this.lastLinkReconcileAt >= 60_000) {
+      this.linkReconcileRunning = true;
+      this.lastLinkReconcileAt = Date.now();
+      void this.reconcilePendingOutboundLinks().catch((err: any) => {
+        logger.error(`PostgresMessageQueue: Pending provider-link sweep failed: ${err.message || err}`);
+      }).finally(() => { this.linkReconcileRunning = false; });
+    }
 
     while (this.activeWorkers < this.concurrency && !this.isShuttingDown) {
       this.activeWorkers++;
@@ -442,9 +510,7 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
             where: { id: job.id, lockedBy: this.workerId, attempts: job.leaseAttempt, status: 'PROCESSING' },
             data: { outboundStatus: 'FAILED' }
           });
-          const requestedDelay = result.outboundResult.retryAfterSeconds;
-          const retryDelay = typeof requestedDelay === 'number' && Number.isFinite(requestedDelay)
-            ? Math.max(1, Math.min(3600, Math.ceil(requestedDelay))) : 5;
+          const retryDelay = this.retryDelaySeconds(job.leaseAttempt ?? 1, result.outboundResult.retryAfterSeconds);
           await this.failJob(job.id, outboundError || 'Retryable outbound delivery failure', retryDelay, job.leaseAttempt);
           continue;
         }
@@ -458,7 +524,7 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
         });
       } catch (err: any) {
         logger.error(`PostgresMessageQueue: Error processing job [${job.wamid}]: ${err.message || err}`);
-        await this.failJob(job.id, err, 5, job.leaseAttempt);
+        await this.failJob(job.id, err, this.retryDelaySeconds(job.leaseAttempt ?? 1), job.leaseAttempt);
       } finally {
         clearInterval(heartbeat);
         if (renewal) await renewal;

@@ -10,6 +10,8 @@ import { ResponseBuilder } from '../../src/domain/conversation/ResponseBuilder';
 import { ClientSafetyGuard } from '../../src/domain/channel/guard/ClientSafetyGuard';
 import { WhatsAppWorker } from '../../src/domain/channel/whatsapp/WhatsAppWorker';
 import { CRMService } from '../../src/domain/crm/CRMService';
+import { AnswerComposer } from '../../src/domain/conversation/AnswerComposer';
+import { resolveGroundedAnswer } from '../../src/domain/conversation/GroundedAnswer';
 import { GeminiEmbeddingProvider } from '../../src/core/rag/GeminiEmbeddingProvider';
 import { UnavailableEmbeddingProvider } from '../../src/core/rag/EmbeddingProvider';
 import { requireServiceAuth } from '../../packages/shared/service-auth';
@@ -18,6 +20,65 @@ import { WhatsAppOutboundAdapter } from '../../src/domain/channel/whatsapp/Whats
 import { PostgresMessageQueue } from '../../src/domain/channel/whatsapp/MessageQueue';
 
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();vi.useRealTimers();});
+
+describe('contact filtering preserves the answer',()=>{
+  it.each([
+    ['en','latin','We offer repairs for 200 MAD. Email demo@shop.test.','We offer repairs for 200 MAD.'],
+    ['fr','latin','Je ne peux pas confirmer ce service. Contactez demo@example.com.','Je ne peux pas confirmer ce service.'],
+    ['ar','arabic','لا أستطيع تأكيد هذا الحجز. راسل demo@shop.invalid.','لا أستطيع تأكيد هذا الحجز.'],
+    ['darija','arabizi','Had produit b 120 MAD. Sift email l demo@shop.example.','Had produit b 120 MAD.']
+  ])('keeps unrelated information in %s', (lang,script,raw,retained)=>{
+    const decision:any={responseLanguage:lang,responseScript:script};
+    const answer=AnswerComposer.finalizeResponse(raw,decision);
+    expect(answer).toContain(retained);
+    expect(answer).not.toMatch(/demo@|shop\.(test|invalid|example)|example\.com/);
+  });
+  it('retains real contact addresses',()=>{
+    const raw='Repairs cost 200 MAD. Email contact@repair.ma.';
+    expect(AnswerComposer.finalizeResponse(raw)).toBe(raw);
+  });
+  it('still sanitizes internal errors when a placeholder contact is present',()=>{
+    const result=AnswerComposer.finalizeResponse('Error: private stack. Email demo@shop.test.');
+    expect(result).not.toContain('private stack');
+    expect(result).not.toContain('demo@');
+  });
+});
+
+describe('generic grounded request identity',()=>{
+  it.each([
+    ['darija','arabizi','Bghit produit zenta','zenta'],
+    ['fr','latin','Je veux un soin luma','luma'],
+    ['ar','arabic','أريد خدمة زينتا','زينتا'],
+    ['en','latin','Do you sell the delta model?','delta']
+  ])('renders a clarification in %s without a speculative offer', (lang,script,question,phrase)=>{
+    const raw=JSON.stringify({status:'clarify',phrase,answer:'Buy another item for 900 MAD.'});
+    const answer=resolveGroundedAnswer(raw,question,lang,script);
+    expect(answer).toContain(phrase);
+    expect(answer).not.toContain('900');
+    expect(answer).not.toContain('another item');
+    expect(answer).not.toContain('status');
+  });
+  it.each(['clarify','unconfirmed'])('rejects an invented phrase for %s', status=>{
+    expect(resolveGroundedAnswer(JSON.stringify({status,phrase:'different item'}),'I want item alpha','en')).toBe('UNANSWERABLE');
+  });
+  it('does not turn undocumented availability into unavailability',()=>{
+    const result=resolveGroundedAnswer('{"status":"unconfirmed","phrase":"MRI"}','Can I book an MRI?','en');
+    expect(result).toContain('cannot confirm');
+    expect(result).not.toContain('unavailable');
+  });
+  it.each(['{"status":"answer","answer":', '{"status":"other"}', '{"status":"answer"}', 'CLARIFY without a phrase'])('does not leak malformed protocol output: %s',raw=>{
+    expect(resolveGroundedAnswer(raw,'question','en')).toBe('UNANSWERABLE');
+  });
+  it('preserves a grounded normal answer',()=>{
+    expect(resolveGroundedAnswer('{"status":"answer","answer":"The charger costs 120 MAD."}','Charger price?','en')).toBe('The charger costs 120 MAD.');
+  });
+  it('handles the clarification with one provider call through the actual engine',async()=>{
+    const {engine,llm}=engineFixture();
+    llm.generateResponse.mockResolvedValue('{"status":"clarify","phrase":"zenta"}');
+    expect(await engine.handleMessage('t','customer','Tell me about the zenta service','a')).toContain('zenta');
+    expect(llm.generateResponse).toHaveBeenCalledTimes(1);
+  });
+});
 
 function engineFixture() {
   const config:any=structuredClone(DEFAULT_BUSINESS_CONFIG);
@@ -62,10 +123,10 @@ describe('audit: intent meaning and complete answers',()=>{
     expect(llm.generateResponse).not.toHaveBeenCalled();
   });
   it('does not label a greeting as workflow execution',async()=>{
-    const {engine,config,crm}=engineFixture();
+    const {engine,config,svc}=engineFixture();
     config.workflows={booking:{id:'booking',initialState:'name',states:{name:{type:'collect',field:{name:'name',type:'string'},prompt:'Name?'}}}};
     await engine.handleMessage('t','customer','Hello','a');
-    expect(crm.processTurnSignal.mock.calls[0][0].turnDecision.intent).toBe('GREETING');
+    expect(svc.commitConversationTurn.mock.calls[0][0].leadRequest).toBeNull();
   });
   it.each(['I want to buy this and how much is shipping?', 'Je veux acheter ceci et combien coûte la livraison?', 'أريد شراء هذا وما تكلفة التوصيل؟'])('preserves an affirmative purchase alongside a policy question: %s',text=>{
     const decision=TurnDecisionResolver.resolve({text,isEcommerceEnabled:true});
@@ -76,11 +137,11 @@ describe('audit: intent meaning and complete answers',()=>{
     expect(TurnDecisionResolver.resolve({text:'I do not want to buy this and how much is shipping?'}).secondaryIntents).toBeUndefined();
   });
   it('asks to confirm the product and retains the pending request for a mixed turn',async()=>{
-    const {engine,config,svc,crm}=engineFixture(); config.capabilities.ecommerceEnabled=true;
+    const {engine,config,svc}=engineFixture(); config.capabilities.ecommerceEnabled=true;
     const reply=await engine.handleMessage('t','customer','I want to buy this and how much is shipping?','a');
     expect(reply).toContain('confirm the product');
     expect(svc.commitConversationTurn.mock.calls[0][0].contextData.pendingPurchaseRequest.text).toContain('buy this');
-    expect(crm.processTurnSignal.mock.calls[0][0].turnDecision.secondaryIntents).toContain('BUY_INTENT');
+    expect(svc.commitConversationTurn.mock.calls[0][0].leadRequest).toMatchObject({reason:'EXPLICIT_SALES_INTENT',customerId:'customer'});
   });
   it('applies FAQ scope checks after workflow completion too',async()=>{
     const {engine,svc}=engineFixture();
@@ -108,7 +169,23 @@ describe('audit: state and delivery',()=>{
     await worker.processJob({...job,wamid:'second',message:'My order is 123'});
     expect(routeOutbound).toHaveBeenCalledTimes(1);
     expect(engine.handleMessage).toHaveBeenCalledTimes(1);
-    expect(engine.recordInboundMessage).toHaveBeenCalledWith('t','customer','My order is 123','a','second');
+    expect(engine.recordInboundMessage).toHaveBeenCalledWith('t','customer','My order is 123','a','second','phone');
+  });
+  it('converts Meta webhook timestamps from seconds to milliseconds before policy evaluation',async()=>{
+    const evaluateOutbound=vi.fn(()=>({action:'SEND_TEXT',text:'Reply',isWithinCustomerServiceWindow:true}));
+    const routeOutbound=vi.fn(async()=>({success:true,providerMessageId:'sent'}));
+    const worker=new WhatsAppWorker(
+      {registerHandler:()=>{}} as any,
+      {handleMessage:vi.fn(async()=>'Reply')} as any,
+      {} as any,
+      {resolveAccountByPhoneNumberId:async()=>({tenantId:'t',accountId:'a',enabled:true,status:'CONNECTED',transport:'META_CLOUD'})} as any,
+      {evaluateOutbound} as any,
+      {routeOutbound} as any
+    );
+    const timestampSeconds=Math.floor(Date.now()/1000);
+    await worker.processJob({id:'j',wamid:'w',tenantId:'t',accountId:'a',waId:'customer',phoneNumberId:'phone',message:'Hello',timestamp:timestampSeconds,enqueuedAt:Date.now()} as any);
+    expect(evaluateOutbound).toHaveBeenCalledWith(expect.objectContaining({lastInboundTimestamp:timestampSeconds*1000}));
+    expect(routeOutbound).toHaveBeenCalledTimes(1);
   });
   it('does not bypass an actual human takeover with an acknowledgment ID',async()=>{
     const {guard,conv}=workerFixture();conv.status='HUMAN_ACTIVE';conv.humanRequested=true;
@@ -182,7 +259,7 @@ describe('audit: WhatsApp attachments',()=>{
     expect(result).toHaveLength(3);
     expect(JSON.parse(result[0].message)).toEqual({mediaId:'789',caption:'Do you sell this?'});
     expect(result[1]).toMatchObject({message:'Yes',rawType:'text'});
-    expect(JSON.parse(result[2].message).unsupportedMediaType).toBe('audio');
+    expect(JSON.parse(result[2].message)).toEqual({mediaId:'987'});
   });
   it('downloads permitted Meta media with time and size bounds',async()=>{
     const fetchFn=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({url:'https://lookaside.fbsbx.com/media',mime_type:'image/png',file_size:3}))).mockResolvedValueOnce(new Response(new Uint8Array([1,2,3])));
@@ -211,11 +288,11 @@ describe('audit: WhatsApp attachments',()=>{
     const handleMessage=vi.fn(async()=>'');
     const worker=new WhatsAppWorker({registerHandler:()=>{}} as any,{handleMessage} as any,{downloadInboundImage:async()=>({imageBase64:'AQID',mimeType:'image/png'})} as any);
     await worker.processJob({id:'j',wamid:'i',tenantId:'t',accountId:'a',waId:'456',phoneNumberId:'123',rawType:'image',message:JSON.stringify({mediaId:'789',caption:'Find this'})} as any);
-    expect(handleMessage).toHaveBeenCalledWith('t','456',{imageBase64:'AQID',mimeType:'image/png',text:'Find this'},'a',{externalMessageId:'i'});
+    expect(handleMessage).toHaveBeenCalledWith('t','456',{imageBase64:'AQID',mimeType:'image/png',text:'Find this'},'a',{externalMessageId:'i',phoneNumberId:'123'});
   });
   it('records an unsupported attachment and asks for text without invoking an LLM',async()=>{
     const {engine,svc,llm}=engineFixture();
-    expect(await engine.handleMessage('t','c',{unsupportedMediaType:'audio'},'a',{externalMessageId:'audio-id'})).toContain('send your request as text');
+    expect(await engine.handleMessage('t','c',{unsupportedMediaType:'audio'},'a',{externalMessageId:'audio-id'})).toContain('type your question');
     expect(svc.commitConversationTurn.mock.calls[0][0]).toMatchObject({externalMessageId:'audio-id',responseType:'UNSUPPORTED_MEDIA'});
     expect(llm.generateResponse).not.toHaveBeenCalled();
   });

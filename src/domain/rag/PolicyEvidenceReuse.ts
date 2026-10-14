@@ -259,7 +259,7 @@ export class PolicyEvidenceReuse {
   public static isSufficient(
     intent: string,
     query: string,
-    cachedEvidence: PolicyEvidence[],
+    cachedEvidence: ReadonlyArray<Pick<PolicyEvidence, 'factualContent'>>,
     config?: BusinessConfig | null,
     shippingScope?: ShippingScopeConfig | null,
     domesticCountryOverride?: string | null
@@ -343,7 +343,7 @@ export class PolicyEvidenceReuse {
 
       case 'PAYMENT': {
         // Payment methods, COD
-        const hasPaymentFacts = matchesPolicyPhrase(combinedContent, /(?:cod|cash|delivery|paiement|payer|livraison|خلاص|كاش|الاستلام|دفع|card|carte|تخلص|نخلص|الخلاص|n5les)/iu);
+        const hasPaymentFacts = matchesPolicyPhrase(combinedContent, /(?:cod|cash|delivery|paiement|payer|livraison|payments?|paid|pay|deposit|fees?|acompte|avance|frais|خلاص|كاش|الاستلام|دفع|card|carte|تخلص|نخلص|الخلاص|عربون|تسبيق|n5les)/iu);
         if (!hasPaymentFacts) {
           return { isSufficient: false, reason: 'MISSING_PAYMENT_FACTS' };
         }

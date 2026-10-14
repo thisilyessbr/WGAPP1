@@ -54,6 +54,8 @@ export class WhatsAppWebhookExtractor {
             if (!message) message = JSON.stringify({ unsupportedMediaType: 'interactive' });
           } else if (rawType === 'image' && typeof msg.image?.id === 'string') {
             message = JSON.stringify({ mediaId: msg.image.id, caption: typeof msg.image.caption === 'string' ? msg.image.caption : '' });
+          } else if (rawType === 'audio' && typeof msg.audio?.id === 'string') {
+            message = JSON.stringify({ mediaId: msg.audio.id });
           } else if (['image', 'audio', 'video', 'document', 'location', 'contacts', 'unsupported'].includes(rawType)) {
             message = JSON.stringify({ unsupportedMediaType: rawType });
           }

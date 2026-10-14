@@ -118,6 +118,20 @@ function fixture(ecommerce?: any) {
 }
 
 describe('Darija full engine regression', () => {
+  it('answers a separate price question while opening the approved purchase workflow', async () => {
+    const { engine, config, service } = fixture();
+    config.behavior.responseScript = 'arabic';
+    config.portalFacts = { policies: { payment: 'لا نطلب بيانات البطاقة. السعر حسب الباقة والاحتياج؛ يؤكده الفريق.' } };
+    config.capabilities.intents = [{ id: 'demo', description: 'Request a demo', workflowId: 'demo', useCases: ['PURCHASE'] }];
+    config.workflows = { demo: { id: 'demo', initialState: 'name', states: {
+      name: { type: 'collect', field: { name: 'fullName', type: 'string', required: true, semanticType: 'person_name' }, prompt: { darija: 'شنو سميتك؟' } }
+    } } };
+    service.createSession = async () => ({ id: 's', tenantId: 't', conversationId: 'v', workflowId: 'demo', stateId: 'name', contextData: {}, collectedData: {}, stateHistory: [] });
+    const reply = await engine.handleMessage('t', 'c', 'Bghit nchri wa7d chatbot, ch7al taman?', 'a');
+    expect(reply).toContain('السعر حسب الباقة والاحتياج');
+    expect(reply).toContain('شنو سميتك؟');
+    expect(service.commitConversationTurn.mock.calls[0][0].sessionUpdate.status).toBe('ACTIVE');
+  });
   it.each(['salam', 'salaam', 'slm', 'سلام', 'السلام عليكم'])('greets naturally: %s', async text => {
     const { engine } = fixture(); const reply = await engine.handleMessage('t', 'c', text, 'a');
     expect(reply.toLowerCase()).toMatch(/salam|سلام/);
@@ -136,6 +150,13 @@ describe('Darija full engine regression', () => {
   it.each(['بغيت نصيفط وثيقة', 'bghit nsift document'])('handles unsupported attachments in the same script: %s', async text => {
     const { engine } = fixture(); const reply = await engine.handleMessage('t', 'c', { text, unsupportedMediaType: 'document' }, 'a');
     expect(/[\u0600-\u06ff]/.test(reply)).toBe(/[\u0600-\u06ff]/.test(text));
+  });
+  it('keeps the conversation language for an audio message without a caption', async () => {
+    const { engine, conversation } = fixture();
+    conversation.contextData = { _lang: 'darija', _script: 'arabizi' };
+    const reply = await engine.handleMessage('t', 'c', { unsupportedMediaType: 'audio' }, 'a');
+    expect(reply).toContain('3afak');
+    expect(reply).not.toContain('Je ne peux pas');
   });
   it.each(['بغيت نورّيك هاد التصويرة', 'bghit nwerik had tswira'])('uses the same script when images are disabled: %s', async text => {
     const { engine, llm } = fixture(); const reply = await engine.handleMessage('t', 'c', { text, imageBase64: 'AQID', mimeType: 'image/png' }, 'a');
@@ -157,21 +178,21 @@ describe('Darija full engine regression', () => {
 describe('Darija workflow confirmations and prompts', () => {
   const workflow: any = { id: 'w', initialState: 'confirm', states: { confirm: { type: 'confirm', next: 'done' }, done: { type: 'end' } } };
   const session: any = { id: 's', tenantId: 't', conversationId: 'v', stateId: 'confirm', workflowId: 'w', contextData: { _started: true, name: 'Ilyes' }, collectedData: { name: 'Ilyes' }, stateHistory: [] };
-  it.each(['ih', 'iyeh', 'wakha!', 'واخا!', 'إيه', 'اه'])('accepts an explicit confirmation: %s', async text => {
+  it.each(['ih', 'iyeh', 'wakha!', 'wakha, n2akked', 'واخا!', 'إيه', 'اه', 'Ui baghi', 'Ih bghit nconfirme', 'je confirme'])('accepts an explicit confirmation: %s', async text => {
     const script = /[\u0600-\u06ff]/.test(text) ? 'arabic' : 'arabizi';
     const result = await new WorkflowEngine({ evaluateNextState: async () => null } as any).process(structuredClone(session), text, workflow, structuredClone(DEFAULT_BUSINESS_CONFIG), undefined, undefined, undefined, undefined, 'darija', script);
     expect(result.isComplete).toBe(true);
     expect(result.nextStateId).toBe('done');
     expect(/[\u0600-\u06ff]/.test(result.response)).toBe(script === 'arabic');
   });
-  it.each(['ma bghitch', 'mabghitch', 'ma bghit ch', 'ما بغيتش', 'مابغيتش'])('cancels a refused active workflow: %s', async text => {
+  it.each(['ma bghitch', 'mabghitch', 'ma bghit ch', 'ما بغيتش', 'مابغيتش', 'la, bghit nlghi', 'لا، بغيت نلغي', 'لا، بغيت نلغي طلب الديمو'])('cancels a refused active workflow: %s', async text => {
     expect(WorkflowCancellationDetector.isCancellation(text)).toBe(true);
     const { engine, config, service } = fixture(); config.workflows = { w: workflow }; service.getActiveSession = async () => structuredClone(session);
     const reply = await engine.handleMessage('t', 'c', text, 'a');
     expect(service.commitConversationTurn.mock.calls[0][0].sessionUpdate.status).toBe('CANCELLED');
     expect(/[\u0600-\u06ff]/.test(reply)).toBe(/[\u0600-\u06ff]/.test(text));
   });
-  it.each(['wakha walakin bdel l3onwan', 'واخا ولكن بدل العنوان', 'ma n2ekkedch'])('does not confirm an ambiguous or qualified reply: %s', async text => {
+  it.each(['wakha walakin bdel l3onwan', 'واخا ولكن بدل العنوان', 'wakha, la', 'wakha ma n2akkedch', 'ma n2ekkedch'])('does not confirm an ambiguous or qualified reply: %s', async text => {
     const result = await new WorkflowEngine({ evaluateNextState: async () => null } as any).process(structuredClone(session), text, workflow, structuredClone(DEFAULT_BUSINESS_CONFIG), undefined, undefined, undefined, undefined, 'darija', 'arabizi');
     expect(result.isComplete).toBe(false);
     expect(result.nextStateId).toBe('confirm');
@@ -187,6 +208,23 @@ describe('Darija workflow confirmations and prompts', () => {
     const state: any = { type: 'collect', field: { name: 'name', type: 'string' }, prompt: { darija_arabic: 'عفاك عطيني سميتك', darija_arabizi: '3afak 3tini smitek' } };
     expect(builder.buildMissingFieldResponse(state, config, 'darija', 'arabic')).toBe(state.prompt.darija_arabic);
     expect(builder.buildMissingFieldResponse(state, config, 'darija', 'arabizi')).toBe(state.prompt.darija_arabizi);
+  });
+  it('never exposes technical lead field names in Arabic-script Darija', () => {
+    const builder = new ResponseBuilder(); const config = structuredClone(DEFAULT_BUSINESS_CONFIG);
+    const prompt = builder.buildMissingFieldResponse({ type: 'collect', field: 'businessNeed' } as any, config, 'darija', 'arabic');
+    expect(prompt).toContain('شنو بغيتي الشات بوت يعاونك فيه');
+    expect(prompt).not.toContain('businessNeed');
+  });
+  it('confirms once and turns a workflow handoff into a bounded 24-hour pause', async () => {
+    const handoffWorkflow: any = { id: 'demo', initialState: 'confirm', states: {
+      confirm: { type: 'confirm', next: 'team' },
+      team: { type: 'handoff', pauseBotHours: 24, prompt: { darija_arabic: 'شكرا، تسجل طلب الديمو ديالك.' } }
+    } };
+    const result = await new WorkflowEngine({ evaluateNextState: async () => null } as any).process(structuredClone(session), 'إيه بغيت نأكد', handoffWorkflow, structuredClone(DEFAULT_BUSINESS_CONFIG), undefined, undefined, undefined, undefined, 'darija', 'arabic');
+    expect(result.isComplete).toBe(true);
+    expect(result.requestHumanHandoff).toBe(true);
+    expect(result.handoffPauseHours).toBe(24);
+    expect(result.response).toContain('تسجل طلب الديمو');
   });
 });
 
@@ -210,7 +248,8 @@ describe('Darija factual policy answers', () => {
     ['ch7al livraison?', 'Livraison f lmghrib b 30 MAD.'],
     ['شحال التوصيل؟', 'التوصيل فالمغرب ب 30 درهم.']
   ])('answers a trusted FAQ in the same script: %s', async (text, answer) => {
-    const { engine, config, llm } = fixture(); config.capabilities.faq = [{ id: 'shipping', category: 'SHIPPING', question: text, answer, language: 'darija' }];
+    const { engine, config, llm } = fixture(); config.capabilities.faq = [{ id: 'shipping', category: 'SHIPPING', question: text, answer,
+      answers: /[\u0600-\u06ff]/u.test(answer) ? { darija: answer } : { darija_arabizi: answer }, language: 'darija' }];
     expect(await engine.handleMessage('t', 'c', text, 'a')).toContain('30');
     expect(llm.generateResponse).not.toHaveBeenCalled();
   });

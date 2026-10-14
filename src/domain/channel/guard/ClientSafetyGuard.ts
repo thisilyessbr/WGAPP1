@@ -402,49 +402,9 @@ export class ClientSafetyGuard {
     humanTakeover: boolean,
     actorId?: string
   ): Promise<void> {
-    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
-    if (!conv || conv.tenantId !== tenantId) {
-      throw new Error(`Conversation [${conversationId}] not found for tenant [${tenantId}]`);
-    }
-
-    await this.prisma.$transaction(async tx => {
-      await tx.conversationAutomationState.upsert({
-        where: { conversationId },
-        create: {
-          tenantId,
-          accountId: conv.accountId,
-          conversationId,
-          humanTakeover,
-          botEnabled: !humanTakeover,
-          updatedBy: actorId || 'human-agent'
-        },
-        update: {
-          humanTakeover,
-          botEnabled: !humanTakeover,
-          updatedBy: actorId || 'human-agent'
-        }
-      });
-
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: { humanRequested: humanTakeover, humanRequestedAt: humanTakeover ? new Date() : null }
-      });
-
-      if (!humanTakeover) {
-        await tx.conversation.updateMany({
-          where: { id: conversationId, tenantId, status: { in: ['HUMAN_ACTIVE', 'HANDOFF_REQUESTED'] } },
-          data: { status: 'ACTIVE' }
-        });
-    }
-    });
-
-    await this.recordAuditEvent({
-      tenantId,
-      accountId: conv.accountId,
-      conversationId,
-      actorId,
-      action: humanTakeover ? 'HUMAN_TAKEOVER_ACTIVATED' : 'BOT_AUTOMATION_RESUMED'
-    });
+    const transition = { tenantId, conversationId, actorId: actorId || 'human-agent' };
+    if (humanTakeover) await this.automationService.takeover(transition);
+    else await this.automationService.reopen(transition);
   }
 
   async setTenantAutomationPaused(tenantId: string, paused: boolean, reason?: string, actorId?: string): Promise<void> {

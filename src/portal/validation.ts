@@ -1,6 +1,7 @@
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../domain/tenant/BusinessConfig';
 import { BusinessData, DEFAULT_PLAN_LIMITS, EMPTY_BUSINESS, PlanLimits, PortalError, PortalPlan } from './types';
 import { resolveDeepSeekModel } from '../core/llm/DeepSeekProvider';
+import { safeFieldPattern } from '../core/engine/SafeFieldPattern';
 
 export function object(value: unknown): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PortalError(400, 'INVALID_OBJECT');
@@ -107,6 +108,7 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     for (const [key, value] of Object.entries(config.behavior)) {
       if (key === 'tone') text(value, 200);
       else if (key === 'verbosity') { if (!['short', 'medium', 'long'].includes(String(value))) throw new PortalError(400, 'INVALID_VERBOSITY'); }
+      else if (key === 'responseScript') { if (!['auto', 'arabic', 'arabizi'].includes(String(value))) throw new PortalError(400, 'INVALID_RESPONSE_SCRIPT'); }
       else if (typeof value !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
     }
   }
@@ -135,10 +137,18 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     }
   }
   if (config.capabilities) {
+    if (config.capabilities.leadMode !== undefined && !['NONE', 'SERVICE', 'COMMERCE', 'BOTH'].includes(config.capabilities.leadMode)) {
+      throw new PortalError(400, 'INVALID_LEAD_MODE');
+    }
     for (const key of ['imageEnabled', 'ecommerceEnabled']) if (config.capabilities[key] !== undefined && typeof config.capabilities[key] !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
     if (config.capabilities.intents !== undefined) list(config.capabilities.intents, 50).forEach(raw => {
       const intent = object(raw); if (!text(intent.id, 100)) throw new PortalError(400, 'INVALID_INTENT');
       text(intent.description, 2000); if (intent.keywords) list(intent.keywords, 100).forEach(k => text(k, 200));
+      if (intent.useCases) list(intent.useCases, 4).forEach(useCase => {
+        if (!['PURCHASE', 'DEMO', 'BOOKING', 'HUMAN_SUPPORT'].includes(text(useCase, 50))) {
+          throw new PortalError(400, 'INVALID_INTENT_USE_CASE');
+        }
+      });
     });
   }
   if (config.llm) {
@@ -153,9 +163,9 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
   }
   if (config.limits) for (const n of Object.values(config.limits)) integer(n, 1, 100000);
   if (config.workflows) {
-    const validateOutcome = (raw: unknown) => {
+    const validateTrackedOutcome = (raw: unknown) => {
       const outcome = object(raw);
-      allowed(outcome, ['type', 'valueField', 'currencyField']);
+      if (outcome.type === undefined && outcome.valueField === undefined && outcome.currencyField === undefined) return;
       if (!['BOOKING_CONFIRMED', 'ORDER_CONFIRMED', 'none'].includes(String(outcome.type))) throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
       if (outcome.valueField !== undefined) text(outcome.valueField, 100);
       if (outcome.currencyField !== undefined) text(outcome.currencyField, 100);
@@ -163,27 +173,92 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
         throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
       }
     };
-    for (const rawWorkflow of Object.values(config.workflows) as any[]) {
-      const workflow = object(rawWorkflow);
+    const workflows = Object.values(config.workflows) as any[];
+    const autoStarted = workflows.filter(workflow => workflow.activation?.mode === 'auto_start');
+    if (autoStarted.length > 1) throw new PortalError(400, 'CONFLICTING_AUTO_START_WORKFLOWS');
+    for (const workflow of Object.values(config.workflows) as any[]) {
+      object(workflow);
       if (!workflow.initialState || !workflow.states?.[workflow.initialState]) throw new PortalError(400, 'INVALID_WORKFLOW');
-      if (workflow.outcome !== undefined) validateOutcome(workflow.outcome);
-      for (const rawState of Object.values(object(workflow.states)) as any[]) {
-        const state = object(rawState);
-        if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
-        if (state.type === 'collect' && state.field && typeof state.field === 'object') {
-          const field = object(state.field);
-          if (field.semanticType !== undefined &&
-            (field.type !== 'string' || !['person_name', 'free_text'].includes(String(field.semanticType)))) {
-            throw new PortalError(400, 'INVALID_WORKFLOW_FIELD_SEMANTIC_TYPE');
+      if (workflow.outcome !== undefined) validateTrackedOutcome(workflow.outcome);
+      if (workflow.outcome?.pauseBotHours !== undefined) integer(workflow.outcome.pauseBotHours, 1, 720);
+      if (workflow.outcome?.createLead !== undefined && typeof workflow.outcome.createLead !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (workflow.outcome?.requestHumanHandoff !== undefined && typeof workflow.outcome.requestHumanHandoff !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (workflow.outcome?.allowConcurrentOpenRequests !== undefined && typeof workflow.outcome.allowConcurrentOpenRequests !== 'boolean') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
+      if (workflow.outcome?.openRequestMessage !== undefined) {
+        if (typeof workflow.outcome.openRequestMessage === 'object') stringMap(workflow.outcome.openRequestMessage);
+        else text(workflow.outcome.openRequestMessage, 20000);
+      }
+      for (const state of Object.values(object(workflow.states)) as any[]) {
+        object(state);
+        if (state.type === 'collect' && state.field && typeof state.field === 'object' &&
+          state.field.semanticType !== undefined &&
+          (state.field.type !== 'string' || !['person_name', 'free_text'].includes(String(state.field.semanticType)))) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_FIELD_SEMANTIC_TYPE');
+        }
+        for (const pattern of [state.field?.pattern, state.field?.validationRegex]) {
+          if (pattern !== undefined) {
+            try { safeFieldPattern(pattern); }
+            catch { throw new PortalError(400, 'INVALID_WORKFLOW_PATTERN', 'Use a supported RE2 field pattern without lookarounds or backreferences (maximum 1024 characters).'); }
           }
         }
+        if (!['choice','collect','confirm','message','rag','handoff','end'].includes(state.type)) throw new PortalError(400, 'INVALID_WORKFLOW_STATE');
+        if (state.type === 'choice' && (!Array.isArray(state.options) || state.options.length === 0)) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_CHOICE', 'A choice step needs at least one selectable option.');
+        }
+        if (state.type === 'choice' && state.options.some((option: any) => typeof option?.label !== 'string' || !option.label.trim())) {
+          throw new PortalError(400, 'INVALID_WORKFLOW_CHOICE', 'Every choice option needs a visible label.');
+        }
+        if (state.pauseBotHours !== undefined) integer(state.pauseBotHours, 1, 720);
         if (state.outcome !== undefined) {
           if (state.type !== 'end') throw new PortalError(400, 'INVALID_WORKFLOW_OUTCOME');
-          validateOutcome(state.outcome);
+          validateTrackedOutcome(state.outcome);
         }
         const targets = [...(state.transitions || []).map((t: any) => t.target), ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
         if (targets.some(target => !workflow.states[target])) throw new PortalError(400, 'INVALID_WORKFLOW_TARGET');
       }
+      // A closed cycle cannot finish without exhausting the runtime step limit.
+      // A state with no configured next step is terminal in the current engine.
+      const edges = new Map<string, string[]>();
+      const terminal = new Set<string>();
+      for (const [id, state] of Object.entries(workflow.states) as [string, any][]) {
+        const targets = [...(state.transitions || []).map((t: any) => t.target),
+          ...(state.options || []).map((o: any) => o.next), ...(state.next ? [state.next] : [])];
+        edges.set(id, targets);
+        if (state.type === 'end' || state.type === 'handoff' || targets.length === 0) terminal.add(id);
+      }
+      const reachable = new Set<string>([workflow.initialState]);
+      const pending = [workflow.initialState];
+      while (pending.length) for (const target of edges.get(pending.pop()!) || []) {
+        if (!reachable.has(target)) { reachable.add(target); pending.push(target); }
+      }
+      const canFinish = new Set(terminal);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const [id, targets] of edges) if (!canFinish.has(id) && targets.some(target => canFinish.has(target))) {
+          canFinish.add(id); changed = true;
+        }
+      }
+      if ([...reachable].some(id => !canFinish.has(id))) throw new PortalError(400, 'WORKFLOW_CANNOT_FINISH');
+    }
+  }
+  // A canonical customer request must have one unambiguous destination. The
+  // editor may show several intents, but they cannot send the same use case to
+  // different workflows or leave it without a workflow.
+  const useCaseRoutes = new Map<string, Set<string>>();
+  for (const intent of config.capabilities?.intents || []) {
+    if (!intent.useCases?.length) continue;
+    const linked = new Set<string>();
+    if (intent.workflowId && config.workflows?.[intent.workflowId]) linked.add(intent.workflowId);
+    for (const [workflowId, workflow] of Object.entries(config.workflows || {}) as [string, any][]) {
+      if (workflow.activation?.intents?.includes(intent.id)) linked.add(workflowId);
+    }
+    if (linked.size !== 1) throw new PortalError(400, 'INVALID_INTENT_USE_CASE_ROUTE', 'Link each shared use case to exactly one workflow.');
+    for (const useCase of intent.useCases) {
+      const group = useCaseRoutes.get(useCase) || new Set<string>();
+      for (const workflowId of linked) group.add(workflowId);
+      useCaseRoutes.set(useCase, group);
+      if (group.size > 1) throw new PortalError(400, 'CONFLICTING_INTENT_USE_CASE_ROUTE', 'One shared use case cannot start two different workflows.');
     }
   }
   return structuredClone(config);
@@ -192,8 +267,8 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
 export function validatePlan(input: unknown): Omit<PortalPlan, 'id' | 'revision'> {
   const p = object(input); allowed(p, ['name', 'description', 'price', 'currency', 'published', 'modules', 'limits', 'template', 'revision']);
   const name = text(p.name, 100); if (!name) throw new PortalError(400, 'PLAN_NAME_REQUIRED');
-  const modules = list(p.modules || [], 5).map(m => text(m, 30));
-  if (modules.some(m => !['commerce', 'services', 'knowledge', 'images', 'qr'].includes(m))) throw new PortalError(400, 'INVALID_MODULE');
+  const modules = list(p.modules || [], 6).map(m => text(m, 30));
+  if (modules.some(m => !['commerce', 'services', 'knowledge', 'images', 'qr', 'instagram'].includes(m))) throw new PortalError(400, 'INVALID_MODULE');
   const rawLimits = object(p.limits || {}); allowed(rawLimits, Object.keys(DEFAULT_PLAN_LIMITS));
   const limits = { ...DEFAULT_PLAN_LIMITS };
   for (const key of Object.keys(limits) as (keyof PlanLimits)[]) if (rawLimits[key] !== undefined) limits[key] = key === 'monthlyUsd' ? money(rawLimits[key], 10000) : integer(rawLimits[key], key === 'messages' ? -1 : 0, key === 'numbers' ? 100 : 1000000);

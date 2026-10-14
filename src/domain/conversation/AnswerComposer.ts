@@ -6,8 +6,10 @@ import { BusinessConfig, resolveLocalizedPrompt, DEFAULT_HANDOFF_MESSAGES } from
 import { LLMProvider, LLMRequestOptions } from '../../core/llm/LLMProvider';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { DirectRagGuard } from '../rag/DirectRagGuard';
+import { PolicyAnswerSafety } from '../rag/PolicyAnswerSafety';
+import { PolicyEvidenceReuse } from '../rag/PolicyEvidenceReuse';
 import { logger } from '../../utils/logger';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { responseMediaStorage } from './ResponseMediaContext';
 
 export interface ChatMedia {
   type: 'image' | 'video';
@@ -16,7 +18,8 @@ export interface ChatMedia {
   title?: string;
   alt?: string;
 }
-export const outboundMediaContext = new AsyncLocalStorage<{ media: ChatMedia[] }>();
+/** Per-turn outbound media (alias of the shared response media storage). */
+export const outboundMediaContext = responseMediaStorage;
 
 export interface AnswerContext {
   turnDecision: TurnDecision;
@@ -202,8 +205,14 @@ export class AnswerComposer {
 
   public static attachMediaToContext(media: ChatMedia[]): void {
     if (!media || media.length === 0) return;
-    const outbound = outboundMediaContext.getStore();
-    if (outbound) for (const item of media) if (!outbound.media.some(m => m.url === item.url)) outbound.media.push(item);
+    const responseContext = responseMediaStorage.getStore();
+    if (responseContext) {
+      for (const item of media) {
+        if (!responseContext.media.some(existing => existing.url === item.url)) {
+          responseContext.media.push(item);
+        }
+      }
+    }
     try {
       // Access chatDiagnosticStorage from dev chatApi if in runtime
       const { chatDiagnosticStorage } = require('../../dev/chatApi');
@@ -699,7 +708,7 @@ export class AnswerComposer {
       }
 
       // 3. Fallback to attribute family patterns if still unconfirmed
-      if (!hasEvidence && family && !kw) {
+      if (!hasEvidence && family && (!kw || /^(material|matière|matiere|composition|fabric|fit|weight|dimensions|features?)$/i.test(kw))) {
         if (family === 'PERFORMANCE') {
           hasEvidence = /(?:waterproof|water-resistant|rainproof|warm|breathable|windproof|imperm[ée]able|chaud|respirant|مقاوم|ضد الما|ضد الماء|سخون|دافئ)/iu.test(descLower);
         } else if (family === 'MATERIAL') {
@@ -829,7 +838,6 @@ export class AnswerComposer {
       return `Great choice! To order ${productSubject} (${fact.effectivePrice} ${fact.currency}), please provide your delivery address and preferred payment method (Cash on Delivery is available).`;
     }
 
-    // The classifier has already identified whether price and availability were both requested.
     if (turnDecision.intent === 'PRICE' && !turnDecision.requestedAvailability) {
       const variant = fact.selectedVariant;
       const variantLabel = this.formatVariantLabel(variant?.color || turnDecision.color, variant?.size || turnDecision.size, responseLanguage, responseScript);
@@ -1069,8 +1077,17 @@ export class AnswerComposer {
 
     // Direct chunk return evaluation:
     // Allow raw chunk ONLY IF DirectRagGuard confirms language AND script match.
-    const guardResult = DirectRagGuard.evaluate(turnDecision?.productName || '', topChunk, responseLanguage, responseScript);
-    if (guardResult.isSafe && !turnDecision?.isMultiPolicy) {
+    if (config && context.userMessage && turnDecision?.intent === 'SHIPPING' &&
+        PolicyEvidenceReuse.isScopeExpanded('SHIPPING', context.userMessage, config) &&
+        !PolicyAnswerSafety.hasShippingScopeEvidence(context.userMessage,
+          knowledgeFacts.map(content => ({ content })), config)) {
+      return PolicyAnswerSafety.unknownShippingScope(responseLanguage, responseScript);
+    }
+    const directSafe = config && context.userMessage
+      ? PolicyAnswerSafety.directAnswerIsSafe(context.userMessage, topChunk, undefined, config,
+        responseLanguage, responseScript)
+      : DirectRagGuard.evaluate(turnDecision?.productName || '', topChunk, responseLanguage, responseScript).isSafe;
+    if (directSafe && !turnDecision?.isMultiPolicy) {
       return this.formatDirectKnowledgeAnswer(topChunk);
     }
 
@@ -1228,6 +1245,24 @@ ${turnDecision.inputQuery || ''}
 
     let cleaned = rawResponse.trim();
 
+    // Reserved example/test domains are never usable customer contact channels.
+    // A draft or demo profile may contain them, but the chatbot must not direct a
+    // real customer to an inbox that cannot receive mail.
+    const placeholderAddress = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.(?:test|example|invalid)\b|\b[A-Z0-9._%+-]+@example\.(?:com|org|net)\b/gi;
+    if (placeholderAddress.test(cleaned)) {
+      logger.warn('AnswerComposer.finalizeResponse: Placeholder contact address suppressed');
+      // Mask addresses before sentence splitting so dots inside an email cannot
+      // leave a partial, unusable contact behind. Keep unrelated answer sentences.
+      const masked = cleaned.replace(placeholderAddress, '\uE000');
+      const retained = masked.split(/(?<=[.!?؟])\s+|\n+/u).filter(sentence => !sentence.includes('\uE000')).join(' ').trim();
+      const contactFallback = lang === 'fr' ? 'Continuez ici et notre équipe pourra vous aider.'
+        : lang === 'ar' ? 'يمكنك متابعة المحادثة هنا وسيساعدك فريقنا.'
+        : lang === 'darija' && script === 'arabizi' ? 'Kmml m3ana hna w l-equipe t3awnek.'
+        : lang === 'darija' ? 'كمل معانا هنا والفريق يعاونك.'
+        : 'Please continue here and our team can help.';
+      cleaned = [retained, contactFallback].filter(Boolean).join(' ');
+    }
+
     // 1. Content Trust / Internal Leak & Error Trace Sanitization
     if (/CONCURRENCY_CONFLICT|\bat (?:[a-zA-Z]:|\/app|\/src|\/node_modules)\b|Error:\s+/i.test(cleaned)) {
       logger.warn('AnswerComposer.finalizeResponse: Internal error or stack trace detected in response, sanitizing to fallback...');
@@ -1285,9 +1320,9 @@ ${turnDecision.inputQuery || ''}
       return cleaned;
     }
 
-    // A side-answer during a workflow must not consume the space reserved for
-    // the pending question. Otherwise the customer sees the FAQ but loses the
-    // form prompt while the server still waits for that field.
+    // A side-answer must not use the space reserved for the pending workflow
+    // question. Otherwise the customer sees the FAQ while the server silently
+    // waits for a field whose prompt was cut from the reply.
     if (options?.preserveTrailingWorkflowPrompt) {
       const separator = '\n\n---\n';
       const splitAt = cleaned.lastIndexOf(separator);

@@ -28,6 +28,8 @@ services:
         value: https://app.relayqo.online
       - key: PORTAL_DOCUMENT_WORKER
         value: "true"
+      - key: PORTAL_STAFF_ALERT_WORKER
+        value: "true"
       - key: PORTAL_DEV_AUTH_LINKS
         value: "false"
       - key: PORTAL_DEV_SKIP_EMAIL
@@ -42,6 +44,8 @@ services:
         value: "30000"
       - key: WHATSAPP_QUEUE_WORKER_CONCURRENCY
         value: "2"
+      - key: RUN_WORKER_IN_WEB
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -52,6 +56,14 @@ services:
         generateValue: true
       - key: META_APP_ID
         sync: false
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
+      - key: INSTAGRAM_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: INSTAGRAM_GRAPH_API_VERSION
+        value: v26.0
       - key: META_APP_SECRET
         sync: false
       - key: WHATSAPP_APP_SECRET
@@ -67,6 +79,12 @@ services:
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: GOOGLE_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: VOICE_TRANSCRIPTION_PROVIDER
         sync: false
       - key: RESEND_API_KEY
         sync: false

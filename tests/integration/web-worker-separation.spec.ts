@@ -98,6 +98,23 @@ describe('Phase 2: Web / Worker Separation Integration Tests', () => {
     expect(await queue.getActiveCount()).toBe(0);
   });
 
+  it('provides a preview engine on portal web without starting a WhatsApp worker', async () => {
+    const previous = process.env.PORTAL_ENABLED;
+    process.env.PORTAL_ENABLED = 'true';
+    try {
+      webDeps = bootstrapWebDependencies(prisma);
+      expect(webDeps.portalService).toBeDefined();
+      expect(webDeps.conversationEngine?.previewMessage).toBeTypeOf('function');
+      expect(webDeps.whatsAppWorker).toBeUndefined();
+      expect(webDeps.ragService).toBeUndefined();
+      expect(webDeps.llmFactory).toBeUndefined();
+    } finally {
+      webDeps?.portalService?.stop();
+      if (previous === undefined) delete process.env.PORTAL_ENABLED;
+      else process.env.PORTAL_ENABLED = previous;
+    }
+  });
+
   it('2. Worker process isolation: initializes AI pipeline and queue consumer without Express', async () => {
     workerDeps = bootstrapWorkerDependencies(prisma, { autoStartQueue: false });
 

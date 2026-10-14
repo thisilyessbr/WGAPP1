@@ -25,7 +25,7 @@ export class MeteredLLMProvider implements LLMProvider {
   }
 
   generateResponse(prompt: string, history: { role: string; content: string }[], options?: LLMRequestOptions) {
-    return this.measure('generation', options, opt => this.inner.generateResponse(prompt, history, opt));
+    return this.measure(options?.purpose || 'generation', options, opt => this.inner.generateResponse(prompt, history, opt));
   }
 
   private async measure<T>(purpose: string, options: LLMRequestOptions | undefined, call: (opt: LLMRequestOptions) => Promise<T>): Promise<T> {

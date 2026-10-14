@@ -14,6 +14,9 @@ export interface DirectRagGuardResult {
 
 // Patterns representing internal prompt, training, sample QA, or metadata content
 const INTERNAL_ARTIFACT_PATTERNS = [
+  /^FAQ\s*\[[^\]]+\]\s*:/im,
+  /^Multilingual Answers\s*:/im,
+  /^Alternative Questions\s*:/im,
   /customer\s+(?:language\s+)?examples?/i,
   /training\s+examples?/i,
   /sample\s+(?:questions?|q\s*&\s*a|qa|prompts?)/i,

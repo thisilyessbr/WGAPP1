@@ -1,12 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { WorkflowTriggerResolver } from '../../src/domain/conversation/WorkflowTriggerResolver';
+import { ConversationEngine } from '../../src/domain/conversation/ConversationEngine';
 import { BusinessConfig, DEFAULT_BUSINESS_CONFIG, WorkflowConfig } from '../../src/domain/tenant/BusinessConfig';
 import { TurnDecision } from '../../src/domain/conversation/TurnDecision';
 
 describe('Phase 45K: Strict Workflow Activation Trigger Semantics', () => {
-  function resolveTrigger(content: string, config: BusinessConfig, turnDecision?: TurnDecision) {
-    return WorkflowTriggerResolver.resolve(content, config, turnDecision);
+  // Helper to access private resolveWorkflowTrigger
+  function resolveTrigger(engine: any, content: string, config: BusinessConfig, turnDecision?: any) {
+    return engine.resolveWorkflowTrigger(content, config, turnDecision);
   }
+
+  const engine = new ConversationEngine(
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any
+  );
 
   const sampleWorkflow: WorkflowConfig = {
     id: 'consultation_booking',
@@ -53,39 +62,39 @@ describe('Phase 45K: Strict Workflow Activation Trigger Semantics', () => {
 
   it('1. intent = null, message = "شنو الخدمات اللي كتقدمو؟" -> NO workflow', () => {
     const td: TurnDecision = { domain: 'GENERAL', intent: null as any, source: 'LLM' } as any;
-    const res = resolveTrigger('شنو الخدمات اللي كتقدمو؟', baseConfig, td);
-    expect(res).toBeNull();
+    const res = resolveTrigger(engine, 'شنو الخدمات اللي كتقدمو؟', baseConfig, td);
+    expect(res).toEqual({ kind: 'NONE' });
   });
 
   it('2. intent = GENERAL_CONVERSATION, message = "what services do you offer?" -> NO workflow', () => {
     const td: TurnDecision = { domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM' } as any;
-    const res = resolveTrigger('what services do you offer?', baseConfig, td);
-    expect(res).toBeNull();
+    const res = resolveTrigger(engine, 'what services do you offer?', baseConfig, td);
+    expect(res).toEqual({ kind: 'NONE' });
   });
 
   it('3. intent = PRICE, message = "how much?" -> NO booking workflow', () => {
     const td: TurnDecision = { domain: 'KNOWLEDGE', intent: 'PRICE', source: 'RAG' } as any;
-    const res = resolveTrigger('how much?', baseConfig, td);
-    expect(res).toBeNull();
+    const res = resolveTrigger(engine, 'how much?', baseConfig, td);
+    expect(res).toEqual({ kind: 'NONE' });
   });
 
   it('4. Explicit booking intent in TurnDecision -> booking workflow starts', () => {
     const td: TurnDecision = { domain: 'WORKFLOW', intent: 'book_consultation', source: 'DETERMINISTIC' } as any;
-    const res = resolveTrigger('I need to schedule', baseConfig, td);
+    const res = resolveTrigger(engine, 'I need to schedule', baseConfig, td);
     expect(res).not.toBeNull();
     expect(res?.workflowId).toBe('consultation_booking');
   });
 
   it('5. Explicit configured keyword -> booking workflow starts', () => {
     const td: TurnDecision = { domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM' } as any;
-    const res = resolveTrigger('بغيت نحجز عافاك', baseConfig, td);
+    const res = resolveTrigger(engine, 'بغيت نحجز عافاك', baseConfig, td);
     expect(res).not.toBeNull();
     expect(res?.workflowId).toBe('consultation_booking');
   });
 
   it('6. Exact workflow ID with allowManualStart=true -> workflow starts', () => {
     const td: TurnDecision = { domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM' } as any;
-    const res = resolveTrigger('consultation_booking', baseConfig, td);
+    const res = resolveTrigger(engine, 'consultation_booking', baseConfig, td);
     expect(res).not.toBeNull();
     expect(res?.workflowId).toBe('consultation_booking');
   });
@@ -105,8 +114,8 @@ describe('Phase 45K: Strict Workflow Activation Trigger Semantics', () => {
       }
     };
     const td: TurnDecision = { domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM' } as any;
-    const res = resolveTrigger('consultation_booking', disabledManualConfig, td);
-    expect(res).toBeNull();
+    const res = resolveTrigger(engine, 'consultation_booking', disabledManualConfig, td);
+    expect(res).toEqual({ kind: 'NONE' });
   });
 
   it('8. auto_start mode -> workflow starts automatically', () => {
@@ -123,15 +132,15 @@ describe('Phase 45K: Strict Workflow Activation Trigger Semantics', () => {
       }
     };
     const td: TurnDecision = { domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM' } as any;
-    const res = resolveTrigger('random text asking anything', autoStartConfig, td);
+    const res = resolveTrigger(engine, 'random text asking anything', autoStartConfig, td);
     expect(res).not.toBeNull();
     expect(res?.workflowId).toBe('consultation_booking');
   });
 
   it('9. Intent description contains "services consultation booking" but user asks "شنو الخدمات اللي كتقدمو؟" -> NO workflow', () => {
     const td: TurnDecision = { domain: 'GENERAL', intent: 'GENERAL_CONVERSATION', source: 'LLM' } as any;
-    const res = resolveTrigger('شنو الخدمات اللي كتقدمو؟', baseConfig, td);
-    expect(res).toBeNull();
+    const res = resolveTrigger(engine, 'شنو الخدمات اللي كتقدمو؟', baseConfig, td);
+    expect(res).toEqual({ kind: 'NONE' });
   });
 
   it('10. Existing ecommerce workflow behavior unchanged (custom order intent triggers, catalog query does not)', () => {
@@ -157,11 +166,11 @@ describe('Phase 45K: Strict Workflow Activation Trigger Semantics', () => {
 
     // A. Product query does NOT trigger custom order workflow
     const tdProd: TurnDecision = { domain: 'ECOMMERCE', intent: 'PRODUCT_SEARCH', source: 'ECOMMERCE' } as any;
-    const resProd = resolveTrigger('do you sell red hoodies?', ecomConfig, tdProd);
-    expect(resProd).toBeNull();
+    const resProd = resolveTrigger(engine, 'do you sell red hoodies?', ecomConfig, tdProd);
+    expect(resProd).toEqual({ kind: 'NONE' });
 
     // B. Explicit custom order keyword DOES trigger workflow
-    const resCustom = resolveTrigger('I want to make a custom order', ecomConfig, tdProd);
+    const resCustom = resolveTrigger(engine, 'I want to make a custom order', ecomConfig, tdProd);
     expect(resCustom).not.toBeNull();
     expect(resCustom?.workflowId).toBe('custom_order_wf');
   });

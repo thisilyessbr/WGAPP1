@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import sharp from 'sharp';
-import { PortalStore } from './PortalStore';
+import type { PortalStore } from './PortalStore';
 import { BusinessData, PortalError } from './types';
 
 export const businessImageIds = (data: BusinessData): string[] => [...new Set(data.products.flatMap(p => [

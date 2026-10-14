@@ -2,7 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app';
-import { createDevChatRouter, createSignedToken } from '../../src/dev/chatApi';
+import { createDevChatRouter, createSignedToken, customerMayAccessAccount, verifySignedToken } from '../../src/dev/chatApi';
 import { requireAuth } from '../../src/middleware/authMiddleware';
 
 const originalNodeEnv = process.env.NODE_ENV;
@@ -16,6 +16,15 @@ afterEach(() => {
 });
 
 describe('production API security boundaries', () => {
+  it('binds a customer chat token to one business account', () => {
+    process.env.AUTH_SECRET = 'unit-test-auth-secret-with-at-least-32-bytes';
+    const bound = verifySignedToken(createSignedToken({ tenantId: 'tenant-a', customerId: 'customer-a', accountId: 'account-a', role: 'user' }))!;
+    expect(customerMayAccessAccount(bound, 'account-a')).toBe(true);
+    expect(customerMayAccessAccount(bound, 'account-b')).toBe(false);
+    const unbound = verifySignedToken(createSignedToken({ tenantId: 'tenant-a', customerId: 'customer-a', role: 'user' }))!;
+    expect(customerMayAccessAccount(unbound, 'account-a')).toBe(false);
+    expect(customerMayAccessAccount(unbound)).toBe(true);
+  });
   it('does not mount the legacy /api/dev alias in production', async () => {
     process.env.NODE_ENV = 'production';
     const deps: any = {

@@ -24,7 +24,6 @@ describe('Workflow Trigger Latency Fix (PHASE WORKFLOW-TRIGGER-LATENCY-FIX-29)',
 
   const testConfig: BusinessConfig = {
     ...DEFAULT_BUSINESS_CONFIG,
-    behavior: { ...DEFAULT_BUSINESS_CONFIG.behavior, useLlmIntentClassification: true },
     capabilities: {
       ...DEFAULT_BUSINESS_CONFIG.capabilities,
       ecommerceEnabled: false,
@@ -279,7 +278,7 @@ describe('Workflow Trigger Latency Fix (PHASE WORKFLOW-TRIGGER-LATENCY-FIX-29)',
     expect(res).toBe('What is your full name?');
   });
 
-  it('7. Uncertain free-text field stays uncollected without a workflow-intent LLM call', async () => {
+  it('7. Active workflow field collection does not trigger any workflow-intent LLM calls', async () => {
     const classifySpy = vi.spyOn(mockLlm, 'classifyIntent');
 
     // Simulate active session waiting for name
@@ -300,9 +299,8 @@ describe('Workflow Trigger Latency Fix (PHASE WORKFLOW-TRIGGER-LATENCY-FIX-29)',
       return Promise.resolve(null);
     });
 
-    const res = await conversationEngine.handleMessage(tenantId, customerId, 'My business needs marketing help', accountId);
-    expect(res).toContain('What is your full name?');
-    expect(classifySpy).toHaveBeenCalledTimes(1);
-    expect(String(classifySpy.mock.calls[0][0])).toContain('routing one customer message during a business form');
+    const res = await conversationEngine.handleMessage(tenantId, customerId, 'John Smith', accountId);
+    expect(res).toContain('Please provide your phone number:');
+    expect(classifySpy).not.toHaveBeenCalled();
   });
 });

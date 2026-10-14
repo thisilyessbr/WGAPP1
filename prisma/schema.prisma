@@ -53,6 +53,8 @@ model Account {
   portalUsageEntries PortalUsageEntry[]
   portalConnectionAttempts PortalConnectionAttempt[]
   portalDocuments PortalDocument[]
+  actionAlerts PortalActionAlert[]
+  answerFeedback PortalAnswerFeedback[]
   portalProductImages PortalProductImage[]
   id               String              @id @default(uuid())
   tenantId         String
@@ -118,6 +120,7 @@ model Conversation {
   customer                   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant                     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   messages                   Message[]
+  answerFeedback             PortalAnswerFeedback[]
   sessions                   WorkflowSession[]
   lastMerchantViewedAt       DateTime?
   automationState            ConversationAutomationState?
@@ -137,14 +140,17 @@ model Message {
   role           String
   content        String
   externalId     String?
+  phoneNumberId  String?
   metadata       Json?
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  answerFeedback PortalAnswerFeedback[]
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, externalId])
   @@index([tenantId, conversationId])
   @@index([tenantId, conversationId, createdAt(sort: Asc)])
+  @@index([tenantId, phoneNumberId, createdAt(sort: Desc)])
 }
 
 model WorkflowSession {
@@ -280,8 +286,13 @@ model Lead {
   interest   String?
   signalReason String?
   sourceConversationId String?
+  sourcePhoneNumberId String?
+  sourceWorkflowSessionId String?
   note       String?
+  details    Json     @default("{}")
   followUpAt DateTime? @db.Timestamptz(3)
+  assignedToUserId String?
+  assignee PortalUser? @relation("AssignedLeads", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   contactedAt DateTime? @db.Timestamptz(3)
   closedAt   DateTime? @db.Timestamptz(3)
   createdAt  DateTime @default(now())
@@ -291,9 +302,65 @@ model Lead {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, accountId, customerId])
+  @@index([tenantId, accountId, customerId, createdAt(sort: Desc)], map: "Lead_customer_history_idx")
   @@index([tenantId, accountId, status])
   @@index([tenantId, accountId, followUpAt])
+  @@index([tenantId, accountId, sourcePhoneNumberId, createdAt(sort: Desc)])
+}
+
+model PortalActionAlert {
+  id String @id @default(uuid())
+  accountId String
+  tenantId String
+  recipientId String
+  kind String
+  sourceId String
+  occurrence String
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
+  leaseUntil DateTime? @db.Timestamptz(3)
+  sentAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  recipient PortalUser @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([recipientId, kind, sourceId, occurrence])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, accountId])
+}
+
+model PortalStaffAlertCursor {
+  id String @id
+  scannedThrough DateTime @default(now()) @db.Timestamptz(3)
+}
+
+model PortalAnswerFeedback {
+  id String @id @default(uuid())
+  tenantId String
+  accountId String
+  conversationId String
+  messageId String
+  reportedById String
+  question String
+  answer String
+  note String
+  status String @default("OPEN")
+  resolutionNote String?
+  resolvedById String?
+  retestAt DateTime? @db.Timestamptz(3)
+  retestAnswer String?
+  retestMode String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime? @db.Timestamptz(3)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporter PortalUser @relation("ReportedFeedback", fields: [reportedById], references: [id], onDelete: Cascade)
+  resolver PortalUser? @relation("ResolvedFeedback", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, messageId])
+  @@index([tenantId, accountId, status, createdAt(sort: Desc)])
 }
 
 model WhatsAppBusinessNumber {
@@ -327,6 +394,7 @@ model ChannelConnection {
   connectionKey        String   @default("default")
   status               String   @default("PENDING")
   enabled              Boolean  @default(true)
+  botEnabled           Boolean  @default(true)
   encryptedCredentials String?
   appId                String?
   wabaId               String?
@@ -340,10 +408,52 @@ model ChannelConnection {
   account  Account                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   numbers  WhatsAppBusinessNumber[]
   sessionSecrets ChannelSessionSecret[]
+  qrLease QrSessionLease?
+  qrPhoneClaim QrPhoneClaim?
+  qrContactWindows QrContactWindow[]
 
   @@unique([tenantId, accountId, provider, connectionKey])
   @@index([tenantId, accountId])
   @@index([tenantId, provider])
+}
+
+model InstagramConnection {
+  id               String   @id @default(uuid())
+  tenantId         String
+  accountId        String   @unique
+  instagramUserId  String   @unique
+  username         String?
+  encryptedToken   String
+  tokenExpiresAt   DateTime
+  enabled          Boolean  @default(false)
+  status           String   @default("CONNECTED")
+  lastError        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, accountId])
+}
+
+model InstagramInboundJob {
+  id               String    @id @default(uuid())
+  tenantId         String
+  accountId        String
+  instagramUserId  String
+  senderId         String
+  messageId        String
+  text             String
+  responseText     String?
+  status           String    @default("PENDING")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now())
+  leaseUntil       DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([instagramUserId, messageId])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, accountId])
 }
 
 model PortalUser {
@@ -359,6 +469,10 @@ model PortalUser {
   sessions PortalSession[]
   tokens PortalAuthToken[]
   connectionAttempts PortalConnectionAttempt[]
+  assignedLeads Lead[] @relation("AssignedLeads")
+  actionAlerts PortalActionAlert[]
+  reportedFeedback PortalAnswerFeedback[] @relation("ReportedFeedback")
+  resolvedFeedback PortalAnswerFeedback[] @relation("ResolvedFeedback")
 }
 
 model PortalMembership {
@@ -423,6 +537,12 @@ model PortalProfile {
   reviewNote String @default("")
   lockedFields Json @default("[]")
   editingFrozen Boolean @default(false)
+  voiceNotesEnabled Boolean @default(false)
+  voiceNotesAllowed Boolean @default(false)
+  instagramAllowed Boolean @default(false)
+  qrAllowed Boolean @default(false)
+  qrConsentAt DateTime? @db.Timestamptz(6)
+  voiceTranscriptionProvider String @default("groq")
   adminConfig Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @db.Timestamptz(6)
@@ -489,6 +609,8 @@ model PortalConnectionAttempt {
   userId String
   accountId String
   stateToken String
+  encryptedMetaToken String?
+  metaCandidates Json?
   reconnectId String?
   status String @default("PENDING")
   expiresAt DateTime @db.Timestamptz(6)
@@ -549,6 +671,29 @@ model ChannelSessionSecret {
 
   @@unique([connectionId, category, secretKey])
   @@index([connectionId])
+}
+
+model QrSessionLease {
+  connectionId String @id
+  owner String
+  expiresAt DateTime @db.Timestamptz(6)
+  encryptedQr String?
+  qrExpiresAt DateTime? @db.Timestamptz(6)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model QrPhoneClaim {
+  phone String @id
+  connectionId String @unique
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model QrContactWindow {
+  connectionId String
+  recipient String
+  lastInboundAt DateTime @db.Timestamptz(6)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@id([connectionId, recipient])
 }
 
 model ConversationAutomationState {
@@ -613,7 +758,7 @@ model WhatsAppMessageJob {
   rawType       String    @default("text")
   status        String    @default("PENDING")
   attempts      Int       @default(0)
-  maxAttempts   Int       @default(3)
+  maxAttempts   Int       @default(32)
   lastError         String?
   response          String?
   outboundStatus    String?   @default("PENDING")

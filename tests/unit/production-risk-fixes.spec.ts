@@ -175,35 +175,30 @@ describe('production risk fixes', () => {
     const nameField = { name: 'fullName', type: 'string' as const, required: true, semanticType: 'person_name' as const };
     const cityField = { name: 'city', type: 'string' as const, required: true, semanticType: 'free_text' as const };
 
-    it('does not treat ordinary answers as questions', () => {
-      expect(WorkflowTurnGate.looksLikeQuestion('my name is Ali')).toBe(false);
-      expect(WorkflowTurnGate.looksLikeQuestion('من الدار البيضاء')).toBe(false);
-      expect(WorkflowTurnGate.looksLikeQuestion('ana mn casa')).toBe(false);
-      expect(WorkflowTurnGate.looksLikeQuestion('is it open on sunday')).toBe(true);
-      expect(WorkflowTurnGate.looksLikeQuestion('bghit n3ref chhal taman')).toBe(true);
-      expect(WorkflowTurnGate.looksLikeQuestion('Ali, from Casa?')).toBe(true);
+    it('does not treat ordinary answers as questions', async () => {
+      // The question heuristic is private in the merged gate; assert it through
+      // classify() without a classifier so only deterministic routing applies.
+      expect(await WorkflowTurnGate.classify('my name is Ali', 'fullName', nameField, 'Name?')).toBe('FIELD_ANSWER');
+      expect(await WorkflowTurnGate.classify('من الدار البيضاء', 'city', cityField, 'City?')).toBe('FIELD_ANSWER');
+      expect(await WorkflowTurnGate.classify('ana mn casa', 'city', cityField, 'City?')).toBe('FIELD_ANSWER');
+      expect(await WorkflowTurnGate.classify('is it open on sunday', 'city', cityField, 'City?')).toBe('CUSTOMER_QUESTION');
+      expect(await WorkflowTurnGate.classify('Ali, from Casa?', 'city', cityField, 'City?')).toBe('CUSTOMER_QUESTION');
+      // An embedded question is never saved as a free-text value.
+      expect(await WorkflowTurnGate.classify('bghit n3ref chhal taman', 'city', cityField, 'City?')).not.toBe('FIELD_ANSWER');
     });
 
     it('accepts "من الدار البيضاء" as a city answer without an LLM', async () => {
       expect(await WorkflowTurnGate.classify('من الدار البيضاء', 'city', cityField, 'منين نتا؟')).toBe('FIELD_ANSWER');
     });
 
-    it('falls back to the field-answer path when the classifier throws or times out', async () => {
+    it('fails closed for free text but keeps names and structured fields reachable when the classifier fails', async () => {
+      // The provider enforces the 4s deadline (timeoutMs); a timeout surfaces here as a thrown error.
+      const dateField = { name: 'date', type: 'date' as const, required: true };
       const failing = new LLMMockProvider();
-      failing.classifyIntent = async () => { throw new Error('provider down'); };
+      failing.generateResponse = async () => { throw new Error('provider down'); };
       expect(await WorkflowTurnGate.classify('Ali Benali', 'fullName', nameField, 'Name?', failing)).toBe('FIELD_ANSWER');
-      expect(await WorkflowTurnGate.classify('kanbi3 lhwayj', 'city', cityField, 'Activity?', failing)).toBe('FIELD_ANSWER');
-
-      vi.useFakeTimers();
-      try {
-        const hanging = new LLMMockProvider();
-        hanging.classifyIntent = () => new Promise(() => {});
-        const pending = WorkflowTurnGate.classify('kanbi3 lhwayj', 'city', cityField, 'Activity?', hanging);
-        await vi.advanceTimersByTimeAsync(4001);
-        expect(await pending).toBe('FIELD_ANSWER');
-      } finally {
-        vi.useRealTimers();
-      }
+      expect(await WorkflowTurnGate.classify('next monday morning', 'date', dateField, 'Date?', failing)).toBe('FIELD_ANSWER');
+      expect(await WorkflowTurnGate.classify('kanbi3 lhwayj', 'city', cityField, 'Activity?', failing)).toBe('UNCLEAR');
     });
 
     it('counts UNCLEAR replies toward the unmatched limit instead of looping forever', async () => {

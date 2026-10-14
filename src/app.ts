@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
-import cors, { CorsOptions } from 'cors';
+import cors from 'cors';
 import path from 'path';
+import { existsSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -14,33 +15,12 @@ import { createClientOwnedMetaWebhookRouter } from './domain/channel/whatsapp/Cl
 import { createWhatsAppOnboardingRouter } from './domain/channel/whatsapp/WhatsAppOnboardingRouter';
 import { createPortalRouter } from './portal/PortalRouter';
 import { createChannelManagementRouter } from './domain/channel/guard/ChannelManagementRouter';
+import { createInstagramRouter } from './domain/channel/instagram/InstagramRouter';
 
-export function productionCorsOptions(env: NodeJS.ProcessEnv = process.env): CorsOptions {
-  const configuredOrigins = new Set(
-    String(env.CORS_ORIGINS || '')
-      .split(',')
-      .map(origin => origin.trim())
-      .filter(Boolean)
-  );
-  const production = env.NODE_ENV === 'production';
-
-  return {
-    credentials: true,
-    maxAge: 600,
-    origin(origin, callback) {
-      // Requests without an Origin header are server-to-server traffic, such as
-      // Meta webhooks and health probes, and are not governed by browser CORS.
-      if (!origin) return callback(null, true);
-      if (!production || configuredOrigins.has(origin)) return callback(null, true);
-
-      // Omit CORS response headers for untrusted browser origins. Returning
-      // false avoids turning a blocked preflight into an application 500.
-      return callback(null, false);
-    }
-  };
-}
-
-export async function createApp(deps: ChatbotDependencies | WebDependencies): Promise<express.Application> {
+export async function createApp(
+  deps: ChatbotDependencies | WebDependencies,
+  readiness?: { workerReady?: () => boolean }
+): Promise<express.Application> {
   const app = express();
 
   // Configure Express for 1-hop reverse proxy (Nginx, Caddy, Cloudflare, AWS ALB)
@@ -52,7 +32,16 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
     next();
   });
 
-  app.use(cors(productionCorsOptions()));
+  const allowedOrigins = new Set((process.env.CORS_ORIGINS || '')
+    .split(',').map(value => value.trim()).filter(Boolean));
+  app.use(cors({
+    credentials: true,
+    origin(origin, callback) {
+      // Requests from Meta and other server-side callers have no Origin header.
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      return callback(null, false);
+    }
+  }));
   app.use(express.json({
     limit: '15mb',
     verify: (req, _res, buf) => {
@@ -64,6 +53,9 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
   app.get('/health', async (req, res) => {
     try {
       await deps.prisma.$queryRawUnsafe('SELECT 1');
+      if (readiness?.workerReady && !readiness.workerReady()) {
+        return res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString(), error: 'MESSAGE_WORKER_UNAVAILABLE' });
+      }
       res.status(200).json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
@@ -121,11 +113,23 @@ export async function createApp(deps: ChatbotDependencies | WebDependencies): Pr
 
   // Mount Client / Admin Portal Router and Assets if enabled
   if ((deps as any).portalService) {
-    app.use('/api', createPortalRouter((deps as any).portalService, deps as any));
-    app.use('/portal-assets', express.static(path.join(__dirname, 'portal/ui')));
-    app.use(['/signup', '/login', '/app', '/admin'], (_req, res) => {
+    const instagram = (deps as any).conversationEngine
+      ? createInstagramRouter(deps.prisma, (deps as any).portalService, (deps as any).conversationEngine)
+      : null;
+    if (instagram) app.use('/api/instagram', instagram.router);
+    app.use('/api', createPortalRouter((deps as any).portalService, { ...deps, instagramService: instagram?.service } as any));
+    const bundledPortal = path.join(__dirname, 'portal/ui');
+    const portalDirectory = existsSync(bundledPortal) ? bundledPortal : path.resolve('src/portal/ui');
+    // Managed checkouts live beneath .codex. The static root is restricted to UI assets.
+    app.use('/portal-assets', express.static(portalDirectory, { dotfiles: 'allow' }));
+    app.get('/', (_req, res) => res.redirect(302, '/login'));
+    app.use(['/signup', '/login', '/forgot-password', '/reset-password', '/verify-email', '/admin-confirm', '/app', '/admin'], (req, res) => {
+      if (process.env.NODE_ENV === 'production' && req.hostname === 'relayqo-backend.onrender.com') {
+        res.redirect(302, new URL(req.originalUrl, process.env.PORTAL_PUBLIC_URL).toString());
+        return;
+      }
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.facebook.com https://graph.facebook.com; frame-src https://www.facebook.com; base-uri 'none'; form-action 'self'");
-      res.sendFile(path.join(__dirname, 'portal/ui/index.html'));
+      res.sendFile(path.join(portalDirectory, 'index.html'), { dotfiles: 'allow' });
     });
   }
 

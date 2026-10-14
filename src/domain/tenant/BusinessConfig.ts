@@ -1,5 +1,6 @@
 import { DEFAULT_DEEPSEEK_MODEL } from '../../core/llm/DeepSeekProvider';
 import { DEFAULT_GEMINI_MODEL } from '../../core/llm/GeminiLLMProvider';
+import { LanguageDetector } from '../faq/FaqMatcher';
 
 export interface IdentityConfig {
   botName: string;
@@ -21,6 +22,7 @@ export interface IdentityConfig {
 export interface BehaviorConfig {
   tone: string;
   verbosity: 'short' | 'medium' | 'long';
+  responseScript?: 'auto' | 'arabic' | 'arabizi';
   stayOnTopic: boolean;
   answerOnlyFromKnowledge: boolean;
   allowSmallTalk: boolean;
@@ -64,13 +66,16 @@ export function resolveLocalizedPrompt(
     }
     return prompt;
   }
-  const resolved = prompt[lang] || prompt.en || defaultEn;
+    const resolved = prompt[lang] || prompt.en || defaultEn;
   if (typeof resolved === 'string') {
     const trimmed = resolved.trim();
     if (!trimmed || trimmed === '[object Object]' || trimmed.includes('[object Object]')) {
       return defaultEn;
     }
-    return resolved;
+      // A Darija phrase accidentally entered under the Arabic (MSA) key must
+      // not silently override the customer's requested language.
+      if (lang === 'ar' && prompt.ar === resolved && LanguageDetector.detect(resolved) === 'darija') return defaultEn;
+      return resolved;
   }
   return defaultEn;
 }
@@ -118,6 +123,15 @@ export const DEFAULT_EXECUTION_LIMIT_MESSAGES = {
   darija: "rak kmmelti had t-talab mn 9bel."
 };
 
+export const DEFAULT_OPEN_REQUEST_MESSAGES = {
+  en: "You have already filled in this form. Your request is registered and our team will contact you.",
+  fr: "Vous avez déjà rempli ce formulaire. Votre demande est enregistrée et notre équipe vous contactera.",
+  ar: "لقد سبق أن ملأت هذا النموذج. تم تسجيل طلبك وسيتواصل معك فريقنا.",
+  darija: "Rah deja 3emmerti had formulaire. Talab dyalek tsjjel, w l-fariq dyalna ghadi y-ttasel bik.",
+  darija_arabic: "راه سبق ليك عمرتي هاد الفورم. طلبك تسجّل، والفريق ديالنا غادي يتاصل بك.",
+  darija_arabizi: "Rah deja 3emmerti had formulaire. Talab dyalek tsjjel, w l-fariq dyalna ghadi y-ttasel bik."
+};
+
 export interface PromptsConfig {
   system: string;
   knowledge: string;
@@ -140,7 +154,7 @@ export interface PromptsConfig {
 export interface WorkflowFieldConfig {
   name: string;
   type: 'string' | 'email' | 'phone' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
-  /** Semantic validation for text fields; legacy name fields infer person_name. */
+  /** Legacy name fields infer person_name when this is absent. */
   semanticType?: 'person_name' | 'free_text';
   required: boolean;
   options?: string[]; // for enum
@@ -170,6 +184,8 @@ export interface WorkflowStateConfig {
   confirmKeywords?: string[]; // e.g. ['yes', 'confirm', 'oui', 'si']
   cancelKeywords?: string[];  // e.g. ['no', 'cancel', 'non', 'annuler']
   cancellationPrompt?: string | LocalizedPrompt;
+  /** For workflow handoff steps, pause automated replies for this many hours. */
+  pauseBotHours?: number;
   transitions?: {
     condition?: string; // generic condition evaluation
     intent?: string;
@@ -193,9 +209,16 @@ export interface WorkflowExecutionLimitConfig {
 }
 
 export interface WorkflowOutcomeConfig {
-  type: 'BOOKING_CONFIRMED' | 'ORDER_CONFIRMED';
+  /** Business outcome recorded for outcome tracking when the workflow completes. */
+  type?: 'BOOKING_CONFIRMED' | 'ORDER_CONFIRMED';
   valueField?: string;
   currencyField?: string;
+  createLead?: boolean;
+  requestHumanHandoff?: boolean;
+  pauseBotHours?: number;
+  /** Prevent a second form run while the first CRM request is still open. */
+  allowConcurrentOpenRequests?: boolean;
+  openRequestMessage?: LocalizedPrompt;
 }
 
 export interface WorkflowConfig {
@@ -207,6 +230,7 @@ export interface WorkflowConfig {
   allowInterruption?: boolean;
   activation?: WorkflowActivationConfig;
   executionLimit?: WorkflowExecutionLimitConfig;
+  /** Durable actions (and tracked business outcome) when the workflow reaches a successful terminal state. */
   outcome?: WorkflowOutcomeConfig;
 }
 
@@ -241,7 +265,7 @@ export interface FaqEntry {
   answer?: string;
   language?: string;
   questions?: { en?: string; fr?: string; ar?: string; darija?: string };
-  answers?: { en?: string; fr?: string; ar?: string; darija?: string };
+  answers?: { en?: string; fr?: string; ar?: string; darija?: string; darija_arabizi?: string };
   keywords?: { en?: string[]; fr?: string[]; ar?: string[]; darija?: string[] } | string[];
 }
 
@@ -263,10 +287,18 @@ export interface ShippingScopeConfig {
 }
 
 export interface CapabilitiesConfig {
-  intents: { id: string; description: string; workflowId?: string; keywords?: string[] }[];
+  intents: {
+    id: string;
+    description: string;
+    workflowId?: string;
+    keywords?: string[];
+    /** Canonical intents backed by the shared multilingual trigger library. */
+    useCases?: import('../conversation/IntentTriggerLibrary').TriggerUseCase[];
+  }[];
   faq?: FaqEntry[];
   imageEnabled?: boolean;
   ecommerceEnabled?: boolean;
+  leadMode?: 'NONE' | 'SERVICE' | 'COMMERCE' | 'BOTH';
   ecommerceTaxonomy?: EcommerceTaxonomyConfig;
   ecommerceCategories?: Record<string, string[]>;
   shippingScope?: ShippingScopeConfig;
@@ -303,6 +335,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
   behavior: {
     tone: 'professional',
     verbosity: 'medium',
+    responseScript: 'auto',
     stayOnTopic: true,
     answerOnlyFromKnowledge: false,
     allowSmallTalk: true,

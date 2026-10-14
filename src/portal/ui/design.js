@@ -61,24 +61,28 @@
     const names = { 'Business profile': 'Profile', 'Customer policies': 'Policies', 'Knowledge documents': 'Documents' };
     const articles = [...form.querySelectorAll(':scope > article')];
     const documents = document.querySelector('#documents');
-    if (documents) { form.insertBefore(documents, form.querySelector('.sticky-save')); articles.push(documents); }
+    if (documents && !form.dataset.adminReview) { form.insertBefore(documents, form.querySelector('.sticky-save')); articles.push(documents); }
     tabs(form, articles.map(node => { const title = node.querySelector('h2').textContent; return { name: names[title] || title, nodes: [node] }; }), 'business');
     form.querySelectorAll('[data-path]').forEach(el => { if (/description|address|hours|policies/.test(el.dataset.path)) el.closest('.field').classList.add('full'); });
   }
   function accountSections() {
     const technical = document.querySelector('#technical'); if (!technical || technical.dataset.sections) return; technical.dataset.sections = 'true';
     const content = document.querySelector('.content'), oldTabs = content.querySelector(':scope > .tabs');
-    const settings = technical.previousElementSibling, overview = content.querySelector(':scope > .grid-2');
+    const settings = document.querySelector('#everyday-settings'), overview = content.querySelector(':scope > .grid-2');
+    const editing = document.querySelector('#editing-freeze')?.closest('article');
+    const clientMeta = document.querySelector('#client-owned-meta');
     const groups = [
-      { name: 'Overview', nodes: [overview] },
-      { name: 'Chatbot & limits', nodes: [settings, technical] },
-      { name: 'Workflows & intents', nodes: [document.querySelector('#workflow-editor')] },
+      { name: 'Overview', nodes: [overview, editing] },
+      { name: 'Chatbot & limits', nodes: [settings, document.querySelector('#workflow-editor'), document.querySelector('#preview-form')?.closest('article')] },
+      { name: 'Channels', nodes: [document.querySelector('#admin-qr-connection'), document.querySelector('#admin-voice-notes-card'), document.querySelector('#admin-instagram-card'), clientMeta] },
+      { name: 'Permissions & advanced', nodes: [technical] },
       { name: 'Statistics', nodes: [document.querySelector('#usage')] },
       { name: 'Documents', nodes: [document.querySelector('#documents-list')?.closest('article')] },
-      { name: 'Conversations', nodes: [document.querySelector('#conversation-list')?.closest('article'), document.querySelector('#preview-form')?.closest('article')] },
+      { name: 'Conversations', nodes: [document.querySelector('#conversation-list')?.closest('article')] },
       { name: 'History', nodes: [document.querySelector('#history')] }
     ].map(g => ({ ...g, nodes: g.nodes.filter(Boolean) })).filter(g => g.nodes.length);
     tabs(content, groups, 'account', oldTabs || overview); oldTabs?.remove();
+    content.classList.add('admin-account-page');
   }
   function decorate() {
     document.querySelectorAll('.brand').forEach(el => {

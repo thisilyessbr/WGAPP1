@@ -10,6 +10,9 @@
   let activeConversation = null;
   let activeMessages = [];
   let transcriptLimit = 50;
+  let olderCursor = null;
+  let hasOlderMessages = false;
+  let olderPageLoaded = false;
   let isSending = false;
   let listPollingTimer = null;
   let detailPollingTimer = null;
@@ -18,6 +21,7 @@
   let pendingListReload = false;
   let pendingDetailReload = null;
   let failedSendDraft = '';
+  let renderVersion = 0;
 
   const esc = (s) => (ctx ? ctx.escape(s) : String(s ?? ''));
 
@@ -125,9 +129,12 @@
     detailFetchInProgress = true;
     try {
       const res = await ctx.api('/client/conversations/' + id + '?limit=' + transcriptLimit);
+      if (id !== activeConversationId) return;
       const prevOwnerState = activeConversation?.ownership?.state;
       activeConversation = res.conversation;
-      activeMessages = res.messages || [];
+      const combined = new Map([...activeMessages, ...(res.messages || [])].map(message => [message.id, message]));
+      activeMessages = [...combined.values()].sort((a,b) => new Date(a.createdAt)-new Date(b.createdAt) || a.id.localeCompare(b.id));
+      if (!olderPageLoaded) { olderCursor = res.nextBefore; hasOlderMessages = Boolean(res.hasOlderMessages); }
 
       // If unread, mark it read locally in the conversations list
       const itemInList = conversations.find((c) => c.id === id);
@@ -208,6 +215,7 @@
               </div>
               <div class="inbox-item-preview">${esc(preview)}</div>
               <div class="inbox-item-footer">
+                <span class="badge ${c.channel === 'INSTAGRAM' ? 'blue' : ''}">${c.channel === 'INSTAGRAM' ? 'Instagram' : 'WhatsApp'}</span>
                 ${getStatusBadge(state)}
               </div>
             </div>
@@ -244,6 +252,10 @@
     activeConversationId = id;
     failedSendDraft = '';
     transcriptLimit = 50;
+    activeMessages = [];
+    olderCursor = null;
+    hasOlderMessages = false;
+    olderPageLoaded = false;
 
     // Update URL without full reload
     history.replaceState({}, '', '/app/inbox/' + id);
@@ -272,6 +284,11 @@
 
     const transcriptEl = container.querySelector('.inbox-transcript');
     const scrollBottom = transcriptEl ? transcriptEl.scrollHeight - transcriptEl.scrollTop : 0;
+    const reportDrafts = [...container.querySelectorAll('[data-flag-form]')].map(form => {
+      const input=form.querySelector('textarea');
+      return {id:form.dataset.flagForm,hidden:form.hidden,note:input.value,busy:form.querySelector('button').disabled,
+        focused:document.activeElement===input,start:input.selectionStart,end:input.selectionEnd};
+    });
 
     const conv = activeConversation;
     const displayName = conv.customer?.name || conv.customer?.phone || 'Customer';
@@ -316,7 +333,7 @@
 
     // Render Transcript Messages
     let transcriptHtml = '';
-    if (conv.messageCount > activeMessages.length) {
+    if (hasOlderMessages) {
       transcriptHtml += `
         <div class="inbox-load-older-wrap">
           <button class="btn secondary small inbox-load-older" id="inbox-load-older-btn">Load older messages</button>
@@ -373,11 +390,13 @@
               <div class="inbox-msg-sender">
                 <span>${esc(senderLabel)}</span>
               </div>
-              <div class="inbox-msg-content">${esc(m.content)}</div>
+              <div class="inbox-msg-content" dir="auto" data-no-translate>${esc(m.content)}</div>
               <div class="inbox-msg-meta">
                 <span>${esc(timeStr)}</span>
                 ${deliveryHtml}
+                ${isAi && m.feedbackStatus ? `<span class="answer-report-status">${m.feedbackStatus === 'RESOLVED' ? 'Problem resolved' : 'Reported · Under review'}</span>` : isAi ? `<button class="answer-flag-toggle" type="button" data-flag-answer="${esc(m.id)}" aria-label="Report a problem">Report a problem</button>` : ''}
               </div>
+              ${isAi && !m.feedbackStatus ? `<form class="answer-flag-form" data-flag-form="${esc(m.id)}" hidden><label>What was wrong with this answer?<textarea maxlength="1000" rows="2" required placeholder="Wrong fact, missed question, wrong language…"></textarea></label><button class="btn secondary" type="submit">Report a problem</button></form>` : ''}
             </div>
           `;
         })
@@ -472,9 +491,26 @@
 
     const loadOlderBtn = container.querySelector('#inbox-load-older-btn');
     if (loadOlderBtn) {
-      loadOlderBtn.onclick = () => {
-        transcriptLimit += 50;
-        loadConversation(activeConversation.id, false, true);
+      loadOlderBtn.onclick = async () => {
+        if (!olderCursor || detailFetchInProgress) return;
+        const id = activeConversationId;
+        loadOlderBtn.disabled = true;
+        detailFetchInProgress = true;
+        try {
+          const res = await ctx.api('/client/conversations/' + encodeURIComponent(id) + '?limit=50&before=' + encodeURIComponent(olderCursor));
+          if (id !== activeConversationId) return;
+          const combined = new Map([...(res.messages || []), ...activeMessages].map(message => [message.id,message]));
+          activeMessages = [...combined.values()].sort((a,b) => new Date(a.createdAt)-new Date(b.createdAt) || a.id.localeCompare(b.id));
+          olderCursor = res.nextBefore; hasOlderMessages = Boolean(res.hasOlderMessages); olderPageLoaded = true;
+          renderDetail(true);
+        } catch(error) { ctx.toast(error.message,true); loadOlderBtn.disabled=false; }
+        finally {
+          detailFetchInProgress=false;
+          if (pendingDetailReload) {
+            const next=pendingDetailReload; pendingDetailReload=null;
+            void loadConversation(next.id,false,next.preserveScroll);
+          }
+        }
       };
     }
 
@@ -503,6 +539,42 @@
           input.value = text;
           input.focus();
         }
+      };
+    });
+
+    container.querySelectorAll('[data-flag-answer]').forEach(button => {
+      button.onclick = () => {
+        const form = container.querySelector(`[data-flag-form="${button.dataset.flagAnswer}"]`);
+        form.hidden = !form.hidden;
+        if (!form.hidden) form.querySelector('textarea').focus();
+      };
+    });
+    container.querySelectorAll('[data-flag-form]').forEach(form => {
+      const draft=reportDrafts.find(item=>item.id===form.dataset.flagForm);
+      if (draft) {
+        const input=form.querySelector('textarea');
+        form.hidden=draft.hidden; input.value=draft.note; form.querySelector('button').disabled=draft.busy;
+        if (draft.focused) {input.focus({preventScroll:true});input.setSelectionRange(draft.start,draft.end);}
+      }
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const conversationId=activeConversation.id,messageId=form.dataset.flagForm;
+        const currentForm=()=>activeConversationId===conversationId ? container.querySelector(`[data-flag-form="${messageId}"]`) : null;
+        const button = form.querySelector('button'); button.disabled = true;
+        try {
+          const result = await ctx.api('/client/conversations/' + encodeURIComponent(conversationId) + '/answer-feedback', {
+            method: 'POST', body: JSON.stringify({ messageId, note: form.querySelector('textarea').value.trim() })
+          });
+          if (activeConversationId === conversationId) {
+            const message = activeMessages.find(item => item.id === messageId);
+            if (message) message.feedbackStatus = result.feedback?.status || 'OPEN';
+            renderDetail(true);
+          }
+          const visibleForm=currentForm();
+          if (visibleForm) {visibleForm.hidden=true;visibleForm.querySelector('textarea').value='';}
+          ctx.toast('Problem reported to your administrator.');
+        } catch (error) { ctx.toast(error.message || 'Could not report answer', true); }
+        finally { button.disabled = false; const visibleForm=currentForm(); if (visibleForm) visibleForm.querySelector('button').disabled=false; }
       };
     });
 
@@ -679,17 +751,22 @@
   }
 
   function cleanup() {
+    renderVersion++;
     stopInboxPolling();
     clearTimeout(searchTimer);
     activeConversationId = null;
     activeConversation = null;
     activeMessages = [];
+    olderCursor = null;
+    hasOlderMessages = false;
+    olderPageLoaded = false;
     conversations = [];
   }
 
   async function renderInbox(context) {
     ctx = context;
     cleanup();
+    const version = renderVersion;
 
     // Determine initial conversation ID from path if present: /app/inbox/:id
     const parts = location.pathname.split('/');
@@ -779,9 +856,11 @@
 
     // Load initial data
     await loadConversationList();
+    if (version !== renderVersion) return;
 
     if (activeConversationId) {
       await loadConversation(activeConversationId);
+      if (version !== renderVersion) return;
     }
 
     // Start background polling

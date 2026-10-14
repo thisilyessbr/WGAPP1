@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
+import { assertBusinessImages, businessImageIds, productImageUrl } from './PortalProductImages';
 import { BusinessData, EMPTY_BUSINESS, PlanLimits, PortalDb, PortalError, PortalPlan, PortalProfile, PortalUser } from './types';
 import { compileBusiness, validateBusiness, validatePlan } from './validation';
 import { localEmailBypass } from './localTesting';
-import { assertBusinessImages, businessImageIds, productImageUrl } from './PortalProductImages';
 
 const json = (value: unknown) => JSON.stringify(value);
 export class PortalStore {
@@ -26,17 +26,17 @@ export class PortalStore {
   }
   async userByEmail(email: string) { return (await this.db.$queryRaw<PortalUser[]>`SELECT * FROM "PortalUser" WHERE email=${email}`)[0] || null; }
   async userById(id: string) { return (await this.db.$queryRaw<PortalUser[]>`SELECT * FROM "PortalUser" WHERE id=${id}`)[0] || null; }
-  async register(email: string, name: string, passwordHash: string, requestedPlanId: string | null) {
+  async register(email: string, name: string, passwordHash: string, requestedPlanId: string | null, verifyWithoutEmail = false) {
     return this.transaction(async s => {
       if (requestedPlanId && !(await s.plan(requestedPlanId))?.published) throw new PortalError(400, 'PLAN_UNAVAILABLE');
       const userId = randomUUID(), tenantId = randomUUID(), accountId = randomUUID();
-      await s.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash") VALUES (${userId},${email},${name},${passwordHash})`;
+      await s.db.$executeRaw`INSERT INTO "PortalUser"(id,email,name,"passwordHash","verifiedAt") VALUES (${userId},${email},${name},${passwordHash},${verifyWithoutEmail ? new Date() : null})`;
       await s.db.$executeRaw`INSERT INTO "Tenant"(id,name,"updatedAt") VALUES (${tenantId},${name},NOW())`;
       await s.db.$executeRaw`INSERT INTO "Account"(id,"tenantId",name,enabled,config,"updatedAt") VALUES (${accountId},${tenantId},${name},true,'{"portalManaged":true}',NOW())`;
       await s.db.$executeRaw`INSERT INTO "PortalMembership"("userId","tenantId","accountId") VALUES (${userId},${tenantId},${accountId})`;
       const draft = { ...structuredClone(EMPTY_BUSINESS), name, email };
       await s.db.$executeRaw`INSERT INTO "PortalProfile"("accountId","tenantId",draft,"requestedPlanId") VALUES (${accountId},${tenantId},${json(draft)}::jsonb,${requestedPlanId})`;
-      await s.audit(userId, accountId, 'CLIENT_REGISTERED');
+      await s.audit(userId, accountId, 'CLIENT_REGISTERED', { emailVerificationBypassed: verifyWithoutEmail });
       return { userId, tenantId, accountId };
     });
   }
@@ -102,10 +102,53 @@ export class PortalStore {
   }
   async setEditingFrozen(actorId: string, accountId: string, frozen: boolean) {
     return this.transaction(async s => {
-      const profile = await s.lockProfile(accountId);
-      if (profile.editingFrozen === frozen) return profile;
+      const p = await s.lockProfile(accountId);
+      if (p.editingFrozen === frozen) return p;
       await s.db.$executeRaw`UPDATE "PortalProfile" SET "editingFrozen"=${frozen},revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
       await s.audit(actorId, accountId, frozen ? 'CLIENT_EDITING_FROZEN' : 'CLIENT_EDITING_UNFROZEN');
+      return s.profile(accountId);
+    });
+  }
+  async setVoiceNotesEnabled(actorId: string, accountId: string, tenantId: string, enabled: boolean) {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.tenantId !== tenantId) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
+      if (enabled && !profile.voiceNotesAllowed) throw new PortalError(403, 'VOICE_NOTES_NOT_ALLOWED', 'Your administrator has not enabled voice notes for this account.');
+      if (profile.voiceNotesEnabled === enabled) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceNotesEnabled"=${enabled},"updatedAt"=NOW() WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}`;
+      await s.audit(actorId, accountId, enabled ? 'VOICE_NOTES_ENABLED' : 'VOICE_NOTES_DISABLED');
+      return s.profile(accountId, tenantId);
+    });
+  }
+  async setVoiceNotesAllowed(actorId: string, accountId: string, allowed: boolean) {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.voiceNotesAllowed === allowed) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceNotesAllowed"=${allowed},"voiceNotesEnabled"=CASE WHEN ${allowed} THEN "voiceNotesEnabled" ELSE false END,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      await s.audit(actorId, accountId, allowed ? 'VOICE_NOTES_ALLOWED' : 'VOICE_NOTES_REVOKED');
+      return s.profile(accountId);
+    });
+  }
+  async setQrAllowed(actorId:string,accountId:string,allowed:boolean) {
+    return this.transaction(async s=>{
+      const p=await s.lockProfile(accountId);
+      if(allowed&&!p.planSnapshot?.modules.includes('qr'))throw new PortalError(409,'QR_PLAN_REQUIRED','Assign a QR pilot plan first.');
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrAllowed"=${allowed},
+        revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      if(!allowed) {
+        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,"botEnabled"=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
+        await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND transport='QR_WEB'`;
+        await s.db.$executeRaw`DELETE FROM "QrSessionLease" WHERE "connectionId" IN (SELECT id FROM "ChannelConnection" WHERE "accountId"=${accountId} AND provider='QR_WEB')`;
+      }
+      await s.audit(actorId,accountId,allowed?'QR_ACCESS_ALLOWED':'QR_ACCESS_REVOKED');return s.profile(accountId);
+    });
+  }
+  async setVoiceTranscriptionProvider(actorId: string, accountId: string, provider: 'groq' | 'deepgram') {
+    return this.transaction(async s => {
+      const profile = await s.lockProfile(accountId);
+      if (profile.voiceTranscriptionProvider === provider) return profile;
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "voiceTranscriptionProvider"=${provider},"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      await s.audit(actorId, accountId, 'VOICE_TRANSCRIPTION_PROVIDER_CHANGED', { from: profile.voiceTranscriptionProvider, to: provider });
       return s.profile(accountId);
     });
   }
@@ -152,7 +195,7 @@ export class PortalStore {
         validateBusiness(s.planScopedBusiness(profile.draft, plan), plan);
         const numbers = await s.db.$queryRaw<any[]>`SELECT (SELECT COUNT(*) FROM "WhatsAppBusinessNumber" WHERE "accountId"=${accountId} AND "tenantId"=${profile.tenantId}) +
           (SELECT COUNT(*) FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND "reconnectId" IS NULL AND (status='PROCESSING' OR (status='PENDING' AND "expiresAt">NOW()))) AS n`;
-        const docs = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n,COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalDocument" WHERE "accountId"=${accountId}`;
+        const docs = await s.db.$queryRaw<any[]>`SELECT (SELECT COUNT(*)::int FROM "PortalDocument" WHERE "accountId"=${accountId}) AS n, COALESCE(SUM(size),0)::bigint AS bytes FROM (SELECT size FROM "PortalDocument" WHERE "accountId"=${accountId} UNION ALL SELECT size FROM "PortalProductImage" WHERE "accountId"=${accountId}) stored_files`;
         if (numbers[0].n > plan.limits.numbers || docs[0].n > plan.limits.documents || Number(docs[0].bytes) > plan.limits.storageMb * 1048576) throw new PortalError(409, 'DOWNGRADE_REQUIRES_REVIEW', 'This account exceeds the new plan. Remove excess connections or documents first.');
         profile.planId = plan.id; profile.planSnapshot = plan;
       }
@@ -164,7 +207,7 @@ export class PortalStore {
         validateBusiness(s.planScopedBusiness(profile.draft, { ...adjusted, id, revision }), { ...adjusted, id, revision });
         const numbers = await s.db.$queryRaw<any[]>`SELECT (SELECT COUNT(*) FROM "WhatsAppBusinessNumber" WHERE "accountId"=${accountId}) +
           (SELECT COUNT(*) FROM "PortalConnectionAttempt" WHERE "accountId"=${accountId} AND "reconnectId" IS NULL AND (status='PROCESSING' OR (status='PENDING' AND "expiresAt">NOW()))) AS n`;
-        const docs = await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n,COALESCE(SUM(size),0)::bigint AS bytes FROM "PortalDocument" WHERE "accountId"=${accountId}`;
+        const docs = await s.db.$queryRaw<any[]>`SELECT (SELECT COUNT(*)::int FROM "PortalDocument" WHERE "accountId"=${accountId}) AS n, COALESCE(SUM(size),0)::bigint AS bytes FROM (SELECT size FROM "PortalDocument" WHERE "accountId"=${accountId} UNION ALL SELECT size FROM "PortalProductImage" WHERE "accountId"=${accountId}) stored_files`;
         if (numbers[0].n > adjusted.limits.numbers || docs[0].n > adjusted.limits.documents || Number(docs[0].bytes) > adjusted.limits.storageMb * 1048576) throw new PortalError(409, 'DOWNGRADE_REQUIRES_REVIEW');
         profile.planSnapshot = { ...adjusted, id, revision };
       }
@@ -173,6 +216,13 @@ export class PortalStore {
       if (changes.reviewNote !== undefined) profile.reviewNote = changes.reviewNote;
       if (changes.lockedFields !== undefined) profile.lockedFields = changes.lockedFields;
       if (changes.adminConfig !== undefined) profile.adminConfig = changes.adminConfig;
+      const instagramRemoved = Boolean(profile.instagramAllowed && !profile.planSnapshot?.modules.includes('instagram'));
+      if(profile.qrAllowed&&!profile.planSnapshot?.modules.includes('qr')) {
+        await s.db.$executeRaw`UPDATE "PortalProfile" SET "qrAllowed"=false WHERE "accountId"=${accountId}`;
+        await s.db.$executeRaw`UPDATE "ChannelConnection" SET enabled=false,"botEnabled"=false,status='PAUSED' WHERE "accountId"=${accountId} AND provider='QR_WEB'`;
+        await s.db.$executeRaw`UPDATE "WhatsAppBusinessNumber" SET enabled=false,status='PAUSED' WHERE "accountId"=${accountId} AND transport='QR_WEB'`;
+        await s.audit(actorId,accountId,'QR_ACCESS_REVOKED',{reason:'PLAN_CHANGED'});
+      }
       if (profile.status === 'ACTIVE' && (!profile.planSnapshot || !profile.published)) throw new PortalError(400, 'ACTIVATION_NOT_READY', 'Assign a plan and publish the business data before activation.');
       if (profile.status === 'ACTIVE') {
         const users = await s.db.$queryRaw<any[]>`SELECT u.id FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id WHERE m."accountId"=${accountId} AND (u."verifiedAt" IS NOT NULL OR ${localEmailBypass()}) AND u.disabled=false`;
@@ -183,6 +233,11 @@ export class PortalStore {
       await s.db.$executeRaw`UPDATE "PortalProfile" SET status=${profile.status},"planId"=${profile.planId},"planSnapshot"=${json(profile.planSnapshot)}::jsonb,
         "autoPublish"=${profile.autoPublish},"reviewNote"=${profile.reviewNote},"lockedFields"=${json(profile.lockedFields)}::jsonb,"adminConfig"=${json(profile.adminConfig)}::jsonb,
         revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      if (instagramRemoved) {
+        await s.db.$executeRaw`UPDATE "PortalProfile" SET "instagramAllowed"=false WHERE "accountId"=${accountId}`;
+        await s.db.$executeRaw`UPDATE "InstagramConnection" SET enabled=false WHERE "accountId"=${accountId}`;
+        await s.audit(actorId, accountId, 'INSTAGRAM_ACCESS_UPDATED', { allowed: false, reason: 'PLAN_CHANGED' });
+      }
       await s.db.$executeRaw`UPDATE "Account" SET enabled=${profile.status !== 'SUSPENDED'},"updatedAt"=NOW() WHERE id=${accountId} AND "tenantId"=${profile.tenantId}`;
       if ((changes.adminConfig !== undefined || changes.planId !== undefined) && profile.published) {
         if (profile.planSnapshot) validateBusiness(s.planScopedBusiness(profile.published, profile.planSnapshot), profile.planSnapshot);
@@ -222,6 +277,12 @@ export class PortalStore {
         config.capabilities.intents = config.capabilities.intents.filter((intent: any) => !commerceWorkflowIds.has(intent.workflowId || intent.id));
       }
     }
+    const configuredLeadMode = (profile.adminConfig as any)?.capabilities?.leadMode;
+    config.capabilities.leadMode = configuredLeadMode && ['NONE', 'SERVICE', 'COMMERCE', 'BOTH'].includes(configuredLeadMode)
+      ? configuredLeadMode
+      : profile.planSnapshot?.modules.includes('commerce')
+        ? (profile.planSnapshot.modules.includes('services') ? 'BOTH' : 'COMMERCE')
+        : profile.planSnapshot?.modules.includes('services') ? 'SERVICE' : 'NONE';
     config.capabilities.imageEnabled = Boolean(profile.planSnapshot?.modules.includes('images')) && config.capabilities.imageEnabled !== false;
     if (!profile.planSnapshot?.modules.includes('knowledge')) config.knowledge.enabled = false;
     return config;
@@ -246,16 +307,14 @@ export class PortalStore {
     // Retire removed catalog entries without deleting historical product references.
     await this.db.$executeRaw`UPDATE "Product" SET active=false,"updatedAt"=NOW() WHERE "tenantId"=${tenantId} AND "accountId"=${accountId}`;
     // Batch the catalog so a large client import does not perform thousands of database round trips.
-    // Standard mode preserves draft catalog data for a future upgrade while
-    // keeping every catalog row inactive and unreachable by the chatbot.
-    const catalog = config.capabilities.ecommerceEnabled === true ? data.products.map(p => ({ ...p, id: randomUUID(), metadata: { images: (p.imageIds || []).map(productImageUrl) } })) : [];
+    const catalog = config.capabilities.ecommerceEnabled ? data.products.map(p => ({ ...p, id: randomUUID(), metadata: { images: (p.imageIds || []).map(productImageUrl) } })) : [];
     const rows = await this.db.$queryRaw<any[]>`INSERT INTO "Product"(id,"tenantId","accountId",sku,name,description,price,currency,stock,active,category,metadata,"updatedAt")
       SELECT x.id,${tenantId},${accountId},x.sku,x.name,x.description,x.price,${data.currency},x.stock,true,NULLIF(x.category,''),x.metadata,NOW()
       FROM jsonb_to_recordset(${json(catalog)}::jsonb) AS x(id text,sku text,name text,description text,price numeric,stock int,category text,metadata jsonb)
       ON CONFLICT("tenantId","accountId",sku) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,price=EXCLUDED.price,currency=EXCLUDED.currency,stock=EXCLUDED.stock,active=true,category=EXCLUDED.category,metadata=EXCLUDED.metadata,"updatedAt"=NOW() RETURNING id,sku`;
     const ids = new Map(rows.map(p => [p.sku, p.id]));
     await this.db.$executeRaw`UPDATE "ProductVariant" SET active=false,"updatedAt"=NOW() WHERE "productId" IN (SELECT id FROM "Product" WHERE "tenantId"=${tenantId} AND "accountId"=${accountId})`;
-    const variants = data.products.flatMap(p => p.variants.map(v => ({ ...v, id: randomUUID(), productId: ids.get(p.sku), metadata: v.imageId ? { images: [productImageUrl(v.imageId)] } : {} })));
+    const variants = catalog.flatMap(p => p.variants.map(v => ({ ...v, id: randomUUID(), productId: ids.get(p.sku), metadata: v.imageId ? { images: [productImageUrl(v.imageId)] } : {} })));
     await this.db.$executeRaw`INSERT INTO "ProductVariant"(id,"productId",sku,size,color,"priceOverride",stock,active,metadata,"updatedAt")
       SELECT x.id,x."productId",x.sku,NULLIF(x.size,''),NULLIF(x.color,''),x.price,x.stock,true,x.metadata,NOW()
       FROM jsonb_to_recordset(${json(variants)}::jsonb) AS x(id text,"productId" text,sku text,size text,color text,price numeric,stock int,metadata jsonb)
@@ -283,14 +342,19 @@ export class PortalStore {
   }
   async accounts(search = '', offset = 0) {
     offset = Math.max(0, Math.min(1000000, Math.floor(Number.isFinite(offset) ? offset : 0)));
-    return this.db.$queryRaw<any[]>`SELECT p."accountId",p."tenantId",a.name,p.status,p.revision,p."planId",p."requestedPlanId",p."createdAt",p."updatedAt",p."planSnapshot"->>'name' AS "planName",
-      (SELECT COUNT(*)::int FROM "Conversation" c WHERE c."accountId"=p."accountId" AND c."tenantId"=p."tenantId") AS conversations
+    return this.db.$queryRaw<any[]>`SELECT p."accountId",p."tenantId",a.name,owner.name AS "clientName",owner.email AS "clientEmail",p.status,p.revision,p."planId",p."requestedPlanId",p."createdAt",p."updatedAt",p."planSnapshot"->>'name' AS "planName",
+      (SELECT COUNT(*)::int FROM "Conversation" c WHERE c."accountId"=p."accountId" AND c."tenantId"=p."tenantId"
+        AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%')) AS conversations
       FROM "PortalProfile" p JOIN "Account" a ON a.id=p."accountId" AND a."tenantId"=p."tenantId"
-      WHERE a.name ILIKE ${'%' + search + '%'} ORDER BY p."updatedAt" DESC LIMIT 50 OFFSET ${offset}`;
+      LEFT JOIN LATERAL (SELECT u.name,u.email FROM "PortalMembership" m JOIN "PortalUser" u ON u.id=m."userId"
+        WHERE m."accountId"=p."accountId" AND m."tenantId"=p."tenantId" AND u.role='CLIENT'
+        ORDER BY u."createdAt",u.id LIMIT 1) owner ON true
+      WHERE a.name ILIKE ${'%' + search + '%'} OR owner.name ILIKE ${'%' + search + '%'} OR owner.email ILIKE ${'%' + search + '%'}
+      ORDER BY p."updatedAt" DESC LIMIT 50 OFFSET ${offset}`;
   }
   async auditHistory(accountId: string | null, offset = 0) { return this.db.$queryRaw<any[]>`SELECT * FROM "PortalAudit" WHERE (${accountId}::text IS NULL OR "accountId"=${accountId}) ORDER BY "createdAt" DESC LIMIT 100 OFFSET ${offset}`; }
   async versions(accountId: string) { return this.db.$queryRaw<any[]>`SELECT id,revision,"actorId","createdAt" FROM "PortalPublication" WHERE "accountId"=${accountId} ORDER BY revision DESC LIMIT 30`; }
-  async connections(accountId: string, tenantId: string) { return this.db.$queryRaw<any[]>`SELECT c.id,c.provider,c.status,c.enabled,c."connectionKey" AS label,c."updatedAt",n.id AS "numberRecordId",n."phoneNumberId",n."displayPhoneNumber",n.status AS "numberStatus"
+  async connections(accountId: string, tenantId: string) { return this.db.$queryRaw<any[]>`SELECT c.id,c.provider,c.status,c.enabled,c."botEnabled",c."connectionKey" AS label,c."updatedAt",n.id AS "numberRecordId",n."phoneNumberId",n."displayPhoneNumber",n.status AS "numberStatus",n.enabled AS "numberEnabled"
     FROM "ChannelConnection" c LEFT JOIN "WhatsAppBusinessNumber" n ON n."connectionId"=c.id AND n."tenantId"=c."tenantId" AND n."accountId"=c."accountId"
     WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId} ORDER BY c."createdAt"`; }
   async usage(accountId: string) {
@@ -299,13 +363,13 @@ export class PortalStore {
   }
   async stats(accountId: string, tenantId: string, days = 30) {
     days = Math.max(1, Math.min(90, Number.isFinite(days) ? Math.floor(days) : 30));
-    const [totals, daily, sources, costs, usage, responses, delivery] = await Promise.all([
+    const [totals, daily, sources, costs, usage, responses, delivery, numberRows, numberTraffic, numberLeads] = await Promise.all([
       this.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS conversations,COUNT(DISTINCT "customerId")::int AS contacts,
-        COUNT(*) FILTER(WHERE "humanRequested"=true)::int AS handoffs FROM "Conversation" WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
-        AND "customerId" NOT LIKE 'portal-preview:%' AND "createdAt">NOW()-${days}*INTERVAL '1 day'`,
+        COUNT(*) FILTER(WHERE "humanRequested"=true)::int AS handoffs FROM "Conversation" c WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
+        AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%') AND "createdAt">NOW()-${days}*INTERVAL '1 day'`,
       this.db.$queryRaw<any[]>`SELECT date_trunc('day',m."createdAt") AS day,COUNT(*) FILTER(WHERE m.role='USER')::int AS inbound,COUNT(*) FILTER(WHERE m.role='ASSISTANT')::int AS outbound
         FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId" WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId}
-        AND c."customerId" NOT LIKE 'portal-preview:%' AND m."tenantId"=${tenantId} AND m."createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY day ORDER BY day`,
+        AND NOT EXISTS (SELECT 1 FROM "Customer" cu WHERE cu.id=c."customerId" AND cu."tenantId"=c."tenantId" AND cu."externalId" LIKE 'portal-preview:%') AND m."tenantId"=${tenantId} AND m."createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY day ORDER BY day`,
       this.db.$queryRaw<any[]>`SELECT l.status,COUNT(*)::int AS count FROM "Lead" l JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
         WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND COALESCE(cu."externalId",'') NOT LIKE 'portal-preview:%'
         AND l."createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY l.status`,
@@ -317,8 +381,36 @@ export class PortalStore {
         ROUND(AVG((metadata->>'latencyMs')::numeric)) AS "averageLatencyMs" FROM "PortalUsageEntry" WHERE "accountId"=${accountId} AND kind='message' AND status='COMPLETED'
         AND "createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY metadata->>'source',metadata->>'language',metadata->>'script',metadata->>'intent'`,
       this.db.$queryRaw<any[]>`SELECT "phoneNumberId",status,"outboundStatus",COUNT(*)::int AS count,COALESCE(SUM(GREATEST(attempts-1,0)),0)::int AS retries FROM "WhatsAppMessageJob"
-        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY "phoneNumberId",status,"outboundStatus"`
+        WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND "createdAt">NOW()-${days}*INTERVAL '1 day' GROUP BY "phoneNumberId",status,"outboundStatus"`,
+      this.db.$queryRaw<any[]>`SELECT n."phoneNumberId",n."displayPhoneNumber",n.status,n.enabled,c.provider,c.enabled AS "connectionEnabled",c."botEnabled"
+        FROM "WhatsAppBusinessNumber" n LEFT JOIN "ChannelConnection" c ON c.id=n."connectionId" AND c."tenantId"=n."tenantId" AND c."accountId"=n."accountId"
+        WHERE n."accountId"=${accountId} AND n."tenantId"=${tenantId} ORDER BY n."createdAt"`,
+      this.db.$queryRaw<any[]>`SELECT m."phoneNumberId",COUNT(*) FILTER(WHERE m.role='USER')::int AS inbound,
+        COUNT(*) FILTER(WHERE m.role='ASSISTANT')::int AS replies,
+        COUNT(DISTINCT m."conversationId") FILTER(WHERE m.role='USER')::int AS conversations,
+        COUNT(DISTINCT c."customerId") FILTER(WHERE m.role='USER')::int AS contacts
+        FROM "Message" m JOIN "Conversation" c ON c.id=m."conversationId" AND c."tenantId"=m."tenantId"
+        JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+        WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId} AND m."phoneNumberId" IS NOT NULL
+          AND cu."externalId" NOT LIKE 'portal-preview:%' AND m."createdAt">NOW()-${days}*INTERVAL '1 day'
+        GROUP BY m."phoneNumberId"`,
+      this.db.$queryRaw<any[]>`SELECT l."sourcePhoneNumberId" AS "phoneNumberId",COUNT(*)::int AS leads
+        FROM "Lead" l JOIN "Customer" cu ON cu.id=l."customerId" AND cu."tenantId"=l."tenantId"
+        WHERE l."accountId"=${accountId} AND l."tenantId"=${tenantId} AND l."sourcePhoneNumberId" IS NOT NULL
+          AND cu."externalId" NOT LIKE 'portal-preview:%' AND l."createdAt">NOW()-${days}*INTERVAL '1 day'
+        GROUP BY l."sourcePhoneNumberId"`
     ]);
-    return { days, totals: totals[0], daily, leads: sources, operations: costs, responses, delivery, usage, currency: 'USD', costBasis: 'Configured peak-rate estimates; unknown outcomes retain their reservation. Channel and hosting charges excluded.' };
+    const trafficByNumber = new Map(numberTraffic.map(row => [row.phoneNumberId, row]));
+    const leadsByNumber = new Map(numberLeads.map(row => [row.phoneNumberId, row]));
+    const numbers = numberRows.map(row => {
+      const traffic = trafficByNumber.get(row.phoneNumberId) || {};
+      const jobs = delivery.filter(job => job.phoneNumberId === row.phoneNumberId);
+      return { ...row, inbound: traffic.inbound || 0, replies: traffic.replies || 0,
+        conversations: traffic.conversations || 0, contacts: traffic.contacts || 0,
+        leads: leadsByNumber.get(row.phoneNumberId)?.leads || 0,
+        failures: jobs.filter(job => job.status === 'FAILED' || job.outboundStatus === 'FAILED').reduce((sum, job) => sum + Number(job.count), 0),
+        retries: jobs.reduce((sum, job) => sum + Number(job.retries), 0) };
+    });
+    return { days, totals: totals[0], daily, leads: sources, operations: costs, responses, delivery, numbers, usage, currency: 'USD', costBasis: 'Configured peak-rate estimates; unknown outcomes retain their reservation. Channel and hosting charges excluded.' };
   }
 }

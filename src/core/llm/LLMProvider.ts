@@ -41,6 +41,8 @@ export interface LLMRequestOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   onUsage?: (usage: LLMUsage) => void;
+  responseFormat?: 'json_object';
+  purpose?: 'structured_turn_interpretation';
 }
 
 export interface LLMProvider {

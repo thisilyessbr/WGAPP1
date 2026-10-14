@@ -368,8 +368,8 @@ describe('Production Security Remediation Suite', () => {
       expect(res.status).toBe(503);
       expect(res.body.status).toBe('unhealthy');
       expect(res.body.error).toBe('DATABASE_UNAVAILABLE');
-      expect(res.body.message).toBeUndefined();
       expect(JSON.stringify(res.body)).not.toContain('prod_db_user');
+      expect(res.body).not.toHaveProperty('message');
     });
   });
 });

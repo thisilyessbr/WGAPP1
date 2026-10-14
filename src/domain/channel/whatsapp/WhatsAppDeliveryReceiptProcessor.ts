@@ -46,43 +46,31 @@ export class WhatsAppDeliveryReceiptProcessor {
       return { correlated: false, applied: false, reason: 'UNKNOWN_STATUS' };
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Serialize all status updates for a provider message. Reading metadata outside
-      // this lock allows a late SENT receipt to overwrite a concurrent READ receipt.
-      const rows = await tx.$queryRaw<any[]>`
-        SELECT id, metadata
-        FROM "Message"
-        WHERE "tenantId" = ${receipt.tenantId}
-          AND "externalId" = ${receipt.providerMessageId}
-        LIMIT 1
-        FOR UPDATE
-      `;
-      const message = rows[0];
-
-      if (!message) {
-        return { correlated: false, applied: false, reason: 'MESSAGE_NOT_YET_COMMITTED' } as const;
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the message before reading its status. A second receipt must make
+      // its transition decision from the first receipt's committed status.
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Message"
+        WHERE "tenantId"=${receipt.tenantId} AND "externalId"=${receipt.providerMessageId} FOR UPDATE`;
+      if (!locked.length) {
+        logger.info(`WhatsAppDeliveryReceiptProcessor: Unmatched receipt [${receipt.id}] for wamid [${receipt.providerMessageId}]. Retaining for reconciliation.`);
+        return { correlated: false, applied: false, reason: 'MESSAGE_NOT_YET_COMMITTED' };
       }
 
+      const message = await tx.message.findUniqueOrThrow({ where: { id: locked[0].id } });
       const existingMeta = (message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata))
         ? { ...(message.metadata as Record<string, any>) }
         : {};
       const currentStatus: DeliveryStatus = (existingMeta.deliveryStatus as DeliveryStatus) || 'PENDING';
-      const allowed = canTransitionDeliveryStatus(currentStatus, targetStatus);
-
-      if (!allowed) {
+      if (!canTransitionDeliveryStatus(currentStatus, targetStatus)) {
+        logger.info(`WhatsAppDeliveryReceiptProcessor: Suppressed status transition from [${currentStatus}] to [${targetStatus}] for message [${message.id}]`);
         if (receipt.id) {
           await tx.whatsAppDeliveryReceipt.update({ where: { id: receipt.id }, data: { correlated: true } });
         }
-        return {
-          correlated: true,
-          applied: false,
-          reason: `TRANSITION_PROHIBITED_${currentStatus}_TO_${targetStatus}`
-        } as const;
+        return { correlated: true, applied: false, reason: `TRANSITION_PROHIBITED_${currentStatus}_TO_${targetStatus}` };
       }
 
       const timestampMs = receipt.providerTimestamp ? receipt.providerTimestamp.getTime() : Date.now();
       existingMeta.deliveryStatus = targetStatus;
-
       if (targetStatus === 'SENT') {
         existingMeta.sentAt = timestampMs;
       } else if (targetStatus === 'DELIVERED') {
@@ -103,17 +91,9 @@ export class WhatsAppDeliveryReceiptProcessor {
       if (receipt.id) {
         await tx.whatsAppDeliveryReceipt.update({ where: { id: receipt.id }, data: { correlated: true } });
       }
-      return { correlated: true, applied: true, messageId: message.id } as const;
+      logger.info(`WhatsAppDeliveryReceiptProcessor: Applied status [${targetStatus}] to message [${message.id}] (Meta wamid: [${receipt.providerMessageId}])`);
+      return { correlated: true, applied: true };
     });
-
-    if (!result.correlated) {
-      logger.info(`WhatsAppDeliveryReceiptProcessor: Unmatched receipt [${receipt.id}] for wamid [${receipt.providerMessageId}]. Retaining for reconciliation.`);
-    } else if (result.applied) {
-      logger.info(`WhatsAppDeliveryReceiptProcessor: Applied status [${targetStatus}] to message [${result.messageId}] (Meta wamid: [${receipt.providerMessageId}])`);
-    } else {
-      logger.info(`WhatsAppDeliveryReceiptProcessor: Suppressed status transition for wamid [${receipt.providerMessageId}] (${result.reason})`);
-    }
-    return result;
   }
 
   /**

@@ -8,6 +8,7 @@ import { MetaCloudTransport } from '../routing/MetaCloudTransport';
 import { ClientSafetyGuard } from '../guard/ClientSafetyGuard';
 import { logger } from '../../../utils/logger';
 import { IncomingMessagePayload } from '../../conversation/CapabilityRouter';
+import { VoiceNoteTranscriber, VoiceProvider } from './VoiceNoteTranscriber';
 import { outboundMediaContext } from '../../conversation/AnswerComposer';
 
 export interface WhatsAppWorkerResult {
@@ -33,7 +34,15 @@ export class WhatsAppWorker {
     private numberService?: WhatsAppNumberService,
     private policyAdapter: WhatsAppPolicyAdapter = new WhatsAppPolicyAdapter(),
     channelRouter?: ChannelRouter,
-    private safetyGuard?: ClientSafetyGuard
+    private safetyGuard?: ClientSafetyGuard,
+    private voiceNotes?: {
+      enabled: (tenantId: string, accountId: string) => Promise<VoiceProvider | null>;
+      transcriber: Pick<VoiceNoteTranscriber, 'transcribe'>;
+      process?: (tenantId: string, accountId: string, wamid: string, provider: VoiceProvider, hint: string | undefined,
+        load: () => Promise<{ bytes: Buffer; mimeType: string }>) => ReturnType<VoiceNoteTranscriber['transcribe']>;
+      languageHint?: (tenantId: string, accountId: string, customerExternalId: string) => Promise<string | undefined>;
+      recordUsage?: (tenantId: string, accountId: string, wamid: string, durationSeconds: number | null, provider: VoiceProvider, languageHint?: string) => Promise<void>;
+    }
   ) {
     if (channelRouter) {
       this.channelRouter = channelRouter;
@@ -90,7 +99,7 @@ export class WhatsAppWorker {
 
       if (!safetyCheck.allowed) {
         if (safetyCheck.code === 'HUMAN_TAKEOVER' && this.conversationEngine.recordInboundMessage) {
-          await this.conversationEngine.recordInboundMessage(job.tenantId, job.waId, displayContent, job.accountId, job.wamid);
+          await this.conversationEngine.recordInboundMessage(job.tenantId, job.waId, displayContent, job.accountId, job.wamid, job.phoneNumberId);
         }
         logger.warn(`WhatsAppWorker: Safety guard suppressed processing for job [${job.wamid}]: ${safetyCheck.reason}`);
         return {
@@ -143,6 +152,18 @@ export class WhatsAppWorker {
         } catch {
           logger.warn('WhatsAppWorker: Inbound image unavailable; returning a text-request fallback.');
         }
+      } else if (job.rawType === 'audio' && media.mediaId && this.voiceNotes) {
+        try {
+          const provider = await this.voiceNotes.enabled(job.tenantId, job.accountId);
+          if (provider && this.voiceNotes.process) {
+            const hint = await this.voiceNotes.languageHint?.(job.tenantId, job.accountId, job.waId);
+            const transcript = await this.voiceNotes.process(job.tenantId, job.accountId, job.wamid, provider, hint,
+              () => this.outboundAdapter.downloadInboundAudio(job.phoneNumberId, media.mediaId!));
+            if (transcript.understood !== false) contentInput = transcript.text;
+          }
+        } catch {
+          logger.warn('WhatsAppWorker: Voice note unavailable; returning a text-request fallback.');
+        }
       }
     }
 
@@ -152,7 +173,7 @@ export class WhatsAppWorker {
       job.waId,
       contentInput,
       job.accountId,
-      { externalMessageId: job.wamid }
+      { externalMessageId: job.wamid, phoneNumberId: job.phoneNumberId }
     ));
     const productImage = this.conversationEngine.getOutboundProductImage
       ? await this.conversationEngine.getOutboundProductImage(job.tenantId, job.accountId, job.wamid)
@@ -214,7 +235,12 @@ export class WhatsAppWorker {
     }
 
     // 3. Evaluate Outbound Policy (Customer Service Window, text vs template)
-    const inboundTimestamp = typeof job.timestamp === 'bigint' ? Number(job.timestamp) : (Number(job.timestamp) || job.enqueuedAt);
+    const rawInboundTimestamp = typeof job.timestamp === 'bigint' ? Number(job.timestamp) : Number(job.timestamp);
+    // Meta webhook timestamps are Unix seconds, while the policy adapter uses
+    // JavaScript milliseconds. Queue jobs created internally may already use ms.
+    const inboundTimestamp = Number.isFinite(rawInboundTimestamp) && rawInboundTimestamp > 0
+      ? (rawInboundTimestamp < 100_000_000_000 ? rawInboundTimestamp * 1000 : rawInboundTimestamp)
+      : job.enqueuedAt;
     const policyDecision = this.policyAdapter.evaluateOutbound({
       tenantId: job.tenantId,
       accountId: job.accountId,

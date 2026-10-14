@@ -23,6 +23,9 @@ import { WhatsAppNumberService } from './domain/channel/whatsapp/WhatsAppNumberS
 import { MessageQueue, PartitionedFifoQueue, PostgresMessageQueue, InboundQueueJob } from './domain/channel/whatsapp/MessageQueue';
 import { IdempotencyStore, MemoryIdempotencyStore, PostgresIdempotencyStore } from './domain/channel/whatsapp/IdempotencyStore';
 import { WhatsAppWorker } from './domain/channel/whatsapp/WhatsAppWorker';
+import { VoiceNoteTranscriber, VoiceProvider, voiceTranscriptionAvailable } from './domain/channel/whatsapp/VoiceNoteTranscriber';
+import { PortalBudget } from './portal/PortalBudget';
+import { PortalStore } from './portal/PortalStore';
 import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
 import { WhatsAppOnboardingService } from './domain/channel/whatsapp/WhatsAppOnboardingService';
@@ -56,7 +59,7 @@ export interface WebDependencies {
   conversationAutomationService: ConversationAutomationService;
   whatsAppOutboundQueue: OutboundMessageQueue;
   clientSafetyGuard?: ClientSafetyGuard;
-  conversationEngine?: undefined;
+  conversationEngine?: ConversationEngine;
   ragService?: undefined;
   pdfIngestionService?: undefined;
   llmFactory?: undefined;
@@ -134,6 +137,35 @@ export interface WorkerBootstrapOptions {
   autoStartQueue?: boolean;
   enableDocumentWorker?: boolean;
   useMemoryQueue?: boolean;
+  qrSessionManager?: QrSessionManager;
+}
+
+function voiceNoteOptions(prisma: PrismaClient) {
+  const budget = new PortalBudget(new PortalStore(prisma), false);
+  const transcriber = new VoiceNoteTranscriber();
+  return {
+    enabled: async (tenantId: string, accountId: string) => {
+      const profile = await prisma.portalProfile.findUnique({
+        where: { accountId }, select: { tenantId: true, status: true, voiceNotesEnabled: true, voiceNotesAllowed: true, voiceTranscriptionProvider: true }
+      });
+      if (profile?.tenantId !== tenantId || profile.status !== 'ACTIVE' || !profile.voiceNotesAllowed || !profile.voiceNotesEnabled) return null;
+      const selected = profile.voiceTranscriptionProvider as VoiceProvider;
+      return voiceTranscriptionAvailable(selected) ? selected : null;
+    },
+    transcriber,
+    process: (tenantId: string, accountId: string, wamid: string, provider: VoiceProvider, hint: string | undefined, load: () => Promise<{bytes: Buffer; mimeType: string}>) =>
+      budget.transcribeVoice(tenantId, accountId, wamid, provider, hint, load, transcriber),
+    languageHint: async (tenantId: string, accountId: string, customerExternalId: string) => {
+      const conversation = await prisma.conversation.findFirst({
+        where: { tenantId, accountId, customer: { externalId: customerExternalId, tenantId } },
+        orderBy: { updatedAt: 'desc' }, select: { contextData: true }
+      });
+      const previous = (conversation?.contextData as any)?._lang;
+      if (['en', 'fr', 'ar', 'darija'].includes(previous)) return previous;
+      const profile = await prisma.portalProfile.findUnique({ where: { accountId }, select: { tenantId: true, adminConfig: true } });
+      return profile?.tenantId === tenantId ? (profile.adminConfig as any)?.identity?.language : undefined;
+    }
+  };
 }
 
 /**
@@ -182,6 +214,7 @@ function buildWhatsAppRuntime(params: {
   whatsAppMessageQueue: MessageQueue<InboundQueueJob>;
   conversationEngine: ConversationEngine;
   clientSafetyGuard: ClientSafetyGuard;
+  voiceNotes?: ConstructorParameters<typeof WhatsAppWorker>[7];
 }): { channelRouter: ChannelRouter; whatsAppPolicyAdapter: WhatsAppPolicyAdapter; whatsAppWorker: WhatsAppWorker } {
   const channelRouter = new ChannelRouter(params.whatsAppNumberService, [
     new MetaCloudTransport(params.whatsAppOutboundAdapter),
@@ -195,15 +228,16 @@ function buildWhatsAppRuntime(params: {
     params.whatsAppNumberService,
     whatsAppPolicyAdapter,
     channelRouter,
-    params.clientSafetyGuard
+    params.clientSafetyGuard,
+    params.voiceNotes
   );
   return { channelRouter, whatsAppPolicyAdapter, whatsAppWorker };
 }
 
 /**
  * Bootstraps dependencies strictly needed for the Web process.
- * Does NOT instantiate WhatsAppWorker, ConversationEngine, RAG, LLMFactory,
- * or background document processing loops.
+ * Does not start WhatsApp workers or document processing loops. When the
+ * portal is enabled, it also builds the AI pipeline for isolated admin previews.
  */
 export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBootstrapOptions = {}): WebDependencies {
   const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
@@ -244,7 +278,25 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
     ? new MemoryOutboundQueue(prisma)
     : new PostgresOutboundQueue(prisma, { autoStartWorker: false, disableWorker: true });
 
-  const portalService = createPortalServiceIfEnabled(prisma);
+  const portalService = process.env.PORTAL_ENABLED === 'true' ? new PortalService(prisma as unknown as PortalDb) : undefined;
+  let conversationEngine: ConversationEngine | undefined;
+  if (portalService) {
+    const conversationService = new ConversationService(prisma);
+    const responseBuilder = new ResponseBuilder();
+    const workflowEngine = new WorkflowEngine(new WorkflowStateEvaluator(), undefined, responseBuilder, new FieldValidator());
+    const llmFactory = new LLMFactory(process.env.DEEPSEEK_API_KEY, process.env.GOOGLE_API_KEY);
+    const embeddingProvider: EmbeddingProvider = isTestEnv && process.env.USE_REAL_AI !== 'true'
+      ? new MockEmbeddingProvider()
+      : process.env.GOOGLE_API_KEY
+        ? new GeminiEmbeddingProvider(process.env.GOOGLE_API_KEY)
+        : new UnavailableEmbeddingProvider();
+    const ragService = new RAGService(portalService.budget.wrapEmbeddings(embeddingProvider), new KnowledgeRepository(prisma));
+    conversationEngine = new ConversationEngine(
+      conversationService, tenantConfigService, workflowEngine, llmFactory, responseBuilder,
+      ragService, portalService.budget.wrapImages(new ImageCapabilityGateway()), undefined,
+      accountConfigService, ecommerceService, crmService, portalService.budget
+    );
+  }
   if (portalService) {
     portalService.attach({
       prisma,
@@ -267,6 +319,7 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
   return {
     prisma,
     portalService,
+    conversationEngine,
     tenantConfigService,
     accountConfigService,
     crmService,
@@ -362,7 +415,7 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     secretBox
   });
 
-  const qrSessionManager = new QrSessionManager(
+  const qrSessionManager = options.qrSessionManager ?? new QrSessionManager(
     prisma,
     whatsAppNumberService,
     whatsAppMessageQueue,
@@ -386,7 +439,8 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     qrSessionManager,
     whatsAppMessageQueue,
     conversationEngine,
-    clientSafetyGuard
+    clientSafetyGuard,
+    voiceNotes: voiceNoteOptions(prisma)
   });
 
   if (portalService) {
@@ -423,6 +477,10 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     if (shouldStartDocs) {
       portalService.documents.start();
       logger.info('Portal document ingestion worker started');
+    }
+    if (autoStart && process.env.PORTAL_STAFF_ALERT_WORKER === 'true' && process.env.NODE_ENV !== 'test') {
+      portalService.staffActions.start();
+      logger.info('Portal staff alert worker started');
     }
   }
 
@@ -551,7 +609,8 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
     qrSessionManager,
     whatsAppMessageQueue,
     conversationEngine,
-    clientSafetyGuard
+    clientSafetyGuard,
+    voiceNotes: voiceNoteOptions(prisma)
   });
 
   const dependencies: ChatbotDependencies = {

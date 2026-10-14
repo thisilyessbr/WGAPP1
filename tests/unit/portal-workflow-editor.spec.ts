@@ -23,10 +23,36 @@ describe('portal visual workflows',()=>{
     removeIntent({test:wf},intents,0);
     expect(intents).toEqual([]);expect(wf.activation.intents).toEqual([]);
   });
-  it.each(['blank','triage','lead','feedback'])('creates a valid %s template that the backend accepts',kind=>{
+  it.each(['blank','triage','lead','cod','feedback'])('creates a valid %s template that the backend accepts',kind=>{
     const workflow=template(kind,'test');
     expect(diagnostics({test:workflow},[]).errors).toEqual([]);
     expect(()=>validateAdminConfig({workflows:{test:workflow}})).not.toThrow();
+  });
+  it('requires one explicit workflow per shared customer use case',()=>{
+    const demo=template('lead','demo');
+    const support=template('lead','support');
+    const config:any={workflows:{demo,support},capabilities:{intents:[{id:'DEMO',workflowId:'demo',useCases:['PURCHASE']}]}};
+    expect(()=>validateAdminConfig(config)).not.toThrow();
+    config.capabilities.intents[0].workflowId='missing';
+    expect(()=>validateAdminConfig(config)).toThrow('Link each shared use case');
+    config.capabilities.intents[0].workflowId='demo';
+    config.capabilities.intents.push({id:'SUPPORT',workflowId:'support',useCases:['PURCHASE']});
+    expect(()=>validateAdminConfig(config)).toThrow('One shared use case');
+  });
+  it('rejects two auto-start workflows rather than depending on JSON order',()=>{
+    const first=template('lead','first');
+    const second=template('lead','second');
+    first.activation.mode='auto_start';
+    second.activation.mode='auto_start';
+    expect(()=>validateAdminConfig({workflows:{first,second}})).toThrow('CONFLICTING_AUTO_START_WORKFLOWS');
+  });
+  it('captures the fields needed for a cash-on-delivery ticket before confirmation',()=>{
+    const workflow=template('cod','checkout_test');
+    expect(orderedSteps(workflow)).toEqual(['start','quantity','customer_name','phone','city','address','confirm','done']);
+    expect(['product','quantity','customer_name','phone','city','address']).toEqual(
+      orderedSteps(workflow).filter((key:string)=>workflow.states[key].type==='collect').map((key:string)=>workflow.states[key].field.name));
+    expect(workflow.activation.intents).toEqual(['BUY_INTENT']);
+    expect(workflow.states.done.prompt.en).toContain('contact you to confirm');
   });
   it('renames steps without breaking branching, linear, conditional or initial references',()=>{
     const wf=template('lead','test');wf.states.start.options=[{label:'Go',next:'phone'}];wf.states.start.transitions=[{condition:'ready',intent:'CONTACT',target:'phone'}];wf.initialState='phone';

@@ -1,7 +1,9 @@
 import { PrismaClient, Conversation, WorkflowSession, Message } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { ConversationContext, buildConversationContext } from './ConversationContext';
 import { logger } from '../../utils/logger';
 import { WhatsAppDeliveryReceiptProcessor } from '../channel/whatsapp/WhatsAppDeliveryReceiptProcessor';
+import { ConversationAutomationService } from './ConversationAutomationService';
 
 export interface ConversationWithMessages extends Conversation {
   messages: Message[];
@@ -43,7 +45,7 @@ export class ConversationService {
     const baseWhere: any = {
       tenantId,
       customerId: customer.id,
-      ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+      accountId: trimmedAccountId
     };
 
     // 2. Check for active/handoff conversations first
@@ -109,7 +111,7 @@ export class ConversationService {
           customerId: customer.id,
           status: { in: ['ACTIVE', 'HANDOFF_REQUESTED', 'HUMAN_ACTIVE'] },
           automationCapped: false,
-          ...(trimmedAccountId ? { accountId: trimmedAccountId } : {})
+          accountId: trimmedAccountId
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -128,49 +130,27 @@ export class ConversationService {
   }
 
   async requestHandoff(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'HANDOFF_REQUESTED',
-        humanRequested: true,
-        humanRequestedAt: new Date()
-      }
-    });
+    return new ConversationAutomationService(this.prisma).requestHandoff({ tenantId, conversationId });
   }
 
   async takeOverByHuman(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'HUMAN_ACTIVE',
-        humanRequested: true
-      }
-    });
+    return new ConversationAutomationService(this.prisma).takeover({ tenantId, conversationId });
   }
 
   async resolveHandoff(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'ACTIVE',
-        humanRequested: false,
-        humanRequestedAt: null,
-        automationCapped: false,
-        postCompletionCapped: false
-      }
-    });
+    return new ConversationAutomationService(this.prisma).reopen({ tenantId, conversationId });
   }
 
-  async persistMessage(tenantId: string, conversationId: string, role: string, content: string, externalId?: string | null): Promise<Message> {
+  async persistMessage(tenantId: string, conversationId: string, role: string, content: string, externalId?: string | null, phoneNumberId?: string | null): Promise<Message> {
     if (externalId) {
       return this.prisma.message.upsert({
         where: { tenantId_externalId: { tenantId, externalId } },
-        create: { tenantId, conversationId, role, content, externalId, metadata: { turnCommitted: true, responseExpected: false } },
+        create: { tenantId, conversationId, role, content, externalId, phoneNumberId: phoneNumberId || null, metadata: { turnCommitted: true, responseExpected: false } },
         update: {}
       });
     }
     return this.prisma.message.create({
-      data: { tenantId, conversationId, role, content }
+      data: { tenantId, conversationId, role, content, phoneNumberId: phoneNumberId || null }
     });
   }
 
@@ -242,19 +222,15 @@ export class ConversationService {
     stateId: string,
     seed?: { stateHistory: string[]; collectedData: Record<string, string>; contextData: Record<string, string> }
   ): Promise<WorkflowSession> {
-    return this.prisma.workflowSession.create({
-      data: {
-        tenantId,
-        conversationId,
-        workflowId,
-        stateId,
-        stateHistory: seed?.stateHistory || [],
-        collectedData: seed?.collectedData || {},
-        humanRequested: false,
-        status: 'ACTIVE',
-        contextData: seed?.contextData || {}
-      }
-    });
+    // A new workflow is only made visible when its first conversation turn commits.
+    // Do not write an ACTIVE session before the response and lead are ready.
+    const now = new Date();
+    return {
+      id: randomUUID(), tenantId, conversationId, workflowId, stateId,
+      stateHistory: seed?.stateHistory || [], collectedData: seed?.collectedData || {}, humanRequested: false,
+      humanRequestedAt: null, status: 'ACTIVE', contextData: seed?.contextData || {},
+      createdAt: now, updatedAt: now
+    };
   }
 
   async updateSessionState(
@@ -287,10 +263,7 @@ export class ConversationService {
   }
 
   async flagHumanRequested(tenantId: string, conversationId: string): Promise<Conversation> {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { humanRequested: true, humanRequestedAt: new Date() }
-    });
+    return new ConversationAutomationService(this.prisma).requestHandoff({ tenantId, conversationId });
   }
 
   async getAutomationState(tenantId: string, conversationId: string): Promise<{
@@ -308,6 +281,59 @@ export class ConversationService {
     } catch {
       throw new Error('SAFETY_STATE_UNAVAILABLE');
     }
+  }
+
+  async releaseExpiredWorkflowPause(tenantId: string, conversationId: string, now: Date = new Date()): Promise<boolean> {
+    if (!this.prisma.conversationAutomationState?.findUnique) return false;
+    return new ConversationAutomationService(this.prisma).releaseExpiredWorkflowPause(tenantId, conversationId, now);
+  }
+
+  /**
+   * Returns true when this customer already has an unfinished CRM request created
+   * by the same workflow. This survives bot pause/reopen and process restarts.
+   */
+  async hasOpenWorkflowRequest(
+    tenantId: string,
+    customerId: string,
+    workflowId: string,
+    accountId?: string | null
+  ): Promise<boolean> {
+    if (!tenantId || !customerId || !workflowId || !accountId?.trim()) return false;
+
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        tenantId,
+        OR: [{ externalId: customerId }, { id: customerId }]
+      },
+      select: { id: true }
+    });
+    if (!customer) return false;
+
+    const openRequests = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        accountId: accountId.trim(),
+        customerId: customer.id,
+        status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] },
+        sourceWorkflowSessionId: { not: null }
+      },
+      select: { sourceWorkflowSessionId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    });
+    const sessionIds = openRequests
+      .map(request => request.sourceWorkflowSessionId)
+      .filter((id): id is string => Boolean(id));
+    if (!sessionIds.length) return false;
+
+    return (await this.prisma.workflowSession.count({
+      where: {
+        id: { in: sessionIds },
+        tenantId,
+        workflowId,
+        status: 'COMPLETED'
+      }
+    })) > 0;
   }
 
   async incrementMessageCount(tenantId: string, conversationId: string): Promise<Conversation> {
@@ -409,9 +435,11 @@ export class ConversationService {
     userMessage: string;
     assistantMessage?: string | null;
     externalMessageId?: string | null;
+    phoneNumberId?: string | null;
     contextData?: Record<string, any> | null;
     sessionUpdate?: {
       sessionId: string;
+      newWorkflowId?: string;
       stateId: string;
       contextData: Record<string, any>;
       status?: string;
@@ -428,10 +456,21 @@ export class ConversationService {
     closeConversation?: boolean;
     responseType?: string;
     outboundMedia?: { type: string; url: string }[];
+    pauseBotUntil?: Date | null;
+    leadRequest?: {
+      accountId: string;
+      customerId: string;
+       workflowSessionId?: string | null;
+      interest?: string | null;
+      reason?: string;
+      details?: Record<string, any>;
+    } | null;
   }): Promise<{
     success: boolean;
     userMessage?: Message;
     assistantMessage?: Message;
+    /** Lead newly created by this turn's leadRequest (for post-commit outcome tracking). */
+    createdLeadId?: string;
   }> {
     // A stale decision must never be committed by substituting a newer version.
     // The caller/queue may retry the complete turn from fresh state.
@@ -463,15 +502,14 @@ export class ConversationService {
           role: 'USER',
           content: params.userMessage,
           externalId: params.externalMessageId?.trim() || null,
+          phoneNumberId: params.phoneNumberId || null,
           metadata: { turnCommitted: true, responseExpected: Boolean(params.assistantMessage) }
         }
       });
 
       // 3. Update WorkflowSession if provided
       if (params.sessionUpdate) {
-        await tx.workflowSession.update({
-          where: { id: params.sessionUpdate.sessionId },
-          data: {
+        const sessionData = {
             stateId: params.sessionUpdate.stateId,
             contextData: params.sessionUpdate.contextData,
             status: params.sessionUpdate.status || 'ACTIVE',
@@ -479,8 +517,79 @@ export class ConversationService {
             ...(params.sessionUpdate.collectedData !== undefined ? { collectedData: params.sessionUpdate.collectedData } : {}),
             ...(params.sessionUpdate.humanRequested !== undefined ? { humanRequested: params.sessionUpdate.humanRequested } : {}),
             ...(params.sessionUpdate.humanRequestedAt !== undefined ? { humanRequestedAt: params.sessionUpdate.humanRequestedAt } : {})
-          }
+        };
+        if (params.sessionUpdate.newWorkflowId) {
+          await tx.workflowSession.create({ data: {
+            id: params.sessionUpdate.sessionId,
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            workflowId: params.sessionUpdate.newWorkflowId,
+            ...sessionData
+          } });
+        } else {
+          await tx.workflowSession.update({
+            where: { id: params.sessionUpdate.sessionId },
+            data: sessionData
+          });
+        }
+      }
+
+
+      if (params.flagHumanRequested && params.pauseBotUntil) {
+        const conversation = await tx.conversation.findUnique({ where: { id: params.conversationId }, select: { accountId: true } });
+        await tx.conversationAutomationState.upsert({
+          where: { conversationId: params.conversationId },
+          create: { tenantId: params.tenantId, accountId: conversation?.accountId || null, conversationId: params.conversationId, botEnabled: false, humanTakeover: false, pausedUntil: params.pauseBotUntil, pauseReason: 'WORKFLOW_HANDOFF', updatedBy: 'system:workflow' },
+          update: { botEnabled: false, humanTakeover: false, pausedUntil: params.pauseBotUntil, pauseReason: 'WORKFLOW_HANDOFF', updatedBy: 'system:workflow' }
         });
+      }
+
+      // The completed request and its workflow data are committed in the same
+      // transaction. A saved conversation can therefore never be missing from CRM.
+      let createdLeadId: string | undefined;
+      if (params.leadRequest) {
+        const request = params.leadRequest;
+        // Serialize lead creation across conversations for the same customer.
+        const ownership = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Customer"
+          WHERE id=${request.customerId} AND "tenantId"=${params.tenantId} FOR UPDATE`;
+        const account = await tx.account.findUnique({
+          where: { id: request.accountId }, select: { id: true, tenantId: true }
+        });
+        if (!ownership.length || account?.tenantId !== params.tenantId) throw new Error('CRM_ACCOUNT_CUSTOMER_MISMATCH');
+
+        const scope = { tenantId: params.tenantId, accountId: request.accountId, customerId: request.customerId };
+        const existingLead = request.workflowSessionId
+          ? await tx.lead.findFirst({ where: { ...scope, sourceWorkflowSessionId: request.workflowSessionId } })
+          : await tx.lead.findFirst({
+              where: { ...scope, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+              orderBy: { createdAt: 'desc' }
+            });
+        const pending = !existingLead && request.workflowSessionId
+          ? await tx.lead.findFirst({
+              where: { ...scope, sourceConversationId: params.conversationId,
+                sourceWorkflowSessionId: null, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+              orderBy: { createdAt: 'desc' }
+            }) : null;
+        if (pending) {
+          await tx.lead.update({ where: { id: pending.id }, data: {
+            sourceWorkflowSessionId: request.workflowSessionId,
+            signalReason: request.reason || pending.signalReason
+          } });
+        } else if (!existingLead) {
+          const createdLead = await tx.lead.create({ data: {
+            tenantId: params.tenantId,
+            accountId: request.accountId,
+            customerId: request.customerId,
+            status: 'NEW',
+            interest: request.interest?.slice(0, 280) || null,
+            signalReason: request.reason || 'COMPLETED_WORKFLOW',
+            sourceConversationId: params.conversationId,
+            sourcePhoneNumberId: params.phoneNumberId || null,
+            sourceWorkflowSessionId: request.workflowSessionId || null,
+            details: request.details || {}
+          } });
+          createdLeadId = createdLead.id;
+        }
       }
 
       // 4. Persist ASSISTANT message if provided
@@ -492,6 +601,7 @@ export class ConversationService {
             conversationId: params.conversationId,
             role: 'ASSISTANT',
             content: params.assistantMessage,
+            phoneNumberId: params.phoneNumberId || null,
             metadata: { replyToMessageId: userMsg.id, externalMessageId: params.externalMessageId || null, responseType: params.responseType || null, outboundMedia: params.outboundMedia || [] }
           }
         });
@@ -500,7 +610,8 @@ export class ConversationService {
       return {
         success: true,
         userMessage: userMsg,
-        assistantMessage: assistantMsg
+        assistantMessage: assistantMsg,
+        createdLeadId
       };
     });
   }

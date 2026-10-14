@@ -273,9 +273,9 @@ export class FaqMatcher {
    * If detected language is non-English, strictly requires a localized answer
    * and never silently falls back to an unlocalized English answer.
    */
-  static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage): string | null {
+  static resolveLanguageAnswer(entry: FaqEntry, lang: SupportedLanguage, script?: string): string | null {
     if (lang === 'en') {
-      const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language || !entry.answers ? entry.answer : null);
+      const enAns = entry.answers?.en || (entry.language === 'en' || !entry.language ? entry.answer : null);
       return enAns && typeof enAns === 'string' && enAns.trim() ? enAns.trim() : null;
     }
     if (lang === 'fr') {
@@ -287,6 +287,13 @@ export class FaqMatcher {
       return arAns && typeof arAns === 'string' && arAns.trim() ? arAns.trim() : null;
     }
     if (lang === 'darija') {
+      if (script === 'arabizi') {
+        // A Darija answer the merchant already wrote in Latin letters is Arabizi.
+        const arabizi = entry.answers?.darija_arabizi
+          || (entry.answers?.darija && !/[\u0600-\u06FF]/u.test(entry.answers.darija) ? entry.answers.darija : null);
+        return arabizi && typeof arabizi === 'string' && arabizi.trim() && !/[\u0600-\u06FF]/u.test(arabizi)
+          ? arabizi.trim() : null;
+      }
       const darAns = entry.answers?.darija || entry.answers?.ar || (entry.language === 'darija' || entry.language === 'ar' ? entry.answer : null);
       return darAns && typeof darAns === 'string' && darAns.trim() ? darAns.trim() : null;
     }
@@ -327,7 +334,7 @@ export class FaqMatcher {
         if (!rawAnswer) continue; // Language safety: cannot match if valid localized answer is missing
 
         const rawQuestion = entry.questions?.[l] ||
-          ((entry.language === l || (l === 'darija' && entry.language === 'ar') || (l === 'ar' && entry.language === 'darija') || (!entry.questions && (l === 'en' || !entry.language))) ? entry.question : undefined);
+          ((entry.language === l || (l === 'darija' && entry.language === 'ar') || (l === 'ar' && entry.language === 'darija') || (!entry.questions && !entry.language)) ? entry.question : undefined);
         const rawKeywords: string[] = Array.isArray(entry.keywords)
           ? (l === 'en' ? entry.keywords : [])
           : (entry.keywords?.[l] || []);

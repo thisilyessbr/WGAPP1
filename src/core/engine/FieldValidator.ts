@@ -1,4 +1,5 @@
 import { WorkflowFieldConfig } from '../../domain/tenant/BusinessConfig';
+import { safeFieldPattern } from './SafeFieldPattern';
 
 export class FieldValidator {
   /**
@@ -64,8 +65,9 @@ export class FieldValidator {
       
       const pattern = config.pattern || config.validationRegex;
       if (pattern) {
-        const regex = new RegExp(pattern);
-        if (!regex.test(value)) {
+        try {
+          if (value.length > 8192 || !safeFieldPattern(pattern).test(value)) return 'Value format is invalid.';
+        } catch {
           return 'Value format is invalid.';
         }
       }

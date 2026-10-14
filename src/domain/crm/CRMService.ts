@@ -2,6 +2,7 @@ import { PrismaClient, Lead, Customer } from '@prisma/client';
 import { TurnDecision } from '../conversation/TurnDecision';
 import { logger } from '../../utils/logger';
 import { isActionNegated } from '../conversation/IntentLanguage';
+import { IntentTriggerLibrary, TriggerUseCase } from '../conversation/IntentTriggerLibrary';
 
 import { OutcomeTrackingService } from '../outcome/OutcomeTrackingService';
 
@@ -17,6 +18,8 @@ export interface TurnSignalParams {
   accountId?: string | null;
   customerId: string;
   conversationId?: string;
+  phoneNumberId?: string | null;
+  workflowSessionId?: string | null;
   turnDecision?: TurnDecision | null;
   isWorkflowCompleted?: boolean;
   workflowId?: string | null;
@@ -24,6 +27,9 @@ export interface TurnSignalParams {
   terminalStateId?: string | null;
   workflowIntents?: string[] | null;
   userMessage?: string;
+  /** Use the conversation router's interpretation instead of parsing the text again. */
+  recognizedUseCases?: TriggerUseCase[];
+  leadMode?: 'NONE' | 'SERVICE' | 'COMMERCE' | 'BOTH';
 }
 
 export class CRMService {
@@ -37,7 +43,7 @@ export class CRMService {
    * UNKNOWN defaults safely to false (NO LEAD).
    * 0 LLM calls, 0 embeddings, 0 extra DB queries.
    */
-  private isLeadGeneratingWorkflow(params: {
+  private static isLeadGeneratingWorkflow(params: {
     workflowId: string;
     workflowConfig?: any | null;
     terminalStateId?: string | null;
@@ -47,6 +53,15 @@ export class CRMService {
 
     const normalizedWfId = (workflowId || '').toLowerCase().trim();
     if (!normalizedWfId) return false;
+    // A cancelled COD confirmation also ends the workflow. Only the actual end step is a lead.
+    if (/(?:checkout|cash_on_delivery|cod_order)/i.test(normalizedWfId)
+      && (!terminalStateId || workflowConfig?.states?.[terminalStateId]?.type !== 'end')) return false;
+
+    // Published workflow outcomes are authoritative. Legacy name-based
+    // classification remains only for older configurations without this field.
+    if (typeof workflowConfig?.outcome?.createLead === 'boolean') {
+      return workflowConfig.outcome.createLead;
+    }
 
     // Collect all associated intent identifiers
     const intents: string[] = [];
@@ -65,7 +80,7 @@ export class CRMService {
     const hasExplicitOperationalIntent = normalizedIntents.some(i => OPERATIONAL_INTENTS.includes(i) || OPERATIONAL_INTENTS.some(op => i.includes(op)));
 
     // 2. Explicit Sales / Booking Intent Linkage (STRONG)
-    const SALES_INTENTS = ['booking', 'book_consultation', 'consultation_booking', 'consultation', 'fitness_consultation', 'interior_consultation', 'lead', 'quote', 'appointment', 'service_selector', 'tutor_session', 'order', 'checkout', 'pricing'];
+    const SALES_INTENTS = ['booking', 'book_consultation', 'consultation_booking', 'consultation', 'fitness_consultation', 'interior_consultation', 'lead', 'quote', 'appointment', 'service_selector', 'tutor_session', 'demo', 'product_demo', 'request_demo', 'order', 'checkout', 'pricing'];
     const hasExplicitSalesIntent = normalizedIntents.some(i => SALES_INTENTS.includes(i) || SALES_INTENTS.some(s => i.includes(s)));
 
     if (hasExplicitSalesIntent && !hasExplicitOperationalIntent) {
@@ -93,7 +108,7 @@ export class CRMService {
     }
 
     // 4. Workflow ID Semantic Conventions (Secondary Support)
-    const SALES_WF_PATTERNS = /(?:consultation|booking|lead_capture|leadcapture|quote|appointment|service_selector|tutor_session)/i;
+    const SALES_WF_PATTERNS = /(?:consultation|booking|lead_capture|leadcapture|quote|appointment|service_selector|tutor_session|demo|product_demo|request_demo|checkout|cash_on_delivery|cod_order)/i;
     const OPERATIONAL_WF_PATTERNS = /(?:support|tracking|return|feedback|survey|issue|ticket|help)/i;
 
     if (SALES_WF_PATTERNS.test(normalizedWfId) && !OPERATIONAL_WF_PATTERNS.test(normalizedWfId)) {
@@ -107,11 +122,8 @@ export class CRMService {
     return false;
   }
 
-  /**
-   * Upserts a minimal Lead record for a customer in a specific account.
-   * Idempotent per (tenantId, accountId, customerId).
-   */
-  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string }): Promise<Lead> {
+  /** Reuse an open request, but retain closed requests when the customer returns. */
+  async upsertLead(tenantId: string, accountId: string, customerId: string, status: LeadStatus = 'NEW', signal?: { interest?: string; reason?: string; conversationId?: string; workflowSessionId?: string | null; phoneNumberId?: string | null }): Promise<Lead> {
     if (!tenantId || !accountId || !customerId) {
       throw new Error('CRMService: tenantId, accountId, and customerId are required for upsertLead');
     }
@@ -120,41 +132,43 @@ export class CRMService {
       throw new Error(`CRMService: Invalid lead status "${status}". Allowed values: ${VALID_LEAD_STATUSES.join(', ')}`);
     }
 
-    const existing = await this.prisma.lead.findUnique({
-      where: {
-        tenantId_accountId_customerId: {
-          tenantId,
-          accountId,
-          customerId
-        }
+    let created = false;
+    const lead = await this.prisma.$transaction(async tx => {
+      // Serialize requests from the same customer before inspecting the open lead.
+      const ownership = await tx.$queryRaw<any[]>`SELECT c.id FROM "Customer" c JOIN "Account" a ON a."tenantId"=c."tenantId"
+        WHERE c.id=${customerId} AND c."tenantId"=${tenantId} AND a.id=${accountId} FOR UPDATE OF c`;
+      if (!ownership.length) throw new Error('CRM_ACCOUNT_CUSTOMER_MISMATCH');
+      const scope = { tenantId, accountId, customerId };
+      if (signal?.workflowSessionId) {
+        const matching = await tx.lead.findFirst({ where: { ...scope, sourceWorkflowSessionId: signal.workflowSessionId } });
+        if (matching) return matching;
+        const pending = await tx.lead.findFirst({
+          where: { ...scope, sourceConversationId: signal.conversationId || null,
+            sourceWorkflowSessionId: null, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (pending) return tx.lead.update({ where: { id: pending.id }, data: {
+          sourceWorkflowSessionId: signal.workflowSessionId, signalReason: signal.reason || pending.signalReason
+        } });
+      } else {
+        const open = await tx.lead.findFirst({
+          where: { ...scope, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] } },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (open) return open;
       }
-    });
-
-    const isNew = !existing;
-
-    const lead = await this.prisma.lead.upsert({
-      where: {
-        tenantId_accountId_customerId: {
-          tenantId,
-          accountId,
-          customerId
-        }
-      },
-      create: {
-        tenantId,
-        accountId,
-        customerId,
-        status,
+      created = true;
+      return tx.lead.create({ data: {
+        tenantId, accountId, customerId, status,
         interest: signal?.interest?.slice(0, 280) || null,
-        signalReason: signal?.reason?.slice(0, 80) || null,
-        sourceConversationId: signal?.conversationId || null
-      },
-      update: {
-        // If lead already exists, touch updatedAt without overwriting advanced pipeline status unless specified
-      }
+        signalReason: signal?.reason || null,
+        sourceConversationId: signal?.conversationId || null,
+        sourcePhoneNumberId: signal?.phoneNumberId || null,
+        sourceWorkflowSessionId: signal?.workflowSessionId || null
+      } });
     });
 
-    if (isNew && this.outcomeService && !customerId.startsWith('portal-preview:')) {
+    if (created && this.outcomeService && !customerId.startsWith('portal-preview:')) {
       await this.outcomeService.recordEvent({
         tenantId,
         accountId,
@@ -249,27 +263,33 @@ export class CRMService {
     });
   }
 
-  /**
-   * Analyzes in-memory turn decision signals post-turn.
-   * Strong purchase/booking signals create or update a Lead.
-   * 0 LLM calls, 0 embeddings, 0 vector queries.
-   */
-  async processTurnSignal(params: TurnSignalParams): Promise<Lead | null> {
+  /** Pure classification shared by the atomic conversation commit and other callers. */
+  static classifyTurnSignal(params: TurnSignalParams): string | null {
     const {
       tenantId,
       accountId,
       customerId,
       conversationId,
+      phoneNumberId,
       turnDecision,
       isWorkflowCompleted,
       workflowId,
       workflowConfig,
       terminalStateId,
       workflowIntents,
-      userMessage
+      userMessage,
+      recognizedUseCases,
+      workflowSessionId,
+      leadMode = 'BOTH'
     } = params;
 
-    if (!tenantId || !accountId || !customerId) {
+    if (!tenantId || !accountId || !customerId || leadMode === 'NONE') {
+      return null;
+    }
+
+    // A completed workflow with an explicit no-lead outcome must not be
+    // reclassified by generic turn keywords on that same customer message.
+    if (isWorkflowCompleted && workflowConfig?.outcome?.createLead === false) {
       return null;
     }
 
@@ -278,16 +298,20 @@ export class CRMService {
 
     // 1. Workflow completed (sales/booking workflows only)
     if (isWorkflowCompleted && workflowId) {
-      if (this.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
+      const workflowText = `${workflowId} ${(workflowIntents || []).join(' ')}`.toLowerCase();
+      const wrongMode = (leadMode === 'SERVICE' && /checkout|cash_on_delivery|cod_order|purchase|product_order/.test(workflowText))
+        || (leadMode === 'COMMERCE' && /booking|appointment|consultation|tutor_session|service_selector/.test(workflowText));
+      if (!wrongMode && CRMService.isLeadGeneratingWorkflow({ workflowId, workflowConfig, terminalStateId, workflowIntents })) {
         isStrongSignal = true;
         signalReason = 'COMPLETED_SALES_WORKFLOW';
       }
     }
 
     // 2. Turn decision contains explicit sales intent
-    if (turnDecision) {
+    if (!isStrongSignal && turnDecision) {
       const intentUpper = (turnDecision.intent || '').toUpperCase();
-      if (['BUY_INTENT', 'BOOKING_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')) {
+      if ((leadMode !== 'SERVICE' && (['BUY_INTENT', 'ORDER_INTENT', 'PURCHASE'].includes(intentUpper) || turnDecision.secondaryIntents?.includes('BUY_INTENT')))
+        || (leadMode !== 'COMMERCE' && intentUpper === 'BOOKING_INTENT')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_SALES_INTENT';
       }
@@ -295,30 +319,31 @@ export class CRMService {
 
     // 3. User message keywords check for explicit buy/order phrases in Arabic/Darija/French/English
     if (!isStrongSignal && userMessage) {
-      const lower = userMessage.toLowerCase().trim();
-      const buyPhrases = [
-        'i want to buy', 'i want to order', 'how to buy', 'place order',
-        'bghit nchri', 'bghit ncommandi', 'kifash nchri', 'kifesh nechri',
-        'je veux acheter', 'je veux commander', 'comment acheter', 'passer commande',
-        'أريد الشراء', 'أريد الطلب', 'كيفية الشراء', 'بغيت نشري', 'بغيت نكوموندي'
-      ];
-      if (buyPhrases.some(phrase => lower.includes(phrase))) {
+      const useCases = recognizedUseCases || IntentTriggerLibrary.match(userMessage).map(match => match.useCase);
+      if (leadMode !== 'SERVICE' && useCases.includes('PURCHASE')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_PURCHASE_MESSAGE';
-      } else if (/(?:\b(?:bghit|baghi|baghya)\s+(?:n(?:7jez|hjez|7جز)|rendez-vous|rdv|devis|quote)\b|\b(?:je veux|j'aimerais|i want to|i'd like to)\s+(?:book|réserver|prendre rendez-vous|request a quote|get a quote)\b|بغيت\s+(?:نحجز|موعد|ديفي|عرض ثمن)|أريد\s+(?:الحجز|موعد|عرض سعر))/iu.test(lower)
-        && !/(?:\b(?:ma\s*bghitch|don't|do not|pas\s+besoin)\b|ما\s*بغيتش)/iu.test(lower)) {
+      }
+      // Booking without a configured workflow can still enter CRM, but uses the
+      // same recognized use case as the conversation router.
+      if (leadMode !== 'COMMERCE' && !isStrongSignal && useCases.includes('BOOKING') && !isActionNegated(userMessage, 'booking')) {
         isStrongSignal = true;
         signalReason = 'EXPLICIT_BOOKING_OR_QUOTE';
       }
     }
 
-    if (isStrongSignal && !isActionNegated(userMessage || '', 'purchase')) {
-      logger.info(`CRMService: Strong sales signal detected for customer [${customerId}] in account [${accountId}]. Upserting lead.`);
-      return this.upsertLead(tenantId, accountId, customerId, 'NEW', {
-        interest: userMessage?.trim(), reason: signalReason, conversationId
-      });
-    }
+    return isStrongSignal && !isActionNegated(userMessage || '', 'purchase') ? signalReason : null;
+  }
 
-    return null;
+  /** Strong purchase/booking signals create or update a Lead. */
+  async processTurnSignal(params: TurnSignalParams): Promise<Lead | null> {
+    const reason = CRMService.classifyTurnSignal(params);
+    if (!reason || !params.accountId) return null;
+    logger.info(`CRMService: Strong sales signal detected for customer [${params.customerId}] in account [${params.accountId}]. Upserting lead.`);
+    return this.upsertLead(params.tenantId, params.accountId, params.customerId, 'NEW', {
+      interest: params.userMessage?.trim(), reason, conversationId: params.conversationId,
+      phoneNumberId: params.phoneNumberId,
+      workflowSessionId: reason === 'COMPLETED_SALES_WORKFLOW' ? params.workflowSessionId : null
+    });
   }
 }

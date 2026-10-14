@@ -31,18 +31,25 @@ export function matchesPolicyPhrase(text: string, pattern: RegExp): boolean {
 }
 
 /** Conservative action guard; negated requests must never authorize state changes. */
-export function isActionNegated(text: string, action: 'purchase' | 'handoff'): boolean {
+export function isActionNegated(text: string, action: 'purchase' | 'handoff' | 'booking'): boolean {
   const normalized = normalizeIntentText(text);
   const actionWords = action === 'purchase'
     ? '(?:buy|order|purchase|checkout|acheter|commander|prendre|(?:nchri|nechri|nshri|ncommandi|nkomandi|nkhod|nakhod)(?:h|ha)?|شراء|الشراء|اشتري|أشتري|نشري|نطلب|نكوموندي|نكموندي|ناخد|ناخذ)'
-    : '(?:transfer|connect|talk|speak|human|agent|person|parler|transf[eé]rer|humain|conseiller|nhder|nhdr|nhedar|ndwi|نهضر|ندوي|تحويل|حولني|موظف|إنسان|انسان|شخص)';
+    : action === 'booking'
+      ? '(?:book|reserve|schedule|r[eé]server|rendez-vous|inscrire|n7jez|nhjez|n7jz|n9yed|ntsjel|ntsajel|حجز|الحجز|احجز|أحجز|نحجز|نسجل|التسجيل)'
+      : '(?:transfer|connect|talk|speak|human|agent|person|parler|transf[eé]rer|humain|conseiller|nhder|nhdr|nhedar|ndwi|نهضر|ندوي|تحويل|حولني|موظف|إنسان|انسان|شخص)';
   const negative = '(?:do\\s+not|don[’\x27]?t|doesn[’\x27]?t|not|never|no|ne|pas|sans|لا|لن|ليس|ماشي|ما\\s*بغيت\\s*ش|ما\\s*باغي(?:ش|اش)|ma\\s*bghit\\s*(?:ch|sh)|ma\\s*bagh[yi]a?(?:ch|sh)|machi|manbghich)';
   // Negation of a return request must not negate a purchase in a later "but" clause.
   const clauses = normalized.split(/[.!?;؟،]|\s+(?:but|however|mais|walakin|ولكن|لكن)\s+/iu).map(s => s.trim()).filter(Boolean);
   const deniedAction = new RegExp(`(?:^|[^\\p{L}\\p{N}])${negative}(?:\\s+[\\p{L}\\p{N}’\x27-]+){0,6}\\s+${actionWords}(?=$|[^\\p{Script=Latin}\\p{N}])`, 'iu');
-  if (clauses.some(clause => deniedAction.test(clause))) return true;
+  // A later purchase request can supersede an earlier refusal after "but/mais/walakin".
+  // Check the last clause that mentions this action, not any earlier refusal.
+  const actionPattern = new RegExp(actionWords, 'iu');
+  const lastActionClause = clauses.filter(clause => actionPattern.test(clause)).at(-1);
+  if (lastActionClause && deniedAction.test(lastActionClause)) return true;
   // A final explicit correction ("... ? la mabghitch") withdraws the earlier request.
   const last = clauses.at(-1) || '';
-  return clauses.length > 1 && new RegExp(actionWords, 'iu').test(clauses.slice(0, -1).join(' ')) &&
-    /^(?:(?:la|لا|no|non)\s*)?(?:ma\s*bghit\s*(?:ch|sh)|ما\s*بغيت\s*ش)(?:\s+(?:daba|دابا))?$/iu.test(last);
+  return clauses.length > 1 && actionPattern.test(clauses.slice(0, -1).join(' ')) &&
+    (/^(?:(?:la|لا|no|non)\s*)?(?:ma\s*bghit\s*(?:ch|sh)|ما\s*بغيت\s*ش)(?:\s+(?:daba|دابا))?$/iu.test(last)
+      || /^(?:la|لا|no|non)(?:\s+(?:finalement|daba|دابا))?$/iu.test(last));
 }

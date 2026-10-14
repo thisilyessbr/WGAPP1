@@ -2,12 +2,21 @@ import { ProductRepository, ProductWithVariants, ProductFact } from './ProductRe
 import { ProductVariant } from '@prisma/client';
 import { SupportedLanguage } from '../faq/FaqMatcher';
 import { ProductRecommendationService, RecommendationCriteria, RecommendationResult } from './ProductRecommendationService';
+import { EcommerceIntentParser } from './EcommerceIntent';
 
 export type ProductLookupResult = ProductFact;
 export type { ProductFact } from './ProductRepository';
 
 export class EcommerceService {
   constructor(private productRepo: ProductRepository) {}
+
+  private matchesColor(variantColor: string, requestedColor: string): boolean {
+    const variant = variantColor.trim().toLowerCase();
+    const requested = requestedColor.trim().toLowerCase();
+    if (!variant || !requested) return false;
+    return EcommerceIntentParser.canonicalColor(variant) === EcommerceIntentParser.canonicalColor(requested)
+      || variant.includes(requested) || requested.includes(variant);
+  }
 
   /**
    * Resolves localized product display name.
@@ -83,11 +92,7 @@ export class EcommerceService {
       } else {
         const matchingVariants = product.variants.filter(v => {
           const matchSize = !identifier.size || (v.size && v.size.toLowerCase() === identifier.size.toLowerCase());
-          const matchColor = !identifier.color || identifier.color === 'ALL' || (v.color && (
-            v.color.toLowerCase() === identifier.color.toLowerCase() ||
-            v.color.toLowerCase().includes(identifier.color.toLowerCase()) ||
-            identifier.color.toLowerCase().includes(v.color.toLowerCase())
-          ));
+          const matchColor = !identifier.color || identifier.color === 'ALL' || (v.color && this.matchesColor(v.color, identifier.color));
           return matchSize && matchColor;
         });
 
@@ -139,9 +144,6 @@ export class EcommerceService {
     };
   }
 
-  /**
-   * Searches catalog with filters (maxPrice, color, size, category) and returns live availability.
-   */
   /** The product a customer message clearly names, in any language/script, or null. */
   async matchProductFromText(tenantId: string, accountId: string, text: string): Promise<{ id: string; name: string } | null> {
     if (!tenantId || !accountId || typeof this.productRepo.matchCatalog !== 'function') return null;
@@ -149,6 +151,9 @@ export class EcommerceService {
     return product ? { id: product.id, name: product.name } : null;
   }
 
+  /**
+   * Searches catalog with filters (maxPrice, color, size, category) and returns live availability.
+   */
   async searchProducts(
     tenantId: string,
     accountId: string,
@@ -172,11 +177,7 @@ export class EcommerceService {
       const hasVariantFilter = Boolean(options?.color || options?.size);
       const matchingVariants = hasVariantFilter ? product.variants.filter(v => {
           const matchSize = !options?.size || (v.size && v.size.toLowerCase() === options.size.toLowerCase());
-          const matchColor = !options?.color || (v.color && (
-            v.color.toLowerCase() === options.color.toLowerCase() ||
-            v.color.toLowerCase().includes(options.color.toLowerCase()) ||
-            options.color.toLowerCase().includes(v.color.toLowerCase())
-          ));
+          const matchColor = !options?.color || (v.color && this.matchesColor(v.color, options.color));
           return matchSize && matchColor;
         }) : [];
       const selectedVariant: ProductVariant | null = matchingVariants.length === 1 ? matchingVariants[0] : null;

@@ -2,6 +2,8 @@
 
 Each client uses their own Meta app, WhatsApp Business Account (WABA), and phone number. Relayqo stores a separate encrypted access token and app secret for each client. The existing Relayqo Meta app is not used for this path. One client can connect two numbers under the same WABA and app when their assigned plan allows two numbers.
 
+Repeat the Meta and Relayqo admin setup for each new client. The deployed callback route identifies the client from its connection ID, so onboarding another client does not require a code change or a Relayqo deployment. A new client app must be distinct from the original Relayqo app and from other clients' apps.
+
 ## Before the appointment
 
 1. In Relayqo Admin, assign the client a plan with the required number allowance, approve the account, and publish the chatbot data.

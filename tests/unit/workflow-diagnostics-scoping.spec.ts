@@ -8,6 +8,7 @@ import { FieldValidator } from '../../src/core/engine/FieldValidator';
 import { TenantConfigService } from '../../src/domain/tenant/TenantConfigService';
 import { CRMService } from '../../src/domain/crm/CRMService';
 import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
+import { transactionalLeadMock } from '../helpers/transactional-lead-mock';
 import { DEFAULT_BUSINESS_CONFIG, BusinessConfig } from '../../src/domain/tenant/BusinessConfig';
 
 describe('Workflow Diagnostics & Session Scoping (PHASE WORKFLOW-DIAGNOSTICS-AUDIT-24)', () => {
@@ -84,6 +85,7 @@ describe('Workflow Diagnostics & Session Scoping (PHASE WORKFLOW-DIAGNOSTICS-AUD
 
     mockPrisma = {
       $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'fixture-customer' }]),
       $transaction: async (arg: any) => {
         if (typeof arg === 'function') {
           return arg(mockPrisma);
@@ -212,7 +214,7 @@ describe('Workflow Diagnostics & Session Scoping (PHASE WORKFLOW-DIAGNOSTICS-AUD
         },
         create: async ({ data }: any) => {
           const sess = {
-            id: `sess-${Date.now()}-${Math.random()}`,
+            id: data.id || `sess-${Date.now()}-${Math.random()}`,
             tenantId: data.tenantId,
             conversationId: data.conversationId,
             workflowId: data.workflowId,
@@ -267,6 +269,7 @@ describe('Workflow Diagnostics & Session Scoping (PHASE WORKFLOW-DIAGNOSTICS-AUD
       }
     };
 
+    transactionalLeadMock(mockPrisma);
     tenantConfigService = new TenantConfigService(mockPrisma);
     vi.spyOn(tenantConfigService, 'getConfig').mockResolvedValue(fitnessConfig);
 

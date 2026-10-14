@@ -106,8 +106,8 @@ describe('PHASE COST-FIX-37E: Session-Scoped Policy Evidence Reuse', () => {
     const r2 = await deps.conversationEngine.handleMessage(tenantId, cid, 'Et le délai de livraison ?', accountId);
     expect(r2.toLowerCase()).toMatch(/24|48|heures|jours|livraison/i);
     const r3 = await deps.conversationEngine.handleMessage(tenantId, cid, 'How much is shipping to Casablanca?', accountId);
-    // The current AnimeVerse fixture states 30 MAD across Morocco and has no
-    // Casablanca-specific 35 MAD exception. Do not require an invented fee.
+    // The approved AnimeVerse fixture states 30 MAD throughout Morocco; it
+    // has no separate Casablanca price and must not manufacture one.
     expect(r3).toMatch(/30/);
   }, 25000);
 

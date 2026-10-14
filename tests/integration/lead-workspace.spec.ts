@@ -6,6 +6,7 @@ import { portalDatabase } from '../helpers/portal-db';
 import { PortalStore } from '../../src/portal/PortalStore';
 import { PortalAuth, hashToken } from '../../src/portal/PortalAuth';
 import { createPortalRouter } from '../../src/portal/PortalRouter';
+import { validatePlan } from '../../src/portal/validation';
 
 describe('client lead workspace under realistic account data', () => {
   let database: Awaited<ReturnType<typeof portalDatabase>>;
@@ -47,6 +48,11 @@ describe('client lead workspace under realistic account data', () => {
     store = new PortalStore(database.db);
     first = await store.register(`${randomUUID()}@example.test`, 'First', 'test-hash', null);
     second = await store.register(`${randomUUID()}@example.test`, 'Second', 'test-hash', null);
+    const plan = await store.savePlan(first.userId, validatePlan({ name: 'Service requests', modules: ['services'], limits: {} }));
+    for (const account of [first, second]) {
+      const profile = await store.profile(account.accountId);
+      await store.updateAccount(first.userId, account.accountId, profile.revision, { planId: plan.id });
+    }
     await store.db.$executeRaw`UPDATE "PortalUser" SET "verifiedAt"=NOW() WHERE id IN (${first.userId},${second.userId})`;
     firstHeaders = await headers(first.userId);
     secondHeaders = await headers(second.userId);
@@ -74,12 +80,26 @@ describe('client lead workspace under realistic account data', () => {
     expect(list.body.leads.map((item: any) => item.id)).not.toContain(bLead);
     expect(list.body.leads.map((item: any) => item.id)).not.toContain(previewLead);
     const found = list.body.leads.find((item: any) => item.id === aLead);
-    expect(found).toMatchObject({ customerPhone: '212600100001', interest: 'Bghit nchri', conversationId: newConversation, lastCustomerMessage: 'Bghit nchri' });
+    expect(found).toMatchObject({ customerPhone: '212600100001', interest: 'Bghit nchri', conversationId: oldConversation, lastCustomerMessage: 'Bghit nchri' });
     expect(found.customerMetadata.name).toBe('Amina');
     expect((await request(app).get(`/api/client/leads/${aLead}`).set(secondHeaders)).status).toBe(404);
     expect((await request(app).patch(`/api/client/leads/${aLead}`).set(secondHeaders).send({ status: 'WON' })).status).toBe(404);
     expect((await request(app).get(`/api/client/leads/${previewLead}`).set(firstHeaders)).status).toBe(404);
     expect((await request(app).get('/api/client/leads/summary').set(firstHeaders)).body.new).toBe(1);
+  });
+
+  it('recovers the request that created a legacy inquiry without using later unrelated messages', async () => {
+    const contact = await customer(first, '212600199999');
+    const sourceConversation = await conversation(first, contact, 'I would like to book a lesson');
+    const inquiryId = await lead(first, contact, 'NEW', { conversationId: sourceConversation });
+    await store.db.$executeRaw`INSERT INTO "Message"(id,"tenantId","conversationId",role,content,"createdAt")
+      VALUES (${randomUUID()},${first.tenantId},${sourceConversation},'USER','Unrelated later message',NOW() + INTERVAL '1 second')`;
+
+    const detail = await request(app).get(`/api/client/leads/${inquiryId}`).set(firstHeaders);
+    expect(detail.status).toBe(200);
+    expect(detail.body.lead.sourceRequest).toBe('I would like to book a lesson');
+    const list = await request(app).get('/api/client/leads').set(firstHeaders);
+    expect(list.body.leads.find((item: any) => item.id === inquiryId).sourceRequest).toBe('I would like to book a lesson');
   });
 
   it('validates inputs and requires a client session and CSRF token for changes', async () => {
@@ -94,12 +114,16 @@ describe('client lead workspace under realistic account data', () => {
     expect((await request(app).get('/api/client/leads?offset=-1').set(firstHeaders)).body.pagination.offset).toBe(0);
   });
 
-  it('tracks stages, due follow-ups, closure, and one qualification outcome', async () => {
+  it('tracks stages, due follow-ups, customer ticket, and closure', async () => {
     const id = await lead(first, await customer(first, '212600100004'), 'NEW');
     const due = new Date(Date.now() - 60_000).toISOString();
-    const qualified = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'QUALIFIED', note: 'Call back', followUpAt: due });
+    const qualified = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'QUALIFIED', note: 'Call back', followUpAt: due, details: { request: 'English class', preferredTime: 'Saturday' } });
     expect(qualified.status).toBe(200);
-    expect(qualified.body.lead).toMatchObject({ status: 'QUALIFIED', note: 'Call back' });
+    expect(qualified.body.lead).toMatchObject({ status: 'QUALIFIED', note: 'Call back', details: { request: 'English class', preferredTime: 'Saturday' } });
+    const exportResponse = await request(app).get('/api/client/leads/export.csv').set(firstHeaders);
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.text).toContain('English class');
+    expect(exportResponse.text).toContain('Saturday');
     expect(new Date(qualified.body.lead.followUpAt).toISOString()).toBe(due);
     expect((await request(app).get('/api/client/leads/summary').set(firstHeaders)).body.dueFollowUps).toBeGreaterThanOrEqual(1);
     await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'CONTACTED' }).expect(200);
@@ -115,6 +139,26 @@ describe('client lead workspace under realistic account data', () => {
     const reopened = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'NEW' });
     expect(reopened.status).toBe(200);
     expect(reopened.body.lead.closedAt).toBeNull();
+  });
+
+  it('separates service requests needing a reply, planned reminders, and handled work', async () => {
+    const id = await lead(first, await customer(first, '212600100088'), 'NEW');
+    const action = await request(app).get('/api/client/leads?view=ACTION').set(firstHeaders);
+    expect(action.status).toBe(200);
+    expect(action.body.leads.some((item: any) => item.id === id)).toBe(true);
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ followUpAt: future }).expect(200);
+    expect((await request(app).get('/api/client/leads?view=ACTION').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(false);
+    expect((await request(app).get('/api/client/leads?view=LATER').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(true);
+    const handled = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'DONE', followUpAt: null });
+    expect(handled.status).toBe(200);
+    expect(handled.body.lead.closedAt).toBeTruthy();
+    expect((await request(app).get('/api/client/leads?view=DONE').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(true);
+    expect((await request(app).get('/api/client/leads/summary').set(firstHeaders)).body.done).toBeGreaterThanOrEqual(1);
+    const reopened = await request(app).patch(`/api/client/leads/${id}`).set(firstHeaders).send({ status: 'NEW' });
+    expect(reopened.body.lead.closedAt).toBeNull();
+    expect((await request(app).get('/api/client/leads?view=ACTION').set(firstHeaders)).body.leads.some((item: any) => item.id === id)).toBe(true);
+    expect((await request(app).get('/api/client/leads?view=BAD').set(firstHeaders)).status).toBe(400);
   });
 
   it('filters and paginates without exposing another account', async () => {

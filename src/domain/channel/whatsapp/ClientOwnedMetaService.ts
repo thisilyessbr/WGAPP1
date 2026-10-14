@@ -56,10 +56,12 @@ export class ClientOwnedMetaService {
 
     // Meta's app-level webhook callback is singular. Do not overwrite another
     // account's callback or silently split one app across separate WABAs.
-    const appConnection = await this.db.channelConnection.findFirst({
-      where: { appId: input.appId, provider: 'META_CLOUD', connectionKey: { startsWith: 'CLIENT_OWNED:' } }
+    const appConnections = await this.db.channelConnection.findMany({
+      where: { appId: input.appId, provider: 'META_CLOUD' },
+      select: { accountId: true, wabaId: true, connectionKey: true }
     });
-    if (appConnection && (appConnection.accountId !== accountId || appConnection.wabaId !== input.wabaId)) {
+    if (appConnections.some(connection => !connection.connectionKey.startsWith('CLIENT_OWNED:')
+      || connection.accountId !== accountId || connection.wabaId !== input.wabaId)) {
       throw new Error('META_APP_ALREADY_ASSIGNED');
     }
 

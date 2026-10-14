@@ -7,6 +7,8 @@ import { localEmailBypass } from './localTesting';
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const randomToken = () => randomBytes(32).toString('base64url');
+// Temporary launch access while outbound email is unavailable. Remove after email delivery is configured.
+const EMAIL_TESTING_EXPIRES_AT = Date.parse('2026-10-02T00:00:00Z');
 export async function hashPassword(password: string): Promise<string> {
   if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw new PortalError(400, 'WEAK_PASSWORD', 'Use a password with 12–256 characters.');
   const salt = randomBytes(16).toString('hex');
@@ -40,9 +42,11 @@ export class PortalAuth {
   }
   private developmentLinks() { return process.env.NODE_ENV !== 'production' && this.options.developmentLinks === true; }
   private resendConfigured() { return Boolean(process.env.RESEND_API_KEY && process.env.PORTAL_MAIL_FROM); }
+  private mailAvailable() { return Boolean(this.options.sendLink || this.developmentLinks() || this.resendConfigured() || (process.env.PORTAL_MAIL_WEBHOOK_URL && process.env.PORTAL_MAIL_WEBHOOK_SECRET)); }
   skipsEmail() { return localEmailBypass(this.origin); }
+  private temporaryClientSignupBypass() { return !this.skipsEmail() && Date.now() < EMAIL_TESTING_EXPIRES_AT && !this.mailAvailable(); }
   assertMailConfigured() {
-    if (!this.options.sendLink && !this.developmentLinks() && !this.resendConfigured() && !(process.env.PORTAL_MAIL_WEBHOOK_URL && process.env.PORTAL_MAIL_WEBHOOK_SECRET)) {
+    if (!this.mailAvailable()) {
       throw new PortalError(503, 'EMAIL_SETUP_REQUIRED', 'Email delivery is not configured. Contact the service administrator.');
     }
   }
@@ -94,11 +98,12 @@ export class PortalAuth {
     const address = email(input.email), name = text(input.name, 160);
     if (!name) throw new PortalError(400, 'NAME_REQUIRED');
     await this.store.throttle('signup:' + hashToken(ip), 5, 3600);
-    if (!this.skipsEmail()) this.assertMailConfigured();
+    const noEmailTesting = this.temporaryClientSignupBypass();
+    if (!this.skipsEmail() && !noEmailTesting) this.assertMailConfigured();
     const passwordHash = await hashPassword(input.password);
     const existing = await this.store.userByEmail(address);
-    const result = existing ? { userId: existing.id } : await this.store.register(address, name, passwordHash, text(input.planId, 100) || null);
-    if (this.skipsEmail()) {
+    const result = existing ? { userId: existing.id } : await this.store.register(address, name, passwordHash, null, noEmailTesting);
+    if (this.skipsEmail() || noEmailTesting) {
       if (existing) return { message: 'An account already exists for this email. Log in with its password.', redirect: '/login' };
       return { message: 'Your account is ready. Log in to continue.', redirect: '/login' };
     }
@@ -130,14 +135,6 @@ export class PortalAuth {
     const valid = await verifyPassword(input.password, user?.passwordHash || fallback);
     if (!user || !valid || user.disabled) throw new PortalError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
     if (!user.verifiedAt && !this.skipsEmail()) throw new PortalError(403, 'EMAIL_NOT_VERIFIED', 'Verify your email before logging in.');
-    if (user.role === 'ADMIN' && !this.skipsEmail()) {
-      this.assertMailConfigured();
-      const token = randomToken();
-      await this.store.db.$executeRaw`DELETE FROM "PortalAuthToken" WHERE "userId"=${user.id} AND kind='ADMIN_LOGIN'`;
-      await this.store.db.$executeRaw`INSERT INTO "PortalAuthToken"("tokenHash","userId",kind,"expiresAt") VALUES (${hashToken(token)},${user.id},'ADMIN_LOGIN',${new Date(Date.now() + 600000)})`;
-      const delivery = await this.deliver(address, 'ADMIN_LOGIN', `${this.origin}/admin-confirm#token=${token}`);
-      return { requiresEmailConfirmation: true, message: 'Confirm this administrator login using the link sent to your email.', ...delivery };
-    }
     return this.issueSession(user, res);
   }
   async confirmAdmin(token: string, res: Response) {
