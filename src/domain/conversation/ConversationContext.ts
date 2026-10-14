@@ -159,6 +159,10 @@ export function buildConversationContext(params: BuildConversationContextParams)
   // If previous turn exists and current is ambiguous (e.g. "ok", "yes", punctuation), preserve previous
   if (previousLang && isAmbiguous) {
     effectiveLanguage = previousLang;
+  } else if (isAmbiguous && params.accountLanguage && params.currentMessageText !== undefined
+    && !/[\p{L}]{2,}/u.test(params.currentMessageText)) {
+    // A first message with no words ("🙏", "👍", "??") follows the business's language.
+    effectiveLanguage = accountLang;
   } else if (detectedLang === 'ar' && (previousLang || accountLang) === 'darija' && /^(?:سلام|السلام عليكم|مرحبا)[.!؟\s]*$/u.test(params.currentMessageText || '')) {
     effectiveLanguage = 'darija';
   } else if (detectedLang === 'ar' && previousLang === 'darija' && !MSA_MARKERS.test(params.currentMessageText || '')) {

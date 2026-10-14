@@ -325,7 +325,9 @@ export class ResponseBuilder {
     };
 
     if (state?.prompt && state.prompt !== 'confirm') {
-      const defaultP = lang === 'darija' && script ? getWorkflowMessage('confirmation', lang, script) : typeof state.prompt === 'string' ? state.prompt : (state.prompt.en || '');
+      // A missing or unusable translation falls back to the built-in text in the
+      // customer's language, never to the English prompt.
+      const defaultP = typeof state.prompt === 'string' ? state.prompt : getWorkflowMessage('confirmation', lang, script);
       const localized = resolveLocalizedPrompt(state.prompt, lang, defaultP, script);
       return ResponseBuilder.interpolateTemplate(localized, interpolationData);
     }

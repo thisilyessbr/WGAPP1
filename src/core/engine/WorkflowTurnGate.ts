@@ -36,6 +36,9 @@ function isOneEditAway(value: string, candidate: string): boolean {
 
 /** Classify a turn before a collect step can persist the customer's answer. */
 export class WorkflowTurnGate {
+  /** Fields that ask the customer to describe something in their own words. */
+  private static readonly DESCRIPTIVE_FIELD = /need|besoin|business|activit|description|details?|message|note|comment|problem|probl|request|demande|project|projet|usecase/i;
+
   private static isQuestion(text: string): boolean {
     const firstWord = GreetingRouter.normalize(text).split(/\s+/u)[0] || '';
     return text.includes('?') || text.includes('؟') || CLEAR_QUESTION_OPENERS.has(firstWord) ||
@@ -186,6 +189,14 @@ export class WorkflowTurnGate {
       // reachable instead of trapping a valid date, phone, or number here.
       // Free-text fields remain fail-closed to avoid saving a side-question.
       if (type !== 'string' && !questionOnly && !embeddedQuestion) {
+        return { kind: 'FIELD_ANSWER' };
+      }
+      // A free-text answer that is a plain statement ("I run a salon and
+      // customers keep asking prices") answers the question even when the
+      // classifier is unsure; only a real question is held back.
+      if (semanticType === 'free_text' && WorkflowTurnGate.DESCRIPTIVE_FIELD.test(fieldName)
+        && !questionOnly && !/[?؟]/u.test(message) && words.length >= 5
+        && !/\b(?:question|i (?:want|would like|'d like) to know|je (?:voudrais|veux|souhaite) savoir|bghit n3ref|so2al|sou2al)\b|سؤال|بغيت نعرف|أريد أن أعرف/iu.test(message)) {
         return { kind: 'FIELD_ANSWER' };
       }
       return { kind: 'UNCLEAR' };
