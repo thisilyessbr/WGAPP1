@@ -37,8 +37,8 @@ export function replyQualityIssues(rawReply: string, ctx: QualityContext): strin
   const sentences = reply.split(/(?<=[.!?؟。])\s+|\n+/u).map(s => s.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()).filter(s => s.length > 18);
   if (new Set(sentences).size < sentences.length) issues.push('repeats the same sentence');
   const doubled = /(?<![\p{L}\p{N}])(\p{L}{3,})\s+\1(?![\p{L}\p{N}])/iu.exec(reply);
-  // Darija intensifiers ("bzaf bzaf", "شوية شوية") are natural, not typos.
-  if (doubled && !/^(?:bzaf|chwiya|chwia|بزاف|شوية|شويا|very|très)$/iu.test(doubled[1])) issues.push('doubled word');
+  // Darija intensifiers ("bzaf bzaf", "شوية شوية") and "إلا إلا" (except if) are natural, not typos.
+  if (doubled && !/^(?:bzaf|chwiya|chwia|بزاف|شوية|شويا|very|très|إلا|الا|ila)$/iu.test(doubled[1])) issues.push('doubled word');
 
   // Language mixing, judged without merchant-quoted catalog text.
   const text = ctx.catalogText.reduce((s, t) => s.split(t).join(' '), reply);

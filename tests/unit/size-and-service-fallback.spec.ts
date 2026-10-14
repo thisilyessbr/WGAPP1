@@ -44,3 +44,20 @@ describe('next step versus completed booking', () => {
     expect(GroundedAnswerGuard.claimsCompletedAction('الحجز ديالك تأكد')).toBe(true);
   });
 });
+
+describe('order details without a form', () => {
+  it('recognises contact details, not questions', async () => {
+    const { HandoffService } = await import('../../src/domain/conversation/HandoffService');
+    expect(HandoffService.isContactDetailsMessage('My name is Salma Bennani, 15 Avenue Hassan II Rabat, 0612345678')).toBe(true);
+    expect(HandoffService.isContactDetailsMessage('سميتي سلمى بناني، 15 شارع الحسن الثاني الرباط، +212 6 12 34 56 78')).toBe(true);
+    expect(HandoffService.isContactDetailsMessage('Can I call 0612345678 to order?')).toBe(false);
+    expect(HandoffService.isContactDetailsMessage('Price of the 2024 model')).toBe(false);
+  });
+  it('uses the owner handoff text when it was changed, the order text otherwise', async () => {
+    const { DEFAULT_HANDOFF_MESSAGES } = await import('../../src/domain/tenant/BusinessConfig');
+    const ctx = (handoff?: unknown) => ({ responseLanguage: 'fr', responseScript: 'latin', config: { prompts: handoff ? { handoff } : {} } } as any);
+    expect(AnswerComposer.composeDetailsHandoff(ctx(), 'order')).toContain('notre équipe');
+    expect(AnswerComposer.composeDetailsHandoff(ctx(DEFAULT_HANDOFF_MESSAGES), 'order')).toContain('notre équipe');
+    expect(AnswerComposer.composeDetailsHandoff(ctx({ fr: 'Karim vous rappelle.' }), 'order')).toBe('Karim vous rappelle.');
+  });
+});

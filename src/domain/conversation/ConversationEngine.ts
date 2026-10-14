@@ -1137,8 +1137,12 @@ Store menu match (verified by this business's own menu and wording list, not a s
     }
 
     // Universal Human Handoff Keyword Flagging & Response
+    // Without a form, order or booking details sent in chat go to the team
+    // instead of being read as a product question ("Salma" is not Abaya Salma).
+    const detailsHandoff = !activeSession && !(config.workflows && Object.keys(config.workflows).length > 0)
+      && HandoffService.isContactDetailsMessage(content) && !HandoffService.isHandoffRequested(content);
     const isHandoff = HandoffService.isHandoffRequested(content) ||
-      (config.behavior?.allowHumanHandoff && normalizedInput === 'human');
+      (config.behavior?.allowHumanHandoff && normalizedInput === 'human') || detailsHandoff;
 
     if (isHandoff) {
       logger.info(`ConversationEngine: Human handoff requested on conversation [${conversation.id}].`);
@@ -1154,12 +1158,16 @@ Store menu match (verified by this business's own menu and wording list, not a s
         isEcommerceEnabled: Boolean(config.capabilities?.ecommerceEnabled),
         isHandoff: true
       });
-      const rawHandoff = AnswerComposer.composeHandoff({
+      const handoffContext = {
         turnDecision: turnDecHandoff,
         responseLanguage: turnDecHandoff.responseLanguage,
         responseScript: turnDecHandoff.responseScript,
         config
-      });
+      };
+      const rawHandoff = detailsHandoff
+        // A name and address carry little language signal: keep the conversation's language.
+        ? AnswerComposer.composeDetailsHandoff({ ...handoffContext, responseLanguage: effectiveLang as any, responseScript: effectiveScript as any }, config.capabilities?.ecommerceEnabled ? 'order' : 'booking')
+        : AnswerComposer.composeHandoff(handoffContext);
       const handoffMsg = this.applyResponseLimit(rawHandoff, config.limits?.maxResponseLength);
 
       if (activeSession) {
@@ -1197,7 +1205,7 @@ Store menu match (verified by this business's own menu and wording list, not a s
             source: 'HANDOFF',
             occurredAt: handoffRequestedAt,
             idempotencyKey: `handoff:requested:${conversation.id}:${options?.externalMessageId || conversation.version}`,
-            metadata: { reason: 'customer_request' }
+            metadata: { reason: detailsHandoff ? 'contact_details' : 'customer_request' }
           });
         } catch (outcomeErr) {
           logger.warn('ConversationEngine: Non-blocking outcome tracking error (handoff request)', { error: outcomeErr });

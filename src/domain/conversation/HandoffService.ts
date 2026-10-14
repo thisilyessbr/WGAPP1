@@ -63,6 +63,16 @@ export class HandoffService {
   }
 
   /**
+   * Contact details sent as a message ("Salma Bennani, 15 av Hassan II Rabat,
+   * 0612345678"): a Moroccan phone number with more words and no question.
+   */
+  static isContactDetailsMessage(text: string): boolean {
+    const trimmed = text.trim();
+    if (/[?؟]/.test(trimmed) || trimmed.split(/\s+/).length < 3) return false;
+    return /(?<!\d)(?:(?:\+|00)212[\s.-]?|0)[5-7](?:[\s.-]?\d){8}(?!\d)/.test(trimmed);
+  }
+
+  /**
    * Returns localized handoff acknowledgement message.
    */
   static getHandoffResponse(lang: SupportedLanguage = 'en'): string {

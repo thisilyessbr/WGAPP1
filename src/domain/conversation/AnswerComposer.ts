@@ -276,6 +276,25 @@ export class AnswerComposer {
   }
 
   /**
+   * A customer sent their order or booking details (name, phone, address) to
+   * a business without a form: the conversation is passed to the team. The
+   * owner's own handoff text wins when set.
+   */
+  public static composeDetailsHandoff(context: AnswerContext, kind: 'order' | 'booking'): string {
+    const { responseLanguage: lang, responseScript: script, config } = context;
+    const owner = config?.prompts?.handoff as unknown;
+    const defaults = new Set<string>([...Object.values(DEFAULT_HANDOFF_MESSAGES), 'علمنا فريق الدعم وغادي يجاوبك واحد من الموظفين قريبا.']);
+    const ownerTexts = typeof owner === 'string' ? [owner] : owner && typeof owner === 'object' ? Object.values(owner as Record<string, unknown>) : [];
+    if (ownerTexts.some(text => typeof text === 'string' && text.trim() && !defaults.has(text.trim()))) return AnswerComposer.composeHandoff(context);
+    const order = kind === 'order';
+    if (lang === 'fr') return `Merci ! J'ai transmis vos coordonnées à notre équipe, qui va vous confirmer ${order ? 'la commande et la livraison' : 'le rendez-vous'} ici très bientôt.`;
+    if (lang === 'ar') return `شكراً لك! أرسلت معلوماتك إلى فريقنا، وسيؤكد لك ${order ? 'الطلب والتوصيل' : 'الموعد'} هنا قريباً.`;
+    if (lang === 'darija' && script === 'arabizi') return `Chokran! Sifet lma3lomat dyalek l lfari9 dyalna, w ghadi y2akked m3ak ${order ? 'lcommande w tawsil' : 'lmaw3id'} hna 9riban.`;
+    if (lang === 'darija') return `شكراً! صيفطت المعلومات ديالك للفريق ديالنا، وغادي يأكد معاك ${order ? 'الكوموند والتوصيل' : 'الموعد'} هنا قريباً.`;
+    return `Thank you! I've passed your details to our team, who will confirm ${order ? 'your order and delivery' : 'your appointment'} with you here shortly.`;
+  }
+
+  /**
    * Composes localized Fallback response strictly respecting language and script.
    */
   public static composeFallback(context: AnswerContext): string {

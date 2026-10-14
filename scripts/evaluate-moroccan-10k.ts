@@ -157,6 +157,13 @@ function singleTurnFailures(c: Case10k, turns: TurnResult[]): string[] {
     ? judge({ id: c.id, intent: c.intent, lang: c.lang, turns: c.turns, expect: c.expect }, turns).failures
     : judgeService(c.expect, c.lang, last.reply, c.turns.at(-1)!, last.workflowActive);
   if (['orderNoWf', 'orderDetailsNoWf', 'svcBookNoWf'].includes(c.expect.kind) && /don't have that (?:detail|information)|n[’']ai pas cette (?:précision|information)|لا تتوفر لدي|ما عنديش هاد المعلومة|ma3ndich had (?:lma3loma|lme3louma)/iu.test(last.reply)) failures.push('dead-end reply to a purchase/booking request');
+  if (c.expect.kind === 'orderDetailsNoWf') {
+    // The customer's details must reach the team, never be read as a product
+    // question (the name "Salma" is not the Abaya Salma).
+    const other = STORE.products.find(p => p.key !== c.expect.product && last.reply.includes(p.name));
+    if (other) failures.push(`answered about another product (${other.name}) after the customer's details`);
+    if (!/team|équipe|equipe|فريق|lfari9|conseiller|موظف|confirm|تأكيد|يأكد|سيؤكد|y2akked/iu.test(last.reply)) failures.push('customer details not passed to the team');
+  }
   return failures;
 }
 
