@@ -17,6 +17,8 @@ import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
 import { telemetry } from '../telemetry/TelemetryClient';
+import { WorkflowCalendar } from './WorkflowCalendar';
+import { CalendarScheduler } from '../../domain/calendar/CalendarScheduler';
 
 export interface WorkflowResult {
   updatedContext: Record<string, any>;
@@ -273,7 +275,32 @@ export class WorkflowEngine {
       confirmPhrases.some(phrase => normalized.includes(WorkflowCancellationDetector.normalize(phrase)));
   }
 
+  private calendarLayer?: WorkflowCalendar;
+  /** Calendar used by calendar steps; defaults to the environment's (Google, or the in-memory one when CALENDAR_FAKE=1). */
+  setCalendarScheduler(scheduler: CalendarScheduler | null) { this.calendarLayer = new WorkflowCalendar(this.responseBuilder, scheduler); }
+
   async process(
+    session: WorkflowSession,
+    message: string,
+    workflowConfig: WorkflowConfig,
+    businessConfig: BusinessConfig,
+    llmOverride?: LLMProvider,
+    llmOptions?: LLMRequestOptions,
+    ragService?: RAGService,
+    correlationId?: string,
+    effectiveLang?: string,
+    effectiveScript?: string,
+    accountId?: string | null
+  ): Promise<WorkflowResult> {
+    const layer = this.calendarLayer ??= new WorkflowCalendar(this.responseBuilder);
+    const handled = await layer.before(session, message, workflowConfig, businessConfig, effectiveLang, effectiveScript,
+      m => WorkflowCancellationDetector.isCancellation(m));
+    const result = handled ?? await this.processCore(session, message, workflowConfig, businessConfig, llmOverride, llmOptions,
+      ragService, correlationId, effectiveLang, effectiveScript, accountId);
+    return layer.after(result, session, workflowConfig, businessConfig, llmOverride || this.defaultLlm, llmOptions);
+  }
+
+  private async processCore(
     session: WorkflowSession,
     message: string,
     workflowConfig: WorkflowConfig,
@@ -1015,7 +1042,10 @@ export class WorkflowEngine {
 
         const lowerMsg = WorkflowCancellationDetector.normalize(message);
         const cancelKeywords = (stateConfig.cancelKeywords || ['no', 'cancel', 'non', 'لا', 'la', 'lla', 'annuler', 'stop']).map(k => WorkflowCancellationDetector.normalize(k));
-        const isConfirmCancel = cancelKeywords.includes(lowerMsg) || WorkflowCancellationDetector.isCancellation(message);
+        // "Non, pas maintenant", "la machi daba": a cancel word opening the reply, or a cancel phrase anywhere.
+        const firstWord = lowerMsg.split(/[^\p{L}\p{N}]+/u).filter(Boolean)[0] || '';
+        const isConfirmCancel = cancelKeywords.includes(lowerMsg) || WorkflowCancellationDetector.isCancellation(message)
+          || cancelKeywords.some(k => k.includes(' ') ? lowerMsg.includes(k) : firstWord === k);
 
         if (this.isConfirmation(message, stateConfig.confirmKeywords || [])) {
           // Confirmation confirmed -> proceed to next state transition

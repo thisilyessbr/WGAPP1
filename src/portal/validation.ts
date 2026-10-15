@@ -88,7 +88,7 @@ export function validateBusiness(input: unknown, plan?: PortalPlan | null, previ
 
 export function validateAdminConfig(input: unknown): Record<string, any> {
   const config = object(input);
-  allowed(config, ['identity', 'behavior', 'limits', 'prompts', 'capabilities', 'workflows', 'knowledge', 'llm', 'ecommerce']);
+  allowed(config, ['identity', 'behavior', 'limits', 'prompts', 'capabilities', 'workflows', 'knowledge', 'llm', 'ecommerce', 'calendar']);
   const encoded = JSON.stringify(config);
   if (encoded.length > 180000 || /"(?:__proto__|constructor|prototype)"\s*:/.test(encoded)) throw new PortalError(400, 'INVALID_CONFIG');
   for (const value of Object.values(config)) object(value);
@@ -150,6 +150,21 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
         }
       });
     });
+  }
+  if (config.calendar) {
+    // Demo/appointment booking against the business's Google Calendar (shared with the service account).
+    const c = config.calendar;
+    allowed(c, ['enabled', 'provider', 'calendarId', 'timezone', 'durationMinutes', 'slotTimes', 'workingDays', 'maxSlots', 'minNoticeMinutes', 'daysAhead', 'eventTitle']);
+    if (c.enabled !== undefined && typeof c.enabled !== 'boolean') throw new PortalError(400, 'INVALID_CALENDAR');
+    if (c.provider !== undefined && c.provider !== 'google') throw new PortalError(400, 'INVALID_CALENDAR');
+    for (const key of ['calendarId', 'timezone', 'eventTitle']) if (c[key] !== undefined) text(c[key], 300);
+    if (c.timezone !== undefined) { try { new Intl.DateTimeFormat('en', { timeZone: c.timezone }); } catch { throw new PortalError(400, 'INVALID_CALENDAR_TIMEZONE'); } }
+    if (c.durationMinutes !== undefined) integer(c.durationMinutes, 10, 240);
+    if (c.maxSlots !== undefined) integer(c.maxSlots, 1, 6);
+    if (c.minNoticeMinutes !== undefined) integer(c.minNoticeMinutes, 0, 10080);
+    if (c.daysAhead !== undefined) integer(c.daysAhead, 1, 90);
+    if (c.slotTimes !== undefined && (!Array.isArray(c.slotTimes) || c.slotTimes.length > 24 || c.slotTimes.some((t: unknown) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(t))))) throw new PortalError(400, 'INVALID_CALENDAR_SLOTS');
+    if (c.workingDays !== undefined && (!Array.isArray(c.workingDays) || c.workingDays.some((d: unknown) => !Number.isInteger(d) || (d as number) < 0 || (d as number) > 6))) throw new PortalError(400, 'INVALID_CALENDAR_DAYS');
   }
   if (config.llm) {
     const llm = config.llm;

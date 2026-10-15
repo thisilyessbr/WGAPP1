@@ -159,6 +159,8 @@ export interface WorkflowFieldConfig {
   type: 'string' | 'email' | 'phone' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
   /** Legacy name fields infer person_name when this is absent. */
   semanticType?: 'person_name' | 'free_text';
+  /** Open discovery question: any reply without a question mark is taken as the answer. */
+  acceptAnyReply?: boolean;
   required: boolean;
   options?: string[]; // for enum
   extractionPrompt?: string;
@@ -189,6 +191,10 @@ export interface WorkflowStateConfig {
   cancellationPrompt?: string | LocalizedPrompt;
   /** For workflow handoff steps, pause automated replies for this many hours. */
   pauseBotHours?: number;
+  /** 'day': read the day the customer names and offer free calendar slots; 'slots': take the chosen slot. */
+  calendar?: 'day' | 'slots';
+  /** Open this step with a short personalised explanation built from the customer's answers (string = extra instruction). */
+  pitch?: boolean | string;
   transitions?: {
     condition?: string; // generic condition evaluation
     intent?: string;
@@ -235,6 +241,8 @@ export interface WorkflowConfig {
   executionLimit?: WorkflowExecutionLimitConfig;
   /** Durable actions (and tracked business outcome) when the workflow reaches a successful terminal state. */
   outcome?: WorkflowOutcomeConfig;
+  /** Book the chosen calendar slot when the workflow completes (the bot says "confirmed" only if booking succeeded). */
+  calendarBooking?: boolean;
 }
 
 export interface KnowledgeConfig {

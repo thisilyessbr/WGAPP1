@@ -119,6 +119,9 @@ export class WorkflowTurnGate {
     const normalized = GreetingRouter.normalize(message);
     // A question at the start is not a form value. A later question may be
     // attached to a field answer, so let the structured interpreter split it.
+    // Open discovery questions ("what is your main problem?"): any reply without a question mark is the answer,
+    // even when it starts with "ma" ("ma kanl7e9ch njawb"), which is also a question word.
+    if (typeof field === 'object' && (field as any)?.acceptAnyReply && message.trim() && !/[?؟]/u.test(message)) return { kind: 'FIELD_ANSWER' };
     if (this.isQuestion(message.trim().split(/\s+/u)[0] || '')) return { kind: 'CUSTOMER_QUESTION' };
 
     const config = typeof field === 'object' ? field : undefined;
