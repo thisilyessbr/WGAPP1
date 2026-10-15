@@ -85,6 +85,7 @@
     ].map(g => ({ ...g, nodes: g.nodes.filter(Boolean) })).filter(g => g.nodes.length);
     tabs(content, groups, 'account', oldTabs || overview); oldTabs?.remove();
     content.classList.add('admin-account-page');
+    ready(content);
   }
   function decorate() {
     document.querySelectorAll('.brand').forEach(el => {
@@ -112,5 +113,6 @@
     document.querySelectorAll('.field').forEach(field => { const input = field.querySelector('input,textarea,select'), label = field.querySelector('label'); if(input?.id && label && !label.htmlFor) label.htmlFor=input.id; });
     document.querySelectorAll('.content > .card').forEach(c => c.classList.add('standalone-card'));
   }
-  window.RelayqoDesign = { decorate };
+  function ready(content) { content?.classList.remove('is-preparing'); content?.querySelector(':scope > .account-preparing')?.remove(); }
+  window.RelayqoDesign = { decorate, ready };
 })();
