@@ -3459,6 +3459,19 @@ Check again: the business-owner evidence above lists the business's policies, se
     return `${intentPrompt}\n\nOnly choose an intent when the customer asks to start that action now (for example "I want a demo", "bghit nchri"). A question about prices, contact details, trials, features or how something works is not an intent: reply "null".`;
   }
 
+  /**
+   * True for an information question with no request wording ("what is…", "wach kayn…?", "combien…?").
+   * Anything that sounds like asking to do something (want, book, order, demo, bghit, je veux…) is not plain.
+   */
+  static isPlainQuestion(content: string): boolean {
+    const text = content.trim().toLowerCase();
+    if (!text || text.length > 300) return false;
+    const request = /\b(?:want|wanna|would like|i'd like|need|book|booking|reserve|schedule|order|buy|purchase|subscribe|sign ?up|register|start|demo|appointment|call me|contact me|veux|voudrais|souhaite|aimerais|besoin|r[ée]serv\w*|command\w*|ach[eè]t\w*|inscri\w*|abonn\w*|d[ée]mo|rendez-vous|rdv|appelez|bghit|baghi|baghya|bghina|n9der|nqder|nchri|nchriw|ncommandi|n7jez|n7ejz|nhjez|ndir|tsawlni|3iyet)\b|ديمو|بغيت|باغي|باغية|بغينا|أريد|اريد|أود|نحجز|احجز|حجز|نشري|نكوموندي|نطلب|اطلب|موعد|عرض توضيحي|اتصلوا|عيطو/iu;
+    if (request.test(text)) return false;
+    const question = /[?؟]\s*$|^(?:what|how|why|when|where|which|who|is|are|does|do|can|could|c'est|est-ce|comment|combien|pourquoi|quel\w*|quand|o[uù]|chno|chnou|chnu|ach|achno|wach|wash|kifach|kifash|ch7al|chhal|bch7al|fin|3lach|imta|wa9tach)\b|^(?:شنو|اش|آش|واش|كيفاش|شحال|بشحال|فين|علاش|إمتى|امتى|ما|ماذا|كيف|كم|هل|لماذا|متى|أين|اين)(?:\s|$)/iu;
+    return question.test(text);
+  }
+
   private async classifyWorkflowTrigger(
     content: string,
     config: BusinessConfig,
@@ -3477,6 +3490,8 @@ Check again: the business-owner evidence above lists the business's policies, se
       }
     }
     if (!intentWfMap.size) return { kind: 'NONE' };
+    // A plain information question never starts a workflow; skipping the AI check saves a round trip per answer.
+    if (ConversationEngine.isPlainQuestion(content)) return { kind: 'NONE' };
 
     const allowedIntents = [...intentWfMap.keys()];
     const prompt = this.buildWorkflowIntentClassificationPrompt(config, allowedIntents, intentWfMap);

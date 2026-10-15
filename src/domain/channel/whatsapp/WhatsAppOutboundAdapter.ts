@@ -208,6 +208,26 @@ export class WhatsAppOutboundAdapter {
    * 4. Immediate return for permanent errors without wasted retries.
    * 5. Conservative DELIVERY_UNKNOWN handling for network timeouts.
    */
+  /**
+   * Marks the customer's message as read and shows "typing…" until the reply is sent (or about 25 seconds).
+   * Best effort: returns false instead of throwing, and never delays the answer.
+   */
+  async sendTypingIndicator(phoneNumberId: string, messageId: string): Promise<boolean> {
+    if (!/^\d+$/.test(phoneNumberId || '') || !/^wamid\./.test(messageId || '')) return false;
+    const token = await this.resolveToken(phoneNumberId);
+    if (!token) return false;
+    try {
+      const response = await this.fetchFn(`${this.baseUrl}/${this.version}/${phoneNumberId}/messages`, {
+        method: 'POST', signal: AbortSignal.timeout(5_000),
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: messageId, typing_indicator: { type: 'text' } })
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async sendImageMessage(params: { phoneNumberId: string; to: string; caption: string; imageUrl: string }): Promise<OutboundSendResult> {
     const { phoneNumberId, to, caption, imageUrl } = params;
     const publicOrigin = process.env.PORTAL_PUBLIC_URL;

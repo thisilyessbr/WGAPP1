@@ -142,6 +142,11 @@ export class WhatsAppWorker {
       }
     }
 
+    // Show the customer blue ticks and "typing…" while the answer is prepared (Meta Cloud numbers only; never blocks the reply).
+    if (process.env.WHATSAPP_TYPING_INDICATOR !== 'false' && typeof this.outboundAdapter.sendTypingIndicator === 'function') {
+      void this.outboundAdapter.sendTypingIndicator(job.phoneNumberId, job.wamid).catch(() => undefined);
+    }
+
     let contentInput: string | IncomingMessagePayload = job.message;
     if (media) {
       contentInput = { text: media.caption || '', unsupportedMediaType: media.unsupportedMediaType || job.rawType || 'image' };

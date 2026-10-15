@@ -10,7 +10,7 @@ import { PortalError, PortalProfile } from './types';
 import { VoiceProvider, VoiceTranscript, VoiceNoteTranscriber, effectiveVoiceProvider } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
 import { voiceNoteChargeMicros } from './VoiceNoteUsage';
 
-interface UsageContext { profile: PortalProfile; key: string; sequence: number; llm: number; embedding: number; image: number; events: Record<string, unknown>; allowInactive: boolean; preview?: boolean; }
+interface UsageContext { profile: PortalProfile; key: string; sequence: number; llm: number; embedding: number; image: number; events: Record<string, unknown>; allowInactive: boolean; preview?: boolean; llmTimedOut?: boolean; }
 export class PortalBudget {
   private context = new AsyncLocalStorage<UsageContext>();
   private unsubscribe: () => void;
@@ -164,6 +164,8 @@ export class PortalBudget {
       const ctx = this.context.getStore();
       if (!ctx) return call(options || {});
       if (++ctx.llm > 4) throw new LLMProviderError({ provider: defaults.provider, type: 'rate_limit', message: 'Per-turn AI allowance reached' });
+      // After one AI call in this reply timed out, fail the rest at once so the customer gets the fallback in seconds, not after another full timeout.
+      if (ctx.llmTimedOut) throw new LLMProviderError({ provider: defaults.provider, type: 'timeout', message: 'Skipped after an earlier AI timeout in this reply' });
       const model = resolveDeepSeekModel(options?.model || defaults.model);
       if (!['deepseek-flash', 'deepseek-v4-pro', 'mock-model'].includes(model) || !['deepseek', 'mock'].includes(defaults.provider)) throw new PortalError(402, 'UNPRICED_PROVIDER');
       const rates = model === 'deepseek-v4-pro' ? { input: 1.32, output: 3.96, cached: 0.044 } : { input: 0.30, output: 1.20, cached: 0.006 };
@@ -177,6 +179,9 @@ export class PortalBudget {
       let usage: LLMUsage | undefined;
       try {
         return await call({ ...options, onUsage: value => { usage = value; options?.onUsage?.(value); } });
+      } catch (error: any) {
+        if (error instanceof LLMProviderError && error.type === 'timeout') ctx.llmTimedOut = true;
+        throw error;
       } finally {
         const actual = usage?.attempts === 0 || defaults.provider === 'mock' ? 0 : usage?.tokenSource === 'provider'
           ? Math.ceil(Math.max(0, usage.inputTokens! - (usage.cacheHitTokens || 0)) * rates.input + (usage.cacheHitTokens || 0) * rates.cached + usage.outputTokens! * rates.output) : null;
