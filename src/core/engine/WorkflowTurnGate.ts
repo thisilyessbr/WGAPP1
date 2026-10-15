@@ -50,8 +50,32 @@ export class WorkflowTurnGate {
       .replace(/[.!،,؛;]+$/u, '').trim();
     if (value === text.trim()) return null;
     const words = value.split(/\s+/u);
-    return words.length >= 1 && words.length <= 3 && words.every(word => /^[\p{L}\p{M}'-]+$/u.test(word))
+    return words.length >= 1 && words.length <= 3 && words.every(word => WorkflowTurnGate.NAME_WORD.test(word) && !WorkflowTurnGate.NOT_A_NAME.test(word))
       ? value : null;
+  }
+
+  /** A name word; Arabizi names may contain 2/3/5/7/8/9 ("3ziz", "7assan", "Sa3id"). */
+  private static readonly NAME_WORD = /^(?=(?:[^\p{L}]*\p{L}){2})[\p{L}\p{M}2-9'-]+$/u;
+  /** Words that answer another question (channels, yes/no) or start a sentence, never a person's name. */
+  private static readonly NOT_A_NAME = /^(?:whats?app|watsapp?|wtsp|instagram|insta|facebook|fb|tiktok|bjouj|both|ok|okay|oui|non|yes|no|wakha|iyeh|bghit|3ndi|3andi|kanbi3|kandir|j'ai|je|i|my|and|et|merci|thanks|choukran|demo|démo|الواتساب|واتساب|واتساپ|الانستغرام|الإنستغرام|إنستغرام|انستغرام|انستا|فيسبوك|بجوج|واخا|ايه|إيه|نعم|لا|بغيت|عندي|كنبيع|كندير|شكرا|ديمو)$/iu;
+
+  /**
+   * A name the customer introduced anywhere in a longer message ("salam, smiti Rachid w 3ndi restaurant").
+   * Only unambiguous introductions: "je suis" / "I am" / "أنا" are often followed by something else.
+   */
+  static introducedName(text: string): string | null {
+    const intro = /(?:^|[\s,،.!])(?:my name is|my name's|je m['’]appelle|moi c['’]est|mon nom est|سميتي|اسمي|smiti|smiyti|esmi|ismi)\s+(.+)/iu.exec(text);
+    if (!intro) return null;
+    const words: string[] = [];
+    for (const word of intro[1].split(/\s+/u)) {
+      const clean = word.replace(/[.!؟?،,؛;:]+$/u, '');
+      // Stop at "and" / "w" / an attached Arabic "و" opening the next clause ("وعندي"), or at punctuation.
+      if (!clean || /^(?:and|et|w|o|from|de|mn|من|f|في|ف)$/iu.test(clean) || (words.length && /^و(?:عندي|كن|كي|خدام|بغيت|أنا|انا|كنخدم|عند)/u.test(clean))) break;
+      if (!WorkflowTurnGate.NAME_WORD.test(clean) || WorkflowTurnGate.NOT_A_NAME.test(clean)) break;
+      words.push(clean);
+      if (clean !== word || words.length === 3) break;
+    }
+    return words.length ? words.join(' ') : null;
   }
 
   /** Split only an explicit answer followed by a separate, clearly marked question. */
@@ -132,10 +156,11 @@ export class WorkflowTurnGate {
       : type;
     const words = normalized.split(/\s+/u).filter(Boolean);
     const nameShape = words.length >= 1 && words.length <= 3
-      && /^[\p{L}\p{M}'-]+$/u.test(words[0])
-      && words.every(word => /^(?:[\p{L}\p{M}'-]+|\d{1,2})$/u.test(word));
+      && WorkflowTurnGate.NAME_WORD.test(words[0])
+      && words.every(word => /^(?:[\p{L}\p{M}2-9'-]+|\d{1,2})$/u.test(word))
+      && !words.some(word => WorkflowTurnGate.NOT_A_NAME.test(word));
 
-    const explicitName = semanticType === 'person_name' ? this.personNameValue(message) : null;
+    const explicitName = semanticType === 'person_name' ? (this.personNameValue(message) || this.introducedName(message)) : null;
     if (explicitName) return { kind: 'FIELD_ANSWER', fieldValue: explicitName };
     if (semanticType === 'person_name' && nameShape) return { kind: 'FIELD_ANSWER' };
 

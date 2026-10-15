@@ -134,6 +134,14 @@ export function matchSlot(raw: string, offered: OfferedSlot[]): OfferedSlot | nu
     if (byClock) return byClock;
     if (!explicitClock && h >= 1 && h <= offered.length && text.length <= 3) return offered[h - 1];
   }
+  // Clock hours said in words: "العاشرة", "الثانية عشرة", "f l3chra", "m3a jouj".
+  const later = /\b(?:pm|soir|evening|afternoon|apr[eè]s[- ]midi|l3chiya|3chiya|lil)\b|العشية|عشية|الليل|المساء|مساء|بعد الزوال|بعد الظهر/iu.test(text);
+  for (const [pattern, hour] of HOUR_WORDS) {
+    if (!pattern.test(text)) continue;
+    const at = (x: number) => offered.find(s => s.label === `${String(x).padStart(2, '0')}:00`);
+    const slot = (later && hour < 12 ? at(hour + 12) : at(hour)) || (hour < 12 ? at(hour + 12) : undefined);
+    if (slot) return slot;
+  }
   const ordinals: [RegExp, number][] = [
     [/\b(?:first|premier|premi[eè]re|lowl|lwl|lewla|lowla|1st)\b|الأول|الاول|الأولى|الاولى|اللول|اللولة/iu, 0],
     [/\b(?:second|deuxi[eè]me|tani|tanya|ttani|2nd)\b|الثاني|الثانية|التاني|التانية/iu, 1],
@@ -142,11 +150,29 @@ export function matchSlot(raw: string, offered: OfferedSlot[]): OfferedSlot | nu
   ];
   for (const [pattern, index] of ordinals) if (pattern.test(text) && offered[index]) return offered[index];
   const hour = (s: OfferedSlot) => Number(s.label.slice(0, 2));
+  // Same words as the slot list (10:00 صباحاً, 12:00 فالزوال, 14:00 من بعد الزوال, 18:00 العشية).
   if (/\b(?:morning|matin|sba7|sbah|f sba7)\b|صباح|الصباح|فالصباح/iu.test(text)) return offered.find(s => hour(s) < 12) || null;
-  if (/\b(?:afternoon|apr[eè]s[- ]midi|l3chiya|3chiya|lghda)\b|العشية|عشية|بعد الزوال|الظهر/iu.test(text)) return offered.find(s => hour(s) >= 12 && hour(s) < 17) || offered.find(s => hour(s) >= 12) || null;
-  if (/\b(?:evening|soir|soirée|lil|f lil)\b|الليل|فالليل|المساء|مساء/iu.test(text)) return offered.find(s => hour(s) >= 17) || null;
+  if (/\b(?:afternoon|apr[eè]s[- ]midi|ba3d zwal|ba3d dhohr)\b|بعد الزوال|بعد الظهر/iu.test(text)) return offered.find(s => hour(s) >= 13 && hour(s) < 17) || offered.find(s => hour(s) >= 12 && hour(s) < 17) || null;
+  if (/\b(?:evening|soir|soirée|fin de journ[ée]e|lil|f lil|l3chiya|3chiya|l3chia|3chia)\b|العشية|عشية|الليل|فالليل|المساء|مساء/iu.test(text)) return offered.find(s => hour(s) >= 17) || offered.find(s => hour(s) >= 15) || null;
+  if (/\b(?:noon|midi|zwal|f zwal|dhohr)\b|الزوال|فالزوال|الظهر|ظهر/iu.test(text)) return offered.find(s => hour(s) === 12) || offered.find(s => hour(s) === 13) || null;
   return null;
 }
+
+/** Hours said as words, most specific first ("الثانية عشرة" before "الثانية"). */
+const HOUR_WORDS: [RegExp, number][] = [
+  [/الحادية عشرة?|الحضاش|\blhdach\b|\bl7dach\b|\bonze heures?\b|\beleven\b/iu, 11],
+  [/الثانية عشرة?|الطناش|\bttnach\b|\bltnach\b|\bdouze heures?\b|\btwelve\b/iu, 12],
+  [/الواحدة|الوحدة|\blwe7da\b|\blwa7da\b|\bune heure\b|\bone o'?clock\b/iu, 1],
+  [/الثانية|الجوج|\bjouj\b|\bdeux heures?\b|\btwo o'?clock\b/iu, 2],
+  [/الثالثة|التلاتة|\bltlata\b|\btrois heures?\b|\bthree o'?clock\b/iu, 3],
+  [/الرابعة|الربعة|\bl2rb3a\b|\blareb3a\b|\bquatre heures?\b|\bfour o'?clock\b/iu, 4],
+  [/الخامسة|الخمسة|\blkhamsa\b|\bcinq heures?\b|\bfive o'?clock\b/iu, 5],
+  [/السادسة|الستة|\blsta\b|\bsix heures?\b|\bsix o'?clock\b/iu, 6],
+  [/السابعة|السبعة|\bsept heures?\b|\bseven o'?clock\b/iu, 7],
+  [/الثامنة|التمنية|\bhuit heures?\b|\beight o'?clock\b/iu, 8],
+  [/التاسعة|التسعود|\bneuf heures?\b|\bnine o'?clock\b/iu, 9],
+  [/العاشرة|العشرة|\bl3chra\b|\bdix heures?\b|\bten o'?clock\b/iu, 10]
+];
 
 // ------------------------------------------------------------------ messages
 const M = (en: string, fr: string, ar: string, darija: string, arabizi: string) => ({ en, fr, ar, darija, arabizi });
@@ -179,7 +205,22 @@ export function calendarMessage(key: keyof typeof CALENDAR_MESSAGES, lang: strin
   const v = variant(lang, script) as keyof typeof CALENDAR_MESSAGES.slots;
   return (CALENDAR_MESSAGES[key][v] || CALENDAR_MESSAGES[key].en).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 }
-export const slotList = (slots: OfferedSlot[]) => slots.map((s, i) => `${ICONS[i % ICONS.length]} ${s.label}`).join('\n');
+const PART_OF_DAY = {
+  en: ['in the morning', 'at noon', 'in the afternoon', 'in the evening'],
+  fr: ['le matin', 'à midi', "l'après-midi", 'en fin de journée'],
+  ar: ['صباحًا', 'ظهرًا', 'بعد الظهر', 'مساءً'],
+  darija: ['صباحاً', 'فالزوال', 'من بعد الزوال', 'العشية'],
+  arabizi: ['sba7', 'f zwal', 'mn ba3d zwal', 'l3chiya']
+};
+/** "morning / noon / afternoon / evening" word for a slot label such as "14:00". */
+function partOfDay(label: string, lang?: string, script?: string): string {
+  const hour = Number(/(\d{1,2})[:h]/.exec(label)?.[1] ?? NaN);
+  if (!lang || Number.isNaN(hour)) return '';
+  const words = PART_OF_DAY[variant(lang, script || '') as keyof typeof PART_OF_DAY] || PART_OF_DAY.en;
+  return words[hour < 12 ? 0 : hour < 13 ? 1 : hour < 17 ? 2 : 3];
+}
+export const slotList = (slots: OfferedSlot[], lang?: string, script?: string) =>
+  slots.map((s, i) => [ICONS[i % ICONS.length], s.label, partOfDay(s.label, lang, script)].filter(Boolean).join(' ')).join('\n');
 
 // ------------------------------------------------------------------ scheduler
 export class CalendarScheduler {

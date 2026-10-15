@@ -213,10 +213,18 @@ export class WorkflowEngine {
 
   private static readonly PRICE_QUESTION = /combien|prix|tarif|co[uû]te?|how much|price|cost|ch7al|chhal|bch7al|taman|thaman|شحال|بشحال|بكم|كم سعر|سعر|ثمن|الثمن|تمن/iu;
 
+  /** Every approved FAQ (and the description) when keyword lookup found nothing, so a reworded question can still be answered. */
+  private static allFaqEvidence(config: BusinessConfig): string {
+    const description = typeof config.portalFacts?.description === 'string' ? config.portalFacts.description.trim() : '';
+    const faqs = ((config.capabilities?.faq || []) as any[]).filter(f => f && f.question && f.answer).map(f => `Q: ${f.question}\nA: ${f.answer}`);
+    return [description, ...faqs].filter(Boolean).join('\n\n').slice(0, 6000);
+  }
+
   private answerUsesRequestedScript(answer: string, lang: string, script: string): boolean {
     const hasArabic = /[\u0621-\u064A]/u.test(answer);
     if (lang === 'en' || lang === 'fr') return !hasArabic;
-    if (lang === 'ar' || (lang === 'darija' && script === 'arabic')) return hasArabic;
+    if (lang === 'ar') return hasArabic && !/(?:^|\s)(?:ك[يتن]\p{L}{2,}|ديال\p{L}*|باش|بزاف|دابا|واش|غادي|كاين|فابور|بلا)(?=\s|$|[،.!])/u.test(answer);
+    if (lang === 'darija' && script === 'arabic') return hasArabic;
     if (lang === 'darija' && script === 'arabizi') return !hasArabic;
     return true;
   }
@@ -815,16 +823,10 @@ export class WorkflowEngine {
           const unclearCount = (currentContext['_consecutiveUnmatched'] || 0) + 1;
           if (unclearCount <= WorkflowEngine.MAX_UNCLEAR_REPROMPTS) {
             currentContext['_consecutiveUnmatched'] = unclearCount;
-            let unclearResponse = currentCollectPrompt;
-            if (unclearCount > 1) {
-              const defaultCollectFallback = getWorkflowMessage('collectFallback', lang, script);
-              const defaultCollectVals = defaultWorkflowValues('collectFallback');
-              const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
-              const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
-                ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
-                : defaultCollectFallback;
-              unclearResponse = `${fallbackMsg}\n\n${currentCollectPrompt}`;
-            }
+            // "Sorry, I didn't get that" + the question; the second time the question alone, so the reply never repeats word for word.
+            const unclearResponse = unclearCount === 1
+              ? `${getWorkflowMessage('unclearReprompt', lang, script)}\n\n${currentCollectPrompt}`
+              : currentCollectPrompt;
             return finishAndReturn({
               updatedContext: currentContext,
               nextStateId: currentStateId,
@@ -944,7 +946,8 @@ export class WorkflowEngine {
         if (isQuestion) {
           // Answer from owner-approved business facts, then resume the exact pending
           // form question. The customer question is never persisted as a field value.
-          const ownerEvidence = portalBusinessEvidence(businessConfig, questionText, { includeFaq: true });
+          const ownerEvidence = portalBusinessEvidence(businessConfig, questionText, { includeFaq: true })
+            || WorkflowEngine.allFaqEvidence(businessConfig);
           if (PolicyAnswerSafety.requestedIntents(questionText).includes('SHIPPING') &&
               PolicyEvidenceReuse.isScopeExpanded('SHIPPING', questionText, businessConfig) &&
               !PolicyAnswerSafety.hasShippingScopeEvidence(questionText,
@@ -1071,7 +1074,8 @@ export class WorkflowEngine {
             : defaultCancelled;
           return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true, updatedCollectedData: collectedData });
         } else {
-          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script);
+          // Neither yes nor no: a short hint, then the question again.
+          response = `${getWorkflowMessage('confirmHint', lang, script)}\n\n${this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script)}`;
           return finishAndReturn({ updatedContext: currentContext, nextStateId, response, isComplete, updatedCollectedData: collectedData });
         }
       }

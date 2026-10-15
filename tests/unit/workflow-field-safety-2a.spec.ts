@@ -153,7 +153,7 @@ describe('Phase FIX-PROBLEM-2A: Safe Typed Workflow Field Collection', () => {
 
     expect(res.nextStateId).toBe('collect_phone');
     expect(res.updatedCollectedData?.phone).toBeUndefined();
-    expect(res.response).toContain('Value must be a valid phone number.');
+    expect(res.response).toContain('Please type a valid phone number.');
   });
 
   it('H. email field + valid email -> save and advance', async () => {
@@ -170,7 +170,7 @@ describe('Phase FIX-PROBLEM-2A: Safe Typed Workflow Field Collection', () => {
 
     expect(res.nextStateId).toBe('collect_email');
     expect(res.updatedCollectedData?.email).toBeUndefined();
-    expect(res.response).toContain('Value must be a valid email address.');
+    expect(res.response).toContain("doesn't look like an email");
   });
 
   it('J. date field + invalid text -> no mutation, validation error', async () => {
@@ -179,7 +179,7 @@ describe('Phase FIX-PROBLEM-2A: Safe Typed Workflow Field Collection', () => {
 
     expect(res.nextStateId).toBe('collect_date');
     expect(res.updatedCollectedData?.appointment_date).toBeUndefined();
-    expect(res.response).toContain('Value must be a valid date.');
+    expect(res.response).toContain('Please type a valid date.');
   });
 
   it('K. valid field values in Arabic, Darija, English, French are accepted by string validator', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CalendarScheduler, FakeCalendarProvider, matchSlot, parseDay, zonedTime } from '../../src/domain/calendar/CalendarScheduler';
+import { CalendarScheduler, FakeCalendarProvider, matchSlot, parseDay, slotList, zonedTime } from '../../src/domain/calendar/CalendarScheduler';
 import { WorkflowEngine } from '../../src/core/engine/WorkflowEngine';
+import { WorkflowTurnGate } from '../../src/core/engine/WorkflowTurnGate';
 import { WorkflowStateEvaluator } from '../../src/core/engine/WorkflowStateEvaluator';
 import { ResponseBuilder } from '../../src/domain/conversation/ResponseBuilder';
 import { FieldValidator } from '../../src/core/engine/FieldValidator';
@@ -26,7 +27,7 @@ describe('parseDay', () => {
 const offered = ['10:00', '14:00', '18:00'].map(label => ({ start: label, end: label, label }));
 describe('matchSlot', () => {
   it.each([['14:00', '14:00'], ['14h', '14:00'], ['2pm', '14:00'], ['m3a 6 dl3chiya', '18:00'], ['2', '14:00'], ['3', '18:00'],
-    ['الثانية', '14:00'], ['the first one', '10:00'], ['f sba7', '10:00'], ['l3chiya', '14:00'], ['١٨:٠٠', '18:00'], ['14:00 مناسب', '14:00']])(
+    ['الثانية', '14:00'], ['the first one', '10:00'], ['f sba7', '10:00'], ['l3chiya', '18:00'], ['من بعد الزوال', '14:00'], ['العاشرة', '10:00'], ['١٨:٠٠', '18:00'], ['14:00 مناسب', '14:00']])(
     '%s → %s', (text, label) => expect(matchSlot(text, offered)?.label).toBe(label));
   it('returns null for an unrelated reply', () => expect(matchSlot('chhal taman?', offered)).toBeNull());
 });
@@ -118,4 +119,27 @@ describe('workflow with calendar booking', () => {
     expect(r.response).toContain('الفريق ديالنا غادي يأكد');
     expect(r.response).not.toContain('تأكد الموعد ديالك');
   });
+});
+
+describe('slot list wording', () => {
+  const slots = ['10:00', '12:00', '14:00', '18:00'].map(label => ({ start: '', end: '', label }));
+  it('adds the part of the day in the customer language', () => {
+    expect(slotList(slots, 'darija', 'arabic')).toBe('🕙 10:00 صباحاً\n🕑 12:00 فالزوال\n🕕 14:00 من بعد الزوال\n🕛 18:00 العشية');
+    expect(slotList(slots, 'darija', 'arabizi')).toContain('18:00 l3chiya');
+    expect(slotList(slots, 'fr', 'latin')).toContain("14:00 l'après-midi");
+  });
+  it('keeps plain times without a language', () => {
+    expect(slotList(slots.slice(0, 1))).toBe('🕙 10:00');
+  });
+});
+
+describe('names in a sales conversation', () => {
+  it.each([['سلام، سميتي رشيد وعندي مطعم فكازا', 'رشيد'], ['salam smiti Aziz w 3ndi magasin', 'Aziz'], ["Bonjour, je m'appelle Salma Bennani, j'ai une boutique", 'Salma Bennani'],
+    ['Hi, my name is Karim and I run a shop', 'Karim'], ['bghit n3ref ktar', null], ['je suis intéressé', null]])('%s → %s', (text, name) =>
+    expect(WorkflowTurnGate.introducedName(text)).toBe(name));
+  const field = { name: 'fullName', type: 'string' as const, semanticType: 'person_name' as const, required: true };
+  it.each(['3ziz', '7assan', 'Sa3id', 'ياسين'])('accepts %s as a name', async text =>
+    expect((await WorkflowTurnGate.interpret(text, 'fullName', field, 'What is your name?')).kind).toBe('FIELD_ANSWER'));
+  it.each(['الواتساب', 'WhatsApp', 'wakha', 'bghit n3rf ktr'])('does not take %s as a name', async text =>
+    expect((await WorkflowTurnGate.interpret(text, 'fullName', field, 'What is your name?')).kind).not.toBe('FIELD_ANSWER'));
 });

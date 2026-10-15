@@ -58,6 +58,17 @@ export class WorkflowCalendar {
         updatedStateHistory: [...(session.stateHistory || []), session.stateId], updatedCollectedData: collected,
         ...((!next || next.type === 'end') && workflow.outcome?.createLead === true ? { createLead: true } : {}) };
     }
+    // "Shall we book a demo?" answered with a day ("ghda", "jeudi"): that is a yes, and the day is taken right away.
+    if (state?.type === 'confirm' && ctx._started && !isCancellation?.(message) && !/[?؟]/.test(message)) {
+      const targetId = state.next || state.transitions?.[0]?.target;
+      const target = targetId ? workflow.states[targetId] as WorkflowStateConfig & { calendar?: string } : undefined;
+      const cal = target?.calendar === 'day' ? this.schedulerFor(config) : null;
+      if (cal && targetId && parseDay(message, cal.scheduler.now(), cal.cfg.timezone || 'Africa/Casablanca')) {
+        const moved = { ...session, stateId: targetId, stateHistory: [...(session.stateHistory || []), session.stateId],
+          collectedData: { ...(((session as any).collectedData || {}) as Record<string, any>), _confirmed: true } } as WorkflowSession;
+        return this.before(moved, message, workflow, config, effectiveLang, effectiveScript, isCancellation);
+      }
+    }
     if (!state?.calendar || !ctx._started || isCancellation?.(message)) return null;
     const cal = this.schedulerFor(config);
     if (!cal) {
@@ -83,7 +94,7 @@ export class WorkflowCalendar {
       if (!slots.length) return stay(calendarMessage('noSlots', lang, script, { day: label }));
       collected._calendarDay = day; collected._offeredSlots = slots;
       return { updatedContext: ctx, nextStateId: state.calendar === 'day' ? (state.next || session.stateId) : session.stateId,
-        response: calendarMessage('slots', lang, script, { day: label, slots: slotList(slots) }), isComplete: false,
+        response: calendarMessage('slots', lang, script, { day: label, slots: slotList(slots, lang, script) }), isComplete: false,
         updatedStateHistory: state.calendar === 'day' ? [...history, session.stateId] : history,
         updatedCollectedData: { ...collected, ...(state.calendar === 'day' ? { [field]: label } : {}) } };
     };
@@ -100,10 +111,10 @@ export class WorkflowCalendar {
         let left: OfferedSlot[];
         try { left = await scheduler.freeSlots(cfg, day); } catch { return null; }
         collected._calendarDay = day; collected._offeredSlots = left;
-        const response = left.length ? calendarMessage('taken', lang, script, { day: label, slots: slotList(left) }) : calendarMessage('noSlots', lang, script, { day: label });
+        const response = left.length ? calendarMessage('taken', lang, script, { day: label, slots: slotList(left, lang, script) }) : calendarMessage('noSlots', lang, script, { day: label });
         return { updatedContext: ctx, nextStateId: slotStateId, response, isComplete: false, updatedStateHistory: baseHistory, updatedCollectedData: collected };
       }
-      const when = `${label} ${lang === 'fr' ? 'à' : lang === 'en' ? 'at' : script === 'arabizi' ? 'm3a' : 'مع'} ${slot.label}`;
+      const when = `${label} ${lang === 'fr' ? 'à' : lang === 'en' ? 'at' : script === 'arabizi' ? 'm3a' : lang === 'ar' ? 'على الساعة' : 'مع'} ${slot.label}`;
       Object.assign(collected, { [slotField]: when, _calendarDay: day, _slotStart: slot.start, _slotEnd: slot.end, _slotLabel: slot.label, _slotWhen: when });
       ctx[slotField] = when;
       let nextId = slotState.next || slotState.transitions?.[0]?.target;
@@ -156,7 +167,7 @@ export class WorkflowCalendar {
         if (picked) { Object.assign(collected, result.updatedCollectedData); return choose(picked, session.stateId, otherDay, history); }
         return result;
       }
-      if (!slot) return asksQuestion ? null : stay(calendarMessage('pickSlot', lang, script, { slots: slotList(offered) }));
+      if (!slot) return asksQuestion ? null : stay(calendarMessage('pickSlot', lang, script, { slots: slotList(offered, lang, script) }));
       return choose(slot, session.stateId, collected._calendarDay as string, history);
     }
     return null;
@@ -190,7 +201,7 @@ export class WorkflowCalendar {
           const { createLead: _lead, requestHumanHandoff: _handoff, handoffPauseHours: _pause, ...rest } = result as any;
           return { ...rest, isComplete: false, nextStateId: slotState,
             updatedCollectedData: { ...collected, _offeredSlots: left, _slotStart: undefined, _slotEnd: undefined },
-            response: calendarMessage('taken', lang, script, { day: dayLabel(collected._calendarDay, now, lang, script, tz), slots: slotList(left) }) };
+            response: calendarMessage('taken', lang, script, { day: dayLabel(collected._calendarDay, now, lang, script, tz), slots: slotList(left, lang, script) }) };
         }
       }
       collected._booked = booking.ok;

@@ -225,10 +225,11 @@ describe('production risk fixes', () => {
         session = { ...session, stateId: result.nextStateId!, contextData: result.updatedContext, collectedData: result.updatedCollectedData! } as WorkflowSession;
       }
       expect(turns[0].updatedContext._consecutiveUnmatched).toBe(1);
-      expect(turns[0].response).toBe('What do you need?');
+      // "Sorry, I didn't get that" + the question, then the question alone: never the same reply twice in a row.
+      expect(turns[0].response).not.toBe('What do you need?');
+      expect(turns[0].response).toContain('What do you need?');
       expect(turns[1].updatedContext._consecutiveUnmatched).toBe(2);
-      expect(turns[1].response).not.toBe('What do you need?');
-      expect(turns[1].response).toContain('What do you need?');
+      expect(turns[1].response).toBe('What do you need?');
       expect(turns[2].isComplete).toBe(true);
       expect(turns[2].updatedCollectedData).toMatchObject({ businessNeed: 'hmm mumkin chi haja' });
     });
