@@ -31,3 +31,69 @@
   .small-select{flex:1;min-width:0}
   .admin-account-page .page-heading .actions{justify-content:flex-start}
 }
+
+/* Mixed Arabic / Latin text reads in its own direction in every field. */
+.field textarea,.field input[dir=auto]{unicode-bidi:plaintext;text-align:start}
+
+/* Workflow editor: settings in titled groups, toggles as cards, translations folded when empty. */
+.workflow-group{padding:20px 0 4px;border-top:1px solid var(--line)}
+.workflow-group:first-of-type{border-top:0;padding-top:4px}
+.workflow-group-head{margin-bottom:14px}
+.workflow-group-head h3{font-size:14px;font-weight:700}
+.workflow-group-head p{margin-top:3px;font-size:12px;color:var(--muted)}
+.workflow-group .form-grid{align-items:start}
+.workflow-group+.workflow-group{margin-top:8px}
+.admin-setting-toggle.workflow-check{margin:0;align-self:start}
+.admin-setting-toggle.workflow-check.full{grid-column:1/-1}
+.workflow-localized{margin:0;padding:0 16px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--input) 70%,transparent)}
+.workflow-localized>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;color:var(--text);font-size:13px;font-weight:650;list-style:none}
+.workflow-localized>summary::-webkit-details-marker{display:none}
+.workflow-localized>summary::after{content:"\25BE";color:var(--muted);font-size:12px;transition:transform .15s}
+.workflow-localized[open]>summary::after{transform:rotate(180deg)}
+.workflow-localized>summary small{margin-left:auto;font-size:11px;font-weight:550;color:var(--muted)}
+.workflow-localized[open]>summary{margin-bottom:4px;border-bottom:1px solid var(--line)}
+.workflow-localized>.form-grid{padding:14px 0 16px}
+.workflow-step-editor details:not(.workflow-localized){margin-top:4px}
+.workflow-step-editor>.workflow-localized{grid-column:1/-1}
+
+/* Step chips wrap and show number, name and type. */
+.workflow-step-list{flex-wrap:wrap;overflow:visible;padding-bottom:4px}
+.workflow-step-chip{gap:8px;min-height:38px;padding:7px 12px 7px 8px;font-size:13px}
+.workflow-step-chip bdi{font-weight:700}
+.workflow-step-chip small{font-size:11px;font-weight:550;opacity:.7}
+.workflow-step-number{display:grid;place-items:center;min-width:22px;height:22px;border-radius:7px;background:var(--raised);color:var(--muted);font-size:11px;font-weight:700}
+.btn.lime .workflow-step-number{background:rgba(0,0,0,.14);color:inherit}
+
+/* Intents: small delete button under the fields. */
+.workflow-intent-actions{grid-column:1/-1;display:flex;justify-content:flex-end}
+.workflow-intent-actions .btn{min-height:36px;padding:8px 14px}
+
+/* Client data: services and FAQs as a compact list; open a row to edit it. */
+.collection-hint{margin:-10px 0 14px}
+.collection-list{display:grid;gap:8px}
+.collection-item{margin:0;padding:0;overflow:hidden}
+.collection-item>summary{display:flex;align-items:center;gap:12px;min-width:0;padding:13px 16px;color:var(--text);font-weight:600;list-style:none}
+.collection-item>summary::-webkit-details-marker{display:none}
+.collection-item>summary::after{content:"\25BE";margin-left:auto;padding-left:8px;color:var(--muted);font-size:12px;transition:transform .15s}
+.collection-item[open]>summary::after{transform:rotate(180deg)}
+.collection-item[open]>summary{margin:0;border-bottom:1px solid var(--line);background:var(--raised)}
+.collection-item>summary:hover{background:var(--raised)}
+.collection-item>summary strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;unicode-bidi:plaintext;text-align:left}
+[dir=rtl] .collection-item>summary strong{text-align:right}
+.collection-item>summary small{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:11px;font-weight:600}
+.collection-item>summary small:empty{display:none}
+.collection-index{display:grid;place-items:center;flex:none;min-width:26px;height:26px;border-radius:8px;background:var(--soft);color:var(--green);font-size:11px;font-weight:700}
+.collection-item>.form-grid{padding:18px 16px 4px}
+.collection-item-actions{display:flex;justify-content:flex-end;padding:12px 16px 16px}
+.collection-item-actions .btn{min-height:34px;padding:7px 13px;font-size:12px}
+
+@media(max-width:760px){
+  .workflow-spacer{display:none}
+  .workflow-localized{padding:0 12px}
+  .collection-item>summary{padding:12px}
+  .collection-item>summary{flex-wrap:wrap;row-gap:6px}
+  .collection-item>summary strong{flex:1 1 calc(100% - 70px);white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .collection-item>summary::after{order:2}
+  .collection-item>summary small{order:3;max-width:calc(100% - 38px);margin-left:38px}
+  .collection-item>.form-grid{padding:14px 12px 2px}
+}
