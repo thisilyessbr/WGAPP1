@@ -353,6 +353,14 @@
     }
     const workflowMessageField = key.match(/^(Existing open request message|Bot message) · (en|fr|ar|darija)$/);
     if (workflowMessageField) return left + `${translations.get(workflowMessageField[1])?.[locale] || workflowMessageField[1]} · ${workflowMessageField[2]}` + right;
+    const languageLabel = key.match(/^(.+) · (English|French|Arabic|Darija)$/);
+    if (languageLabel) return left + `${translations.get(languageLabel[1])?.[locale] || languageLabel[1]} · ${translations.get(languageLabel[2])?.[locale] || languageLabel[2]}` + right;
+    const goalTitle = key.match(/^Customer goal (\d+)$/);
+    if (goalTitle) return left + (locale === 'fr' ? `Objectif client ${goalTitle[1]}` : `هدف العميل ${goalTitle[1]}`) + right;
+    const languageCount = key.match(/^(\d)\/4 languages$/);
+    if (languageCount) return left + (locale === 'fr' ? `${languageCount[1]}/4 langues` : `${languageCount[1]}/4 لغات`) + right;
+    const collectionCount = key.match(/^(\d+) (FAQs|Services) · open one to edit it\.$/);
+    if (collectionCount) return left + `${collectionCount[1]} ${translations.get(collectionCount[2])?.[locale] || collectionCount[2]} · ${locale === 'fr' ? 'ouvrez-en un pour le modifier.' : 'افتح عنصرًا لتعديله.'}` + right;
     const intentField = key.match(/^Intent (\d+) (ID|description|shared use cases — one per line|custom keywords — one per line|workflow)$/);
     if (intentField) {
       const parts = locale === 'fr'
@@ -600,6 +608,41 @@
     ['Saving does not change plans already assigned to clients.','L’enregistrement ne modifie pas les offres déjà attribuées aux clients.','لا يغيّر الحفظ الباقات المعيّنة للعملاء مسبقًا.'],
     ['Correct the advanced JSON before editing workflows.','Corrigez le JSON avancé avant de modifier les parcours.','صحّح إعدادات JSON المتقدمة قبل تعديل مسارات العمل.'],
     ['Guided workflows','Parcours guidés','مسارات العمل الموجّهة'],
+    ['Workflows','Parcours','مسارات العمل'],
+    ['Test chatbot','Tester le chatbot','اختبار الشات بوت'],
+    ['Also start when the AI recognises','Démarrer aussi quand l’IA reconnaît','ابدأ أيضًا عندما يتعرّف الذكاء الاصطناعي على'],
+    ['Add or edit customer goals at the bottom of this page.','Ajoutez ou modifiez les objectifs clients en bas de cette page.','أضف أهداف العملاء أو عدّلها في أسفل هذه الصفحة.'],
+    ['Nothing to choose yet.','Rien à choisir pour le moment.','لا يوجد ما تختاره بعد.'],
+    ['Save answer as','Enregistrer la réponse sous','احفظ الإجابة باسم'],
+    ['Short name shown in Follow-ups, for example fullName or phone.','Nom court affiché dans les suivis, par exemple fullName ou phone.','اسم قصير يظهر في المتابعات، مثل fullName أو phone.'],
+    ['Answer type','Type de réponse','نوع الإجابة'],
+    ['Text','Texte','نص'],
+    ['Phone number','Numéro de téléphone','رقم الهاتف'],
+    ['Number','Nombre','رقم'],
+    ['Yes / no','Oui / non','نعم / لا'],
+    ['Date and time','Date et heure','التاريخ والوقت'],
+    ['Choice from a list','Choix dans une liste','اختيار من قائمة'],
+    ['Minimum length','Longueur minimale','الحد الأدنى للطول'],
+    ['Maximum length','Longueur maximale','الحد الأقصى للطول'],
+    ['Lowest value','Valeur minimale','أدنى قيمة'],
+    ['Highest value','Valeur maximale','أعلى قيمة'],
+    ['List choices — one per line','Choix de la liste — un par ligne','خيارات القائمة — واحد في كل سطر'],
+    ['Customer goals the AI recognises, and the workflow each one opens.','Les objectifs clients reconnus par l’IA et le parcours que chacun ouvre.','أهداف العملاء التي يتعرّف عليها الذكاء الاصطناعي، والمسار الذي يفتحه كل هدف.'],
+    ['Add customer goal','Ajouter un objectif client','إضافة هدف للعميل'],
+    ['Internal name','Nom interne','الاسم الداخلي'],
+    ['Used by the system; letters, numbers and _ only.','Utilisé par le système ; lettres, chiffres et _ uniquement.','يستخدمه النظام؛ أحرف وأرقام و _ فقط.'],
+    ['What the customer wants','Ce que veut le client','ما يريده العميل'],
+    ['Plain words. The AI reads this to recognise the goal.','En mots simples. L’IA s’en sert pour reconnaître l’objectif.','بكلمات بسيطة. يقرأها الذكاء الاصطناعي للتعرّف على الهدف.'],
+    ['Purpose','Objet','الغرض'],
+    ['Buying','Achat','الشراء'],
+    ['Demo','Démo','عرض توضيحي'],
+    ['Booking','Réservation','الحجز'],
+    ['Talk to a person','Parler à une personne','التحدث مع شخص'],
+    ['Extra phrases — one per line','Phrases supplémentaires — une par ligne','عبارات إضافية — واحدة في كل سطر'],
+    ['Opens workflow','Ouvre le parcours','يفتح المسار'],
+    ['Remove goal','Supprimer l’objectif','حذف الهدف'],
+    ['Booking confirmed','Réservation confirmée','تم تأكيد الحجز'],
+    ['Order confirmed','Commande confirmée','تم تأكيد الطلب'],
     ['Basics','Essentiel','الأساسيات'],
     ['Name, purpose and first step of this workflow.','Nom, objectif et première étape de ce parcours.','اسم هذا المسار والغرض منه وخطوته الأولى.'],
     ['When it starts','Démarrage','متى يبدأ'],
@@ -621,6 +664,8 @@
     ['Select a step in the diagram to edit it.','Choisissez une étape dans le schéma pour la modifier.','اختر خطوة في المخطط لتعديلها.'],
     ['No workflows yet. Add one or start from a template.','Aucun parcours pour le moment. Ajoutez-en un ou partez d’un modèle.','لا توجد مسارات عمل بعد. أضف مسارًا أو ابدأ بنموذج.'],
     ['Intents & routing','Intentions et routage','النوايا وتوجيه المحادثات'],
+    ['Customer goals','Objectifs clients','أهداف العملاء'],
+    ['Start on a trigger phrase or customer goal','Démarrer sur une phrase déclencheuse ou un objectif client','البدء عند عبارة تشغيل أو هدف للعميل'],
     ['Connect what the customer asks to the right workflow.','Associez la demande du client au bon parcours.','اربط طلب العميل بمسار العمل المناسب.'],
     ['No custom intents configured.','Aucune intention personnalisée configurée.','لم تُضبط نوايا مخصصة.'],
     ['Ends here','Se termine ici','ينتهي هنا'],

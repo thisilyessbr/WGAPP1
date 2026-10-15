@@ -7,14 +7,16 @@
 
   async function renderAdminCard(ctx) {
     const { id, escape: esc, toast, api } = ctx;
-    const anchor = document.querySelector('#technical');
+    // Sits under the test chat (Test chatbot tab); falls back to before the technical card.
+    const preview = document.querySelector('#preview-form')?.closest('article');
+    const anchor = preview || document.querySelector('#technical');
     if (!anchor) return;
     let card = document.querySelector('#admin-wording-card');
     if (!card) {
       card = document.createElement('article');
       card.className = 'card';
       card.id = 'admin-wording-card';
-      anchor.before(card);
+      if (preview) preview.after(card); else anchor.before(card);
     }
     const base = '/admin/accounts/' + encodeURIComponent(id) + '/learned-wording';
     let data;

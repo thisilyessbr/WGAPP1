@@ -73,7 +73,9 @@
     const clientMeta = document.querySelector('#client-owned-meta');
     const groups = [
       { name: 'Overview', nodes: [overview, editing] },
-      { name: 'Chatbot & limits', nodes: [settings, document.querySelector('#workflow-editor'), document.querySelector('#preview-form')?.closest('article')] },
+      { name: 'Chatbot & limits', nodes: [settings] },
+      { name: 'Workflows', nodes: [document.querySelector('#workflow-editor')] },
+      { name: 'Test chatbot', nodes: [document.querySelector('#preview-form')?.closest('article'), document.querySelector('#admin-wording-card')] },
       { name: 'Channels', nodes: [document.querySelector('#admin-qr-connection'), document.querySelector('#admin-voice-notes-card'), document.querySelector('#admin-instagram-card'), clientMeta] },
       { name: 'Permissions & advanced', nodes: [technical] },
       { name: 'Statistics', nodes: [document.querySelector('#usage')] },

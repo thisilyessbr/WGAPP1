@@ -97,3 +97,12 @@
   .collection-item>summary small{order:3;max-width:calc(100% - 38px);margin-left:38px}
   .collection-item>.form-grid{padding:14px 12px 2px}
 }
+
+/* Pick-from-list fields (trigger goals, goal purpose). */
+.workflow-choices{margin:0;padding:0;border:0;min-width:0}
+.workflow-choices legend{padding:0;margin-bottom:8px;font-size:13px;font-weight:550}
+.workflow-choices .check-options{gap:8px}
+.workflow-choices .check-options label{gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--input);cursor:pointer;font-size:13px}
+.workflow-choices .check-options label:has(input:checked){border-color:var(--green);background:var(--soft)}
+.workflow-choices .hint{display:block;margin-top:6px}
+.workflow-intent-title{grid-column:1/-1;font-size:14px;font-weight:700}
