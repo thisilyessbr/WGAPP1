@@ -4,6 +4,7 @@ import { ConversationContext, buildConversationContext } from './ConversationCon
 import { logger } from '../../utils/logger';
 import { WhatsAppDeliveryReceiptProcessor } from '../channel/whatsapp/WhatsAppDeliveryReceiptProcessor';
 import { ConversationAutomationService } from './ConversationAutomationService';
+import { OPEN_REQUEST_WINDOW_DAYS } from '../tenant/BusinessConfig';
 
 export interface ConversationWithMessages extends Conversation {
   messages: Message[];
@@ -290,13 +291,16 @@ export class ConversationService {
 
   /**
    * Returns true when this customer already has an unfinished CRM request created
-   * by the same workflow. This survives bot pause/reopen and process restarts.
+   * by the same workflow in the last OPEN_REQUEST_WINDOW_DAYS days. This survives
+   * bot pause/reopen and process restarts; requests the team never closed stop
+   * blocking a returning customer once they are older than the window.
    */
   async hasOpenWorkflowRequest(
     tenantId: string,
     customerId: string,
     workflowId: string,
-    accountId?: string | null
+    accountId?: string | null,
+    now: Date = new Date()
   ): Promise<boolean> {
     if (!tenantId || !customerId || !workflowId || !accountId?.trim()) return false;
 
@@ -315,7 +319,8 @@ export class ConversationService {
         accountId: accountId.trim(),
         customerId: customer.id,
         status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] },
-        sourceWorkflowSessionId: { not: null }
+        sourceWorkflowSessionId: { not: null },
+        createdAt: { gte: new Date(now.getTime() - OPEN_REQUEST_WINDOW_DAYS * 86_400_000) }
       },
       select: { sourceWorkflowSessionId: true },
       orderBy: { createdAt: 'desc' },

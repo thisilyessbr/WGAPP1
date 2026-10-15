@@ -124,13 +124,16 @@ export const DEFAULT_EXECUTION_LIMIT_MESSAGES = {
 };
 
 export const DEFAULT_OPEN_REQUEST_MESSAGES = {
-  en: "You have already filled in this form. Your request is registered and our team will contact you.",
-  fr: "Vous avez déjà rempli ce formulaire. Votre demande est enregistrée et notre équipe vous contactera.",
-  ar: "لقد سبق أن ملأت هذا النموذج. تم تسجيل طلبك وسيتواصل معك فريقنا.",
-  darija: "Rah deja 3emmerti had formulaire. Talab dyalek tsjjel, w l-fariq dyalna ghadi y-ttasel bik.",
-  darija_arabic: "راه سبق ليك عمرتي هاد الفورم. طلبك تسجّل، والفريق ديالنا غادي يتاصل بك.",
-  darija_arabizi: "Rah deja 3emmerti had formulaire. Talab dyalek tsjjel, w l-fariq dyalna ghadi y-ttasel bik."
+  en: "Your request is already with our team ✅ They will contact you soon. If you have a question or want to add something, just write it here.",
+  fr: "Votre demande est déjà entre les mains de notre équipe ✅ Elle vous contactera très bientôt. Si vous avez une question ou une précision à ajouter, écrivez-la ici.",
+  ar: "طلبك وصل بالفعل إلى فريقنا ✅ وسيتواصلون معك قريبًا. إذا كان لديك سؤال أو معلومة تريد إضافتها، اكتبها هنا.",
+  darija: "Talab dyalek deja wsel l-fariq dyalna ✅ Ghadi ytwaslo m3ak f a9rab wa9t. Ila 3ndek chi so2al wla bghiti tzid chi ma3louma, kteb liya hna.",
+  darija_arabic: "طلبك راه وصل للفريق ديالنا ✅ غادي يتواصلو معاك فأقرب وقت. إلا عندك شي سؤال ولا بغيتي تزيد شي معلومة، كتب ليا هنا.",
+  darija_arabizi: "Talab dyalek deja wsel l-fariq dyalna ✅ Ghadi ytwaslo m3ak f a9rab wa9t. Ila 3ndek chi so2al wla bghiti tzid chi ma3louma, kteb liya hna."
 };
+
+/** An unfinished request blocks a new one only while it is this recent; older ones are treated as stale. */
+export const OPEN_REQUEST_WINDOW_DAYS = 7;
 
 export interface PromptsConfig {
   system: string;

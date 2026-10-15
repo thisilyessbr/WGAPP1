@@ -9,7 +9,7 @@ import { FieldValidator } from '../../src/core/engine/FieldValidator';
 import { TenantConfigService } from '../../src/domain/tenant/TenantConfigService';
 import { CRMService } from '../../src/domain/crm/CRMService';
 import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
-import { DEFAULT_BUSINESS_CONFIG, BusinessConfig } from '../../src/domain/tenant/BusinessConfig';
+import { DEFAULT_BUSINESS_CONFIG, BusinessConfig, DEFAULT_OPEN_REQUEST_MESSAGES } from '../../src/domain/tenant/BusinessConfig';
 
 describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEMENTATION-26)', () => {
   let mockPrisma: any;
@@ -778,7 +778,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     const response = await conversationEngine.handleMessage(tenantId, 'c19', 'I want to book a session', accountId);
 
-    expect(response).toBe('You have already filled in this form. Your request is registered and our team will contact you.');
+    expect(response).toBe(DEFAULT_OPEN_REQUEST_MESSAGES.en);
     expect(sessions).toHaveLength(0);
   });
 
@@ -819,7 +819,7 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
 
     const response = await conversationEngine.handleMessage(tenantId, 'c21', 'بغيت ندير ديمو', accountId);
 
-    expect(response).toBe('راه سبق ليك عمرتي هاد الفورم. طلبك تسجّل، والفريق ديالنا غادي يتاصل بك.');
+    expect(response).toBe(DEFAULT_OPEN_REQUEST_MESSAGES.darija_arabic);
     expect(sessions).toHaveLength(0);
   });
 
@@ -843,7 +843,8 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
         accountId,
         customerId: 'customer-db-id',
         status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] },
-        sourceWorkflowSessionId: { not: null }
+        sourceWorkflowSessionId: { not: null },
+        createdAt: { gte: expect.any(Date) }
       })
     }));
     expect(workflowSessionCount).toHaveBeenCalledWith({
@@ -854,5 +855,16 @@ describe('Workflow Execution Limit Suite (PHASE WORKFLOW-EXECUTION-LIMIT-IMPLEME
         status: 'COMPLETED'
       }
     });
+  });
+  it('23. ignores open requests older than the 7-day window', async () => {
+    const leadFindMany = vi.fn().mockResolvedValue([]);
+    const service = new ConversationService({
+      customer: { findFirst: vi.fn().mockResolvedValue({ id: 'customer-db-id' }) },
+      lead: { findMany: leadFindMany },
+      workflowSession: { count: vi.fn() }
+    } as any);
+    const now = new Date('2026-10-15T00:00:00Z');
+    await expect(service.hasOpenWorkflowRequest(tenantId, 'external-customer-id', 'fitness_consultation', accountId, now)).resolves.toBe(false);
+    expect(leadFindMany.mock.calls[0][0].where.createdAt.gte.toISOString()).toBe('2026-10-08T00:00:00.000Z');
   });
 });
