@@ -181,6 +181,14 @@ export class ConversationService {
     });
   }
 
+  /** The latest finished (completed or cancelled) run of a workflow in this conversation, within `withinDays`. */
+  async getLatestFinishedSession(tenantId: string, conversationId: string, workflowId: string, withinDays = 7): Promise<WorkflowSession | null> {
+    return this.prisma.workflowSession.findFirst({
+      where: { tenantId, conversationId, workflowId, status: { not: 'ACTIVE' }, updatedAt: { gte: new Date(Date.now() - withinDays * 86400000) } },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
   async countCompletedWorkflowSessions(
     tenantId: string,
     customerId: string,

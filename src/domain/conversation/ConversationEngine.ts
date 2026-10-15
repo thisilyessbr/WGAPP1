@@ -17,6 +17,7 @@ import { ContentSafetyGuard } from '../safety/ContentSafetyGuard';
 import { LanguageDetector } from '../faq/FaqMatcher';
 import { FaqAnswerPolicy } from '../faq/FaqAnswerPolicy';
 import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES, DEFAULT_OPEN_REQUEST_MESSAGES } from '../tenant/BusinessConfig';
+import { WorkflowTurnGate } from '../../core/engine/WorkflowTurnGate';
 import { AccountConfigService } from '../tenant/AccountConfigService';
 import { GreetingRouter } from './GreetingRouter';
 import { ImageCapabilityGateway } from '../../core/gateway/ImageCapabilityGateway';
@@ -489,6 +490,27 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
   /** A service-business message that asks about a specific service. */
   private static readonly SERVICE_CUE = /combien|prix|tarif|dur[ée]e?|r[ée]serv|rendez|rdv|how much|price|cost|how long|book|appointment|do you (?:do|offer)|vous faites|proposez|bch7al|bchhal|ch7al|chhal|taman|kayakhod|kaydoum|n7jez|katdiro|3ndkom|شحال|بشحال|كم|سعر|ثمن|مدة|كياخد|كيدوم|نحجز|حجز|موعد|كتديرو|عندكم|تقدمون/iu;
 
+  /**
+   * Drops the last sentence of a reply when it is the same call to action that closed the previous reply:
+   * the same quoted phrase («bghit demo», "I want a demo") or the same sentence. The answer itself is kept.
+   */
+  static dropRepeatedClosing(reply: string, recent: { role: string; content: string }[]): string {
+    const previous = recent.find(m => String(m.role).toLowerCase() === 'assistant')?.content || '';
+    if (!previous) return reply;
+    const sentences = (text: string) => text.trim().split(/(?<=[.!?؟])\s+|\n+/u).map(t => t.trim()).filter(Boolean);
+    const mine = sentences(reply);
+    if (mine.length < 2) return reply;
+    const last = mine[mine.length - 1];
+    const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const quoted = (t: string) => (t.match(/«\s*([^»]+?)\s*»|"([^"]+)"|“([^”]+)”/u) || []).slice(1).find(Boolean)?.toLowerCase();
+    const tail = sentences(previous).slice(-2);
+    // Only a statement (never a question the customer still has to answer) with the same quoted phrase.
+    const repeated = !/[?؟]\s*$/u.test(last) && Boolean(quoted(last)) && tail.some(t => quoted(t) === quoted(last) || norm(t) === norm(last));
+    if (!repeated) return reply;
+    const cut = reply.lastIndexOf(last);
+    return cut > 0 ? reply.slice(0, cut).trim() : reply;
+  }
+
   /** Reuse a catalog-verified product from an explicit purchase request, never an unverified phrase. */
   private async createWorkflowSessionForTurn(
     tenantId: string,
@@ -572,7 +594,44 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
         logger.warn(`ConversationEngine: Catalog prefill unavailable; retaining product question: ${error?.message || error}`);
       }
     }
+    const known = await ConversationEngine.knownProfileAnswers(this.conversationService, tenantId, conversationId, workflowConfig, content);
+    if (known) return this.conversationService.createSession(tenantId, conversationId, workflowId, known.stateId, known.seed);
     return this.conversationService.createSession(tenantId, conversationId, workflowId, workflowConfig.initialState);
+  }
+
+  /**
+   * Answers the customer already gave are not asked again: a name introduced in the opening message
+   * ("smiti Rachid w 3ndi restaurant") and, when the same workflow ran earlier in this conversation (a declined
+   * demo the customer now wants), its name and open discovery answers. Only the leading run of such questions is
+   * skipped; order details (product, size, date...) are always asked again.
+   */
+  private static async knownProfileAnswers(conversationService: ConversationService, tenantId: string, conversationId: string, workflowConfig: WorkflowConfig, content: string)
+    : Promise<{ stateId: string; seed: { stateHistory: string[]; collectedData: Record<string, string>; contextData: Record<string, string> } } | null> {
+    const fieldOf = (state: any) => state?.type === 'collect' && state.field && typeof state.field === 'object' ? state.field : null;
+    const isProfile = (field: any) => field && (field.semanticType === 'person_name' || field.acceptAnyReply === true);
+    if (!isProfile(fieldOf(workflowConfig.states[workflowConfig.initialState]))) return null;
+    const answers: Record<string, string> = {};
+    try {
+      const previous = await conversationService.getLatestFinishedSession(tenantId, conversationId, workflowConfig.id);
+      const data = (previous?.collectedData || {}) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(data)) if (!key.startsWith('_') && typeof value === 'string' && value.trim()) answers[key] = value;
+    } catch (error: any) {
+      logger.warn(`ConversationEngine: earlier answers unavailable: ${error?.message || error}`);
+    }
+    const history: string[] = [];
+    const collected: Record<string, string> = {};
+    let stateId = workflowConfig.initialState;
+    for (let guard = 0; guard < 12; guard++) {
+      const state = workflowConfig.states[stateId];
+      const field = fieldOf(state);
+      if (!isProfile(field) || !state.next || !workflowConfig.states[state.next]) break;
+      const value = answers[field.name] || (field.semanticType === 'person_name' && content ? WorkflowTurnGate.introducedName(content) : null);
+      if (!value) break;
+      collected[field.name] = value;
+      history.push(stateId);
+      stateId = state.next;
+    }
+    return history.length ? { stateId, seed: { stateHistory: history, collectedData: collected, contextData: { ...collected } } } : null;
   }
 
   /**
@@ -3142,6 +3201,9 @@ Check again: the business-owner evidence above lists the business's policies, se
         }
       }
     });
+
+    // A call to action already closing the previous reply ("Write «I want a demo»...") is not repeated word for word.
+    if (response && !activeSession && resolvedWorkflowRoute.kind !== 'WORKFLOW') response = ConversationEngine.dropRepeatedClosing(response, recentMessages);
 
     // Decide the CRM outcome before committing. A saved customer turn must not
     // depend on a best-effort second write to become visible to the team.

@@ -133,6 +133,10 @@ export class LanguageDetector {
     // "sbah nour" is a Darija greeting; "Nour" alone is usually a name (e.g. a product).
     if (/\b(?:sba[h7]|msa)\s+(?:e?n+our)\b/i.test(trimmed)) darijaWordCount++;
 
+    // "Salam, je veux une démo" / "Salam, I want a demo": a Moroccan greeting opening a French or English sentence.
+    const greetingOnly = words.filter(w => this.DARIJA_LATIN_WORDS.has(w)).every(w => /^(?:salam|slm|salamo|salamu|assalam|alikoum|alaykoum|alikom|3likom|3alikom|wa|w)$/.test(w));
+    if (greetingOnly && arabiziDigitCount === 0 && Math.max(frenchWordCount, englishWordCount) >= 2) darijaWordCount = 0;
+
     // Valid Arabizi: either recognized Darija Latin words or Arabizi digit words with lexical support or distinct Arabizi word
     if (darijaWordCount >= 1 || (arabiziDigitCount >= 1 && (darijaWordCount >= 1 || (frenchWordCount === 0 && englishWordCount === 0)))) {
       return 'darija';

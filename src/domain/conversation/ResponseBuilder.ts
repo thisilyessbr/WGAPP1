@@ -1,4 +1,4 @@
-import { BusinessConfig, WorkflowStateConfig, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
+import { BusinessConfig, WorkflowStateConfig, resolveLocalizedPrompt, clientWorkflowMessage } from '../../domain/tenant/BusinessConfig';
 
 export const DEFAULT_WORKFLOW_MESSAGES = {
   missingField: {
@@ -44,10 +44,22 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
     darija: 'Nkemlo had l-khatwa lwla. Khtar wa7d mn had l-ikhtiyarat:'
   },
   collectFallback: {
-    en: "Happy to help with that. Let's first finish your request:",
-    fr: "Avec plaisir. Terminons d'abord votre demande :",
-    ar: 'بكل سرور. لنكمل طلبك أولاً:',
-    darija: 'Mra7ba. Nkemlo talab dyalek lwel:'
+    en: "I don't have a confirmed answer to that yet; our team can tell you more. Let's continue:",
+    fr: "Je n'ai pas encore de réponse sûre à cette question ; notre équipe pourra vous en dire plus. On continue :",
+    ar: 'ليس لدي جواب مؤكد على هذا السؤال الآن، ويمكن لفريقنا أن يوضح لك أكثر. لنكمل:',
+    darija: 'Ma3ndich jawab akid 3la had so2al daba, lfari9 dyalna y9der ychre7 lik ktar. Nkemlo:'
+  },
+  unclearReprompt: {
+    en: "Sorry, I didn't quite get that 🙏",
+    fr: "Pardon, je n'ai pas bien compris 🙏",
+    ar: 'عذرًا، لم أفهم جيدًا 🙏',
+    darija: 'Smeh lia, ma fhmtch mzyan 🙏'
+  },
+  confirmHint: {
+    en: 'Just reply "yes" or "no" 🙂',
+    fr: 'Répondez simplement « oui » ou « non » 🙂',
+    ar: 'يكفي أن تجيب بـ«نعم» أو «لا» 🙂',
+    darija: 'Jawbni ghir b «wakha» wla «la» 🙂'
   },
   workflowCancelled: {
     en: "No problem, I've cancelled this request. Let me know if you need anything else.",
@@ -71,7 +83,9 @@ const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESS
   fallback: 'سمح ليا، ما فهمتش مزيان. ممكن تقولها بطريقة أخرى؟',
   completion: 'شكرا! الفريق ديالنا غادي يتواصل معاك قريب.',
   choiceRedirect: 'نكملو هاد الخطوة اللولة. ختار واحد من هاد الاختيارات:',
-  collectFallback: 'مرحبا. نكملو الطلب ديالك اللول:',
+  collectFallback: 'ما عنديش جواب أكيد على هاد السؤال دابا، الفريق ديالنا يقدر يشرح ليك كثر. نكملو:',
+  unclearReprompt: 'سمح ليا، ما فهمتش مزيان 🙏',
+  confirmHint: 'جاوبني غير بـ«واخا» ولا «لا» 🙂',
   workflowCancelled: 'واخا، تلغى الطلب ديالك. إلا بغيتي شي حاجة أخرى، أنا هنا.',
   workflowUnavailable: 'هاد الطلب ما بقاش متوفر. كيفاش نقدر نعاونك؟'
 };
@@ -95,7 +109,9 @@ const LEGACY_WORKFLOW_MESSAGES: Partial<Record<keyof typeof DEFAULT_WORKFLOW_MES
   choiceRedirect: ["Let's finish this first — please choose one of the options below:", "Terminons d'abord ceci — veuillez choisir l'une des options ci-dessous :",
     'دعنا نكمل هذا أولاً — يرجى اختيار أحد الخيارات أدناه:', 'nkhemlou hadchi lowel 3afak — khtar wahd mn had l-kheyarat:'],
   collectFallback: ["I can help with questions related to your request. Let's finish this first:", "Je peux vous aider avec les questions liées à votre demande. Terminons d'abord ceci :",
-    'يمكنني المساعدة في الأسئلة المتعلقة بطلبك. دعنا نكمل هذا أولاً:', "n9der n3awnek f l-as'ila dyal talab dyalek. nkhemlou hadchi lowel:"],
+    'يمكنني المساعدة في الأسئلة المتعلقة بطلبك. دعنا نكمل هذا أولاً:', "n9der n3awnek f l-as'ila dyal talab dyalek. nkhemlou hadchi lowel:",
+    "Happy to help with that. Let's first finish your request:", "Avec plaisir. Terminons d'abord votre demande :", 'بكل سرور. لنكمل طلبك أولاً:',
+    'Mra7ba. Nkemlo talab dyalek lwel:', 'مرحبا. نكملو الطلب ديالك اللول:'],
   workflowUnavailable: ['This workflow is no longer available.', "Ce processus n'est plus disponible.", 'هذا المسار لم يعد متاحاً.', 'had l-workflow ma b9ach mota7.']
 };
 
@@ -200,37 +216,43 @@ export class ResponseBuilder {
     return template.replace('{{fieldName}}', fieldName);
   }
 
-  buildValidationErrorResponse(error: string, lang: string = 'en', script?: string): string {
-    if (lang === 'en') return error;
+  buildValidationErrorResponse(error: string, lang: string = 'en', script?: string, config?: BusinessConfig | null): string {
     const languageKey = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
     const values = error.match(/-?\d+(?:\.\d+)?/g) || [];
     const firstValue = values[0] || '';
     const options = error.match(/^Value must be one of: (.+)\.$/)?.[1] || '';
     const messages: Record<string, Record<string, string>> = {
+      en: {
+        string: 'Please type a valid answer.', number: 'Please type a valid number.', boolean: 'Please reply yes or no.',
+        email: "Hmm, that doesn't look like an email 🤔 Could you send it like name@gmail.com?", phone: 'Please type a valid phone number.', time: 'Please type a valid time.',
+        enum: `Please choose one of these options: ${options}.`, minLength: `The answer needs at least ${firstValue} characters.`,
+        maxLength: `The answer must not exceed ${firstValue} characters.`, min: `The value must be at least ${firstValue}.`,
+        max: `The value must not exceed ${firstValue}.`, date: 'Please type a valid date.', format: 'That format is not valid.'
+      },
       fr: {
         string: 'Veuillez saisir un texte valide.', number: 'Veuillez saisir un nombre valide.', boolean: 'Veuillez choisir oui ou non.',
-        email: 'Veuillez saisir une adresse e-mail valide.', phone: 'Veuillez saisir un numéro de téléphone valide.', time: 'Veuillez saisir une heure valide.',
+        email: "Hmm, cela ne ressemble pas à un email 🤔 Pouvez-vous l'envoyer sous la forme nom@gmail.com ?", phone: 'Veuillez saisir un numéro de téléphone valide.', time: 'Veuillez saisir une heure valide.',
         enum: `Veuillez choisir parmi ces options : ${options}.`, minLength: `La réponse doit contenir au moins ${firstValue} caractères.`,
         maxLength: `La réponse ne doit pas dépasser ${firstValue} caractères.`, min: `La valeur doit être au moins ${firstValue}.`,
         max: `La valeur ne doit pas dépasser ${firstValue}.`, date: 'Veuillez saisir une date valide.', format: 'Le format de la réponse est invalide.'
       },
       ar: {
         string: 'يرجى إدخال نص صحيح.', number: 'يرجى إدخال رقم صحيح.', boolean: 'يرجى اختيار نعم أو لا.',
-        email: 'يرجى إدخال بريد إلكتروني صحيح.', phone: 'يرجى إدخال رقم هاتف صحيح.', time: 'يرجى إدخال وقت صحيح.',
+        email: 'يبدو أن هذا ليس بريدًا إلكترونيًا صحيحًا 🤔 هل يمكنك إرساله بهذا الشكل: name@gmail.com؟', phone: 'يرجى إدخال رقم هاتف صحيح.', time: 'يرجى إدخال وقت صحيح.',
         enum: `يرجى الاختيار من بين هذه الخيارات: ${options}.`, minLength: `يجب ألا تقل الإجابة عن ${firstValue} أحرف.`,
         maxLength: `يجب ألا تتجاوز الإجابة ${firstValue} أحرف.`, min: `يجب ألا تقل القيمة عن ${firstValue}.`,
         max: `يجب ألا تتجاوز القيمة ${firstValue}.`, date: 'يرجى إدخال تاريخ صحيح.', format: 'صيغة الإجابة غير صحيحة.'
       },
       darija: {
         string: '3afak kteb jawab s7i7.', number: '3afak kteb ra9m s7i7.', boolean: '3afak khtar ih wla la.',
-        email: '3afak kteb email s7i7.', phone: '3afak kteb nemra dyal telephone s7i7a.', time: '3afak kteb lwe9t b tari9a s7i7a.',
+        email: 'Had l email ma banch lia s7i7 🤔 3afak sifto b7al name@gmail.com', phone: '3afak kteb nemra dyal telephone s7i7a.', time: '3afak kteb lwe9t b tari9a s7i7a.',
         enum: `3afak khtar mn had l-ikhtiyarat: ${options}.`, minLength: `l-jawab khaso ykoun fih 3la l-a9al ${firstValue} 7orof.`,
         maxLength: `l-jawab ma khasoch yfout ${firstValue} 7orof.`, min: `l-9ima khas-ha tkoun 3la l-a9al ${firstValue}.`,
         max: `l-9ima ma khas-hach tfout ${firstValue}.`, date: '3afak kteb tarikh s7i7.', format: 'had format ma s7i7ch.'
       },
       darija_arabic: {
         string: 'عفاك كتب جواب صحيح.', number: 'عفاك كتب رقم صحيح.', boolean: 'عفاك اختار «واخا» أو «لا».',
-        email: 'عفاك كتب إيميل صحيح.', phone: 'عفاك كتب نمرة تليفون صحيحة.', time: 'عفاك كتب الوقت بطريقة صحيحة.',
+        email: 'هاد الإيميل ما بانش ليا صحيح 🤔 عافاك صيفطو بحال name@gmail.com', phone: 'عفاك كتب نمرة تليفون صحيحة.', time: 'عفاك كتب الوقت بطريقة صحيحة.',
         enum: `عفاك اختار من هاد الاختيارات: ${options}.`, minLength: `الجواب خاصو يكون فيه على الأقل ${firstValue} حروف.`,
         maxLength: `الجواب ما خاصوش يفوت ${firstValue} حروف.`, min: `القيمة خاصها تكون على الأقل ${firstValue}.`,
         max: `القيمة ما خاصهاش تفوت ${firstValue}.`, date: 'عفاك كتب تاريخ صحيح.', format: 'هاد الصيغة ما صحيحةش.'
@@ -249,7 +271,10 @@ export class ResponseBuilder {
       : error.startsWith('Value must be at most') ? 'max'
       : error === 'Value must be a valid date.' ? 'date'
       : 'format';
-    return messages[languageKey]?.[key] || error;
+    const builtIn = messages[languageKey]?.[key] || error;
+    if (key === 'email') return clientWorkflowMessage(config, 'invalidEmail', lang, builtIn, script);
+    if (key === 'phone') return clientWorkflowMessage(config, 'invalidPhone', lang, builtIn, script);
+    return builtIn;
   }
 
   /**

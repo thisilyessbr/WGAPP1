@@ -1,5 +1,5 @@
 import { WorkflowSession } from '@prisma/client';
-import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
+import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt, clientWorkflowMessage } from '../../domain/tenant/BusinessConfig';
 import { WorkflowStateEvaluator } from './WorkflowStateEvaluator';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, defaultWorkflowValues, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
@@ -17,6 +17,8 @@ import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
 import { telemetry } from '../telemetry/TelemetryClient';
+import { WorkflowCalendar } from './WorkflowCalendar';
+import { CalendarScheduler } from '../../domain/calendar/CalendarScheduler';
 
 export interface WorkflowResult {
   updatedContext: Record<string, any>;
@@ -211,10 +213,18 @@ export class WorkflowEngine {
 
   private static readonly PRICE_QUESTION = /combien|prix|tarif|co[uû]te?|how much|price|cost|ch7al|chhal|bch7al|taman|thaman|شحال|بشحال|بكم|كم سعر|سعر|ثمن|الثمن|تمن/iu;
 
+  /** Every approved FAQ (and the description) when keyword lookup found nothing, so a reworded question can still be answered. */
+  private static allFaqEvidence(config: BusinessConfig): string {
+    const description = typeof config.portalFacts?.description === 'string' ? config.portalFacts.description.trim() : '';
+    const faqs = ((config.capabilities?.faq || []) as any[]).filter(f => f && f.question && f.answer).map(f => `Q: ${f.question}\nA: ${f.answer}`);
+    return [description, ...faqs].filter(Boolean).join('\n\n').slice(0, 6000);
+  }
+
   private answerUsesRequestedScript(answer: string, lang: string, script: string): boolean {
     const hasArabic = /[\u0621-\u064A]/u.test(answer);
     if (lang === 'en' || lang === 'fr') return !hasArabic;
-    if (lang === 'ar' || (lang === 'darija' && script === 'arabic')) return hasArabic;
+    if (lang === 'ar') return hasArabic && !/(?:^|\s)(?:ك[يتن]\p{L}{2,}|ديال\p{L}*|باش|بزاف|دابا|واش|غادي|كاين|فابور|بلا)(?=\s|$|[،.!])/u.test(answer);
+    if (lang === 'darija' && script === 'arabic') return hasArabic;
     if (lang === 'darija' && script === 'arabizi') return !hasArabic;
     return true;
   }
@@ -273,7 +283,32 @@ export class WorkflowEngine {
       confirmPhrases.some(phrase => normalized.includes(WorkflowCancellationDetector.normalize(phrase)));
   }
 
+  private calendarLayer?: WorkflowCalendar;
+  /** Calendar used by calendar steps; defaults to the environment's (Google, or the in-memory one when CALENDAR_FAKE=1). */
+  setCalendarScheduler(scheduler: CalendarScheduler | null) { this.calendarLayer = new WorkflowCalendar(this.responseBuilder, scheduler); }
+
   async process(
+    session: WorkflowSession,
+    message: string,
+    workflowConfig: WorkflowConfig,
+    businessConfig: BusinessConfig,
+    llmOverride?: LLMProvider,
+    llmOptions?: LLMRequestOptions,
+    ragService?: RAGService,
+    correlationId?: string,
+    effectiveLang?: string,
+    effectiveScript?: string,
+    accountId?: string | null
+  ): Promise<WorkflowResult> {
+    const layer = this.calendarLayer ??= new WorkflowCalendar(this.responseBuilder);
+    const handled = await layer.before(session, message, workflowConfig, businessConfig, effectiveLang, effectiveScript,
+      m => WorkflowCancellationDetector.isCancellation(m));
+    const result = handled ?? await this.processCore(session, message, workflowConfig, businessConfig, llmOverride, llmOptions,
+      ragService, correlationId, effectiveLang, effectiveScript, accountId);
+    return layer.after(result, session, workflowConfig, businessConfig, llmOverride || this.defaultLlm, llmOptions);
+  }
+
+  private async processCore(
     session: WorkflowSession,
     message: string,
     workflowConfig: WorkflowConfig,
@@ -788,16 +823,10 @@ export class WorkflowEngine {
           const unclearCount = (currentContext['_consecutiveUnmatched'] || 0) + 1;
           if (unclearCount <= WorkflowEngine.MAX_UNCLEAR_REPROMPTS) {
             currentContext['_consecutiveUnmatched'] = unclearCount;
-            let unclearResponse = currentCollectPrompt;
-            if (unclearCount > 1) {
-              const defaultCollectFallback = getWorkflowMessage('collectFallback', lang, script);
-              const defaultCollectVals = defaultWorkflowValues('collectFallback');
-              const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
-              const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
-                ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
-                : defaultCollectFallback;
-              unclearResponse = `${fallbackMsg}\n\n${currentCollectPrompt}`;
-            }
+            // "Sorry, I didn't get that" + the question; the second time the question alone, so the reply never repeats word for word.
+            const unclearResponse = unclearCount === 1
+              ? `${clientWorkflowMessage(businessConfig, 'unclearReprompt', lang, getWorkflowMessage('unclearReprompt', lang, script), script)}\n\n${currentCollectPrompt}`
+              : currentCollectPrompt;
             return finishAndReturn({
               updatedContext: currentContext,
               nextStateId: currentStateId,
@@ -917,7 +946,8 @@ export class WorkflowEngine {
         if (isQuestion) {
           // Answer from owner-approved business facts, then resume the exact pending
           // form question. The customer question is never persisted as a field value.
-          const ownerEvidence = portalBusinessEvidence(businessConfig, questionText, { includeFaq: true });
+          const ownerEvidence = portalBusinessEvidence(businessConfig, questionText, { includeFaq: true })
+            || WorkflowEngine.allFaqEvidence(businessConfig);
           if (PolicyAnswerSafety.requestedIntents(questionText).includes('SHIPPING') &&
               PolicyEvidenceReuse.isScopeExpanded('SHIPPING', questionText, businessConfig) &&
               !PolicyAnswerSafety.hasShippingScopeEvidence(questionText,
@@ -980,7 +1010,7 @@ export class WorkflowEngine {
           const defaultCollectVals = defaultWorkflowValues('collectFallback');
           const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
           const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
-            ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
+            ? clientWorkflowMessage(businessConfig, 'collectFallback', lang, defaultCollectFallback, script)
             : defaultCollectFallback;
           return answerAndContinue(fallbackMsg);
         }
@@ -990,7 +1020,7 @@ export class WorkflowEngine {
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script)}\n\n${currentCollectPrompt}`,
+            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script, businessConfig)}\n\n${currentCollectPrompt}`,
             isComplete: false,
             updatedStateHistory: history,
             updatedCollectedData: collectedData
@@ -1015,7 +1045,10 @@ export class WorkflowEngine {
 
         const lowerMsg = WorkflowCancellationDetector.normalize(message);
         const cancelKeywords = (stateConfig.cancelKeywords || ['no', 'cancel', 'non', 'لا', 'la', 'lla', 'annuler', 'stop']).map(k => WorkflowCancellationDetector.normalize(k));
-        const isConfirmCancel = cancelKeywords.includes(lowerMsg) || WorkflowCancellationDetector.isCancellation(message);
+        // "Non, pas maintenant", "la machi daba": a cancel word opening the reply, or a cancel phrase anywhere.
+        const firstWord = lowerMsg.split(/[^\p{L}\p{N}]+/u).filter(Boolean)[0] || '';
+        const isConfirmCancel = cancelKeywords.includes(lowerMsg) || WorkflowCancellationDetector.isCancellation(message)
+          || cancelKeywords.some(k => k.includes(' ') ? lowerMsg.includes(k) : firstWord === k);
 
         if (this.isConfirmation(message, stateConfig.confirmKeywords || [])) {
           // Confirmation confirmed -> proceed to next state transition
@@ -1041,7 +1074,8 @@ export class WorkflowEngine {
             : defaultCancelled;
           return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true, updatedCollectedData: collectedData });
         } else {
-          response = this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script);
+          // Neither yes nor no: a short hint, then the question again.
+          response = `${clientWorkflowMessage(businessConfig, 'confirmHint', lang, getWorkflowMessage('confirmHint', lang, script), script)}\n\n${this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script)}`;
           return finishAndReturn({ updatedContext: currentContext, nextStateId, response, isComplete, updatedCollectedData: collectedData });
         }
       }
