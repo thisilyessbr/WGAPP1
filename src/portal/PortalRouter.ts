@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'crypto';
-import { PortalStore } from './PortalStore';
+import { PortalStore, publishState } from './PortalStore';
 import { PortalAuth, hashPassword, hashToken } from './PortalAuth';
 import { PortalConnections } from './PortalConnections';
 import { PortalDocuments } from './PortalDocuments';
@@ -49,7 +49,7 @@ const clientProfile = (p: PortalProfile) => {
   reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
   voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
   qrAllowed:p.qrAllowed,qrConsentAt:p.qrConsentAt,
-  voiceNotesAvailable: p.voiceNotesAllowed && voiceTranscriptionAvailable(p.voiceTranscriptionProvider) };
+  voiceNotesAvailable: p.voiceNotesAllowed && voiceTranscriptionAvailable(p.voiceTranscriptionProvider), publishState: publishState(p) };
 };
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
 const route = (fn: (req: PortalRequest, res: Response) => Promise<any>) => (req: Request, res: Response, next: express.NextFunction) => { Promise.resolve(fn(req as PortalRequest, res)).catch(next); };
@@ -348,10 +348,15 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       store.profile(req.portal.accountId!, req.portal.tenantId!),
       store.connections(req.portal.accountId!, req.portal.tenantId!)
     ]);
+    // Last-30-day activity per number, so a client with several numbers can see each one.
+    const activity = (await store.stats(req.portal.accountId!, req.portal.tenantId!, 30)).numbers.map((n: any) => ({
+      phoneNumberId: n.phoneNumberId, inbound: Number(n.inbound || 0), replies: Number(n.replies || 0),
+      conversations: Number(n.conversations || 0), contacts: Number(n.contacts || 0), leads: Number(n.leads || 0) }));
     const numberLimit = profile.planSnapshot?.limits.numbers ?? 0;
     const connectedNumberCount = accountConnections.filter(connection => connection.numberRecordId).length;
     send(res, {
       connections: accountConnections,
+      activity,
       canAddNumber: numberLimit === -1 || connectedNumberCount < numberLimit,
       qrEnabled: Boolean(deps.qrSessionManager?.isEnabled()) && profile.qrAllowed && Boolean(profile.planSnapshot?.modules.includes('qr')) && ['APPROVED','ACTIVE'].includes(profile.status),
       metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_CONFIG_ID)
@@ -389,8 +394,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const statusFilter = text(req.query.status, 30, 'all').toLowerCase();
     const unreadFilter = req.query.unread === 'true';
     const searchQuery = text(req.query.search, 100);
+    const numberFilter = text(req.query.number, 60);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
     const offset = Math.max(0, Number(req.query.offset || 0));
+    // The account's WhatsApp numbers, so the inbox can show and filter which number each chat came in on.
+    const numbers = await store.db.$queryRaw<any[]>`
+      SELECT "phoneNumberId", "displayPhoneNumber", status, enabled FROM "WhatsAppBusinessNumber"
+      WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} ORDER BY "createdAt"`;
+    const numberLabel = new Map(numbers.map(n => [n.phoneNumberId, n.displayPhoneNumber || n.phoneNumberId]));
 
     const rows = await store.db.$queryRaw<any[]>`
       WITH conv_stats AS (
@@ -419,6 +430,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
             FROM "Message" m
             WHERE m."conversationId" = c.id AND m.role = 'USER'
           ) AS "lastCustomerMessageAt",
+          (
+            SELECT m."phoneNumberId"
+            FROM "Message" m
+            WHERE m."conversationId" = c.id AND m.role = 'USER' AND m."phoneNumberId" IS NOT NULL
+            ORDER BY m."createdAt" DESC
+            LIMIT 1
+          ) AS "inboundPhoneNumberId",
           (
             SELECT m.id
             FROM "Message" m
@@ -471,6 +489,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       const isUnread = r.lastCustomerMessageAt !== null &&
         (!r.lastMerchantViewedAt || new Date(r.lastCustomerMessageAt) > new Date(r.lastMerchantViewedAt));
       if (unreadFilter && !isUnread) return false;
+      if (numberFilter && r.inboundPhoneNumberId !== numberFilter) return false;
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -521,6 +540,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         humanRequested: Boolean(r.humanRequested),
         humanRequestedAt: r.humanRequestedAt,
         messageCount: r.messageCount,
+        businessNumber: r.inboundPhoneNumberId ? { phoneNumberId: r.inboundPhoneNumberId, display: numberLabel.get(r.inboundPhoneNumberId) || r.inboundPhoneNumberId } : null,
         updatedAt: r.updatedAt,
         createdAt: r.createdAt
       };
@@ -528,6 +548,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
 
     send(res, {
       conversations,
+      numbers: numbers.map(n => ({ phoneNumberId: n.phoneNumberId, display: n.displayPhoneNumber || n.phoneNumberId, status: n.status, enabled: n.enabled })),
       pagination: {
         total,
         limit,
@@ -841,12 +862,19 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       return;
     }
 
-    // Precondition 3: Resolve connected WhatsApp number
+    // Precondition 3: Resolve connected WhatsApp number. Reply from the number the customer
+    // last wrote to, so a client with two numbers never answers from the other one.
     const numberRows = await store.db.$queryRaw<any[]>`
-      SELECT "phoneNumberId", status, enabled
-      FROM "WhatsAppBusinessNumber"
-      WHERE "tenantId" = ${tenantId} AND "accountId" = ${accountId} AND enabled = true
-      ORDER BY status = 'CONNECTED' DESC, "updatedAt" DESC
+      SELECT n."phoneNumberId", n.status, n.enabled
+      FROM "WhatsAppBusinessNumber" n
+      WHERE n."tenantId" = ${tenantId} AND n."accountId" = ${accountId} AND n.enabled = true
+      ORDER BY n."phoneNumberId" = (
+          SELECT m."phoneNumberId" FROM "Message" m
+          WHERE m."conversationId" = ${conversationId} AND m."tenantId" = ${tenantId}
+            AND m.role = 'USER' AND m."phoneNumberId" IS NOT NULL
+          ORDER BY m."createdAt" DESC LIMIT 1
+        ) DESC NULLS LAST,
+        n.status = 'CONNECTED' DESC, n."updatedAt" DESC
       LIMIT 1
     `;
     const connectedNumber = numberRows[0];
@@ -1024,7 +1052,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   admin.get('/accounts', route(async (req, res) => send(res, { accounts: await store.accounts(text(req.query.search, 160), Number(req.query.offset || 0) || 0) })));
   admin.get('/accounts/:id', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));
-    send(res, { profile: { ...p, voiceNotesAvailable: voiceTranscriptionAvailable(p.voiceTranscriptionProvider), availableVoiceProviders: { groq: voiceProviderConfigured('groq'), deepgram: voiceProviderConfigured('deepgram') } }, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
+    send(res, { profile: { ...p, publishState: publishState(p), voiceNotesAvailable: voiceTranscriptionAvailable(p.voiceTranscriptionProvider), availableVoiceProviders: { groq: voiceProviderConfigured('groq'), deepgram: voiceProviderConfigured('deepgram') } }, connections: await store.connections(p.accountId, p.tenantId), documents: await documents.list(p.accountId), versions: await store.versions(p.accountId),
       members: await store.db.$queryRaw<any[]>`SELECT u.id,u.name,u.email,u."verifiedAt",u.disabled FROM "PortalUser" u JOIN "PortalMembership" m ON m."userId"=u.id
         WHERE m."accountId"=${p.accountId} AND m."tenantId"=${p.tenantId} AND u.role='CLIENT' ORDER BY u."createdAt",u.id` });
   }));
@@ -1217,14 +1245,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       text(body.messageId, 100), req.portal.user.id, text(body.note, 1000));
     send(res, { feedback: result }, 201);
   }));
-  admin.post('/accounts/:id/preview', route(async (req, res) => {
-    const p = await store.profile(String(req.params.id));
-    await store.throttle('preview:' + p.accountId, 10, 60);
-    const body = object(req.body); allowed(body, ['message', 'mode', 'sessionId']);
+  // Isolated test conversation (portal-preview customer: hidden from inbox, CRM and statistics; not billed to the client).
+  const runPreview = async (p: PortalProfile, userId: string, rawBody: unknown, defaultMode: 'draft' | 'published') => {
+    const body = object(rawBody); allowed(body, ['message', 'mode', 'sessionId']);
     const message = text(body.message, 2000); if (!message) throw new PortalError(400, 'MESSAGE_REQUIRED');
-    const mode = text(body.mode, 20, 'published');
+    const mode = text(body.mode, 20, defaultMode);
     if (!['draft', 'published'].includes(mode)) throw new PortalError(400, 'INVALID_PREVIEW_MODE');
-    const sessionId = text(body.sessionId, 100, `${req.portal.user.id}-${Date.now()}`);
+    const sessionId = text(body.sessionId, 100, `${userId}-${Date.now()}`);
     if (!/^[a-zA-Z0-9_-]{8,100}$/.test(sessionId)) throw new PortalError(400, 'INVALID_PREVIEW_SESSION');
     const account = (await store.db.$queryRaw<any[]>`SELECT config FROM "Account" WHERE id=${p.accountId} AND "tenantId"=${p.tenantId}`)[0];
     if (!account) throw new PortalError(404, 'ACCOUNT_NOT_FOUND');
@@ -1239,18 +1266,29 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (!engine?.previewMessage) throw new PortalError(503, 'PREVIEW_UNAVAILABLE', 'Chatbot preview is temporarily unavailable.');
     const responseMedia = { media: [] as import('../domain/conversation/AnswerComposer').ChatMedia[] };
     const response = await responseMediaStorage.run(responseMedia, () =>
-      engine.previewMessage(p.tenantId, p.accountId, `${req.portal.user.id}:${sessionId}`, message, config));
+      engine.previewMessage(p.tenantId, p.accountId, `${userId}:${sessionId}`, message, config));
     const previewConversation = (await store.db.$queryRaw<Array<{ status: string; humanRequested: boolean }>>`
       SELECT c.status, c."humanRequested" FROM "Conversation" c
       JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
       WHERE c."tenantId"=${p.tenantId} AND c."accountId"=${p.accountId}
-        AND cu."externalId"=${`portal-preview:${req.portal.user.id}:${sessionId}`}
+        AND cu."externalId"=${`portal-preview:${userId}:${sessionId}`}
       ORDER BY c."updatedAt" DESC LIMIT 1`)[0];
     const automationState = previewConversation?.humanRequested ||
       ['HANDOFF_REQUESTED', 'HUMAN_ACTIVE'].includes(previewConversation?.status || '')
       ? 'waiting_for_team' : 'active';
-    await store.audit(req.portal.user.id, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
-    send(res, { response, media: responseMedia.media, automationState, mode, sessionId });
+    await store.audit(userId, p.accountId, 'CHATBOT_PREVIEWED', { mode, sessionId });
+    return { response, media: responseMedia.media, automationState, mode, sessionId };
+  };
+  admin.post('/accounts/:id/preview', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    await store.throttle('preview:' + p.accountId, 10, 60);
+    send(res, await runPreview(p, req.portal.user.id, req.body, 'published'));
+  }));
+  client.post('/preview', route(async (req, res) => {
+    const p = await store.profile(req.portal.accountId!, req.portal.tenantId);
+    await store.throttle('preview-client:' + p.accountId, 10, 60);
+    await store.throttle('preview-client-day:' + p.accountId, 150, 86400);
+    send(res, await runPreview(p, req.portal.user.id, req.body, 'draft'));
   }));
   admin.get('/accounts/:id/actions', route(async (req, res) => {
     const p = await store.profile(String(req.params.id));

@@ -133,3 +133,33 @@
 /* Client account page: show a spinner, not the unsorted layout, while it loads. */
 .content.is-preparing>*:not(.page-heading):not(.account-preparing){display:none!important}
 .account-preparing p{margin-top:12px}
+
+/* Client: is my saved information live? */
+.live-banner{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 18px;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:13px}
+.live-banner strong{display:inline-flex;align-items:center;gap:7px;font-size:13px}
+.live-banner strong::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.live-banner span{color:var(--muted)}
+.live-banner.ok strong{color:var(--green)}
+.live-banner.wait strong{color:#e7bd7b}
+.live-banner.warn strong{color:var(--red)}
+:root[data-theme=light] .live-banner.wait strong{color:#805916}
+
+/* Client test chat. */
+.client-test-thread{min-height:220px;max-height:460px}
+#client-test-card .preview-composer{margin-top:12px}
+
+/* Admin: one save/publish state line. */
+.admin-save-state{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
+.admin-save-state::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:currentColor}
+.admin-save-state.live{color:var(--green)}
+.admin-save-state.waiting{color:#e7bd7b}
+.admin-save-state.dirty{color:var(--red)}
+:root[data-theme=light] .admin-save-state.waiting{color:#805916}
+
+/* Inbox: which of the client's numbers a chat came in on. */
+.inbox-number-tag{display:inline-block;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 7px;border:1px solid var(--line);border-radius:6px;font-size:10px;color:var(--muted);vertical-align:middle}
+.inbox-number-filter{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.inbox-number-filter select{flex:1}
+.number-activity{margin-top:6px;font-size:12px;color:var(--text)}
+/* The save bar is not needed (and would cover the composer) on the Test chatbot tab. */
+#business-form .section-panel:has(#client-test-card):not([hidden]) ~ .sticky-save{display:none}

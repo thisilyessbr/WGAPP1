@@ -5,6 +5,10 @@
   let pagination = { total: 0, limit: 20, offset: 0, hasMore: false };
   let currentFilter = 'all'; // 'all' | 'open' | 'needs_human' | 'human_active' | 'resolved' | 'unread'
   let searchQuery = '';
+  // WhatsApp number filter (phoneNumberId); shown only when the account has two or more numbers.
+  let numberFilter = '';
+  let accountNumbers = [];
+  const multipleNumbers = () => accountNumbers.length > 1;
   let searchTimer = null;
   let activeConversationId = null;
   let activeConversation = null;
@@ -59,6 +63,23 @@
     }
   }
 
+  function renderNumberFilter() {
+    const row = document.querySelector('.inbox-header-row');
+    if (!row) return;
+    let select = document.querySelector('#inbox-number-filter');
+    if (!multipleNumbers()) { select?.closest('.inbox-number-filter')?.remove(); return; }
+    if (!select) {
+      row.insertAdjacentHTML('beforeend', '<label class="inbox-number-filter"><span>Number</span><select id="inbox-number-filter" class="small-select"></select></label>');
+      select = document.querySelector('#inbox-number-filter');
+      select.onchange = () => {
+        numberFilter = select.value;
+        try { const url = new URL(location.href); if (numberFilter) url.searchParams.set('number', numberFilter); else url.searchParams.delete('number'); history.replaceState(history.state, '', url); } catch {}
+        loadConversationList();
+      };
+    }
+    select.innerHTML = `<option value="">All numbers</option>` + accountNumbers.map(n => `<option value="${esc(n.phoneNumberId)}" ${n.phoneNumberId === numberFilter ? 'selected' : ''}>${esc(n.display)}${n.enabled === false ? ' (paused)' : ''}</option>`).join('');
+  }
+
   async function loadConversationList(silent = false) {
     if (listFetchInProgress) {
       if (!silent) pendingListReload = true;
@@ -75,10 +96,15 @@
       if (searchQuery) {
         url += '&search=' + encodeURIComponent(searchQuery);
       }
+      if (numberFilter) {
+        url += '&number=' + encodeURIComponent(numberFilter);
+      }
 
       const res = await ctx.api(url);
       conversations = res.conversations || [];
+      accountNumbers = res.numbers || accountNumbers;
       pagination = res.pagination || { total: conversations.length, limit: 20, offset: 0, hasMore: false };
+      renderNumberFilter();
       renderConversationList();
     } catch (err) {
       if (!silent) ctx.toast(err.message || 'Failed to load conversations', true);
@@ -106,6 +132,9 @@
       }
       if (searchQuery) {
         url += '&search=' + encodeURIComponent(searchQuery);
+      }
+      if (numberFilter) {
+        url += '&number=' + encodeURIComponent(numberFilter);
       }
 
       const res = await ctx.api(url);
@@ -216,6 +245,7 @@
               <div class="inbox-item-preview">${esc(preview)}</div>
               <div class="inbox-item-footer">
                 <span class="badge ${c.channel === 'INSTAGRAM' ? 'blue' : ''}">${c.channel === 'INSTAGRAM' ? 'Instagram' : 'WhatsApp'}</span>
+                ${multipleNumbers() && c.businessNumber ? `<span class="inbox-number-tag" title="Received on ${esc(c.businessNumber.display)}">→ ${esc(c.businessNumber.display)}</span>` : ''}
                 ${getStatusBadge(state)}
               </div>
             </div>
@@ -450,6 +480,7 @@
           <div>
             <strong>${esc(displayName)}</strong>
             ${phone && phone !== displayName ? `<small> · ${esc(phone)}</small>` : ''}
+            ${(() => { const number = conversations.find(c => c.id === conv.id)?.businessNumber; return multipleNumbers() && number ? `<small class="inbox-received-on"> · Received on ${esc(number.display)}</small>` : ''; })()}
           </div>
           ${getStatusBadge(state)}
         </div>
@@ -767,6 +798,7 @@
     ctx = context;
     cleanup();
     const version = renderVersion;
+    try { numberFilter = new URLSearchParams(location.search).get('number') || ''; } catch {}
 
     // Determine initial conversation ID from path if present: /app/inbox/:id
     const parts = location.pathname.split('/');

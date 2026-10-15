@@ -5,6 +5,17 @@ import { compileBusiness, validateBusiness, validatePlan } from './validation';
 import { localEmailBypass } from './localTesting';
 
 const json = (value: unknown) => JSON.stringify(value);
+const stableJson = (value: unknown): string => Array.isArray(value) ? `[${value.map(stableJson).join(',')}]`
+  : value && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson((value as any)[key])}`).join(',')}}`
+  : JSON.stringify(value ?? null);
+/** Whether customers see the saved business data: never published, published with newer saved changes, or live. */
+export function publishState(p: Pick<PortalProfile, 'draft' | 'published' | 'planSnapshot'>): 'NOT_PUBLISHED' | 'CHANGES_WAITING' | 'LIVE' {
+  if (!p.published) return 'NOT_PUBLISHED';
+  const draft = structuredClone(p.draft || {}) as any, plan = p.planSnapshot;
+  if (plan) for (const [module, key] of [['commerce', 'products'], ['services', 'services'], ['knowledge', 'faqs']] as const) if (!plan.modules.includes(module)) draft[key] = [];
+  return stableJson(draft) === stableJson(p.published) ? 'LIVE' : 'CHANGES_WAITING';
+}
+
 export class PortalStore {
   constructor(public db: PortalDb) {}
   private planScopedBusiness(data: BusinessData, plan: PortalPlan): BusinessData {
