@@ -123,12 +123,16 @@ export class CapabilityRouter {
     let effectiveContent: string;
     let userDisplayContent: string;
 
+    // Product search and replies use what the photo shows ("headphones"), not the descriptive sentence:
+    // words like "minimalist" or "red frame" would match unrelated catalog items or leak into a reply.
+    const photoSubject = [...new Set((analysis.objects || []).map(o => String(o).trim()).filter(Boolean))].slice(0, 3).join(', ')
+      || analysis.category || '';
     if (type === 'TEXT_AND_IMAGE') {
       // Neither text nor image is dropped: combined into a single unified query
-      effectiveContent = `${text} [Image Context: ${imageDescriptor}]`;
+      effectiveContent = photoSubject ? `${text} (photo: ${photoSubject})` : text;
       userDisplayContent = `[Image: ${analysis.description || 'photo'}] ${text}`;
     } else {
-      effectiveContent = imageDescriptor;
+      effectiveContent = photoSubject || imageDescriptor;
       userDisplayContent = `[Image: ${analysis.description || 'photo'}]`;
     }
 

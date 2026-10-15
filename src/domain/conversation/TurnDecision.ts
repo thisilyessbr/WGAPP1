@@ -101,7 +101,7 @@ export interface PolicySignals {
   isMultiPolicy: boolean;
 }
 
-const PHOTO_CUE = /(?:^|[\s.,!?;:()،؟'’])(?:images?|pictures?|pics?|photos?|tof|tsawer|tswira|tsawir|tswer|صور|صورة|تصويرة|تصاور|تصوير|الصورة|الصور)(?=$|[\s.,!?;:()،؟])/iu;
+const PHOTO_CUE = /(?:^|[\s.,!?;:()،؟'’])(?:images?|pictures?|pics?|photos?|tof|tsawer|tswira|tsawir|tswer|tswirto|tswirtou|tswirtha|tswirthom|tsawrou|صور|صورة|تصويرة|تصاور|تصوير|الصورة|الصور|تصويرتو|تصويرتها|تصاورو|صورته|صورتها|صوره)(?=$|[\s.,!?;:()،؟])/iu;
 /** A message about a named product that asks something answerable from the catalog. */
 const COMMERCE_CUE = /(?:price|cost|how\s+much|prix|combien|co[uû]te?|tarif|available|in\s+stock|stock|disponible|dispo|encore|existe?|exists|dos+yous+have|vouss+avez|size|taille|pointure|colou?r|couleur|order|buy|acheter|commander|photo|picture|image|bch7al|ch7al|bchhal|chhal|taman|kayn|kayna|mazal|ba9i|3ndkom|3andkom|tswira|tsawer|bghit|ncommandi|nchri|nakhod|شحال|بشحال|بكم|كم|سعر|ثمن|متوفر|متاح|متاحا|كاين|كاينة|باقي|مازال|عندكم|يوجد|مقاس|نمرة|قياس|لون|صورة|تصويرة|تصاور|بغيت|نطلب|نشري|أطلب|اطلب|أشتري)/iu;
 
@@ -336,7 +336,7 @@ export class TurnDecisionResolver {
       // is a question about that product.
       if (!intent || intent === 'PRODUCT_SEARCH' || intent === 'ATTRIBUTE_QUERY') {
         intent = wantsPhoto ? 'PRODUCT_DETAIL'
-          : /(?:bghit|ncommandi|nchri|nakhod|order|buy|acheter|commander|بغيت|نطلب|نشري|أطلب|اطلب|أشتري)/iu.test(text) ? 'BUY_INTENT'
+          : /(?:bghit|ncommandi|nchri|nakhod|order|buy|acheter|commander|بغيت|نطلب|نشري|أطلب|اطلب|أشتري)/iu.test(text) && !/(?:which|what|quel(?:le)?s?|chmn|chmen|achmen|ashmen|ach|شمن|اشمن|أشمن|أي|اي|شنو|ما)\s+(?:size|pointure|taille|nmra|nemra|n[e]?mra|9yas|qyas|مقاس|المقاس|نمرة|النمرة|قياس)/iu.test(text) ? 'BUY_INTENT'
           : (ecomParams?.size || ecomParams?.color) ? 'AVAILABILITY'
           : /(?:price|cost|how\s+much|prix|combien|co[uû]te?|tarif|bch7al|ch7al|bchhal|chhal|taman|شحال|بشحال|بكم|كم|سعر|ثمن)/iu.test(text) ? 'PRICE'
           : /(?:available|stock|disponible|dispo|encore|existe?|exists|dos+yous+have|vouss+avez|kayn|kayna|mazal|ba9i|3ndkom|متوفر|متاح|كاين|باقي|مازال|عندكم|يوجد)/iu.test(text) ? 'AVAILABILITY'

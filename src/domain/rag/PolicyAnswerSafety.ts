@@ -43,6 +43,9 @@ export class PolicyAnswerSafety {
     script?: SupportedScript,
     explicitIntents: string[] = []
   ): boolean {
+    // Only a short, single-topic passage (an FAQ-style answer) may be sent verbatim. A long PDF
+    // section with tables and other topics must be summarised for the question instead.
+    if (content.trim().length > 450 || (content.match(/\n/g) || []).length > 4) return false;
     if (!DirectRagGuard.evaluate(query, content, language, script).isSafe) return false;
     const requiredIntents = explicitIntents.length > 0 ? [...explicitIntents] : this.requestedIntents(query);
     // Short follow-ups such as "And France?" may omit the word "shipping".

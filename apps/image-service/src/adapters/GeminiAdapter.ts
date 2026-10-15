@@ -104,6 +104,21 @@ Note:
           signal: controller.signal
         });
       }
+
+      // Google returns 503/429 when the model is briefly overloaded; one short retry (then the lighter
+      // model) usually succeeds, instead of telling the customer we cannot read their photo.
+      for (const retryModel of [modelToCall, 'gemini-2.5-flash-lite']) {
+        if (![429, 500, 503].includes(response.status)) break;
+        await new Promise(resolve => setTimeout(resolve, 700));
+        modelToCall = retryModel;
+        url = `${this.baseUrl}/${modelToCall}:generateContent?key=${this.apiKey}`;
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
+        });
+      }
     } catch (fetchErr: any) {
       clearTimeout(timeoutId);
       const latencyMs = Date.now() - startTime;

@@ -168,6 +168,11 @@ export function buildConversationContext(params: BuildConversationContextParams)
   } else if (detectedLang === 'ar' && previousLang === 'darija' && !MSA_MARKERS.test(params.currentMessageText || '')) {
     // A name, address or number in Arabic script is not a switch to MSA.
     effectiveLanguage = 'darija';
+  } else if ((detectedLang === 'fr' || detectedLang === 'en') && previousLang === 'darija'
+    && (params.contextData as any)?._script === 'arabizi'
+    && /(?<![\p{L}\d])(?:w|l|f|fi|dyal|dial|dyali|wach|wash|bghit|chno|chnou|3la|m3a|bch7al|ch7al|kifach|fin|ila|daba|safi|wakha|mzyan|bzaf|chi|hna|lia|liya|lik|3ndkom|kayn|kayna)(?![\p{L}\d])/iu.test(params.currentMessageText || '')) {
+    // "w livraison l Marrakech?" in an Arabizi conversation is still Darija, written with French nouns.
+    effectiveLanguage = 'darija';
   } else {
     effectiveLanguage = detectedLang || previousLang || accountLang || 'en';
   }

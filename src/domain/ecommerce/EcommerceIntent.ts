@@ -157,6 +157,21 @@ export class EcommerceIntentParser {
     'فالأصفر': 'Yellow',
     'بالالأصفر': 'Yellow',
 
+    // Feminine / Darija / Arabizi forms customers actually write ("سبرديلة حمرا", "k7la", "noire").
+    noire: 'Black', blanche: 'White', verte: 'Green', grise: 'Grey', bleue: 'Blue', jaunes: 'Yellow',
+    'كحلة': 'Black', 'كحلا': 'Black', 'الكحلة': 'Black', 'سوداء': 'Black', 'سودا': 'Black', 'كحال': 'Black',
+    'بيضا': 'White', 'بيضاء': 'White', 'البيضا': 'White', 'بيضة': 'White',
+    'حمرا': 'Red', 'حمراء': 'Red', 'الحمرا': 'Red', 'حمورية': 'Red',
+    'زرقا': 'Blue', 'زرقاء': 'Blue', 'الزرقا': 'Blue',
+    'خضرا': 'Green', 'خضراء': 'Green', 'الخضرا': 'Green',
+    'صفرا': 'Yellow', 'صفراء': 'Yellow', 'الصفرا': 'Yellow',
+    'رمادية': 'Grey', 'رصاصي': 'Grey', 'رصاصية': 'Grey',
+    k7la: 'Black', ka7la: 'Black', k7al: 'Black', lk7la: 'Black',
+    byed: 'White', byad: 'White', byda: 'White', bida: 'White', lbyed: 'White', lbyda: 'White',
+    '7mer': 'Red', '7mar': 'Red', '7mra': 'Red', 'l7mer': 'Red', 'l7mra': 'Red', hmer: 'Red', hmra: 'Red',
+    zre9: 'Blue', zra9: 'Blue', zr9a: 'Blue', zer9a: 'Blue', zreq: 'Blue', zarqa: 'Blue', lzre9: 'Blue',
+    khder: 'Green', khdar: 'Green', khdra: 'Green', lkhder: 'Green',
+    sfer: 'Yellow', sfar: 'Yellow', sfra: 'Yellow', lsfer: 'Yellow',
     keshel: 'Black',
     k7el: 'Black',
     lk7el: 'Black',
@@ -282,8 +297,8 @@ export class EcommerceIntentParser {
     'كحل', 'بيض', 'حمر', 'زرق', 'أسود', 'أبيض', 'أحمر', 'أزرق', 'رمادي', 'خضر', 'صفر', 'الكحل', 'الأسود', 'فالأسود', 'بالأسود', 'فالكحل', 'بالكحل',
     'size', 'taille', 'pointure', 'قياس', 'المقاس', 'حجم', 'الحجم', 'نمرة', 'the', 'le', 'la', 'les', 'one', 'in', 'en', 'f', 'is', 'it', 'its', 'now', 'currently', 'and', 'et',
     'video', 'videos', 'vidéo', 'vidéos', 'lvideo', 'l-video', 'fvideo', 'f-video', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 'pictures', 'clip', 'clips',
-    'tsawer', 'tswira', 'tsawir', 'tsawar',
-    'فيديو', 'فيديوهات', 'فديو', 'مقطع', 'مقاطع', 'صور', 'صورة', 'تصوير', 'تصاور', 'تصويرة',
+    'tsawer', 'tswira', 'tsawir', 'tsawar', 'tswirto', 'tswirtha', 'tswirtou', 'tsawrou',
+    'فيديو', 'فيديوهات', 'فديو', 'مقطع', 'مقاطع', 'صور', 'صورة', 'تصوير', 'تصاور', 'تصويرة', 'تصويرتو', 'تصويرتها', 'صورته', 'صورتها', 'تصاورو',
     '40', '41', '42', '43', '44', '45', '46', '47', '48', 's', 'm', 'l', 'xl', 'xxl',
     'و', 'في', 'ديال', 'ديالو', 'ديالها', 'واش', 'واش كاين', 'كاين', 'متوفر', 'كاينين', 'شنو', 'وشنو', 'هاد', 'هذا', 'هدا', 'هادي', 'هدي', 'هادو', 'هادوك', 'هادشي', 'عليه', 'عليها', 'منو', 'منها',
     'دابا', 'الان', 'الآن', 'المادة', 'المميزات', 'ميزات', 'مميزات', 'خصائص', 'مواصفات', 'تفاصيل', 'معلومات', 'كثر', 'أكثر', 'الأول', 'الاول', 'الأولى', 'الاولى', 'الثاني', 'التاني', 'الثانية', 'التانية', 'الثالث', 'التالت', 'الثالثة', 'التالتة', 'ثمن', 'الثمن', 'سعر', 'السعر',
@@ -519,7 +534,7 @@ export class EcommerceIntentParser {
 
     if (['اول', 'أول', 'اولى', 'أولى', 'تاني', 'ثاني', 'تانية', 'ثانية', 'تالت', 'ثالث', 'تالتة', 'ثالثة', 'premier', 'premiere', 'première', 'deuxieme', 'deuxième', 'troisieme', 'troisième', 'first', 'second', 'third'].includes(lower)) return true;
 
-    if (['و', 'في', 'فـ', 'ف', 'بـ', 'ب', 'لـ', 'ل', 'من', 'عن', 'مع', 'على', 'ديال', 'dyal', 'dial', 'de', 'du', 'des', 'en', 'in', 'at', 'on', 'with', 'for', 'and', 'et', 'f', 'b', 'l', 'm3a', '3la', 'sur', 'pour', 'dans', 'of', 'made', 'to', 'is', 'are', 'was', 'were', 'our', 'your', 'my', 'its', 'sa', 'son', 'ses', 'vos', 'nos', 'leur', 'leurs', 'moi', 'toi', 'nous', 'vous', 'eux', 'ولا', 'او', 'أو', 'أم', 'ام', 'اللي', 'لي', 'عندكم', 'عندك', 'عندنا', 'zippe', 'zippee', 'zippees', 'zippes', 'zippé', 'zippée', 'zippées', 'zippés', 'video', 'videos', 'vidéo', 'vidéos', 'lvideo', 'l-video', 'fvideo', 'f-video', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 'pictures', 'clip', 'clips', 'tsawer', 'tswira', 'tsawir', 'tsawar', 'فيديو', 'فيديوهات', 'فديو', 'مقطع', 'مقاطع', 'صور', 'صورة', 'تصوير', 'تصاور', 'تصويرة'].includes(lower)) return true;
+    if (['و', 'في', 'فـ', 'ف', 'بـ', 'ب', 'لـ', 'ل', 'من', 'عن', 'مع', 'على', 'ديال', 'dyal', 'dial', 'de', 'du', 'des', 'en', 'in', 'at', 'on', 'with', 'for', 'and', 'et', 'f', 'b', 'l', 'm3a', '3la', 'sur', 'pour', 'dans', 'of', 'made', 'to', 'is', 'are', 'was', 'were', 'our', 'your', 'my', 'its', 'sa', 'son', 'ses', 'vos', 'nos', 'leur', 'leurs', 'moi', 'toi', 'nous', 'vous', 'eux', 'ولا', 'او', 'أو', 'أم', 'ام', 'اللي', 'لي', 'عندكم', 'عندك', 'عندنا', 'zippe', 'zippee', 'zippees', 'zippes', 'zippé', 'zippée', 'zippées', 'zippés', 'video', 'videos', 'vidéo', 'vidéos', 'lvideo', 'l-video', 'fvideo', 'f-video', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 'pictures', 'clip', 'clips', 'tsawer', 'tswira', 'tsawir', 'tsawar', 'tswirto', 'tswirtha', 'tswirtou', 'tsawrou', 'فيديو', 'فيديوهات', 'فديو', 'مقطع', 'مقاطع', 'صور', 'صورة', 'تصوير', 'تصاور', 'تصويرة'].includes(lower)) return true;
 
     if (['منتج', 'المنتج', 'منتوج', 'المنتوج', 'منتجات', 'المنتجات', 'منتوجات', 'المنتوجات', 'سلعة', 'السلعة', 'حاجة', 'الحاجة', 'موديل', 'الموديل', 'بياسة', 'البياسة', 'قطعة', 'القطعة', 'produit', 'produits', 'lproduit', 'l-produit', 'article', 'articles', 'item', 'items', 'product', 'products', 'hadchi', 'هادا'].includes(lower)) return true;
 
@@ -594,10 +609,10 @@ export class EcommerceIntentParser {
     const anaphoraRegex = /(?:^|\s|[.,!?;:()،؟])(?:had|hada|hadi|hadchi|hado|hadok|dyalo|dyalha|dyalhom|3lih|3liha|mno|mnha|fih|fiha|ce|cet|cette|ces|ceci|cela|ça|ca|celui-ci|celui-la|celui-là|celle-ci|celle-la|celle-là|celui|celle|ceux|celles|it|this|that|these|those|هاد|هذا|هدا|هادا|هادي|هدي|هادو|هادوك|هادشي|ديالو|ديالها|ديالهم|منو|منها|منهم|عليه|عليها|عليهم|فيه|فيها|فيهم|واحد|وحدة|ديك|داك)(?:$|\s|[.,!?;:()،؟])/giu;
     cleaned = cleaned.replace(anaphoraRegex, ' ');
 
-    const leadingMediaPrefixRegex = /^(?:videos?|clips?|vidéos?|l-?video|f-?video|tsawer|tswira|tsawir|photos?|pictures?|images?|pics?|فيديو|فيديوهات|فديو|مقطع|مقاطع|صور|صورة|تصوير|تصاور|تصويرة)\s+(?:of|de|du|d'|dial|dyal|ديال|حول|pour)?\s*/iu;
+    const leadingMediaPrefixRegex = /^(?:videos?|clips?|vidéos?|l-?video|f-?video|tsawer|tswira|tsawir|tswirto|tswirtha|tswirtou|photos?|pictures?|images?|pics?|فيديو|فيديوهات|فديو|مقطع|مقاطع|صور|صورة|تصويرتو|تصويرتها|صورته|صورتها|تصوير|تصاور|تصويرة)\s+(?:of|de|du|d'|dial|dyal|ديال|حول|pour)?\s*/iu;
     cleaned = cleaned.replace(leadingMediaPrefixRegex, '');
 
-    const trailingMediaSuffixRegex = /\s+(?:of|de|du|d'|dial|dyal|ديال)?\s*(?:videos?|clips?|vidéos?|l-?video|f-?video|tsawer|tswira|tsawir|photos?|pictures?|images?|pics?|فيديو|فيديوهات|فديو|مقطع|مقاطع|صور|صورة|تصوير|تصاور|تصويرة)\s*$/iu;
+    const trailingMediaSuffixRegex = /\s+(?:of|de|du|d'|dial|dyal|ديال)?\s*(?:videos?|clips?|vidéos?|l-?video|f-?video|tsawer|tswira|tsawir|tswirto|tswirtha|tswirtou|photos?|pictures?|images?|pics?|فيديو|فيديوهات|فديو|مقطع|مقاطع|صور|صورة|تصويرتو|تصويرتها|صورته|صورتها|تصوير|تصاور|تصويرة)\s*$/iu;
     cleaned = cleaned.replace(trailingMediaSuffixRegex, '');
 
     cleaned = cleaned.replace(/^[?؟,،.!;:()[\]{}'"]+|[?؟,،.!;:()[\]{}'"]+$/g, '').trim();
@@ -959,7 +974,9 @@ export class EcommerceIntentParser {
     const BUY_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:i\s+want\s+to\s+(?:buy|order|purchase|take|get|checkout)|want\s+to\s+(?:buy|order|purchase|take|get)|i\s+wanna\s+(?:buy|order|purchase)|i['’]?d\s+like\s+to\s+(?:buy|order|purchase)|can\s+i\s+(?:buy|order|purchase|take|get)|how\s+to\s+(?:buy|order)|place\s+an?\s+order|buy\s+(?:this|it|that|the|a|one)|order\s+(?:this|it|that|the|a|one)|purchase\s+(?:this|it|that|the|a|one)|je\s+veux\s+(?:acheter|commander|prendre|nchri|nechri|ncommandi)|j['’]aimerais\s+(?:acheter|commander)|comment\s+(?:acheter|commander)|passer\s+commande|(?:bghit|bghina|baghi|baghya|ana\s+bghit)\s+(?:nchri|nechri|nshri|chri|ncommandi|ncommander|commandi|nkomandi|nkomander|komandi|nkhod|nakhod|khod|acheter|commander|buy|order|take|get)(?:h|ha)?|(?:wach\s+)?(?:n9der|nqder|ne9der)\s+(?:nchri|nechri|nshri|ncommandi|nkomandi|nkhod)(?:h|ha)?|(?:kifash|kifesh)\s+(?:nchri|nechri|ncommandi|ncommander|nkomandi)|(?:nchri|nechri|nshri|ncommandi|nkomandi)\s+(?:hadchi|hada|hadi|had|had\s+lproduit|had\s+l-produit|this|it|that)|(?:أريد|اريد|أود|اود|بغي[ـت]?|باغي|باغية)\s+(?:شراء(?:ه|ها)?|الشراء|[أا]ن\s+[أا]شتري(?:ه|ها)?|[أا]ن\s+[أا]طلب(?:و|ها)?|[أا]شتري(?:ه|ها)?|نشتري(?:ه|ها)?|[أا]طلب(?:و|ها)?|الطلب|طلب(?:و|ها)?|نشري(?:ه|ها)?|نطلب(?:و|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|ناخد(?:و|ها)?|ناخذ(?:و|ها)?|buy|order|take|get|acheter|commander)|(?:س[أا]شتري|ساشتري|س[أا]طلب|ساطلب|سوف\s+[أا]شتري|سوف\s+اشتري|سوف\s+[أا]طلب|سوف\s+اطلب)(?:ه|ها)?|(?:واش\s+)?نقدر\s+(?:نشري(?:ه|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|نطلب(?:و|ها)?|ناخد(?:و|ها)?)|كيفية\s+(?:الشراء|الطلب)|كيفاش\s+(?:نشري(?:ه|ها)?|نكوموندي(?:ه|ها)?|نكموندي(?:ه|ها)?|نطلب(?:و|ها)?)|كيف\s+[أا]شتري|كيف\s+[أا]طلب)(?:$|\s|[.,!?;:()،؟])/iu;
 
     const FRENCH_PURCHASE_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:je\s+(?:voudrais|vais)\s+(?:acheter|commander|prendre)|je\s+passe\s+commande)(?:$|\s|[.,!?;:()،؟])/iu;
-    const isBuyIntent = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && !isActionNegated(trimmed, 'purchase') && (
+    // "Which size should I take?" asks for advice (size guide), it is not an order.
+    const asksSizeAdvice = /(?:which|what|quel(?:le)?s?|chmn|chmen|achmen|ashmen|ach|شمن|اشمن|أشمن|أي|اي|شنو|ما)\s+(?:size|pointure|taille|nmra|nemra|n[e]?mra|9yas|qyas|مقاس|المقاس|نمرة|النمرة|قياس)/iu.test(lower);
+    const isBuyIntent = !asksSizeAdvice && !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && !isActionNegated(trimmed, 'purchase') && (
       IntentTriggerLibrary.has(trimmed, 'PURCHASE') || BUY_PATTERNS.test(lower) || FRENCH_PURCHASE_PATTERNS.test(lower)
     );
 
@@ -992,7 +1009,7 @@ export class EcommerceIntentParser {
     const DETAIL_PATTERNS = /(?:^|\s|[.,!?;:()،؟])(?:tell me about|details for|details|what is|parle-moi de|détails sur|détails|plus d'infos|شنو هو|معلومات على|معلومات أكثر|معلومات كثر|معلومات|تفاصيل|عطيني تفاصيل|وريني تفاصيل|تفاصيل ديال|شنو المادة|المادة ديالو|المميزات ديالو|المميزات|خصائص|مواصفات|نعرف عليه كثر|نعرف كثر|3tini details|details dyal|bghit n3rf 3lih kter|n3rf 3lih kter|choufkter)(?:$|\s|[.,!?;:()،؟])/iu;
 
     const isImageRequest = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
-      /(?:^|\s|[.,!?;:()،؟])(?:images?|pictures?|photos?|pics?|voir\s+en\s+photo|صور|صورة|تصوير|شوف\s+الصور|وريني\s+صور|tsawer|tswira|tsawir|chof\s+tsawer|wrini\s+tsawer|تصاور|تصويرة)(?:$|\s|[.,!?;:()،؟])/iu.test(lower)
+      /(?:^|\s|[.,!?;:()،؟])(?:images?|pictures?|photos?|pics?|voir\s+en\s+photo|صور|صورة|تصويرتو|تصويرتها|صورته|صورتها|تصوير|شوف\s+الصور|وريني\s+صور|tsawer|tswira|tsawir|tswirto|tswirtha|tswirtou|chof\s+tsawer|wrini\s+tsawer|تصاور|تصويرة)(?:$|\s|[.,!?;:()،؟])/iu.test(lower)
     );
 
     const isVideoRequest = !matchesPolicyPhrase(lower, KNOWLEDGE_POLICY_TERMS) && (
@@ -1009,7 +1026,7 @@ export class EcommerceIntentParser {
 
     if (isDetailIntent) {
       let cleanKeywords = trimmed
-        .replace(/^(?:daba\s+)?(?:بغيت نعرف عليه كثر|بغيت نعرف كثر|بغيت نعرف|نعرف عليه كثر|نعرف كثر|bghit n3rf 3lih kter|bghit n3rf kter|n3rf 3lih kter|وريني|وروني|عطيني|عطوني|شوف|3tini|werini|wrini|chof|chouf|donne-moi|montre-moi|tell me about|show me(?:\s+a|\s+the)?|watch(?:\s+the)?|voir(?:\s+la)?|regarde|donne|donnez|montre|montrez)?\s*(?:details|détails|معلومات|تفاصيل|صور|صورة|تصاور|تصويرة|فيديو|فيديوهات|فديو|مقطع|video|videos?|vidéo|vidéos?|l-?video|f-?video|photos?|pictures?|images?|pics?)?\s*(?:3la|sur|about|حول|de|du|d'|le|la|les|the|al-|ال|للـ|لل|pour|dyal|dial|of(?:\s+the)?|from)?\s*/iu, '')
+        .replace(/^(?:daba\s+)?(?:بغيت نعرف عليه كثر|بغيت نعرف كثر|بغيت نعرف|نعرف عليه كثر|نعرف كثر|bghit n3rf 3lih kter|bghit n3rf kter|n3rf 3lih kter|وريني|وروني|عطيني|عطوني|شوف|3tini|werini|wrini|chof|chouf|donne-moi|montre-moi|tell me about|show me(?:\s+a|\s+the)?|watch(?:\s+the)?|voir(?:\s+la)?|regarde|donne|donnez|montre|montrez)?\s*(?:details|détails|معلومات|تفاصيل|صور|صورة|تصويرتو|تصويرتها|صورته|صورتها|تصاور|تصويرة|فيديو|فيديوهات|فديو|مقطع|video|videos?|vidéo|vidéos?|l-?video|f-?video|photos?|pictures?|images?|pics?)?\s*(?:3la|sur|about|حول|de|du|d'|le|la|les|the|al-|ال|للـ|لل|pour|dyal|dial|of(?:\s+the)?|from)?\s*/iu, '')
         .replace(/\b(?:the|le|la|les|al-|ال|one|un|une|واحد|second|first|third|1st|2nd|3rd|deuxieme|deuxième|premier|premiere|الأول|الاول|الثاني|الثالث|lwel|lowel)\b/giu, '')
         .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
         .trim();
@@ -1048,7 +1065,7 @@ export class EcommerceIntentParser {
     const DISCOVERY_PATTERNS = [
       /(?:^|\s|[.,!?;:()،؟])(show me|find|search|do you have|do you sell|looking for|i want|i need|i'm looking for|i am looking for|what products|any products|browse|catalog|catalogue)(?:$|\s|[.,!?;:()،؟])/iu,
       /(?:^|\s|[.,!?;:()،؟])(montre-moi|montrez-moi|chercher|je cherche|avez-vous|vous avez|vendez-vous|quels sont les produits|catalogue|voir les)(?:$|\s|[.,!?;:()،؟])/iu,
-      /(?:^|\s|[.,!?;:()،؟])(بغيت|نقلب على|كنقلب على|أريد|اريد|ابحث عن|أبحث عن|وريني|وروني|شوف|عندكم|واش عندكم|واش كاين|واش كاينين|كاين شي|كاينين شي|المنتجات|المنتوجات|السلعة|كتبيعو|كاينين)(?:$|\s|[.,!?;:()،؟])/iu,
+      /(?:^|\s|[.,!?;:()،؟])(لديكم|هل لديكم|تبيعون|هل تبيعون|ماذا تبيعون|تتوفرون على|بغيت|نقلب على|كنقلب على|أريد|اريد|ابحث عن|أبحث عن|وريني|وروني|شوف|عندكم|واش عندكم|واش كاين|واش كاينين|كاين شي|كاينين شي|المنتجات|المنتوجات|السلعة|كتبيعو|كاينين)(?:$|\s|[.,!?;:()،؟])/iu,
       /(?:^|\s|[.,!?;:()،؟])(bghit|bghina|kayn chi|kaynin chi|3ndkom|3ndkoum|3ndkm|andkom|andkoum|wach 3ndkom|wash 3ndkom|wrini|werini|chof|kan9leb|kanqleb|katbi3o)(?:$|\s|[.,!?;:()،؟])/iu,
       /(?:^|\s|[.,!?;:()،؟])(products|produits|منتجات|منتوجات|سلعة|حوايج|hoodie|hoodies|t-shirt|tshirt|t-shirts|tshirts|jacket|jackets|shoes|sweat|sweats|veste|vestes|tricot|tricots|capuchon|pull|هودي|هوديات|تيشورت|تيشورتات|تيشيرت|تيشيرتات|جاكيت|جاكيط|جاكيتات|أحذية|احذية|قميص|قمصان|collection|كوليكسيون)(?:$|\s|[.,!?;:()،؟])/iu
     ];
@@ -1063,6 +1080,7 @@ export class EcommerceIntentParser {
       const cleanKeywords = trimmed
         .replace(/^(?:salam|salut|bonjour|hello|hi|hey|ahlan|السلام عليكم|سلام|أهلا|اهلا|صباح الخير|مساء الخير)[،,\s]+/iu, '')
         .replace(/^(?:show me|find|search for|do you have|do you sell|looking for|i want|i need|i'm looking for|chercher|je cherche|montre-moi|montrez-moi|avez-vous|وريني|وروني|واش عندكم|عندكم|بغيت شي|بغيت|أريد|اريد|ابحث عن|bghit chi|bghit|3ndkom chi|3ndkom|andkom chi|andkom|wach 3ndkom|wash 3ndkom|wrini|werini|kayn chi|kaynin chi)\s+/iu, '')
+        .replace(/^(?:wach |wash |واش )?(?:katbi3o|katbi3ou|kat bi3o|katbi3ow|كتبيعو|كتبيعوا|vous vendez|vendez-vous|هل تبيعون|تبيعون)\s+/iu, '')
         .replace(/(?:under|less than|moins de|اقل من|أقل من|ما يفوتش)\s*\d+(?:\.\d+)?(?:\s*(?:mad|usd|eur|درهم))?/giu, '')
         .replace(/[?؟,،.!;:()[\]{}'"]/g, '')
         .trim();

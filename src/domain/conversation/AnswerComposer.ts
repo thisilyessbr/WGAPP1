@@ -503,8 +503,19 @@ export class AnswerComposer {
   /**
    * Composes deterministic authoritative Ecommerce response strictly respecting language and script.
    */
+  /** Reply when the customer sent a photo of something the catalog does not have (never asks for a photo again). */
+  private static photoNotInCatalog(lang: string, script: string): string {
+    if (lang === 'fr') return `Désolé, nous n'avons pas cet article dans notre boutique. Dites-moi ce que vous cherchez et je vérifie notre catalogue.`;
+    if (lang === 'ar') return `عذراً، هذا المنتج غير متوفر في متجرنا. أخبرني بما تبحث عنه وسأتحقق من الكتالوج.`;
+    if (lang === 'darija') return script === 'arabizi'
+      ? `Smeh liya, had l-produit makaynch 3ndna f l-magasin. Goul liya chno katgelleb 3lih w nchouf lik f l-catalogue.`
+      : `سمح ليا، هاد المنتوج ما كاينش عندنا فالمحل. قول ليا شنو كتقلب عليه ونشوف ليك فالكاتالوج.`;
+    return `Sorry, we don't have this item in our store. Tell me what you're looking for and I'll check our catalog.`;
+  }
+
   public static composeEcommerce(context: AnswerContext): string {
     const { turnDecision, productFacts, responseLanguage, responseScript } = context;
+    const photoTurn = /\(photo: [^)]+\)/.test(`${context.userMessage || ''} ${turnDecision.inputQuery || ''}`);
 
     // Extract and attach media to request context
     const media = this.extractMedia({
@@ -607,6 +618,7 @@ export class AnswerComposer {
         }).join('\n');
         return `${header}\n\n${listStr}`;
       } else {
+        if (photoTurn) return this.photoNotInCatalog(responseLanguage, responseScript);
         const kw = this.getSearchTarget(turnDecision, responseLanguage, responseScript);
         if (responseLanguage === 'fr') {
           return kw ? `Désolé, nous n'avons pas d'articles correspondant à "${kw}" actuellement dans notre catalogue.` : `Désolé, aucun produit ne correspond à votre recherche dans notre catalogue.`;
@@ -627,6 +639,7 @@ export class AnswerComposer {
     // 3. Single Product Fact (PRICE, AVAILABILITY, PRODUCT_DETAIL, VARIANT_SELECTION)
     const fact = Array.isArray(productFacts) ? productFacts[0] : productFacts;
     if (!fact) {
+      if (photoTurn) return this.photoNotInCatalog(responseLanguage, responseScript);
       if (responseLanguage === 'fr') {
         return `Je ne suis pas sûr de l'article dont vous parlez. Pouvez-vous m'envoyer son nom ou une photo ?`;
       }

@@ -368,7 +368,9 @@ export class ProductRepository {
       }
 
       const combined = searchableTexts.join(' ');
-      const isMatch = searchTerms.some(term => combined.includes(term));
+      // A number alone ("15" from "iPhone 15") must not match "15W" or "80x150" when the query has words.
+      const wordTerms = searchTerms.filter(term => !/^\d+$/.test(term));
+      const isMatch = (wordTerms.length ? wordTerms : searchTerms).some(term => combined.includes(term));
       if (isMatch) {
         localizedMatches.push(prod);
         matchedIds.add(prod.id);

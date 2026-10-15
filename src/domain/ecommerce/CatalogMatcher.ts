@@ -54,6 +54,7 @@ taille pointure numero nmra nemra
 لي ليا لي ديال ديالكم ديالي ديالو ديالها من في على عن الى إلى مع هاد هادا هادي هذا هذه ذلك تلك صورة صور تصويرة تصاور الصورة الصور تصوير شوف وريني
 مقاس المقاس مقاسات قياس القياس نمرة النمرة لون اللون ألوان الألوان من فضلك عافاك عفاك الله يخليك سلام السلام عليكم مرحبا أهلا اهلا شكرا بزاف
 وكم وشحال الي إلى الى توصيل التوصيل ليفريزون شحن الشحن مادة صنع الثوب ثوب جودة
+له لها ليه ليها ديالو ديالها تصويرتو تصويرتها صورته صورتها أرسل أرسلي ابعث dyalo dyalha tswirto tswirtha tswirtou
 `.trim().split(/\s+/)));
 
 const ARABIC_SKELETON: Record<string, string> = {
@@ -136,7 +137,9 @@ function tokenScore(q: string, p: string): number {
   if (qa === pa) return 3;
   const qCon = conceptsOf(q), pCon = conceptsOf(p);
   for (const c of qCon) if (pCon.has(c)) return 2.5;
-  if (q.length >= 4 && p.length >= 4 && (p.startsWith(q) || q.startsWith(p))) return 2.5;
+  // A customer may type the start of a name ("cafta") or add a plural ending ("baskets"), but a short
+  // product word must not match the start of a longer, different word ("mini" in "minimalist").
+  if (q.length >= 4 && p.length >= 4 && (p.startsWith(q) || (q.startsWith(p) && q.length - p.length <= 2))) return 2.5;
   const qs = skeleton(q), ps = skeleton(p);
   if (qs.length >= 3 && qs === ps) return 2;
   if (qs.length >= 4 && ps.length >= 4 && (qs.startsWith(ps) || ps.startsWith(qs))) return 1.5;
@@ -174,6 +177,9 @@ export class CatalogMatcher {
     for (const q of query) {
       let best = 0;
       for (const field of fields) for (const p of field.tokens) best = Math.max(best, tokenScore(q, p) * field.weight);
+      // A word written exactly as in the product name ("runner" in "Runner Atlas") outweighs a synonym ("runner" ≈ "sport"),
+      // so a big catalog sharing words like "Atlas" still finds the one product the customer named.
+      if (fields[0].tokens.some(p => p === q || stripArabizi(p) === stripArabizi(q))) best += 1;
       total += best;
     }
     return total;

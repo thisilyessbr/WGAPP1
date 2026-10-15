@@ -82,7 +82,9 @@ export class EcommerceService {
 
     // Resolve variant if size/color specified or if SKU was a variant SKU
     let selectedVariant: ProductVariant | null = null;
-    let availableStock = product.stock;
+    // Products sold in sizes/colours keep their stock on the options; the product row may say 0.
+    const liveVariants = (product.variants || []).filter(v => (v as any).active !== false);
+    let availableStock = liveVariants.length ? liveVariants.reduce((sum, v) => sum + v.stock, 0) : product.stock;
     const isVariantRequested = Boolean(identifier.size || (identifier.color && identifier.color !== 'ALL'));
 
     if (isVariantRequested) {
@@ -182,7 +184,7 @@ export class EcommerceService {
     options?: { maxPrice?: number; color?: string; size?: string; category?: string; limit?: number }
   ): Promise<ProductLookupResult[]> {
     if (!tenantId || !accountId) return [];
-    const products = await this.productRepo.search({
+    let products = await this.productRepo.search({
       tenantId,
       accountId,
       query,
@@ -192,6 +194,18 @@ export class EcommerceService {
       category: options?.category,
       limit: options?.limit || 5
     });
+    // Literal search misses cross-language words ("shoes" vs "Chaussures", "sbrdilat" vs "Basket"):
+    // fall back to the catalog matcher and keep the products about as relevant as the best one.
+    const rankText = [query, options?.category].filter(Boolean).join(' ').trim();
+    if (!products.length && rankText && typeof (this.productRepo as any).catalogIndex === 'function') {
+      const ranked = CatalogMatcher.rank(rankText, await (this.productRepo as any).catalogIndex(tenantId, accountId));
+      const relevant = ranked.filter(m => m.score >= ranked[0]?.score - 1).slice(0, 25);
+      const loaded = (await Promise.all(relevant.map(m => this.productRepo.findById(tenantId, accountId, m.product.id)))).filter(Boolean) as typeof products;
+      products = loaded.filter(p => !(typeof options?.maxPrice === 'number' && options.maxPrice > 0 && Number(p.price) > options.maxPrice)
+        && (!options?.color && !options?.size || p.variants.some(v => (!options?.size || v.size?.toLowerCase() === options.size.toLowerCase())
+          && (!options?.color || (v.color && this.matchesColor(v.color, options.color))))))
+        .slice(0, options?.limit || 5);
+    }
 
     return products.map(product => {
       const hasVariantFilter = Boolean(options?.color || options?.size);
@@ -202,9 +216,11 @@ export class EcommerceService {
         }) : [];
       const selectedVariant: ProductVariant | null = matchingVariants.length === 1 ? matchingVariants[0] : null;
 
+      // A product sold in sizes/colours keeps its stock on the options, not on the product itself.
+      const activeVariants = product.variants.filter(v => (v as any).active !== false);
       const availableStock = hasVariantFilter
         ? matchingVariants.reduce((sum, variant) => sum + variant.stock, 0)
-        : product.stock;
+        : activeVariants.length ? activeVariants.reduce((sum, variant) => sum + variant.stock, 0) : product.stock;
       const effectivePrice = selectedVariant?.priceOverride
         ? Number(selectedVariant.priceOverride)
         : Number(product.price);

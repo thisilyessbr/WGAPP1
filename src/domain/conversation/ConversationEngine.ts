@@ -1018,8 +1018,11 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     let resolvedWorkflowRoute: WorkflowRouteDecision = { kind: 'NONE' };
     const normalizedInput = (payload.text || content).trim().toLowerCase();
 
+    // The reply language comes from what the customer typed, never from the (English) photo description.
+    const languageText = routed.imageAnalysis ? (payload.text || '').trim() : content;
+
     // 3.5 Content Safety Guard: Check before GreetingRouter, FAQ, Workflow, RAG, and LLM
-    const detectedLang = LanguageDetector.detect(content);
+    const detectedLang = LanguageDetector.detect(languageText);
     const safetyResult = ContentSafetyGuard.evaluate(content, detectedLang);
 
     // Build canonical ConversationContext foundation for the current turn (bounded max 4 recent turns)
@@ -1031,7 +1034,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       conversationId: conversation.id,
       language: detectedLang,
       accountLanguage: config.identity?.language,
-      currentMessageText: content,
+      currentMessageText: languageText,
       activeSession: activeSession
         ? {
             workflowId: activeSession.workflowId,
@@ -1053,7 +1056,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       : effectiveLang === 'ar' ? 'arabic'
       : configuredScript && configuredScript !== 'auto'
       ? configuredScript
-      : conversationContext.effectiveScript || DirectRagGuard.detectScript(content, effectiveLang);
+      : conversationContext.effectiveScript || DirectRagGuard.detectScript(languageText || content, effectiveLang);
     // Customers name products in Darija/Arabic/Arabizi while catalogs are
     // usually French or English; resolve the named product against the live
     // catalog before routing so the turn reaches the product facts.
@@ -2175,8 +2178,9 @@ Check again: the business-owner evidence above lists the business's policies, se
               // candidate. With several matches, ask the customer to choose.
               if (!fact && turnDecision.category && !turnDecision.productName
                 && ['PRICE', 'AVAILABILITY', 'BUY_INTENT', 'VARIANT_SELECTION'].includes(turnDecision.intent)) {
+                // Rank the category by what the customer wrote or photographed ("sneaker" → baskets, not babouches).
                 const candidates = await this.ecommerceService.searchProducts(
-                  tenantId, targetAccountId, undefined, effectiveLang,
+                  tenantId, targetAccountId, routingText || content, effectiveLang,
                   { category: turnDecision.category, limit: 3 }
                 );
                 if (candidates.length === 1) {
