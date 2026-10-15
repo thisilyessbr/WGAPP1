@@ -1,4 +1,4 @@
-import { BusinessConfig, DEFAULT_BUSINESS_CONFIG } from '../domain/tenant/BusinessConfig';
+import { BusinessConfig, DEFAULT_BUSINESS_CONFIG, CLIENT_WORKFLOW_MESSAGE_KEYS } from '../domain/tenant/BusinessConfig';
 import { BusinessData, DEFAULT_PLAN_LIMITS, EMPTY_BUSINESS, PlanLimits, PortalError, PortalPlan } from './types';
 import { resolveDeepSeekModel } from '../core/llm/DeepSeekProvider';
 import { safeFieldPattern } from '../core/engine/SafeFieldPattern';
@@ -113,8 +113,8 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     }
   }
   if (config.prompts) {
-    allowed(config.prompts, Object.keys(DEFAULT_BUSINESS_CONFIG.prompts));
-    const localized = ['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded'];
+    allowed(config.prompts, [...Object.keys(DEFAULT_BUSINESS_CONFIG.prompts), ...CLIENT_WORKFLOW_MESSAGE_KEYS]);
+    const localized = ['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded', ...CLIENT_WORKFLOW_MESSAGE_KEYS];
     for (const [key, value] of Object.entries(config.prompts)) {
       if (localized.includes(key) && typeof value === 'object') stringMap(value);
       else text(value, 20000);

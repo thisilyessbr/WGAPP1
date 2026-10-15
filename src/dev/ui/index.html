@@ -455,6 +455,75 @@
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+            <!-- Small workflow messages: empty = built-in text for that language -->
+            <div>
+              <label style="margin-top: 0;">Unclear Answer (before asking again)</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-unclearReprompt active" onclick="switchPromptLang('unclearReprompt', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-unclearReprompt" onclick="switchPromptLang('unclearReprompt', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-unclearReprompt" onclick="switchPromptLang('unclearReprompt', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-unclearReprompt" onclick="switchPromptLang('unclearReprompt', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-unclearReprompt-en" class="prompt-content-unclearReprompt"><textarea id="v_unclearReprompt_en" style="height: 60px;" placeholder="Empty = built-in: Sorry, I didn't quite get that 🙏" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-unclearReprompt-fr" class="prompt-content-unclearReprompt" style="display:none;"><textarea id="v_unclearReprompt_fr" style="height: 60px;" placeholder="Empty = built-in: Sorry, I didn't quite get that 🙏" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-unclearReprompt-ar" class="prompt-content-unclearReprompt" style="display:none;"><textarea id="v_unclearReprompt_ar" style="height: 60px;" placeholder="Empty = built-in: Sorry, I didn't quite get that 🙏" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-unclearReprompt-darija" class="prompt-content-unclearReprompt" style="display:none;"><textarea id="v_unclearReprompt_darija" style="height: 60px;" placeholder="Empty = built-in: Sorry, I didn't quite get that 🙏" oninput="syncVisualToJson()"></textarea></div>
+            </div>
+            <div>
+              <label style="margin-top: 0;">Yes/No Hint (unclear confirmation)</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-confirmHint active" onclick="switchPromptLang('confirmHint', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-confirmHint" onclick="switchPromptLang('confirmHint', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-confirmHint" onclick="switchPromptLang('confirmHint', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-confirmHint" onclick="switchPromptLang('confirmHint', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-confirmHint-en" class="prompt-content-confirmHint"><textarea id="v_confirmHint_en" style="height: 60px;" placeholder="Empty = built-in: Just reply yes or no 🙂" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-confirmHint-fr" class="prompt-content-confirmHint" style="display:none;"><textarea id="v_confirmHint_fr" style="height: 60px;" placeholder="Empty = built-in: Just reply yes or no 🙂" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-confirmHint-ar" class="prompt-content-confirmHint" style="display:none;"><textarea id="v_confirmHint_ar" style="height: 60px;" placeholder="Empty = built-in: Just reply yes or no 🙂" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-confirmHint-darija" class="prompt-content-confirmHint" style="display:none;"><textarea id="v_confirmHint_darija" style="height: 60px;" placeholder="Empty = built-in: Just reply yes or no 🙂" oninput="syncVisualToJson()"></textarea></div>
+            </div>
+            <div>
+              <label style="margin-top: 0;">Unknown Question During a Workflow</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-collectFallback active" onclick="switchPromptLang('collectFallback', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-collectFallback" onclick="switchPromptLang('collectFallback', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-collectFallback" onclick="switchPromptLang('collectFallback', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-collectFallback" onclick="switchPromptLang('collectFallback', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-collectFallback-en" class="prompt-content-collectFallback"><textarea id="v_collectFallback_en" style="height: 60px;" placeholder="Empty = built-in: I don't have a confirmed answer to that yet; our team can tell you more. Let's continue:" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-collectFallback-fr" class="prompt-content-collectFallback" style="display:none;"><textarea id="v_collectFallback_fr" style="height: 60px;" placeholder="Empty = built-in: I don't have a confirmed answer to that yet; our team can tell you more. Let's continue:" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-collectFallback-ar" class="prompt-content-collectFallback" style="display:none;"><textarea id="v_collectFallback_ar" style="height: 60px;" placeholder="Empty = built-in: I don't have a confirmed answer to that yet; our team can tell you more. Let's continue:" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-collectFallback-darija" class="prompt-content-collectFallback" style="display:none;"><textarea id="v_collectFallback_darija" style="height: 60px;" placeholder="Empty = built-in: I don't have a confirmed answer to that yet; our team can tell you more. Let's continue:" oninput="syncVisualToJson()"></textarea></div>
+            </div>
+            <div>
+              <label style="margin-top: 0;">Invalid Email</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-invalidEmail active" onclick="switchPromptLang('invalidEmail', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-invalidEmail" onclick="switchPromptLang('invalidEmail', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-invalidEmail" onclick="switchPromptLang('invalidEmail', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-invalidEmail" onclick="switchPromptLang('invalidEmail', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-invalidEmail-en" class="prompt-content-invalidEmail"><textarea id="v_invalidEmail_en" style="height: 60px;" placeholder="Empty = built-in: Hmm, that doesn't look like an email 🤔 Could you send it like name@gmail.com?" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-invalidEmail-fr" class="prompt-content-invalidEmail" style="display:none;"><textarea id="v_invalidEmail_fr" style="height: 60px;" placeholder="Empty = built-in: Hmm, that doesn't look like an email 🤔 Could you send it like name@gmail.com?" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-invalidEmail-ar" class="prompt-content-invalidEmail" style="display:none;"><textarea id="v_invalidEmail_ar" style="height: 60px;" placeholder="Empty = built-in: Hmm, that doesn't look like an email 🤔 Could you send it like name@gmail.com?" oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-invalidEmail-darija" class="prompt-content-invalidEmail" style="display:none;"><textarea id="v_invalidEmail_darija" style="height: 60px;" placeholder="Empty = built-in: Hmm, that doesn't look like an email 🤔 Could you send it like name@gmail.com?" oninput="syncVisualToJson()"></textarea></div>
+            </div>
+            <div>
+              <label style="margin-top: 0;">Invalid Phone Number</label>
+              <div class="faq-lang-tabs" style="margin-top: 4px;">
+                <div class="faq-lang-tab prompt-tab-invalidPhone active" onclick="switchPromptLang('invalidPhone', 'en')">EN</div>
+                <div class="faq-lang-tab prompt-tab-invalidPhone" onclick="switchPromptLang('invalidPhone', 'fr')">FR</div>
+                <div class="faq-lang-tab prompt-tab-invalidPhone" onclick="switchPromptLang('invalidPhone', 'ar')">AR</div>
+                <div class="faq-lang-tab prompt-tab-invalidPhone" onclick="switchPromptLang('invalidPhone', 'darija')">Darija</div>
+              </div>
+              <div id="prompt-invalidPhone-en" class="prompt-content-invalidPhone"><textarea id="v_invalidPhone_en" style="height: 60px;" placeholder="Empty = built-in: Please type a valid phone number." oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-invalidPhone-fr" class="prompt-content-invalidPhone" style="display:none;"><textarea id="v_invalidPhone_fr" style="height: 60px;" placeholder="Empty = built-in: Please type a valid phone number." oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-invalidPhone-ar" class="prompt-content-invalidPhone" style="display:none;"><textarea id="v_invalidPhone_ar" style="height: 60px;" placeholder="Empty = built-in: Please type a valid phone number." oninput="syncVisualToJson()"></textarea></div>
+              <div id="prompt-invalidPhone-darija" class="prompt-content-invalidPhone" style="display:none;"><textarea id="v_invalidPhone_darija" style="height: 60px;" placeholder="Empty = built-in: Please type a valid phone number." oninput="syncVisualToJson()"></textarea></div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
             <!-- Image Fallback (Multilingual) -->
             <div>
               <label style="margin-top: 0;">Image Disabled Fallback (Multilingual)</label>
@@ -2594,6 +2663,7 @@
       populateLocalizedPrompt(currentConfig.prompts?.postCompletionClosing, 'postCompletionClosing');
       populateLocalizedPrompt(currentConfig.prompts?.postCompletionFallback, 'postCompletionFallback');
       populateLocalizedPrompt(currentConfig.prompts?.imageFallback, 'imageFallback');
+      for (const key of ['unclearReprompt', 'confirmHint', 'collectFallback', 'invalidEmail', 'invalidPhone']) populateLocalizedPrompt(currentConfig.prompts?.[key], key);
       document.getElementById('v_knowledgePrompt').value = currentConfig.prompts?.knowledge || '';
       document.getElementById('v_workflowPrompt').value = currentConfig.prompts?.workflow || '';
       document.getElementById('v_workflowUnavailablePrompt').value = currentConfig.prompts?.workflowUnavailable || '';
@@ -2740,6 +2810,11 @@
       config.prompts.postCompletionClosing = readLocalizedPrompt('postCompletionClosing', config.prompts.postCompletionClosing);
       config.prompts.postCompletionFallback = readLocalizedPrompt('postCompletionFallback', config.prompts.postCompletionFallback);
       config.prompts.imageFallback = readLocalizedPrompt('imageFallback', config.prompts.imageFallback);
+      // Empty fields are left out so the built-in text for that language is used.
+      for (const key of ['unclearReprompt', 'confirmHint', 'collectFallback', 'invalidEmail', 'invalidPhone']) {
+        const value = readLocalizedPrompt(key, config.prompts[key]);
+        if (value && (typeof value !== 'object' || Object.keys(value).length)) config.prompts[key] = value; else delete config.prompts[key];
+      }
       config.prompts.knowledge = document.getElementById('v_knowledgePrompt').value;
       config.prompts.workflow = document.getElementById('v_workflowPrompt').value;
       config.prompts.workflowUnavailable = document.getElementById('v_workflowUnavailablePrompt').value;

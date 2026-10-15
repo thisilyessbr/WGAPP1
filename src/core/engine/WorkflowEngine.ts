@@ -1,5 +1,5 @@
 import { WorkflowSession } from '@prisma/client';
-import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
+import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, WorkflowChoiceOption, resolveLocalizedPrompt, clientWorkflowMessage } from '../../domain/tenant/BusinessConfig';
 import { WorkflowStateEvaluator } from './WorkflowStateEvaluator';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, DEFAULT_WORKFLOW_MESSAGES, DEFAULT_CANCELLED_VALUES, defaultWorkflowValues, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
@@ -825,7 +825,7 @@ export class WorkflowEngine {
             currentContext['_consecutiveUnmatched'] = unclearCount;
             // "Sorry, I didn't get that" + the question; the second time the question alone, so the reply never repeats word for word.
             const unclearResponse = unclearCount === 1
-              ? `${getWorkflowMessage('unclearReprompt', lang, script)}\n\n${currentCollectPrompt}`
+              ? `${clientWorkflowMessage(businessConfig, 'unclearReprompt', lang, getWorkflowMessage('unclearReprompt', lang, script), script)}\n\n${currentCollectPrompt}`
               : currentCollectPrompt;
             return finishAndReturn({
               updatedContext: currentContext,
@@ -1010,7 +1010,7 @@ export class WorkflowEngine {
           const defaultCollectVals = defaultWorkflowValues('collectFallback');
           const rawCollectFallback = (businessConfig.prompts as any)?.collectFallback;
           const fallbackMsg = rawCollectFallback && (!defaultCollectVals.includes(rawCollectFallback) || typeof rawCollectFallback === 'object')
-            ? resolveLocalizedPrompt(rawCollectFallback, lang, defaultCollectFallback, script)
+            ? clientWorkflowMessage(businessConfig, 'collectFallback', lang, defaultCollectFallback, script)
             : defaultCollectFallback;
           return answerAndContinue(fallbackMsg);
         }
@@ -1020,7 +1020,7 @@ export class WorkflowEngine {
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script)}\n\n${currentCollectPrompt}`,
+            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script, businessConfig)}\n\n${currentCollectPrompt}`,
             isComplete: false,
             updatedStateHistory: history,
             updatedCollectedData: collectedData
@@ -1075,7 +1075,7 @@ export class WorkflowEngine {
           return finishAndReturn({ updatedContext: currentContext, nextStateId: null, response, isComplete: true, updatedCollectedData: collectedData });
         } else {
           // Neither yes nor no: a short hint, then the question again.
-          response = `${getWorkflowMessage('confirmHint', lang, script)}\n\n${this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script)}`;
+          response = `${clientWorkflowMessage(businessConfig, 'confirmHint', lang, getWorkflowMessage('confirmHint', lang, script), script)}\n\n${this.responseBuilder.buildConfirmationResponse(currentContext, businessConfig, stateConfig, lang, script)}`;
           return finishAndReturn({ updatedContext: currentContext, nextStateId, response, isComplete, updatedCollectedData: collectedData });
         }
       }

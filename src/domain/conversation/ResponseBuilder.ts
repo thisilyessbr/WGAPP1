@@ -1,4 +1,4 @@
-import { BusinessConfig, WorkflowStateConfig, resolveLocalizedPrompt } from '../../domain/tenant/BusinessConfig';
+import { BusinessConfig, WorkflowStateConfig, resolveLocalizedPrompt, clientWorkflowMessage } from '../../domain/tenant/BusinessConfig';
 
 export const DEFAULT_WORKFLOW_MESSAGES = {
   missingField: {
@@ -216,7 +216,7 @@ export class ResponseBuilder {
     return template.replace('{{fieldName}}', fieldName);
   }
 
-  buildValidationErrorResponse(error: string, lang: string = 'en', script?: string): string {
+  buildValidationErrorResponse(error: string, lang: string = 'en', script?: string, config?: BusinessConfig | null): string {
     const languageKey = lang === 'darija' && script === 'arabic' ? 'darija_arabic' : lang;
     const values = error.match(/-?\d+(?:\.\d+)?/g) || [];
     const firstValue = values[0] || '';
@@ -271,7 +271,10 @@ export class ResponseBuilder {
       : error.startsWith('Value must be at most') ? 'max'
       : error === 'Value must be a valid date.' ? 'date'
       : 'format';
-    return messages[languageKey]?.[key] || error;
+    const builtIn = messages[languageKey]?.[key] || error;
+    if (key === 'email') return clientWorkflowMessage(config, 'invalidEmail', lang, builtIn, script);
+    if (key === 'phone') return clientWorkflowMessage(config, 'invalidPhone', lang, builtIn, script);
+    return builtIn;
   }
 
   /**

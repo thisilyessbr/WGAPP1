@@ -46,6 +46,29 @@ export type LocalizedPrompt = string | {
   [key: string]: string | undefined;
 };
 
+/** Small workflow messages each client can reword in the admin; empty means the built-in text. */
+export const CLIENT_WORKFLOW_MESSAGE_KEYS = ['collectFallback', 'unclearReprompt', 'confirmHint', 'invalidEmail', 'invalidPhone'] as const;
+export type ClientWorkflowMessageKey = typeof CLIENT_WORKFLOW_MESSAGE_KEYS[number];
+
+/**
+ * The client's own text for this language only, else the built-in one. Unlike
+ * resolveLocalizedPrompt it never falls back to the client's English text, so a
+ * French customer is not answered in English because only EN was filled in.
+ */
+export function clientWorkflowMessage(config: BusinessConfig | null | undefined, key: ClientWorkflowMessageKey, lang: string, builtIn: string, script?: string): string {
+  const prompt = (config?.prompts as any)?.[key] as LocalizedPrompt | undefined;
+  if (!prompt) return builtIn;
+  if (typeof prompt === 'string') return lang === 'en' && prompt.trim() ? prompt.trim() : builtIn;
+  if (lang === 'darija') {
+    const candidate = (script === 'arabic' || script === 'arabizi') ? (prompt[`darija_${script}`] || prompt.darija) : prompt.darija;
+    if (!candidate?.trim()) return builtIn;
+    if (script === 'arabic' || script === 'arabizi') return /[\u0621-\u064A]/.test(candidate) === (script === 'arabic') ? candidate.trim() : builtIn;
+    return candidate.trim();
+  }
+  const own = prompt[lang];
+  return typeof own === 'string' && own.trim() ? own.trim() : builtIn;
+}
+
 export function resolveLocalizedPrompt(
   prompt: LocalizedPrompt | undefined,
   lang: string,
@@ -146,6 +169,11 @@ export interface PromptsConfig {
   postCompletionFallback?: LocalizedPrompt;
   imageFallback?: LocalizedPrompt;
   limitExceeded?: LocalizedPrompt;
+  collectFallback?: LocalizedPrompt;
+  unclearReprompt?: LocalizedPrompt;
+  confirmHint?: LocalizedPrompt;
+  invalidEmail?: LocalizedPrompt;
+  invalidPhone?: LocalizedPrompt;
   intentClassification: string;
   fieldExtraction: string;
   workflowUnavailable: string;

@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { TenantConfigService } from './TenantConfigService';
-import { BusinessConfig, resolveLocalizedPrompt } from './BusinessConfig';
+import { BusinessConfig, resolveLocalizedPrompt, CLIENT_WORKFLOW_MESSAGE_KEYS } from './BusinessConfig';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 interface ConfigOverrideContext {
@@ -118,7 +118,7 @@ export class AccountConfigService {
     if (overrides.prompts && typeof overrides.prompts === 'object' && !Array.isArray(overrides.prompts)) {
       for (const [key, value] of Object.entries(overrides.prompts)) {
         if (value === null || value === undefined) continue;
-        if (['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded'].includes(key)) {
+        if (['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded', ...CLIENT_WORKFLOW_MESSAGE_KEYS].includes(key)) {
           if (typeof value === 'object' && !Array.isArray(value)) {
             const current = typeof (merged.prompts as any)[key] === 'object' ? (merged.prompts as any)[key] : { en: (merged.prompts as any)[key] };
             (merged.prompts as any)[key] = { ...current, ...value };
