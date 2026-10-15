@@ -810,6 +810,26 @@ describe('Phase 3B: Merchant Inbox Backend & Human Takeover Integration Tests', 
       // Adapter should not be called again because dedupe dropped second job
       expect(mockOutboundAdapter.sendTextMessage).toHaveBeenCalledTimes(1);
     });
+
+    it('does not reply from another business number when the inbound number is paused', async () => {
+      const m = await createMerchantFixture('m-number-paused');
+      const { conversation } = await createConversationWithCustomer(m.tenantId, m.accountId, '212688888889', undefined, 'HUMAN_ACTIVE');
+      await prisma.message.create({ data: {
+        tenantId: m.tenantId, conversationId: conversation.id, role: 'USER',
+        phoneNumberId: m.phoneNumberId, content: 'Hello', createdAt: new Date()
+      } });
+      await prisma.whatsAppBusinessNumber.update({ where: { phoneNumberId: m.phoneNumberId }, data: { enabled: false } });
+      await prisma.whatsAppBusinessNumber.create({ data: {
+        tenantId: m.tenantId, accountId: m.accountId, phoneNumberId: `phone-${randomUUID().slice(0, 8)}`,
+        status: 'CONNECTED', enabled: true
+      } });
+
+      const res = await request(app).post(`/api/client/conversations/${conversation.id}/messages`)
+        .set(m.authHeaders).send({ text: 'A manual reply' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('NO_CONNECTED_PHONE_NUMBER');
+      expect(mockOutboundAdapter.sendTextMessage).not.toHaveBeenCalled();
+    });
   });
 
   // ==========================================

@@ -864,17 +864,19 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
 
     // Precondition 3: Resolve connected WhatsApp number. Reply from the number the customer
     // last wrote to, so a client with two numbers never answers from the other one.
+    const inboundNumberRows = await store.db.$queryRaw<Array<{ phoneNumberId: string }>>`
+      SELECT m."phoneNumberId" FROM "Message" m
+      WHERE m."conversationId" = ${conversationId} AND m."tenantId" = ${tenantId}
+        AND m.role = 'USER' AND m."phoneNumberId" IS NOT NULL
+      ORDER BY m."createdAt" DESC LIMIT 1
+    `;
+    const inboundPhoneNumberId = inboundNumberRows[0]?.phoneNumberId || null;
     const numberRows = await store.db.$queryRaw<any[]>`
       SELECT n."phoneNumberId", n.status, n.enabled
       FROM "WhatsAppBusinessNumber" n
       WHERE n."tenantId" = ${tenantId} AND n."accountId" = ${accountId} AND n.enabled = true
-      ORDER BY n."phoneNumberId" = (
-          SELECT m."phoneNumberId" FROM "Message" m
-          WHERE m."conversationId" = ${conversationId} AND m."tenantId" = ${tenantId}
-            AND m.role = 'USER' AND m."phoneNumberId" IS NOT NULL
-          ORDER BY m."createdAt" DESC LIMIT 1
-        ) DESC NULLS LAST,
-        n.status = 'CONNECTED' DESC, n."updatedAt" DESC
+        AND (${inboundPhoneNumberId}::text IS NULL OR n."phoneNumberId" = ${inboundPhoneNumberId})
+      ORDER BY n.status = 'CONNECTED' DESC, n."updatedAt" DESC
       LIMIT 1
     `;
     const connectedNumber = numberRows[0];
