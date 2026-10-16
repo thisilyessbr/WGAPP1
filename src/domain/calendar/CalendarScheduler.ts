@@ -30,6 +30,7 @@ export interface CalendarEvent { id: string; summary: string; description: strin
 export interface CalendarProvider {
   busy(calendarId: string, fromIso: string, toIso: string): Promise<BusyRange[]>;
   createEvent(calendarId: string, event: CalendarEvent): Promise<{ id: string }>;
+  cancelEvent?(calendarId: string, eventId: string): Promise<void>;
 }
 export interface OfferedSlot { start: string; end: string; label: string }
 
@@ -185,6 +186,15 @@ export const CALENDAR_MESSAGES = {
     'هذه الأوقات المتاحة {day}:\n{slots}\nما الوقت الذي يناسبك؟', 'واخا! عندنا هاد الأوقات المتاحة {day}:\n{slots}\nشنو الوقت اللي يناسبك؟', 'Wakha! 3ndna had lw9at li khawyin {day}:\n{slots}\nChmen w9t li ynasbek?'),
   noSlots: M('Sorry, {day} is fully booked. Which other day suits you?', 'Désolé, {day} est complet. Quel autre jour vous convient ?',
     'عذرًا، {day} محجوز بالكامل. ما اليوم الآخر الذي يناسبك؟', 'سمح ليا، {day} عامر. شنو نهار آخر اللي يناسبك؟', 'Smeh lia, {day} 3amer. Chmen nhar akhor li ynasbek?'),
+  closed: M('Sorry, we are closed {day}. Which other day suits you?', 'Désolé, nous sommes fermés {day}. Quel autre jour vous convient ?',
+    'عذرًا، نحن مغلقون {day}. ما اليوم الآخر الذي يناسبك؟', 'سمح ليا، ما خدامينش {day}. شنو نهار آخر اللي يناسبك؟', 'Smeh lia, ma khddaminch {day}. Chmen nhar akhor li ynasbek?'),
+  chosen: M('Great, {when}.', 'Parfait, {when}.', 'ممتاز، {when}.', 'مزيان، {when}.', 'Mzyan, {when}.'),
+  appointment: M('Your appointment is {when} ✅ If you want to change it, tell me the new day.', 'Votre rendez-vous est {when} ✅ Pour le changer, dites-moi le nouveau jour.',
+    'موعدك {when} ✅ إذا أردت تغييره، أخبرني باليوم الجديد.', 'الموعد ديالك {when} ✅ إلا بغيتي تبدلو، قول ليا النهار الجديد.', 'Lmaw3id dyalek {when} ✅ Ila bghiti tbdlo, goul lia nhar jdid.'),
+  reschedule: M('No problem. Your appointment is {when} for now. Which new day suits you?', 'Pas de souci. Votre rendez-vous est {when} pour l’instant. Quel nouveau jour vous convient ?',
+    'لا مشكلة. موعدك حاليًا {when}. ما اليوم الجديد الذي يناسبك؟', 'ماشي مشكل. الموعد ديالك دابا {when}. شنو النهار الجديد اللي يناسبك؟', 'Machi mochkil. Lmaw3id dyalek daba {when}. Chmen nhar jdid li ynasbek?'),
+  moved: M('✅ Done, your appointment is moved to {when}. See you then!', '✅ C’est fait, votre rendez-vous est déplacé à {when}. À bientôt !',
+    '✅ تم، نُقل موعدك إلى {when}. نراك قريبًا!', '✅ صافي، تبدل الموعد ديالك ل{when}. نتلاقاو إن شاء الله!', '✅ Safi, tbdel lmaw3id dyalek l {when}. Ntla9aw nchallah!'),
   askDay: M('Which day suits you? For example tomorrow, Monday or 20/10.', 'Quel jour vous convient ? Par exemple demain, lundi ou le 20/10.',
     'ما اليوم الذي يناسبك؟ مثلًا غدًا أو الاثنين أو 20/10.', 'شنو النهار اللي يناسبك؟ مثلا غدا، التنين ولا 20/10.', 'Chmen nhar li ynasbek? Matalan ghda, letnin wla 20/10.'),
   pickSlot: M('Please choose one of these times:\n{slots}', 'Merci de choisir un de ces créneaux :\n{slots}', 'من فضلك اختر أحد هذه الأوقات:\n{slots}',
@@ -230,6 +240,19 @@ export const slotList = (slots: OfferedSlot[], lang?: string, script?: string) =
 export class CalendarScheduler {
   constructor(private provider: CalendarProvider, private clock: () => Date = () => new Date()) {}
   now() { return this.clock(); }
+
+  /** False on days the business does not work (so the customer hears "closed", not "fully booked"). */
+  isWorkingDay(config: CalendarConfig, day: string): boolean {
+    return settings(config).workingDays.includes(weekdayOf(day));
+  }
+
+  /** Cancels an earlier booking (when an appointment is moved). Providers without cancellation keep the event. */
+  async cancel(config: CalendarConfig, eventId: string): Promise<boolean> {
+    const c = settings(config);
+    if (!this.provider.cancelEvent) return false;
+    try { await this.provider.cancelEvent(c.calendarId, eventId); return true; }
+    catch (error: any) { logger.warn(`CalendarScheduler: cancel failed: ${error?.message || error}`); return false; }
+  }
 
   async freeSlots(config: CalendarConfig, day: string): Promise<OfferedSlot[]> {
     const c = settings(config);
@@ -356,6 +379,9 @@ export class FakeCalendarProvider implements CalendarProvider {
     if (this.events.some(event => event.calendarId === calendarId && event.id === e.id)) throw new Error('CALENDAR_EVENT_CONFLICT');
     this.events.push({ calendarId, ...e });
     return { id: e.id };
+  }
+  async cancelEvent(calendarId: string, eventId: string) {
+    this.events = this.events.filter(e => !(e.calendarId === calendarId && e.id === eventId));
   }
 }
 

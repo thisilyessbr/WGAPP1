@@ -14,6 +14,9 @@ import { PolicyEvidenceReuse, CANONICAL_POLICY_INTENTS } from '../rag/PolicyEvid
 import { PolicyAnswerSafety } from '../rag/PolicyAnswerSafety';
 import { ChunkClassifier } from '../rag/ChunkQuality';
 import { ContentSafetyGuard } from '../safety/ContentSafetyGuard';
+import { ConversationReplyGuard } from './ConversationReplyGuard';
+import { calendarMessage, parseDay } from '../calendar/CalendarScheduler';
+import { asksAppointment, asksReschedule, explicitTime } from '../../core/engine/WorkflowCalendar';
 import { LanguageDetector } from '../faq/FaqMatcher';
 import { FaqAnswerPolicy } from '../faq/FaqAnswerPolicy';
 import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES, DEFAULT_OPEN_REQUEST_MESSAGES } from '../tenant/BusinessConfig';
@@ -768,6 +771,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
   ): Promise<string> {
     const turnStartTime = Date.now();
     const correlationId = TelemetryClient.createCorrelationId();
+    // Workflow completed earlier in this conversation; the reply guard never invites the customer to start it again.
+    let completedWorkflowIdForGuard: string | null = null;
     let responseSource: 'FAQ' | 'SERVICE' | 'RAG' | 'LLM' | 'WORKFLOW' | 'IMAGE' | 'FALLBACK' | 'GREETING' | 'CAP' | 'ECOMMERCE' | 'HANDOFF' | 'HUMAN_AGENT' | 'SAFETY_GUARD' = 'FALLBACK';
     let contextDataUpdate: Record<string, any> | null = null;
 
@@ -1380,10 +1385,45 @@ Store menu match (verified by this business's own menu and wording list, not a s
       const previousCompletedSession = hasWorkflowsConfigured
         ? await this.conversationService.getLatestCompletedSession(tenantId, conversation.id)
         : null;
+      completedWorkflowIdForGuard = (previousCompletedSession as any)?.workflowId || null;
+
+      // A booked appointment stays known after the flow: "when is it?" gets the booked time, and a request to move it
+      // reopens the day / time steps of the same session (the old time is freed once the new one is booked). This runs
+      // before any FAQ or AI answer, so generic knowledge ("demos are only requests") can never contradict the booking.
+      const booked = previousCompletedSession as any;
+      const bookedData = (booked?.collectedData || {}) as Record<string, any>;
+      const bookedFlow = bookedData?._booked === true && bookedData._slotWhen ? (config.workflows || {})[booked.workflowId] : undefined;
+      let bookingHandled = false;
+      if (bookedFlow && asksReschedule(content)) {
+        const stepOf = (kind: string) => Object.entries(bookedFlow.states).find(([, st]) => (st as any).calendar === kind)?.[0];
+        const dayStep = stepOf('day'), slotStep = stepOf('slots');
+        if (dayStep && slotStep) {
+          bookingHandled = true;
+          responseSource = 'WORKFLOW';
+          const scheduling = { _calendarDay: bookedData._calendarDay, _offeredSlots: undefined, _slotStart: undefined, _slotEnd: undefined, _slotLabel: undefined, _booked: false, _rescheduleOf: bookedData._bookingId };
+          // "tbdel lia l 16:00": same day, new time. "ba3d ghda": a new day. Otherwise ask for the new day.
+          const names = { day: Boolean(parseDay(content, new Date(), (config as any).calendar?.timezone || 'Africa/Casablanca')), time: explicitTime(content) };
+          const reopened = { ...booked, status: 'ACTIVE', stateId: names.time && !names.day ? slotStep : dayStep,
+            collectedData: { ...bookedData, ...scheduling }, contextData: { ...(booked.contextData || {}), _started: true, _lang: effectiveLang, _script: effectiveScript } };
+          if (names.day || names.time) {
+            const result = await this.workflowEngine.process(reopened, content, bookedFlow, config, llm, llmOptions, this.ragService, correlationId, effectiveLang, effectiveScript, conversation.accountId);
+            sessionUpdatePayload = { sessionId: booked.id, stateId: result.nextStateId || reopened.stateId, contextData: result.updatedContext, status: result.isComplete ? 'COMPLETED' : 'ACTIVE',
+              stateHistory: result.updatedStateHistory ?? booked.stateHistory, collectedData: result.updatedCollectedData ?? reopened.collectedData };
+            response = result.response;
+          } else {
+            sessionUpdatePayload = { sessionId: booked.id, stateId: dayStep, contextData: reopened.contextData, status: 'ACTIVE', stateHistory: booked.stateHistory, collectedData: reopened.collectedData };
+            response = calendarMessage('reschedule', effectiveLang, effectiveScript, { when: String(bookedData._slotWhen) });
+          }
+        }
+      } else if (bookedFlow && asksAppointment(content)) {
+        bookingHandled = true;
+        responseSource = 'WORKFLOW';
+        response = calendarMessage('appointment', effectiveLang, effectiveScript, { when: String(bookedData._slotWhen) });
+      }
 
       // Evaluate whether the current message explicitly triggers a new workflow (e.g. re-booking or new workflow)
       let postCompletionWorkflowTrigger: WorkflowRouteDecision = { kind: 'NONE' };
-      if (previousCompletedSession && hasWorkflowsConfigured) {
+      if (previousCompletedSession && hasWorkflowsConfigured && !bookingHandled) {
         const normalizedPostCompletionInput = GreetingRouter.normalize(content);
         const postCompletionAcknowledgement = !GreetingRouter.hasQuestionIndicator(content, normalizedPostCompletionInput)
           && GreetingRouter.isAcknowledgement(normalizedPostCompletionInput);
@@ -1468,6 +1508,8 @@ Store menu match (verified by this business's own menu and wording list, not a s
       } else if (postCompletionWorkflowTrigger.kind === 'UNMAPPED_PURCHASE' || postCompletionWorkflowTrigger.kind === 'AMBIGUOUS') {
         response = this.buildUnmappedPurchaseResponse(effectiveLang, effectiveScript);
         responseSource = 'FALLBACK';
+      } else if (bookingHandled) {
+        // Answered above from the booking itself ("when is my appointment?", moving it).
       } else if (previousCompletedSession) {
         // P0.1 / P0.2 §7: Post-completion mode — FAQ -> PDF/RAG -> static canned fallback. 0 LLM calls.
         logger.info(`ConversationEngine: Conversation [${conversation.id}] in post-completion mode (questions answered: ${conversation.postCompletionQuestionCount}/10)`);
@@ -1792,7 +1834,9 @@ Check again: the business-owner evidence above lists the business's policies, se
           answered = true;
           answerText = AnswerComposer.composeAcknowledgement({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
           responseSource = 'GREETING';
-        } else if (!hasQuestion && GreetingRouter.isKnownGreeting(normalizedContent)) {
+        } else if (!hasQuestion && GreetingRouter.isKnownGreeting(normalizedContent)
+          // A business with an auto-start flow greets with that flow's first message: one welcome, not two.
+          && !Object.values(config.workflows || {}).some(wf => wf.activation?.mode === 'auto_start')) {
           logger.info(`ConversationEngine: Deterministic greeting match for "${content}" (lang: ${effectiveLang}, 0 LLM calls)`);
           answered = true;
           answerText = AnswerComposer.composeGreeting({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
@@ -3168,6 +3212,16 @@ Check again: the business-owner evidence above lists the business's policies, se
       response = BusinessHoursClause.append(response, config.identity.businessHours, label, config.limits?.maxResponseLength);
     }
 
+    // 4b. Conversation-level reply rules, whatever produced the reply: no invitation to a flow the customer already
+    // completed, and no near-repeat of the previous reply (a clarifying question instead).
+    response = ConversationReplyGuard.apply(response, {
+      source: responseSource,
+      language: effectiveLang,
+      script: effectiveScript,
+      previousReply: [...(conversationContext.recentTurns || [])].reverse().find(turn => turn.role.toLowerCase() === 'assistant')?.content,
+      completedWorkflow: completedWorkflowIdForGuard ? (config.workflows || {})[completedWorkflowIdForGuard] : undefined
+    });
+
     // 5. Apply central final response boundary enforcing content trust, script invariants, and limits
     response = AnswerComposer.finalizeResponse(response, turnDecision, config,
       { preserveTrailingWorkflowPrompt: responseSource === 'WORKFLOW' });
@@ -3274,7 +3328,11 @@ Check again: the business-owner evidence above lists the business's policies, se
         outboundMedia: outboundMediaContext.getStore()?.media || [],
         externalMessageId: options?.externalMessageId,
         phoneNumberId: options?.phoneNumberId,
-        contextData: { ...(contextDataUpdate || sessionUpdatePayload?.contextData || conversation.contextData as Record<string, any> || {}), _lang: effectiveLang, _script: effectiveScript },
+        // One language record: the language of the reply actually sent. A flow replies in its own language, so the
+        // conversation follows it (otherwise a mixed message mid-flow could switch the next replies after the flow).
+        contextData: { ...(contextDataUpdate || sessionUpdatePayload?.contextData || conversation.contextData as Record<string, any> || {}),
+          _lang: (responseSource === 'WORKFLOW' && sessionUpdatePayload?.contextData?._lang) || effectiveLang,
+          _script: (responseSource === 'WORKFLOW' && sessionUpdatePayload?.contextData?._lang && sessionUpdatePayload.contextData._script) || effectiveScript },
         sessionUpdate: sessionUpdatePayload,
         flagHumanRequested,
         newStatus: conversationStatusOverride,

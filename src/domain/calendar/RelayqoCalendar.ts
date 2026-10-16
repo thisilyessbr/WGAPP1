@@ -167,7 +167,9 @@ export class RelayqoCalendar {
           catch (error: any) { logger.warn(`RelayqoCalendar: copy to Google Calendar failed: ${error?.message || error}`); }
         }
         return { id };
-      }
+      },
+      // Moving an appointment frees the old time. (A copy already sent to Google Calendar stays there.)
+      cancelEvent: async (_calendarId, eventId) => { await this.cancel(tenantId, accountId, eventId); }
     };
   }
 

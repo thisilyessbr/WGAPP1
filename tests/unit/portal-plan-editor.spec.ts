@@ -22,7 +22,8 @@ describe('plan editor presets', () => {
     expect(root.textContent).toContain('No COD workflow is activated just by creating a plan.');
     (root.querySelector('#save-suggested') as HTMLButtonElement).click();
     await new Promise(resolve => setTimeout(resolve,0));
-    expect(created.map(plan => plan.name).sort()).toEqual(['Service Assistant','Sales Assistant','Service Assistant · Instagram','Sales Assistant · Instagram','Service Assistant · QR Pilot','Sales Assistant · QR Pilot'].sort());
+    expect(created.map(plan => plan.name).sort()).toEqual(['Service Assistant','Appointment Assistant','Sales Assistant','Service Assistant · Instagram','Sales Assistant · Instagram','Service Assistant · QR Pilot','Sales Assistant · QR Pilot'].sort());
+    expect(created.find(plan=>plan.name==='Appointment Assistant').modules).toEqual(['knowledge','services','calendar']);
     expect(created.every(plan => plan.published === false)).toBe(true);
     expect(created.find(plan=>plan.name==='Service Assistant').modules).toEqual(['knowledge','services']);
     expect(created.find(plan=>plan.name==='Sales Assistant').modules).toEqual(['knowledge','commerce','images']);

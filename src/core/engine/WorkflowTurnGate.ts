@@ -13,7 +13,10 @@ const CLEAR_QUESTION_OPENERS = new Set([
   'do', 'does', 'is', 'are', 'tell', 'explain', 'comment', 'combien',
   'quel', 'quelle', 'quels', 'quelles', 'wach', 'wash', 'wesh',
   'chhal', 'ch7al', 'kifach', 'kifash', 'chno', 'ashno', 'fin',
-  'est-ce', 'شنو', 'واش', 'كيفاش', 'شحال', 'هل', 'كيف', 'كم', 'متى', 'أين', 'اين'
+  // "t9dr tchr7 lia…" (can you explain…), "momkin…", "chnu…", "3lach…", "pouvez-vous…", "explique…"
+  't9dr', 't9der', 'tqdr', 'tqder', 'momkin', 'mumkin', 'chnu', 'chnou', 'chnou', 'tchr7', 'chr7', '3lach', '3lah', 'imta',
+  'peux', 'pouvez', 'explique', 'expliquez', 'pourquoi', 'quand', 'où',
+  'est-ce', 'شنو', 'واش', 'كيفاش', 'شحال', 'هل', 'كيف', 'كم', 'متى', 'أين', 'اين', 'تقدر', 'ممكن', 'علاش', 'فوقاش', 'امتى', 'إمتى', 'اشرح', 'شرح'
 ]);
 
 function isOneEditAway(value: string, candidate: string): boolean {

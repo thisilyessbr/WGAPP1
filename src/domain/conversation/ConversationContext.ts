@@ -21,6 +21,7 @@ export interface ConversationTurn {
 }
 
 import { SupportedLanguage, LanguageDetector } from '../faq/FaqMatcher';
+import { GreetingRouter } from './GreetingRouter';
 
 /** Words that mark Modern Standard Arabic rather than Darija. */
 const MSA_MARKERS = /(?<![\p{L}])(?:هل|أريد|اريد|نريد|لماذا|ماذا|كيف|أين|متى|اسمي|عنواني|هاتفي|رقمي|الذي|التي|سوف|ليس|لست|نعم|لكم|من فضلك|لو سمحت|يمكنني|يمكنك|أستطيع|هذا|هذه|ذلك|تلك|أيضا|أيضاً|جداً|جدا)(?![\p{L}])/u;
@@ -155,9 +156,18 @@ export function buildConversationContext(params: BuildConversationContextParams)
     ? LanguageDetector.isAmbiguous(params.currentMessageText)
     : (detectedLang === 'en');
 
+  // In an ongoing conversation, one or two words without a question ("merci", "chokrane", "parfait", "ok") are not a
+  // language switch: Moroccan customers mix words from every language. A switch takes a real sentence.
+  const currentWords = (params.currentMessageText || '').split(/[^\p{L}\p{N}@.]+/u).filter(w => /\p{L}/u.test(w)).length;
+  // A greeting in another language ("Hello" after Darija) is a real switch, so it is not a short reaction.
+  const isShortReaction = params.currentMessageText !== undefined && currentWords <= 2 && !/[?؟]/u.test(params.currentMessageText)
+    && (GreetingRouter.isAcknowledgement(GreetingRouter.normalize(params.currentMessageText))
+      || !GreetingRouter.isKnownGreeting(GreetingRouter.normalize(params.currentMessageText)));
+  const keepsPrevious = isAmbiguous || isShortReaction;
+
   let effectiveLanguage: SupportedLanguage;
-  // If previous turn exists and current is ambiguous (e.g. "ok", "yes", punctuation), preserve previous
-  if (previousLang && isAmbiguous) {
+  // If previous turn exists and current is ambiguous (e.g. "ok", "yes", punctuation) or a short reaction, preserve previous
+  if (previousLang && keepsPrevious) {
     effectiveLanguage = previousLang;
   } else if (isAmbiguous && params.accountLanguage && params.currentMessageText !== undefined
     && !/[\p{L}]{2,}/u.test(params.currentMessageText)) {
@@ -170,8 +180,11 @@ export function buildConversationContext(params: BuildConversationContextParams)
     effectiveLanguage = 'darija';
   } else if ((detectedLang === 'fr' || detectedLang === 'en') && previousLang === 'darija'
     && (params.contextData as any)?._script === 'arabizi'
-    && /(?<![\p{L}\d])(?:w|l|f|fi|dyal|dial|dyali|wach|wash|bghit|chno|chnou|3la|m3a|bch7al|ch7al|kifach|fin|ila|daba|safi|wakha|mzyan|bzaf|chi|hna|lia|liya|lik|3ndkom|kayn|kayna)(?![\p{L}\d])/iu.test(params.currentMessageText || '')) {
-    // "w livraison l Marrakech?" in an Arabizi conversation is still Darija, written with French nouns.
+    && (/(?<![\p{L}\d])(?:w|l|f|fi|dyal|dial|dyali|wach|wash|bghit|chno|chnou|3la|m3a|bch7al|ch7al|kifach|fin|ila|daba|safi|wakha|mzyan|bzaf|bzf|chi|hna|lia|liya|lik|3ndkom|kayn|kayna|kaynin|kaynine|ma3ndich|walo)(?![\p{L}\d])/iu.test(params.currentMessageText || '')
+      // A word mixing letters and the Arabizi digits 2/3/5/7/9 ("kat3tlo", "3ndi", "ma9dertch") is Darija.
+      || /(?:\p{L}[23579]|[23579]\p{L})/u.test(params.currentMessageText || ''))) {
+    // "w livraison l Marrakech?" / "kaynin des messages kat3tlo bzf" in an Arabizi conversation is still Darija,
+    // written with French words.
     effectiveLanguage = 'darija';
   } else {
     effectiveLanguage = detectedLang || previousLang || accountLang || 'en';
@@ -180,7 +193,7 @@ export function buildConversationContext(params: BuildConversationContextParams)
   const savedScript = (params.contextData as any)?._script;
   const previousScript: SupportedScript | undefined = ['arabic', 'arabizi', 'latin'].includes(savedScript)
     ? savedScript : lastSubstantiveUserTurn ? DirectRagGuard.detectScript(lastSubstantiveUserTurn.content, previousLang) : undefined;
-  const effectiveScript = isAmbiguous && previousScript
+  const effectiveScript = (isAmbiguous || (isShortReaction && effectiveLanguage === previousLang)) && previousScript
     ? previousScript : DirectRagGuard.detectScript(params.currentMessageText || '', effectiveLanguage);
 
   return {

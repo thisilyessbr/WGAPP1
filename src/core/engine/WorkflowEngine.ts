@@ -200,6 +200,17 @@ export const DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES = {
   darija: 'خلينا نعاودو هاد الطلب من اللول باش ما يتخلط والو. شنو بغيتي دير؟'
 };
 
+/**
+ * The question of a step message: from the last line that asks something to the end. "Welcome! We help shops…
+ * What is your name?" is asked again as "What is your name?". Short messages and messages without a question stay whole.
+ */
+export function questionPart(prompt: string): string {
+  const lines = prompt.split('\n');
+  if (lines.filter(line => line.trim()).length <= 2) return prompt;
+  for (let i = lines.length - 1; i >= 0; i--) if (/[?؟]/u.test(lines[i])) return lines.slice(i).join('\n').trim();
+  return prompt;
+}
+
 export class WorkflowEngine {
   /** Re-prompts for an UNCLEAR collect reply before it is validated as an answer. */
   static readonly MAX_UNCLEAR_REPROMPTS = 2;
@@ -721,6 +732,8 @@ export class WorkflowEngine {
 
         const trimmedMsg = message.trim();
         const currentCollectPrompt = this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang, script);
+        // When the step is asked again, only its question is repeated, never its whole message (a welcome, a pitch).
+        const repeatPrompt = questionPart(currentCollectPrompt);
 
         // 1. Empty / whitespace message validation: reject, reprompt same step, don't store, don't advance
         if (!trimmedMsg) {
@@ -825,8 +838,8 @@ export class WorkflowEngine {
             currentContext['_consecutiveUnmatched'] = unclearCount;
             // "Sorry, I didn't get that" + the question; the second time the question alone, so the reply never repeats word for word.
             const unclearResponse = unclearCount === 1
-              ? `${clientWorkflowMessage(businessConfig, 'unclearReprompt', lang, getWorkflowMessage('unclearReprompt', lang, script), script)}\n\n${currentCollectPrompt}`
-              : currentCollectPrompt;
+              ? `${clientWorkflowMessage(businessConfig, 'unclearReprompt', lang, getWorkflowMessage('unclearReprompt', lang, script), script)}\n\n${repeatPrompt}`
+              : repeatPrompt;
             return finishAndReturn({
               updatedContext: currentContext,
               nextStateId: currentStateId,
@@ -906,7 +919,7 @@ export class WorkflowEngine {
         const answerAndContinue = (answer: string, separator = false): WorkflowResult => mixedTurn && !fieldValidationErr
           ? advanceField(answer)
           : finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
-              response: `${answer}\n\n${separator ? '---\n' : ''}${currentCollectPrompt}`, isComplete: false,
+              response: `${answer}\n\n${separator ? '---\n' : ''}${repeatPrompt}`, isComplete: false,
               updatedStateHistory: history, updatedCollectedData: collectedData });
 
         if (matchedFaqAnswer && this.answerUsesRequestedScript(matchedFaqAnswer, lang, script)) {
@@ -1020,7 +1033,7 @@ export class WorkflowEngine {
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script, businessConfig)}\n\n${currentCollectPrompt}`,
+            response: `${this.responseBuilder.buildValidationErrorResponse(fieldValidationErr, lang, script, businessConfig)}\n\n${repeatPrompt}`,
             isComplete: false,
             updatedStateHistory: history,
             updatedCollectedData: collectedData
