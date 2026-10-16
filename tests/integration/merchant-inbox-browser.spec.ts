@@ -392,7 +392,7 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
     }
   });
 
-  it('1. Inbox navigation link appears in sidebar immediately after Overview', async () => {
+  it('1. Inbox navigation link appears in sidebar immediately after Home', async () => {
     await page.goto(origin + '/app');
     await page.getByRole('heading', { name: /Atlas Crafts/i }).waitFor();
 
@@ -400,7 +400,7 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
     const firstText = await navLinks.nth(0).innerText();
     const secondText = await navLinks.nth(1).innerText();
 
-    expect(firstText).toContain('Overview');
+    expect(firstText).toContain('Home');
     expect(secondText).toContain('Inbox');
     expect(await navLinks.nth(1).getAttribute('href')).toBe('/app/inbox');
   });
@@ -731,7 +731,8 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
     // Navigate to Overview
     await page.goto(origin + '/app');
     await page.getByRole('heading', { name: /Atlas Crafts/i }).waitFor();
-    expect(await page.locator('.dashboard-metric').count()).toBeGreaterThanOrEqual(1);
+    // Home shows the setup checklist, or the four numbers once the account is live.
+    expect(await page.locator('.home-kpi, .home-checklist').count()).toBeGreaterThanOrEqual(1);
 
     // Navigate to Business data
     await page.goto(origin + '/app/business');
