@@ -173,6 +173,14 @@
     if ($('g-disconnect')) $('g-disconnect').onclick = () => { if (confirm('Stop syncing with Google Calendar? Your Relayqo bookings stay.')) reload(() => api('/client/calendar/google', { method: 'DELETE' }), 'Google Calendar disconnected.'); };
     if ($('g-cal')) $('g-cal').onchange = () => { if ($('g-cal').value) reload(() => api('/client/calendar/google', { method: 'PUT', body: JSON.stringify({ calendarId: $('g-cal').value }) }), 'Google Calendar sync saved.'); };
     await draw();
+    // Month and weekday names follow the portal language: redraw when it changes, until the page is left.
+    // The translator re-sets lang on every DOM change, so react only when the value really changes.
+    const shownLang = lang();
+    const watch = new MutationObserver(() => {
+      if (!document.body.contains($('cal-view'))) return watch.disconnect();
+      if (lang() !== shownLang) { watch.disconnect(); render(ctx); }
+    });
+    watch.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
   }
   window.RelayqoCalendar = { render };
 })();

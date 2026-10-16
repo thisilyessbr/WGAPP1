@@ -28,7 +28,7 @@ describe('project audit: persistent isolation and product photos', () => {
   it('protects drafts, validates ownership and publishes stable photo URLs', async () => {
     const uploaded = await photos.upload(owner.userId,owner.accountId,'test.png',await photo());
     expect(await photos.upload(owner.userId,owner.accountId,'duplicate.png',await photo())).toMatchObject({id:uploaded.id,reused:true});
-    expect((await photos.read(uploaded.id,owner.accountId)).length).toBeGreaterThan(0);
+    expect((await photos.read(uploaded.id,owner.accountId)).bytes!.length).toBeGreaterThan(0);
     await expect(photos.read(uploaded.id,other.accountId)).rejects.toMatchObject({code:'IMAGE_NOT_FOUND'});
     await expect(photos.read(uploaded.id,undefined,true)).rejects.toMatchObject({code:'IMAGE_NOT_FOUND'});
     let p=await store.profile(owner.accountId);
@@ -39,7 +39,7 @@ describe('project audit: persistent isolation and product photos', () => {
     p=await store.publish(owner.userId,owner.accountId,p.revision);
     const catalog=await store.db.$queryRaw<any[]>`SELECT metadata FROM "Product" WHERE "accountId"=${owner.accountId} AND active=true`;
     expect(catalog[0].metadata.images[0]).toContain('/api/product-images/'+uploaded.id);
-    expect((await photos.read(uploaded.id,undefined,true)).length).toBeGreaterThan(0);
+    expect((await photos.read(uploaded.id,undefined,true)).bytes!.length).toBeGreaterThan(0);
     p=await store.setEditingFrozen(owner.userId,owner.accountId,true);
     await expect(photos.upload(owner.userId,owner.accountId,'new.png',await photo())).rejects.toMatchObject({code:'CLIENT_EDITING_FROZEN'});
     await expect(photos.remove(owner.userId,owner.accountId,uploaded.id)).rejects.toMatchObject({code:'CLIENT_EDITING_FROZEN'});
