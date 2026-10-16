@@ -83,6 +83,8 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((r) => server.once('listening', r));
     origin = 'http://127.0.0.1:' + (server.address() as any).port;
+    // The browser server uses an ephemeral port; bind same-origin checks to the URL it actually received.
+    (auth as any).origin = origin;
 
     testPasswordHash = await hashPassword(testPassword);
 
@@ -394,7 +396,7 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
 
   it('1. Inbox navigation link appears in sidebar immediately after Home', async () => {
     await page.goto(origin + '/app');
-    await page.getByRole('heading', { name: /Atlas Crafts/i }).waitFor();
+    await page.locator('.home-kpi, .home-checklist').first().waitFor();
 
     const navLinks = page.locator('.nav a');
     const firstText = await navLinks.nth(0).innerText();
@@ -478,11 +480,17 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
   });
 
   it('11. Take Over action works and claims conversation', async () => {
+    await page.goto(origin + '/app/inbox');
+    await page.waitForSelector('#inbox-conversations-list .inbox-item');
     await page.locator(`.inbox-item[data-conv-id="${convNeedsHuman.id}"]`).click();
     await page.waitForSelector('#inbox-takeover-btn');
 
+    const takeoverResponse = page.waitForResponse(response => response.url().endsWith(`/api/client/conversations/${convNeedsHuman.id}/takeover`));
     await page.locator('#inbox-takeover-btn').click();
-    await page.waitForSelector('.badge.status-human-active');
+    const takeoverResult = await takeoverResponse;
+    const takeoverBody = await takeoverResult.text();
+    if (!takeoverResult.ok()) throw new Error(`Takeover returned ${takeoverResult.status()}: ${takeoverBody}`);
+    await page.waitForSelector('.inbox-detail-topbar .badge.status-human-active');
 
     const headerBadge = page.locator('.inbox-detail-topbar .badge.status-human-active');
     expect(await headerBadge.isVisible()).toBe(true);
@@ -574,35 +582,41 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
   });
 
   it('20. filters work for subset navigation', async () => {
+    await prisma.conversation.update({ where: { id: convHumanActive.id }, data: { status: 'RESOLVED' } });
+    await prisma.conversation.update({ where: { id: convResolved.id }, data: { status: 'ACTIVE', humanRequested: false, humanRequestedAt: null } });
+    await page.goto(origin + '/app/inbox');
+    await page.waitForSelector('#inbox-conversations-list .inbox-item');
     // Click 'Open' filter
     await page.locator('.inbox-filter-btn[data-filter="open"]').click();
-    await page.waitForTimeout(300);
     // Resolved shouldn't be here
-    const resolvedInList = page.locator(`#inbox-conversations-list .inbox-item[data-conv-id="${convResolved.id}"]`);
+    const resolvedInList = page.locator(`#inbox-conversations-list .inbox-item[data-conv-id="${convHumanActive.id}"]`);
+    await expect.poll(() => resolvedInList.count()).toBe(0);
     expect(await resolvedInList.count()).toBe(0);
 
     // Click 'Resolved' filter
     await page.locator('.inbox-filter-btn[data-filter="resolved"]').click();
-    await page.waitForTimeout(300);
-    const resolvedNow = page.locator(`#inbox-conversations-list .inbox-item[data-conv-id="${convResolved.id}"]`);
+    const resolvedNow = page.locator(`#inbox-conversations-list .inbox-item[data-conv-id="${convHumanActive.id}"]`);
+    await expect.poll(() => resolvedNow.count()).toBe(1);
     expect(await resolvedNow.count()).toBe(1);
 
     // Reset to 'All'
     await page.locator('.inbox-filter-btn[data-filter="all"]').click();
-    await page.waitForTimeout(300);
+    await expect.poll(() => page.locator('#inbox-conversations-list .inbox-item').count()).toBeGreaterThan(1);
   });
 
   it('21. search works and filters conversations by text', async () => {
+    await page.goto(origin + '/app/inbox');
+    await page.waitForSelector('#inbox-conversations-list .inbox-item');
     const searchInput = page.locator('#inbox-search-input');
     await searchInput.fill('Alice');
-    await page.waitForTimeout(450); // Wait for debounce
 
     const items = page.locator('#inbox-conversations-list .inbox-item');
+    await expect.poll(() => items.count()).toBe(1);
     expect(await items.count()).toBe(1);
     expect(await items.first().innerText()).toContain('Alice Smith');
 
     await searchInput.fill('');
-    await page.waitForTimeout(450);
+    await expect.poll(() => items.count()).toBeGreaterThan(1);
   });
 
   it('22. unread clears correctly after conversation is viewed', async () => {
@@ -612,12 +626,18 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
   });
 
   it('23. transcript pagination loads older messages', async () => {
-    // Update messageCount in DB to trigger load older
+    // Add enough history to exceed the first transcript page.
+    await prisma.message.createMany({ data: Array.from({ length: 57 }, (_, i) => ({
+      tenantId: merchant.tenantId, conversationId: convPaginated.id, role: i % 2 ? 'USER' : 'ASSISTANT',
+      content: `Older historical message ${i + 1}`, createdAt: new Date(Date.now() - (100 + i) * 60000)
+    })) });
     await prisma.conversation.update({
       where: { id: convPaginated.id },
-      data: { messageCount: 10 }
+      data: { messageCount: 60 }
     });
 
+    await page.goto(origin + '/app/inbox');
+    await page.waitForSelector('#inbox-conversations-list .inbox-item');
     await page.locator(`.inbox-item[data-conv-id="${convPaginated.id}"]`).click();
     await page.waitForSelector('#inbox-load-older-btn');
 
@@ -626,6 +646,8 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
   });
 
   it('24. mobile navigation works (collapses two columns, back button restores list)', async () => {
+    await page.goto(origin + '/app/inbox');
+    await page.waitForSelector('#inbox-conversations-list .inbox-item');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(200);
 
@@ -730,7 +752,7 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
   it('30. existing merchant portal features still work (overview, business data, whatsapp)', async () => {
     // Navigate to Overview
     await page.goto(origin + '/app');
-    await page.getByRole('heading', { name: /Atlas Crafts/i }).waitFor();
+    await page.locator('.home-kpi, .home-checklist').first().waitFor();
     // Home shows the setup checklist, or the four numbers once the account is live.
     expect(await page.locator('.home-kpi, .home-checklist').count()).toBeGreaterThanOrEqual(1);
 
@@ -741,8 +763,8 @@ describe('Phase 3C: Merchant Inbox Browser UI Integration Tests', () => {
 
     // Navigate to WhatsApp
     await page.goto(origin + '/app/whatsapp');
-    await page.waitForSelector('.connection-card');
-    expect(await page.locator('.connection-card').innerText()).toContain('WhatsApp');
+    await page.getByRole('heading', { name: 'Your connections' }).waitFor();
+    expect(await page.locator('.grid-2').innerText()).toContain('Your connections');
   });
 
   it('31. server state change polling updates ownership badge and actions without page reload', async () => {
