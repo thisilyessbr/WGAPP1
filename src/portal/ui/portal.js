@@ -66,7 +66,9 @@
       ?kpi('/app/orders?status=ALL','Orders this week',Number(orders?.weekOrders||0),orders?.toConfirm?`${Number(orders.toConfirm)} to confirm`:'All confirmed',Boolean(orders?.toConfirm))
         +kpi('/app/orders?status=ALL','Revenue this week',money(orders?.weekRevenue,orders?.currency),'Cancelled and returned not counted')
       :kpi('/app/leads','Requests to answer',Number(leadCounts.needsAction||0),`${Number(leadCounts.scheduled||0)} planned for later`,Boolean(leadCounts.needsAction))
-        +kpi(calendarInUse?'/app/calendar':'/app/leads','Bookings',Number(outcomes?.confirmedBookings||0),'Last 30 days');
+        +(calendarInUse
+          ?kpi('/app/calendar','Bookings',Number(outcomes?.confirmedBookings||0),'Last 30 days')
+          :kpi('/app/leads','Total requests',Number(leadCounts.total||outcomes?.newLeads||0),'All requests'));
     const questions=missedData?.questions||[];
     const teachCard=questions.length?`<article class="card teach-chatbot-card"><div class="card-title"><div><h2>Questions to teach your bot</h2><p>Customers asked these and your bot had no answer. Add the answer in “What your bot knows”, then mark it done.</p></div><span class="badge orange">${Number(questions.length)}</span></div><div class="teach-questions-list">${questions.map(q=>`<div class="teach-question-row" id="teach-q-${escape(q.id)}"><div class="teach-question-content"><p class="teach-question-text" dir="auto">"${escape(q.question)}"</p><div class="teach-question-meta"><small>${new Date(q.occurredAt).toLocaleDateString()}</small></div></div><button class="btn secondary small resolve-question-btn" data-question-id="${escape(q.id)}">Done</button></div>`).join('')}</div><a class="row-link" href="/app/business" data-route>Open what your bot knows ›</a></article>`:'';
     const steps=[['Business profile',!!d.name&&!!d.description,'Tell your bot what you sell, your delivery and return rules','/app/business'],['Choose a plan',!!p.plan,'Pick the plan that fits your business','/app/plans'],['Connect WhatsApp',connected,'Link the number your customers write to','/app/whatsapp'],['Send for review',!['DRAFT','NEEDS_CHANGES'].includes(p.status),'The Relayqo team checks everything and switches your bot on','/app/business']];
@@ -723,7 +725,9 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
       if(path==='/app/settings')return await clientSettings();
       if(path==='/app/whatsapp')return await whatsapp(connection);
       if(path==='/app/instagram')return await window.RelayqoInstagram.render({root,shell,header,escape,toast,api,bind});
-      if(path==='/app/calendar')return await window.RelayqoCalendar.render({root,shell,header,escape,toast,api,bind});
+      if(path==='/app/calendar')return calendarInUse
+        ? await window.RelayqoCalendar.render({root,shell,header,escape,toast,api,bind})
+        : go('/app',{replace:true});
       if(path==='/app/plans')return await window.RelayqoPlans.renderClient({root,shell,header,escape,toast,api,bind});
       return await clientHome(dashboard);
     }catch(e){

@@ -1287,7 +1287,14 @@
     ['Core chatbot','Chatbot principal','روبوت المحادثة الأساسي'],
     ['Unlimited inbound messages','Messages entrants illimités','رسائل واردة غير محدودة'],
     ['Instagram DM channel (admin enabled)','Canal Instagram DM (activé par l’administrateur)','رسائل إنستغرام الخاصة (بتفعيل المسؤول)'],
-    ['Instagram replies are currently paused by your administrator or plan.','Les réponses Instagram sont suspendues par votre administrateur ou votre forfait.','ردود إنستغرام متوقفة حاليًا بسبب إعدادات المسؤول أو الباقة.']
+    ['Instagram replies are currently paused by your administrator or plan.','Les réponses Instagram sont suspendues par votre administrateur ou votre forfait.','ردود إنستغرام متوقفة حاليًا بسبب إعدادات المسؤول أو الباقة.'],
+    ['Booking calendar and appointments','Calendrier et prise de rendez-vous','تقويم الحجز والمواعيد'],
+    ['Services and customer inquiries','Services et demandes clients','الخدمات واستفسارات العملاء'],
+    ['Appointment Assistant','Assistant de rendez-vous','مساعد المواعيد'],
+    ['Total requests','Total des demandes','إجمالي الطلبات'],
+    ['All requests','Toutes les demandes','جميع الطلبات'],
+    ['Appointment booking calendar','Calendrier de prise de rendez-vous','تقويم حجز المواعيد'],
+    ['Appointment booking & time slots','Prise de rendez-vous et créneaux horaires','حجز المواعيد والفترات الزمنية']
   ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {

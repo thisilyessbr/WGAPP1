@@ -25,9 +25,9 @@ export class PortalLearnedWording {
   }
 
   async list(tenantId: string, accountId: string) {
-    const rows = await (this.db as any).learnedPhrase.findMany({
-      where: { tenantId, accountId }, orderBy: [{ updatedAt: 'desc' }], take: 300
-    });
+    const rows = (this.db as any).learnedPhrase
+      ? await (this.db as any).learnedPhrase.findMany({ where: { tenantId, accountId }, orderBy: [{ updatedAt: 'desc' }], take: 300 })
+      : [];
     const phrases = rows.map((r: any) => ({
       id: r.id, kind: r.kind, example: r.example, itemKey: r.itemKey, itemLabel: r.itemLabel,
       status: r.status, hits: r.hits, active: isActivePhrase(r), updatedAt: r.updatedAt

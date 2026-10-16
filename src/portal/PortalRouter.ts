@@ -45,9 +45,13 @@ const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.
 const clientProfile = (p: PortalProfile) => {
   const entitledModules = p.planSnapshot?.modules || [];
   const commerceActive = entitledModules.includes('commerce') && p.adminConfig?.capabilities?.ecommerceEnabled !== false;
-  // The Calendar page is shown to businesses that take appointments or whose workflows book in the calendar.
+  // The Calendar page is shown to businesses that have appointment booking entitled in their plan
+  // (or when an explicit booking workflow is active) and whose administrator has not disabled calendar capabilities.
   const workflows = { ...(p.planSnapshot?.template?.workflows || {}), ...(p.adminConfig?.workflows || {}) } as Record<string, any>;
-  const calendarInUse = entitledModules.includes('services') || Object.values(workflows).some(wf => Object.values(wf?.states || {}).some((st: any) => st?.calendar));
+  const calendarEntitled = entitledModules.includes('calendar');
+  const calendarWorkflowActive = Object.values(workflows).some(wf => Object.values(wf?.states || {}).some((st: any) => st?.calendar));
+  const calendarInUse = (calendarEntitled || calendarWorkflowActive) && p.adminConfig?.capabilities?.calendarEnabled !== false &&
+    (p.adminConfig?.capabilities?.calendarEnabled === true || calendarEntitled || calendarWorkflowActive);
   return { accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
   requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null,
   commerceActive, calendarInUse, productMode: commerceActive ? 'COMMERCE' : 'STANDARD',
@@ -382,6 +386,13 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     : error;
   const calendarRoute = (fn: (p: PortalRequest['portal'], req: Request) => Promise<any>) => route(async (req, res) => {
     try { send(res, await fn((req as PortalRequest).portal, req)); } catch (error) { throw calendarError(error); }
+  });
+  // Calendar: booking calendar and time slots, for accounts whose plan or workflows include appointment scheduling.
+  client.use('/calendar', (req, _res, next) => {
+    if (req.path === '/google/callback') return next();
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => clientProfile(profile).calendarInUse ? next() : next(new PortalError(403, 'CALENDAR_NOT_INCLUDED')))
+      .catch(next);
   });
   client.get('/calendar', calendarRoute(async p => {
     const service = calendar(), tenantId = p.tenantId!, accountId = p.accountId!;
