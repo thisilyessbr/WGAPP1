@@ -143,3 +143,40 @@ describe('names in a sales conversation', () => {
   it.each(['الواتساب', 'WhatsApp', 'wakha', 'bghit n3rf ktr'])('does not take %s as a name', async text =>
     expect((await WorkflowTurnGate.interpret(text, 'fullName', field, 'What is your name?')).kind).not.toBe('FIELD_ANSWER'));
 });
+
+describe('email step', () => {
+  const field = { name: 'email', type: 'email' as const, required: true };
+  it.each([['ياسين العلمي، yassine@example.com', 'yassine@example.com'], ['Yassine Alami, yassine.alami@gmail.com.', 'yassine.alami@gmail.com'], ['hada howa: a.b@relayqo.ma', 'a.b@relayqo.ma']])(
+    'takes the address from %s', async (message, email) =>
+      expect(await WorkflowTurnGate.interpret(message, 'email', field, 'Email?')).toEqual({ kind: 'FIELD_ANSWER', fieldValue: email }));
+});
+
+describe('calendar steps without a working calendar', () => {
+  const workflow: any = {
+    id: 'demo', name: 'Demo', description: '', initialState: 'day', calendarBooking: true,
+    states: {
+      day: { type: 'collect', field: { name: 'demoDay', type: 'string', required: true, acceptAnyReply: true }, calendar: 'day', next: 'slot', prompt: { darija: 'شنو النهار؟' } },
+      slot: { type: 'collect', field: { name: 'demoSlot', type: 'string', required: true, acceptAnyReply: true }, calendar: 'slots', next: 'done', prompt: { darija: 'شنو الوقت؟' } },
+      done: { type: 'end', prompt: { darija: 'الفريق غادي يأكد معاك {{demoDay}} {{demoSlot}}' } }
+    }
+  };
+  it.each([
+    ['no calendar configured', { ...structuredClone(DEFAULT_BUSINESS_CONFIG) }],
+    ['calendar unreadable', { ...structuredClone(DEFAULT_BUSINESS_CONFIG), calendar: { enabled: true, calendarId: 'wrong@example.com' } }]
+  ])('%s: asks the day and time as plain questions instead of looping', async (_label, config: any) => {
+    const provider = new FakeCalendarProvider();
+    provider.busy = async () => { throw new Error('notFound'); };
+    const engine = new WorkflowEngine(new WorkflowStateEvaluator(), undefined, new ResponseBuilder(), new FieldValidator());
+    engine.setCalendarScheduler(new CalendarScheduler(provider, () => NOW));
+    let session: any = { id: 's3', tenantId: 't', conversationId: 'c', workflowId: 'demo', stateId: 'day', contextData: { _started: true, _lang: 'darija', _script: 'arabic' }, collectedData: {}, stateHistory: [] };
+    const say = async (text: string) => {
+      const r = await engine.process(session, text, workflow, config, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+      session = { ...session, stateId: r.nextStateId ?? session.stateId, contextData: r.updatedContext, collectedData: r.updatedCollectedData, stateHistory: r.updatedStateHistory };
+      return r;
+    };
+    expect((await say('غدا')).response).toContain('شنو الوقت');
+    const done = await say('مع 14:00');
+    expect(done.isComplete).toBe(true);
+    expect(done.response).toContain('الفريق غادي يأكد معاك غدا مع 14:00');
+  });
+});

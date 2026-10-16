@@ -35,6 +35,9 @@ model Tenant {
   whatsappDeliveryReceipts WhatsAppDeliveryReceipt[]
   outcomeEvents    OutcomeEvent[]
   learnedPhrases   LearnedPhrase[]
+  calendarConnections CalendarConnection[]
+  accountCalendars    AccountCalendar[]
+  bookings            Booking[]
 }
 
 model TenantConfig {
@@ -80,9 +83,47 @@ model Account {
   whatsappDeliveryReceipts WhatsAppDeliveryReceipt[]
   outcomeEvents    OutcomeEvent[]
   learnedPhrases   LearnedPhrase[]
+  calendarConnections CalendarConnection[]
+  accountCalendars    AccountCalendar[]
+  bookings            Booking[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+/// Built-in Relayqo calendar: the account's bookable times (slot times, working days, duration...).
+model AccountCalendar {
+  accountId String   @id
+  tenantId  String
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+/// A booking made by the chatbot or the team, or a time the business blocked (kind BLOCKED).
+/// A partial unique index on (accountId, startAt) WHERE status = 'BOOKED' prevents double booking (see migration).
+model Booking {
+  id           String   @id @default(uuid())
+  tenantId     String
+  accountId    String
+  startAt      DateTime
+  endAt        DateTime
+  kind         String   @default("BOOKING")
+  status       String   @default("BOOKED")
+  title        String
+  customerName String?
+  contact      String?
+  details      Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, startAt])
 }
 
 model Customer {
@@ -885,4 +926,25 @@ model LearnedPhrase {
 
   @@unique([tenantId, accountId, kind, phrase])
   @@index([tenantId, accountId, status])
+}
+
+/// Google Calendar the client linked from their portal; refresh token is SecretBox-encrypted.
+model CalendarConnection {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  accountId             String   @unique
+  provider              String   @default("google")
+  googleEmail           String?
+  encryptedRefreshToken String
+  calendarId            String?
+  calendarName          String?
+  settings              Json     @default("{}")
+  status                String   @default("CONNECTED")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @default(now()) @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }

@@ -31,6 +31,9 @@ import { WhatsAppOutboundAdapter } from './domain/channel/whatsapp/WhatsAppOutbo
 import { WhatsAppPolicyAdapter } from './domain/channel/whatsapp/WhatsAppPolicyAdapter';
 import { WhatsAppOnboardingService } from './domain/channel/whatsapp/WhatsAppOnboardingService';
 import { SecretBox } from './core/security/SecretBox';
+import { GoogleCalendarConnections } from './domain/calendar/GoogleCalendarConnections';
+import { RelayqoCalendar } from './domain/calendar/RelayqoCalendar';
+import { setCalendarConnectionProviders } from './domain/calendar/CalendarScheduler';
 import { ChannelRouter } from './domain/channel/routing/ChannelRouter';
 import { MetaCloudTransport } from './domain/channel/routing/MetaCloudTransport';
 import { ClientSafetyGuard } from './domain/channel/guard/ClientSafetyGuard';
@@ -55,6 +58,8 @@ export interface WebDependencies {
   whatsAppIdempotencyStore: IdempotencyStore;
   whatsAppOnboardingService: WhatsAppOnboardingService;
   secretBox: SecretBox;
+  calendarConnections?: GoogleCalendarConnections;
+  relayqoCalendar?: RelayqoCalendar;
   qrSessionManager?: QrSessionManager;
   telemetryClient: TelemetryClient;
   conversationAutomationService: ConversationAutomationService;
@@ -252,6 +257,11 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
 
   const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });
+  // Built-in Relayqo calendar for calendar booking steps; a Google Calendar the client links is an optional sync.
+  const calendarConnections = new GoogleCalendarConnections(prisma, secretBox);
+  const relayqoCalendar = new RelayqoCalendar(prisma, calendarConnections);
+  accountConfigService.setCalendarOverlay((tenantId, accountId) => relayqoCalendar.runtimeCalendar(tenantId, accountId));
+  setCalendarConnectionProviders(connectionId => relayqoCalendar.provider(connectionId));
 
   const whatsAppIdempotencyStore = isMemory
     ? new MemoryIdempotencyStore()
@@ -332,6 +342,8 @@ export function bootstrapWebDependencies(prisma: PrismaClient, options: WebBoots
     whatsAppIdempotencyStore,
     whatsAppOnboardingService,
     secretBox,
+    calendarConnections,
+    relayqoCalendar,
     qrSessionManager,
     conversationAutomationService,
     whatsAppOutboundQueue,
@@ -380,6 +392,11 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
   const whatsAppNumberService = new WhatsAppNumberService(prisma);
 
   const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });
+  // Built-in Relayqo calendar for calendar booking steps; a Google Calendar the client links is an optional sync.
+  const calendarConnections = new GoogleCalendarConnections(prisma, secretBox);
+  const relayqoCalendar = new RelayqoCalendar(prisma, calendarConnections);
+  accountConfigService.setCalendarOverlay((tenantId, accountId) => relayqoCalendar.runtimeCalendar(tenantId, accountId));
+  setCalendarConnectionProviders(connectionId => relayqoCalendar.provider(connectionId));
 
   const isMemory = Boolean(options.useMemoryQueue);
   const whatsAppIdempotencyStore = isMemory
@@ -583,6 +600,11 @@ export function bootstrapChatbot(prisma: PrismaClient): ChatbotDependencies {
 
   // Initialize Security and Routing
   const secretBox = new SecretBox({ key: resolveEncryptionKey(isTestEnv) });
+  // Built-in Relayqo calendar for calendar booking steps; a Google Calendar the client links is an optional sync.
+  const calendarConnections = new GoogleCalendarConnections(prisma, secretBox);
+  const relayqoCalendar = new RelayqoCalendar(prisma, calendarConnections);
+  accountConfigService.setCalendarOverlay((tenantId, accountId) => relayqoCalendar.runtimeCalendar(tenantId, accountId));
+  setCalendarConnectionProviders(connectionId => relayqoCalendar.provider(connectionId));
 
   const whatsAppOutboundAdapter = new WhatsAppOutboundAdapter({
     numberService: whatsAppNumberService,

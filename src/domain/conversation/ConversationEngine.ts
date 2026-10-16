@@ -1398,7 +1398,10 @@ Store menu match (verified by this business's own menu and wording list, not a s
         });
         const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
 
-        postCompletionWorkflowTrigger = this.resolveWorkflowTrigger(content, config, turnDecision, recognizedUseCases);
+        // An auto-start flow runs once per conversation: after it completes, "merci" must not restart it; its keywords still do.
+        const explicitOnly = { ...config, workflows: Object.fromEntries(Object.entries(config.workflows || {}).map(([id, wf]) =>
+          [id, wf.activation?.mode === 'auto_start' ? { ...wf, activation: { ...wf.activation, mode: 'explicit_intent' as const } } : wf])) };
+        postCompletionWorkflowTrigger = this.resolveWorkflowTrigger(content, explicitOnly, turnDecision, recognizedUseCases);
 
         if (postCompletionWorkflowTrigger.kind === 'NONE' && !isDeterministicEcommercePurchase) {
           postCompletionWorkflowTrigger = await this.classifyWorkflowTrigger(content, config, llm, llmOptions);

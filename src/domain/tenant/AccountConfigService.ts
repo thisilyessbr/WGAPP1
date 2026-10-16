@@ -11,6 +11,7 @@ interface ConfigOverrideContext {
 
 export class AccountConfigService {
   private readonly overrideContext = new AsyncLocalStorage<ConfigOverrideContext>();
+  private calendarOverlay?: (tenantId: string, accountId: string) => Promise<Record<string, any> | null>;
 
   constructor(
     private prisma: PrismaClient,
@@ -27,7 +28,24 @@ export class AccountConfigService {
    * 4. Guarantees that base tenant config and shared defaults are never mutated.
    * 5. Fails safely if the account does not exist or cross-tenant access is attempted.
    */
+  /** The calendar a client linked from their portal replaces the admin calendar settings for that account. */
+  setCalendarOverlay(overlay: (tenantId: string, accountId: string) => Promise<Record<string, any> | null>) {
+    this.calendarOverlay = overlay;
+  }
+
   async getEffectiveConfig(tenantId: string, accountId?: string | null): Promise<BusinessConfig> {
+    const config = await this.resolveConfig(tenantId, accountId);
+    if (!this.calendarOverlay || !accountId?.trim()) return config;
+    try {
+      const calendar = await this.calendarOverlay(tenantId, accountId.trim());
+      if (calendar) (config as any).calendar = calendar;
+    } catch {
+      // A calendar lookup failure must not stop the chatbot; calendar steps then ask plain questions.
+    }
+    return config;
+  }
+
+  private async resolveConfig(tenantId: string, accountId?: string | null): Promise<BusinessConfig> {
     if (!tenantId) {
       throw new Error('tenantId is required to resolve configuration');
     }

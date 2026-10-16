@@ -23,7 +23,7 @@ describe('portal visual workflows',()=>{
     removeIntent({test:wf},intents,0);
     expect(intents).toEqual([]);expect(wf.activation.intents).toEqual([]);
   });
-  it.each(['blank','triage','lead','cod','feedback'])('creates a valid %s template that the backend accepts',kind=>{
+  it.each(['blank','triage','lead','cod','feedback','sales'])('creates a valid %s template that the backend accepts',kind=>{
     const workflow=template(kind,'test');
     expect(diagnostics({test:workflow},[]).errors).toEqual([]);
     expect(()=>validateAdminConfig({workflows:{test:workflow}})).not.toThrow();
@@ -74,5 +74,26 @@ describe('portal visual workflows',()=>{
   it('allows intentional loops and reports duplicate collected fields without discarding them',()=>{
     const wf=template('lead','test');wf.states.phone.next='start';wf.states.phone.field.name='fullName';
     const result=diagnostics({test:wf});expect(result.errors).toEqual([]);expect(result.warnings.join(' ')).toContain('collected more than once');
+  });
+  it('builds the sales template as discovery questions, a pitch, a calendar day and time, then an email',()=>{
+    const wf=template('sales','sales_test');
+    expect(orderedSteps(wf)).toEqual(['start','business','channels','problem','volume','demo_day','demo_time','email','done']);
+    expect(['business','channels','problem','volume'].every(id=>wf.states[id].field.acceptAnyReply)).toBe(true);
+    expect(wf.states.demo_day).toMatchObject({calendar:'day',pitch:true,next:'demo_time'});
+    expect(wf.states.demo_time.calendar).toBe('slots');
+    expect(wf.calendarBooking).toBe(true);
+    expect(wf.states.done.prompt.darija).not.toContain('تأكد الموعد');
+    expect(diagnostics({s:wf},[],{enabled:true,calendarId:'team@example.com'}).warnings).toEqual([]);
+    expect(()=>validateAdminConfig({workflows:{s:wf},calendar:{enabled:true,calendarId:'team@example.com',slotTimes:['10:00','14:00'],workingDays:[1,2,3,4,5]}})).not.toThrow();
+  });
+  it('flags calendar steps that cannot work',()=>{
+    const wf=template('sales','sales_test');
+    expect(diagnostics({s:wf},[],{}).warnings.join(' ')).toContain('calendar bookings are paused');
+    wf.states.volume.next='demo_time';wf.states.demo_day.next='email';
+    const errors=diagnostics({s:wf},[],{enabled:true,calendarId:'x'}).errors.join(' ');
+    expect(errors).toContain('must come right after a calendar day step');
+    expect(errors).toContain('must be a calendar time step');
+    delete wf.states.demo_day.calendar;delete wf.states.demo_time.calendar;
+    expect(diagnostics({s:wf},[],{}).warnings.join(' ')).toContain('no step offers calendar times');
   });
 });

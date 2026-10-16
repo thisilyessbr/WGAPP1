@@ -150,6 +150,9 @@ export class WorkflowTurnGate {
 
     const config = typeof field === 'object' ? field : undefined;
     const type = config?.type || 'string';
+    // "Yassine Alami, yassine@gmail.com": an email step takes the one address in the reply.
+    const emails = type === 'email' && !/[?؟]/u.test(message) ? message.match(/[^\s@,،;؛<>()]+@[^\s@,،;؛<>()]+\.[\p{L}]{2,}/gu) : null;
+    if (emails?.length === 1) return { kind: 'FIELD_ANSWER', fieldValue: emails[0] };
     const semanticType = type === 'string'
       ? (config?.semanticType || (/^(?:fullname|username|name|customername|contactname)$/i.test(fieldName)
         ? 'person_name' : 'free_text'))

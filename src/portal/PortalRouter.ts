@@ -19,6 +19,8 @@ import { logger } from '../utils/logger';
 import { InstagramService } from '../domain/channel/instagram/InstagramService';
 import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
 import { PortalLearnedWording } from './PortalLearnedWording';
+import { GoogleCalendarConnections } from '../domain/calendar/GoogleCalendarConnections';
+import { CalendarError, RelayqoCalendar } from '../domain/calendar/RelayqoCalendar';
 import { PortalStaffActions } from './PortalStaffActions';
 import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService';
 import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
@@ -343,6 +345,84 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     send(res, await documents.upload(req.portal.user.id, req.portal.accountId!, req.file.originalname, req.file.buffer), 201);
   }));
   client.delete('/documents/:id', route(async (req, res) => { await documents.remove(req.portal.user.id, req.portal.accountId!, String(req.params.id), false); send(res, { success: true }); }));
+  // Built-in calendar: the client's availability and bookings; Google Calendar is an optional sync.
+  const calendar = (): RelayqoCalendar => {
+    if (!deps.relayqoCalendar) throw new PortalError(503, 'CALENDAR_UNAVAILABLE', 'The calendar is not available right now.');
+    return deps.relayqoCalendar;
+  };
+  const google = (): GoogleCalendarConnections => {
+    if (!deps.calendarConnections?.configured()) throw new PortalError(503, 'CALENDAR_NOT_CONFIGURED', 'Google Calendar sync is not set up on this platform.');
+    return deps.calendarConnections;
+  };
+  const calendarError = (error: unknown) => error instanceof CalendarError
+    ? new PortalError(error.code === 'CALENDAR_RECONNECT_REQUIRED' ? 409 : error.code === 'BOOKING_NOT_FOUND' ? 404 : 400, error.code, error.message === error.code ? undefined : error.message)
+    : error;
+  const calendarRoute = (fn: (p: PortalRequest['portal'], req: Request) => Promise<any>) => route(async (req, res) => {
+    try { send(res, await fn((req as PortalRequest).portal, req)); } catch (error) { throw calendarError(error); }
+  });
+  client.get('/calendar', calendarRoute(async p => {
+    const service = calendar(), tenantId = p.tenantId!, accountId = p.accountId!;
+    const [settings, today] = await Promise.all([service.settings(tenantId, accountId), service.today(tenantId, accountId)]);
+    let googleSync: any = { configured: Boolean(deps.calendarConnections?.configured()) };
+    if (googleSync.configured) {
+      googleSync = await deps.calendarConnections!.status(tenantId, accountId);
+      googleSync.calendars = [];
+      if (googleSync.connection?.status === 'CONNECTED') {
+        try { googleSync.calendars = await deps.calendarConnections!.calendars(tenantId, accountId); }
+        catch (error) { googleSync.listError = error instanceof CalendarError ? error.code : 'CALENDAR_GOOGLE_FAILED'; if (googleSync.listError === 'CALENDAR_RECONNECT_REQUIRED') googleSync.connection.status = 'NEEDS_RECONNECT'; }
+      }
+    }
+    return { settings, today, google: googleSync };
+  }));
+  client.get('/calendar/bookings', calendarRoute(async (p, req) =>
+    ({ bookings: await calendar().between(p.tenantId!, p.accountId!, text(req.query.from, 10), text(req.query.to, 10)) })));
+  client.put('/calendar/settings', calendarRoute(async (p, req) => {
+    const body = object(req.body); allowed(body, ['settings']);
+    const settings = await calendar().saveSettings(p.tenantId!, p.accountId!, body.settings);
+    await store.audit(p.user.id, p.accountId!, 'CALENDAR_SETTINGS_UPDATED', {});
+    return { settings };
+  }));
+  client.post('/calendar/blocks', calendarRoute(async (p, req) => {
+    const body = object(req.body); allowed(body, ['date', 'from', 'to', 'note']);
+    await calendar().block(p.tenantId!, p.accountId!, body);
+    return { success: true };
+  }));
+  client.delete('/calendar/bookings/:bookingId', calendarRoute(async (p, req) => {
+    await calendar().cancel(p.tenantId!, p.accountId!, text(req.params.bookingId, 100));
+    await store.audit(p.user.id, p.accountId!, 'BOOKING_CANCELLED', { bookingId: String(req.params.bookingId) });
+    return { success: true };
+  }));
+  client.post('/calendar/google/start', calendarRoute(async p => {
+    await store.throttle('calendar-start:' + p.accountId, 10, 900);
+    return { url: google().authorizationUrl({ userId: p.user.id, accountId: p.accountId!, tenantId: p.tenantId! }) };
+  }));
+  client.get('/calendar/google/callback', async (req, res) => {
+    const fail = (code: string) => res.redirect('/app/calendar?error=' + encodeURIComponent(code));
+    const p = (req as PortalRequest).portal;
+    if (typeof req.query.code !== 'string' || typeof req.query.state !== 'string') return fail('CALENDAR_LOGIN_CANCELLED');
+    try {
+      const service = google();
+      service.verifyState(req.query.state, { userId: p.user.id, accountId: p.accountId!, tenantId: p.tenantId! });
+      await service.complete(req.query.code, p.tenantId!, p.accountId!);
+      await store.audit(p.user.id, p.accountId!, 'CALENDAR_CONNECTED', {});
+      res.redirect('/app/calendar?connected=1');
+    } catch (error) {
+      fail(error instanceof CalendarError ? error.code : 'CALENDAR_CONNECTION_FAILED');
+    }
+  });
+  client.put('/calendar/google', calendarRoute(async (p, req) => {
+    const body = object(req.body); allowed(body, ['calendarId']);
+    return google().choose(p.tenantId!, p.accountId!, text(body.calendarId, 300));
+  }));
+  client.delete('/calendar/google', calendarRoute(async p => {
+    await google().disconnect(p.tenantId!, p.accountId!);
+    await store.audit(p.user.id, p.accountId!, 'CALENDAR_DISCONNECTED', {});
+    return { success: true };
+  }));
+  admin.get('/accounts/:id/calendar', route(async (req, res) => {
+    const p = await store.profile(String(req.params.id));
+    send(res, deps.relayqoCalendar ? await deps.relayqoCalendar.status(p.tenantId, p.accountId) : null);
+  }));
   client.get('/whatsapp', route(async (req, res) => {
     const [profile, accountConnections] = await Promise.all([
       store.profile(req.portal.accountId!, req.portal.tenantId!),

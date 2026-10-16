@@ -10,7 +10,9 @@ import { logger } from '../../utils/logger';
 
 export interface CalendarConfig {
   enabled?: boolean;
-  provider?: 'google' | 'fake';
+  /** Set at runtime when the client linked their own Google Calendar from the portal. */
+  connectionId?: string;
+  provider?: 'relayqo' | 'google' | 'fake';
   calendarId?: string;
   timezone?: string;          // default Africa/Casablanca
   durationMinutes?: number;   // default 30
@@ -23,9 +25,11 @@ export interface CalendarConfig {
 }
 
 export interface BusyRange { start: string; end: string }
+/** `details` are the customer's answers (name, email, phone...), kept with the booking. */
+export interface CalendarEvent { id: string; summary: string; description: string; startIso: string; endIso: string; timezone: string; details?: Record<string, unknown> }
 export interface CalendarProvider {
   busy(calendarId: string, fromIso: string, toIso: string): Promise<BusyRange[]>;
-  createEvent(calendarId: string, event: { id: string; summary: string; description: string; startIso: string; endIso: string; timezone: string }): Promise<{ id: string }>;
+  createEvent(calendarId: string, event: CalendarEvent): Promise<{ id: string }>;
 }
 export interface OfferedSlot { start: string; end: string; label: string }
 
@@ -267,13 +271,13 @@ export class CalendarScheduler {
     try {
       if (!(await this.isStillFree(c, slot))) return { ok: false, reason: 'SLOT_TAKEN' };
       const name = String(details.fullName || details.name || '').trim();
-      const description = Object.entries(details).filter(([k, v]) => !k.startsWith('_') && v !== undefined && v !== null && String(v).trim())
-        .map(([k, v]) => `${k}: ${String(v)}`).join('\n');
+      const answers = Object.fromEntries(Object.entries(details).filter(([k, v]) => !k.startsWith('_') && v !== undefined && v !== null && String(v).trim()).map(([k, v]) => [k, String(v)]));
+      const description = Object.entries(answers).map(([k, v]) => `${k}: ${v}`).join('\n');
       // A deterministic Google event ID makes concurrent attempts for the same slot conflict atomically.
       // freeBusy alone is not a lock: two requests can both observe an empty slot.
       const id = createHash('sha256').update(`${c.calendarId}\0${slot.start}\0${slot.end}`).digest('hex');
       const event = await this.provider.createEvent(c.calendarId, { id, summary: `${c.eventTitle}${name ? ` — ${name}` : ''}`, description: `${description}\n\nBooked by the WhatsApp assistant.`,
-        startIso: slot.start, endIso: slot.end, timezone: c.timezone });
+        startIso: slot.start, endIso: slot.end, timezone: c.timezone, details: answers });
       if (!event.id) throw new Error('CALENDAR_EVENT_ID_MISSING');
       return { ok: true, id: event.id };
     } catch (error: any) {
@@ -284,10 +288,13 @@ export class CalendarScheduler {
 }
 
 // ------------------------------------------------------------------ providers
-/** Google Calendar through a service account; the business shares its calendar with the service account email. */
+/**
+ * Google Calendar API. Authenticated either with a service account (the business shares its calendar with the
+ * service account email) or with an access-token source (a calendar the client linked with "Connect Google Calendar").
+ */
 export class GoogleCalendarProvider implements CalendarProvider {
   private token?: { value: string; expiresAt: number };
-  constructor(private credentials: { client_email: string; private_key: string }, private fetchFn: typeof fetch = fetch) {}
+  constructor(private credentials: { client_email: string; private_key: string } | (() => Promise<string>), private fetchFn: typeof fetch = fetch) {}
 
   static fromEnv(): GoogleCalendarProvider | null {
     const raw = process.env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON;
@@ -299,6 +306,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 
   private async accessToken(): Promise<string> {
+    if (typeof this.credentials === 'function') return this.credentials();
     if (this.token && this.token.expiresAt > Date.now() + 60000) return this.token.value;
     const now = Math.floor(Date.now() / 1000);
     const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -329,7 +337,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     return cal.busy as BusyRange[];
   }
 
-  async createEvent(calendarId: string, e: { id: string; summary: string; description: string; startIso: string; endIso: string; timezone: string }) {
+  async createEvent(calendarId: string, e: CalendarEvent) {
     const data = await this.call(`/calendars/${encodeURIComponent(calendarId)}/events`, {
       id: e.id, summary: e.summary, description: e.description, start: { dateTime: e.startIso, timeZone: e.timezone }, end: { dateTime: e.endIso, timeZone: e.timezone } });
     return { id: String(data.id) };
@@ -349,6 +357,17 @@ export class FakeCalendarProvider implements CalendarProvider {
     this.events.push({ calendarId, ...e });
     return { id: e.id };
   }
+}
+
+/** Calendars linked by clients: a provider per connection, registered at startup (see GoogleCalendarConnections). */
+let connectionProviders: ((connectionId: string) => CalendarProvider) | null = null;
+const connectionSchedulers = new Map<string, CalendarScheduler>();
+export function setCalendarConnectionProviders(factory: ((connectionId: string) => CalendarProvider) | null) { connectionProviders = factory; connectionSchedulers.clear(); }
+export function schedulerForConnection(connectionId: string): CalendarScheduler | null {
+  if (!connectionProviders) return null;
+  let scheduler = connectionSchedulers.get(connectionId);
+  if (!scheduler) { scheduler = new CalendarScheduler(connectionProviders(connectionId)); connectionSchedulers.set(connectionId, scheduler); }
+  return scheduler;
 }
 
 let defaultScheduler: CalendarScheduler | null | undefined;

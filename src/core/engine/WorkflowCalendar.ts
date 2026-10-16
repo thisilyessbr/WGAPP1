@@ -3,7 +3,7 @@ import { BusinessConfig, WorkflowConfig, WorkflowStateConfig } from '../../domai
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { LanguageDetector } from '../../domain/faq/FaqMatcher';
-import { CalendarConfig, CalendarScheduler, OfferedSlot, calendarMessage, dayLabel, defaultCalendarScheduler, matchSlot, parseDay, slotList } from '../../domain/calendar/CalendarScheduler';
+import { CalendarConfig, CalendarScheduler, OfferedSlot, calendarMessage, dayLabel, defaultCalendarScheduler, schedulerForConnection, matchSlot, parseDay, slotList } from '../../domain/calendar/CalendarScheduler';
 import { logger } from '../../utils/logger';
 import type { WorkflowResult } from './WorkflowEngine';
 
@@ -21,7 +21,8 @@ export class WorkflowCalendar {
   private schedulerFor(config: BusinessConfig): { scheduler: CalendarScheduler; cfg: CalendarConfig } | null {
     const cfg = (config as any).calendar as CalendarConfig | undefined;
     if (!cfg?.enabled || !cfg.calendarId) return null;
-    const scheduler = this.scheduler ?? defaultCalendarScheduler();
+    // An injected scheduler (tests) wins; then the client's linked calendar; then the platform service account.
+    const scheduler = this.scheduler ?? (cfg.connectionId ? schedulerForConnection(cfg.connectionId) : defaultCalendarScheduler());
     return scheduler ? { scheduler, cfg } : null;
   }
 
@@ -70,14 +71,9 @@ export class WorkflowCalendar {
       }
     }
     if (!state?.calendar || !ctx._started || isCancellation?.(message)) return null;
+    // No calendar connected: the day and time are ordinary questions and the team confirms the time later.
     const cal = this.schedulerFor(config);
-    if (!cal) {
-      const { lang, script } = this.langOf(session, message, effectiveLang, effectiveScript);
-      return { updatedContext: ctx, nextStateId: session.stateId,
-        response: calendarMessage('unavailable', lang, script, {}), isComplete: false,
-        updatedStateHistory: [...(session.stateHistory || [])],
-        updatedCollectedData: { ...(((session as any).collectedData || {}) as Record<string, any>) } };
-    }
+    if (!cal) return null;
     const { scheduler, cfg } = cal;
     const { lang, script } = this.langOf(session, message, effectiveLang, effectiveScript);
     ctx._lang = lang; ctx._script = script;
@@ -136,7 +132,7 @@ export class WorkflowCalendar {
       const day = parseDay(message, now, tz);
       if (!day) return asksQuestion ? null : stay(calendarMessage('askDay', lang, script, {}));
       const result = await offer(day);
-      if (result === 'unavailable') return stay(calendarMessage('unavailable', lang, script, {}));
+      if (result === 'unavailable') return null; // calendar unreadable: take the reply as a plain answer
       // "lyoma m3a 6 dl3chiya": the day and the time in one message.
       const offeredNow = (result.updatedCollectedData?._offeredSlots || []) as OfferedSlot[];
       const slotStateId = state.next;
@@ -161,7 +157,7 @@ export class WorkflowCalendar {
       const otherDay = !slot ? parseDay(message, now, tz) : null;
       if (otherDay && otherDay !== collected._calendarDay) {
         const result = await offer(otherDay);
-        if (result === 'unavailable') return stay(calendarMessage('unavailable', lang, script, {}));
+        if (result === 'unavailable') return null; // calendar unreadable: take the reply as a plain answer
         const fresh = (result.updatedCollectedData?._offeredSlots || []) as OfferedSlot[];
         const picked = namesTime(message) ? matchSlot(message, fresh) : null;
         if (picked) { Object.assign(collected, result.updatedCollectedData); return choose(picked, session.stateId, otherDay, history); }
