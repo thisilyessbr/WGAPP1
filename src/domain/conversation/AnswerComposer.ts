@@ -248,6 +248,15 @@ export class AnswerComposer {
     );
   }
 
+  /** Acknowledges thanks/confirmation without opening or repeating a sales CTA. */
+  public static composeAcknowledgement(context: AnswerContext): string {
+    const { responseLanguage: lang, responseScript: script } = context;
+    if (lang === 'fr') return 'Avec plaisir !';
+    if (lang === 'ar') return 'العفو!';
+    if (lang === 'darija') return script === 'arabizi' ? 'Bla jmil! 🙌' : 'بلا جميل! 🙌';
+    return "You're welcome!";
+  }
+
   /**
    * Composes localized Handoff response strictly respecting language and script.
    */

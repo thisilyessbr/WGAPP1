@@ -1384,6 +1384,9 @@ Store menu match (verified by this business's own menu and wording list, not a s
       // Evaluate whether the current message explicitly triggers a new workflow (e.g. re-booking or new workflow)
       let postCompletionWorkflowTrigger: WorkflowRouteDecision = { kind: 'NONE' };
       if (previousCompletedSession && hasWorkflowsConfigured) {
+        const normalizedPostCompletionInput = GreetingRouter.normalize(content);
+        const postCompletionAcknowledgement = !GreetingRouter.hasQuestionIndicator(content, normalizedPostCompletionInput)
+          && GreetingRouter.isAcknowledgement(normalizedPostCompletionInput);
         turnDecision = TurnDecisionResolver.resolve({
           text: routingText,
           language: effectiveLang,
@@ -1401,9 +1404,13 @@ Store menu match (verified by this business's own menu and wording list, not a s
         // An auto-start flow runs once per conversation: after it completes, "merci" must not restart it; its keywords still do.
         const explicitOnly = { ...config, workflows: Object.fromEntries(Object.entries(config.workflows || {}).map(([id, wf]) =>
           [id, wf.activation?.mode === 'auto_start' ? { ...wf, activation: { ...wf.activation, mode: 'explicit_intent' as const } } : wf])) };
-        postCompletionWorkflowTrigger = this.resolveWorkflowTrigger(content, explicitOnly, turnDecision, recognizedUseCases);
+        // An acknowledgement can close the exchange but cannot authorize a
+        // second workflow run, even if an intent model overgeneralizes it.
+        postCompletionWorkflowTrigger = postCompletionAcknowledgement
+          ? { kind: 'NONE' }
+          : this.resolveWorkflowTrigger(content, explicitOnly, turnDecision, recognizedUseCases);
 
-        if (postCompletionWorkflowTrigger.kind === 'NONE' && !isDeterministicEcommercePurchase) {
+        if (!postCompletionAcknowledgement && postCompletionWorkflowTrigger.kind === 'NONE' && !isDeterministicEcommercePurchase) {
           postCompletionWorkflowTrigger = await this.classifyWorkflowTrigger(content, config, llm, llmOptions);
         }
       }
@@ -1468,8 +1475,25 @@ Store menu match (verified by this business's own menu and wording list, not a s
         let answered = false;
         let answerText = '';
 
+        // A completed workflow remains authoritative. A short thank-you or
+        // confirmation is conversational closure, not a knowledge query and
+        // never permission to restart or advertise the completed workflow.
+        const normalizedPostCompletionContent = GreetingRouter.normalize(content);
+        const isPostCompletionAcknowledgement = !GreetingRouter.hasQuestionIndicator(content, normalizedPostCompletionContent)
+          && GreetingRouter.isAcknowledgement(normalizedPostCompletionContent);
+        if (isPostCompletionAcknowledgement) {
+          answered = true;
+          answerText = AnswerComposer.composeAcknowledgement({
+            turnDecision,
+            responseLanguage: effectiveLang,
+            responseScript: effectiveScript,
+            config
+          });
+          responseSource = 'GREETING';
+        }
+
         // Try FAQ
-        if (config.capabilities?.faq && config.capabilities.faq.length > 0) {
+        if (!answered && config.capabilities?.faq && config.capabilities.faq.length > 0) {
           const faqMatch = this.matchSafeFaq(content, config, effectiveLang, turnDecision);
           if (faqMatch && faqMatch.answer && (!faqMatch.confidence || faqMatch.confidence >= 0.75)) {
             answered = true;
@@ -1727,11 +1751,13 @@ Check again: the business-owner evidence above lists the business's policies, se
         }
 
         if (answered) {
-          const currentCount = conversation.postCompletionQuestionCount + 1;
-          incrementPostCompletionCount = true;
-
-          if (currentCount >= 10) {
+          if (isPostCompletionAcknowledgement) {
+            // Polite closure is not a support question and must neither consume
+            // nor cap the post-completion question allowance.
+            response = answerText;
+          } else if (conversation.postCompletionQuestionCount + 1 >= 10) {
             // 10th answered question: send answer + closing line, then cap
+            incrementPostCompletionCount = true;
             setPostCompletionCapped = true;
             const defaultClosing = effectiveLang === 'darija' && effectiveScript === 'arabic' ? 'نكملو المتابعة ديال الطلب ديالك مع الفريق.'
               : DEFAULT_POST_COMPLETION_MESSAGES.closing[effectiveLang as keyof typeof DEFAULT_POST_COMPLETION_MESSAGES.closing] || DEFAULT_POST_COMPLETION_MESSAGES.closing.en;
@@ -1739,6 +1765,7 @@ Check again: the business-owner evidence above lists the business's policies, se
             response = `${answerText}\n\n${closingLine}`;
             logger.info(`ConversationEngine: Reached 10th post-completion question -> postCompletionCapped set to true.`);
           } else {
+            incrementPostCompletionCount = true;
             response = answerText;
           }
         } else {
@@ -1760,7 +1787,12 @@ Check again: the business-owner evidence above lists the business's policies, se
         const hasQuestion = GreetingRouter.hasQuestionIndicator(content, normalizedContent);
 
         // Step 1: Deterministic Known Greeting & Polite Acknowledgment Check (0 LLM calls)
-        if (!hasQuestion && GreetingRouter.isKnownGreeting(normalizedContent)) {
+        if (!hasQuestion && GreetingRouter.isAcknowledgement(normalizedContent)) {
+          logger.info(`ConversationEngine: Deterministic acknowledgement match for "${content}" (lang: ${effectiveLang}, 0 LLM calls)`);
+          answered = true;
+          answerText = AnswerComposer.composeAcknowledgement({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
+          responseSource = 'GREETING';
+        } else if (!hasQuestion && GreetingRouter.isKnownGreeting(normalizedContent)) {
           logger.info(`ConversationEngine: Deterministic greeting match for "${content}" (lang: ${effectiveLang}, 0 LLM calls)`);
           answered = true;
           answerText = AnswerComposer.composeGreeting({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });

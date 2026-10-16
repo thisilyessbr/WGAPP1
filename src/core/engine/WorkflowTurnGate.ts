@@ -57,7 +57,7 @@ export class WorkflowTurnGate {
   /** A name word; Arabizi names may contain 2/3/5/7/8/9 ("3ziz", "7assan", "Sa3id"). */
   private static readonly NAME_WORD = /^(?=(?:[^\p{L}]*\p{L}){2})[\p{L}\p{M}2-9'-]+$/u;
   /** Words that answer another question (channels, yes/no) or start a sentence, never a person's name. */
-  private static readonly NOT_A_NAME = /^(?:whats?app|watsapp?|wtsp|instagram|insta|facebook|fb|tiktok|bjouj|both|ok|okay|oui|non|yes|no|wakha|iyeh|bghit|3ndi|3andi|kanbi3|kandir|j'ai|je|i|my|and|et|merci|thanks|choukran|demo|démo|الواتساب|واتساب|واتساپ|الانستغرام|الإنستغرام|إنستغرام|انستغرام|انستا|فيسبوك|بجوج|واخا|ايه|إيه|نعم|لا|بغيت|عندي|كنبيع|كندير|شكرا|ديمو)$/iu;
+  private static readonly NOT_A_NAME = /^(?:whats?app|watsapp?|wtsp|instagram|insta|facebook|fb|tiktok|bjouj|both|ok|okay|oui|non|yes|no|wakha|iyeh|bghit|3ndi|3andi|kanbi3|kandir|j'ai|je|i|my|and|et|merci|thanks|chokran|chokrane|choukran|choukrane|shokran|shokrane|shukran|demo|démo|الواتساب|واتساب|واتساپ|الانستغرام|الإنستغرام|إنستغرام|انستغرام|انستا|فيسبوك|بجوج|واخا|ايه|إيه|نعم|لا|بغيت|عندي|كنبيع|كندير|شكرا|ديمو)$/iu;
 
   /**
    * A name the customer introduced anywhere in a longer message ("salam, smiti Rachid w 3ndi restaurant").

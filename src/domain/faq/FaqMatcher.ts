@@ -54,6 +54,10 @@ export class LanguageDetector {
     if (!text || !text.trim()) return 'en';
     const trimmed = normalizeIntentText(text).trim();
 
+    // Short phonetic Darija thanks do not contain digits or the usual dialect
+    // markers. Recognize their common spellings before the EN/FR tie-breaker.
+    if (/^(?:chokran|chokrane|choukran|choukrane|shokran|shokrane|shukran)(?:\s+bzaf)?[.!?\s]*$/iu.test(trimmed)) return 'darija';
+
     // A Moroccan word still identifies Darija inside a mostly French message.
     if (/(?:^|[^\p{L}])(?:واش|بغيت|باغي|باغية|شحال|عفاك|كيفاش)(?=$|[^\p{L}])/u.test(trimmed)) return 'darija';
 

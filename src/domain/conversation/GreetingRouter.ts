@@ -4,12 +4,25 @@ import { logger } from '../../utils/logger';
 import { normalizeIntentText } from './IntentLanguage';
 
 export class GreetingRouter {
+  private static KNOWN_ACKNOWLEDGEMENTS = new Set([
+    // English
+    'thanks', 'thank you', 'thank you very much', 'ok', 'okay', 'great', 'that works', 'good',
+    // French
+    'merci', 'merci beaucoup', 'daccord', 'd accord', "d'accord", 'parfait',
+    // Standard Arabic
+    'شكرا', 'شكرا جزيلا', 'حسنا', 'ممتاز',
+    // Darija / Arabizi. Keep common phonetic spellings deterministic: short
+    // acknowledgements must never be sent to RAG/LLM or treated as a new CTA.
+    'chokran', 'chokrane', 'choukran', 'choukrane', 'shokran', 'shokrane',
+    'shukran', 'chokran bzaf', 'chokrane bzaf', 'choukran bzaf', 'wakha', 'mzyan'
+  ]);
+
   // 1. Known Greetings & Polite Acknowledgments (Normalized)
   private static KNOWN_GREETINGS = new Set([
     // English
     'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy',
     'greetings', 'hi there', 'hey there', 'welcome', 'morning', 'evening', 'yo',
-    'thanks', 'thank you', 'ok', 'okay', 'great', 'that works', 'good',
+    ...GreetingRouter.KNOWN_ACKNOWLEDGEMENTS,
 
     // French
     'bonjour', 'salut', 'bonsoir', 'coucou', 'allo', 'bon matin', 'bienvenue', 'bjr', 'bsr',
@@ -98,6 +111,11 @@ export class GreetingRouter {
    */
   static isKnownGreeting(normalizedText: string): boolean {
     return this.KNOWN_GREETINGS.has(normalizedText);
+  }
+
+  /** True for a polite acknowledgement that does not ask for a new action. */
+  static isAcknowledgement(normalizedText: string): boolean {
+    return this.KNOWN_ACKNOWLEDGEMENTS.has(normalizedText);
   }
 
   /**

@@ -11,6 +11,7 @@ import { ResponseBuilder } from '../../src/domain/conversation/ResponseBuilder';
 import { CRMService } from '../../src/domain/crm/CRMService';
 import { WorkflowEngine, WorkflowCancellationDetector } from '../../src/core/engine/WorkflowEngine';
 import { PolicyEvidenceReuse } from '../../src/domain/rag/PolicyEvidenceReuse';
+import { GreetingRouter } from '../../src/domain/conversation/GreetingRouter';
 
 const product = { selectedProductId: 'p1', selectedSku: 'SKU-1' };
 
@@ -22,6 +23,11 @@ describe('Darija language and spelling', () => {
     'بغيت نشري هادا', 'باغية نشري', 'مابغيتش نشريه', 'واش كاين التوصيل؟',
     'شْحَالْ الثمن؟', 'بغيييت نشري هادا', 'واش livraison gratuite؟'
   ])('recognizes Darija: %s', text => expect(LanguageDetector.detect(text)).toBe('darija'));
+
+  it.each(['chokran', 'chokrane', 'choukran', 'choukrane', 'shokran', 'shukran', 'chokrane bzaf'])('recognizes a Darija acknowledgement: %s', text => {
+    expect(LanguageDetector.detect(text)).toBe('darija');
+    expect(GreetingRouter.isAcknowledgement(GreetingRouter.normalize(text))).toBe(true);
+  });
 
   it.each([
     ['bghiiit nchri hada', 'BUY_INTENT'], ['بغيييت نشري هادا', 'BUY_INTENT'],
@@ -136,6 +142,18 @@ describe('Darija full engine regression', () => {
     const { engine } = fixture(); const reply = await engine.handleMessage('t', 'c', text, 'a');
     expect(reply.toLowerCase()).toMatch(/salam|سلام/);
     expect(/[\u0600-\u06ff]/.test(reply)).toBe(/[\u0600-\u06ff]/.test(text));
+  });
+  it.each(['chokran', 'chokrane', 'choukran', 'shukran'])('closes politely without a CTA after a completed workflow: %s', async text => {
+    const { engine, service, llm, conversation } = fixture();
+    conversation.contextData = { _lang: 'darija', _script: 'arabizi' };
+    service.getLatestCompletedSession = async () => ({ id: 'done', workflowId: 'demo', status: 'COMPLETED', collectedData: { email: 'client@example.com' } });
+
+    const reply = await engine.handleMessage('t', 'c', text, 'a');
+
+    expect(reply).toBe('Bla jmil! 🙌');
+    expect(reply.toLowerCase()).not.toMatch(/demo|email|details|4 quick|write/);
+    expect(llm.generateResponse).not.toHaveBeenCalled();
+    expect(service.commitConversationTurn.mock.calls[0][0].incrementPostCompletionCount).toBe(false);
   });
   it.each(['bghit nhder m3a chi agent', 'بغيت نهضر مع شي موظف'])('acknowledges handoff in the same script: %s', async text => {
     const { engine, service } = fixture(); const reply = await engine.handleMessage('t', 'c', text, 'a');
