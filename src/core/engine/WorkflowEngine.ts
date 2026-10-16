@@ -8,6 +8,8 @@ import { PolicyAnswerSafety } from '../../domain/rag/PolicyAnswerSafety';
 import { PolicyEvidenceReuse } from '../../domain/rag/PolicyEvidenceReuse';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
+import { WorkflowTurnInterpreter } from './WorkflowTurnInterpreter';
+import { WorkflowFieldValueParser } from './WorkflowFieldValueParser';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 import { CatalogMatcher } from '../../domain/ecommerce/CatalogMatcher';
 import { AnswerComposer } from '../../domain/conversation/AnswerComposer';
@@ -30,6 +32,10 @@ export interface WorkflowResult {
   requestHumanHandoff?: boolean;
   handoffPauseHours?: number;
   createLead?: boolean;
+  /** Explicit lifecycle transition such as PAUSED; completion still defaults to COMPLETED. */
+  sessionStatus?: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED' | 'ERROR';
+  sideAnswer?: boolean;
+  pendingPrompt?: string;
 }
 
 export class WorkflowCancellationDetector {
@@ -816,18 +822,77 @@ export class WorkflowEngine {
         // First decide whether this turn answers the pending field. A statement
         // about the customer's own business may lexically resemble a FAQ.
         const allowsInterruption = workflowConfig.allowInterruption !== false;
-        const deterministicMixedTurn = allowsInterruption
-          ? (WorkflowTurnGate.splitAnswerAndQuestion(trimmedMsg, fieldName, stateConfig.field)
-            || WorkflowTurnGate.splitPersonNameAndQuestion(trimmedMsg, fieldName, stateConfig.field)) : null;
-        const interpretation = deterministicMixedTurn ? null : await WorkflowTurnGate.interpret(
-          trimmedMsg, fieldName, stateConfig.field, currentCollectPrompt, llm, llmOptions
-        );
-        const mixedTurn = deterministicMixedTurn || (allowsInterruption && interpretation?.fieldValue && interpretation.question
-          ? { fieldValue: interpretation.fieldValue, question: interpretation.question } : null);
-        const questionText = mixedTurn?.question || trimmedMsg;
-        const fieldValue = mixedTurn?.fieldValue || interpretation?.fieldValue || trimmedMsg;
-        const turnKind = mixedTurn ? 'CUSTOMER_QUESTION' : interpretation!.kind;
-        const isQuestion = turnKind === 'CUSTOMER_QUESTION';
+        const fieldConfig = typeof stateConfig.field === 'object'
+          ? stateConfig.field
+          : { name: fieldName, type: 'string' as const, required: true };
+        const workflowFields = WorkflowTurnInterpreter.fieldsFromWorkflow(workflowConfig.states, collectedData);
+        const pendingDescriptor = workflowFields.find(field => field.name === fieldName) ||
+          { name: fieldName, label: stateConfig.label || stateConfig.name, type: fieldConfig.type,
+            semanticType: fieldConfig.semanticType ||
+              (/^(?:fullname|username|name|customername|contactname)$/i.test(fieldName) ? 'person_name' : 'free_text'),
+            collected: false };
+        const interpretation = await WorkflowTurnInterpreter.interpret({
+          message: trimmedMsg,
+          pendingField: pendingDescriptor,
+          pendingPrompt: currentCollectPrompt,
+          fields: workflowFields,
+          intents: (businessConfig.capabilities?.intents || []).map(intent => ({ id: intent.id, keywords: intent.keywords })),
+          llm,
+          options: llmOptions
+        });
+        const mixedTurn = interpretation.kind === 'ANSWER_AND_QUESTION' && interpretation.fieldSourceSpan && interpretation.questionSourceSpan
+          ? { fieldValue: interpretation.fieldSourceSpan.text, question: interpretation.questionSourceSpan.text } : null;
+        const questionText = interpretation.questionSourceSpan?.text || trimmedMsg;
+        const valueSpan = interpretation.fieldSourceSpan || interpretation.newValueSourceSpan;
+        const parsedField = valueSpan ? WorkflowFieldValueParser.parse(valueSpan, fieldConfig) : null;
+        const fieldValue = parsedField?.value;
+        const turnKind = interpretation.kind;
+        const isQuestion = turnKind === 'SIDE_QUESTION' || turnKind === 'ANSWER_AND_QUESTION';
+
+        if (turnKind === 'NEW_INTENT') {
+          const pauseHours = Math.max(1, Math.min(168, workflowConfig.pausePolicy?.ttlHours || 24));
+          currentContext['_pausedWorkflow'] = {
+            status: 'PAUSED', intent: interpretation.intent, pausedAt: new Date().toISOString(),
+            resumeUntil: new Date(Date.now() + pauseHours * 60 * 60 * 1000).toISOString(), stateId: currentStateId,
+            createPartialLead: workflowConfig.pausePolicy?.createPartialLead === true
+          };
+          return finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
+            response: currentCollectPrompt, isComplete: false,
+            updatedStateHistory: history, updatedCollectedData: collectedData,
+            sessionStatus: 'PAUSED' });
+        }
+
+        if (turnKind === 'CORRECTION') {
+          const target = interpretation.targetField;
+          const targetState = target && Object.entries(workflowConfig.states).find(([, candidate]) => {
+            const configured = candidate.type === 'collect' && candidate.field;
+            return configured && (typeof configured === 'string' ? configured : configured.name) === target;
+          });
+          if (!target || !targetState) {
+            return finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
+              response: repeatPrompt, isComplete: false, updatedStateHistory: history, updatedCollectedData: collectedData });
+          }
+          const targetConfig = typeof targetState[1].field === 'object'
+            ? targetState[1].field : { name: target, type: 'string' as const, required: true };
+          if (!interpretation.newValueSourceSpan) {
+            delete collectedData[target];
+            delete currentContext[target];
+            return finishAndReturn({ updatedContext: currentContext, nextStateId: targetState[0],
+              response: this.responseBuilder.buildMissingFieldResponse(targetState[1], businessConfig, lang, script),
+              isComplete: false, updatedStateHistory: history, updatedCollectedData: collectedData });
+          }
+          const corrected = WorkflowFieldValueParser.parse(interpretation.newValueSourceSpan, targetConfig);
+          if (!corrected || this.fieldValidator.validate(corrected.value, targetConfig)) {
+            return finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
+              response: repeatPrompt, isComplete: false, updatedStateHistory: history, updatedCollectedData: collectedData });
+          }
+          collectedData[target] = corrected.value;
+          currentContext[target] = corrected.value;
+          currentContext['_fieldEvidence'] = { ...(currentContext['_fieldEvidence'] || {}),
+            [target]: corrected.rawSpan };
+          return finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
+            response: repeatPrompt, isComplete: false, updatedStateHistory: history, updatedCollectedData: collectedData });
+        }
         if (turnKind === 'UNCLEAR') {
           // UNCLEAR counts toward the same unmatched limit as unanswered
           // questions. The first re-prompt is plain, the next one explains,
@@ -869,13 +934,17 @@ export class WorkflowEngine {
         }
 
         let fieldValidationErr: string | null = null;
-        if (stateConfig.field && typeof stateConfig.field === 'object') {
+        if (stateConfig.field && typeof stateConfig.field === 'object' && fieldValue !== undefined) {
           fieldValidationErr = this.fieldValidator.validate(fieldValue, stateConfig.field);
+        } else if (fieldValue === undefined) {
+          fieldValidationErr = 'Value is missing.';
         }
 
         const advanceField = (answer?: string): WorkflowResult => {
           collectedData[fieldName] = fieldValue;
           currentContext[fieldName] = fieldValue;
+          if (parsedField) currentContext['_fieldEvidence'] = { ...(currentContext['_fieldEvidence'] || {}),
+            [fieldName]: parsedField.rawSpan };
           currentContext['_consecutiveUnmatched'] = 0;
 
           const newHistory = [...history, currentStateId];
@@ -917,10 +986,11 @@ export class WorkflowEngine {
         };
 
         const answerAndContinue = (answer: string, separator = false): WorkflowResult => mixedTurn && !fieldValidationErr
-          ? advanceField(answer)
+          ? { ...advanceField(answer), sideAnswer: true }
           : finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
               response: `${answer}\n\n${separator ? '---\n' : ''}${repeatPrompt}`, isComplete: false,
-              updatedStateHistory: history, updatedCollectedData: collectedData });
+              updatedStateHistory: history, updatedCollectedData: collectedData,
+              sideAnswer: true, pendingPrompt: repeatPrompt });
 
         if (matchedFaqAnswer && this.answerUsesRequestedScript(matchedFaqAnswer, lang, script)) {
           // Answer off-script question, keep stateId and collectedData unchanged, reprompt collect step

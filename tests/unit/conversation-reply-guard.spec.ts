@@ -59,3 +59,24 @@ describe('reply guard: no near-repeat of the previous reply', () => {
     expect(ConversationReplyGuard.apply(second, { source: 'WORKFLOW', language: 'darija', script: 'arabizi', previousReply: first })).toBe(second);
   });
 });
+
+describe('reply guard: committed workflow invariants', () => {
+  it('removes a side-answer CTA and keeps one pending prompt', () => {
+    const prompt = 'Chno smitek?';
+    const reply = `Relayqo kayjawb 24/24. Kteb bghit demo bach t7jez.\n\n${prompt}\n${prompt}`;
+    const guarded = ConversationReplyGuard.apply(reply, {
+      source: 'WORKFLOW', language: 'darija', script: 'arabizi',
+      workflow: { sideAnswer: true, midWorkflow: true, pendingPrompt: prompt }
+    });
+    expect(guarded).not.toContain('Kteb bghit demo');
+    expect(guarded.split(prompt)).toHaveLength(2);
+  });
+
+  it('does not allow an uncommitted booking claim', () => {
+    const guarded = ConversationReplyGuard.apply('Your appointment is booked.', {
+      source: 'WORKFLOW', language: 'en',
+      workflow: { committedOutcome: null }
+    });
+    expect(guarded).toContain('What would you like to know');
+  });
+});

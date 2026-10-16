@@ -767,6 +767,8 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     options?: {
       externalMessageId?: string | null;
       phoneNumberId?: string | null;
+      /** Internal only: the complete turn may be re-evaluated once after an optimistic-lock conflict. */
+      conflictRetry?: number;
     }
   ): Promise<string> {
     const turnStartTime = Date.now();
@@ -1039,9 +1041,11 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
 
     // 4. Retrieve active workflow session
-    const activeSession = await this.conversationService.getActiveSession(tenantId, conversation.id);
+    let activeSession = await this.conversationService.getActiveSession(tenantId, conversation.id);
+    let resumingPausedWorkflow = false;
 
     let response = '';
+    let workflowReplyGuard: { pendingPrompt?: string; sideAnswer?: boolean; midWorkflow?: boolean } | undefined;
     let sessionUpdatePayload: {
       sessionId: string;
       newWorkflowId?: string;
@@ -1078,6 +1082,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     };
 
     const content = routed.effectiveContent;
+    if (!activeSession && /^(?:yes|oui|ok|okay|continue|resume|nkemlo|kmel|wakha|نعم|نكملو|كمل)$/iu.test(content.trim())) {
+      activeSession = await this.conversationService.getResumablePausedSession(tenantId, conversation.id);
+      resumingPausedWorkflow = Boolean(activeSession);
+    }
     const recognizedUseCases = IntentTriggerLibrary.match(content).map(match => match.useCase);
     let resolvedWorkflowRoute: WorkflowRouteDecision = { kind: 'NONE' };
     const normalizedInput = (payload.text || content).trim().toLowerCase();
@@ -1356,9 +1364,11 @@ Store menu match (verified by this business's own menu and wording list, not a s
             : config.behavior?.responseScript && config.behavior.responseScript !== 'auto'
             ? config.behavior.responseScript
             : (typeof activeWorkflowContext?._script === 'string' ? activeWorkflowContext._script : effectiveScript);
-          const result = await this.workflowEngine.process(activeSession, content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, workflowLang, workflowScript, conversation.accountId);
+          const result = await this.workflowEngine.process(activeSession, resumingPausedWorkflow ? '' : content, workflowConfig, config, llm, llmOptions, this.ragService, correlationId, workflowLang, workflowScript, conversation.accountId);
+          workflowReplyGuard = { pendingPrompt: result.pendingPrompt, sideAnswer: result.sideAnswer,
+            midWorkflow: !result.isComplete };
           applyWorkflowHandoff(result);
-          const newStatus = result.isComplete ? 'COMPLETED' : 'ACTIVE';
+          const newStatus = result.sessionStatus || (result.isComplete ? 'COMPLETED' : 'ACTIVE');
           if (result.isComplete) {
             completedWorkflowId = activeSession.workflowId;
             completedWorkflowConfig = workflowConfig;
@@ -3219,7 +3229,8 @@ Check again: the business-owner evidence above lists the business's policies, se
       language: effectiveLang,
       script: effectiveScript,
       previousReply: [...(conversationContext.recentTurns || [])].reverse().find(turn => turn.role.toLowerCase() === 'assistant')?.content,
-      completedWorkflow: completedWorkflowIdForGuard ? (config.workflows || {})[completedWorkflowIdForGuard] : undefined
+      completedWorkflow: completedWorkflowIdForGuard ? (config.workflows || {})[completedWorkflowIdForGuard] : undefined,
+      workflow: workflowReplyGuard
     });
 
     // 5. Apply central final response boundary enforcing content trust, script invariants, and limits
@@ -3369,6 +3380,20 @@ Check again: the business-owner evidence above lists the business's policies, se
           logger.info(`ConversationEngine: Recovered from concurrent turn insert for externalMessageId [${externalMessageId}] in conversation [${conversation.id}].`);
           return existingTurnResp;
         }
+      }
+      const isVersionConflict = String(commitErr?.message || commitErr).includes('Concurrency Conflict');
+      if (isVersionConflict && (options?.conflictRetry || 0) < 1) {
+        logger.info(`ConversationEngine: Retrying complete turn from fresh state after version conflict in conversation [${conversation.id}].`);
+        return this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId,
+          { ...options, conflictRetry: (options?.conflictRetry || 0) + 1 });
+      }
+      if (isVersionConflict) {
+        logger.warn(`ConversationEngine: Second version conflict in conversation [${conversation.id}]; returning a non-mutating retry reply.`);
+        return effectiveLang === 'fr' ? 'Un autre message est en cours de traitement. Merci de renvoyer votre dernier message.'
+          : effectiveLang === 'ar' ? 'يتم الآن معالجة رسالة أخرى. يرجى إعادة إرسال رسالتك الأخيرة.'
+          : effectiveLang === 'darija' && effectiveScript === 'arabic' ? 'كاينة رسالة أخرى كتتعالج دابا. عفاك عاود صيفط آخر رسالة.'
+          : effectiveLang === 'darija' ? 'Kayn message akhor kayt3alj daba. 3afak 3awed sifet akher message.'
+          : 'Another message is being processed. Please resend your last message.';
       }
       throw commitErr;
     }

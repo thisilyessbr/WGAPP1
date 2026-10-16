@@ -271,6 +271,13 @@ export interface WorkflowConfig {
   outcome?: WorkflowOutcomeConfig;
   /** Book the chosen calendar slot when the workflow completes (the bot says "confirmed" only if booking succeeded). */
   calendarBooking?: boolean;
+  /** Lifecycle for a workflow temporarily interrupted by a different customer intent. */
+  pausePolicy?: {
+    /** How long the same session may be resumed. Defaults to 24 hours. */
+    ttlHours?: number;
+    /** Partial paused sessions do not create leads unless the merchant explicitly enables this. */
+    createPartialLead?: boolean;
+  };
 }
 
 export interface KnowledgeConfig {

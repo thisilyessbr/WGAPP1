@@ -14,6 +14,13 @@ export interface ReplyGuardContext {
   script?: string;
   previousReply?: string;
   completedWorkflow?: WorkflowConfig;
+  /** Post-commit workflow facts. These checks must never be fed a proposed transition. */
+  workflow?: {
+    pendingPrompt?: string;
+    sideAnswer?: boolean;
+    midWorkflow?: boolean;
+    committedOutcome?: 'BOOKING_CONFIRMED' | 'ORDER_CONFIRMED' | null;
+  };
 }
 
 const EXEMPT_SOURCES = new Set(['WORKFLOW', 'GREETING', 'SAFETY_GUARD', 'HANDOFF', 'HUMAN_AGENT', 'CAP']);
@@ -102,8 +109,37 @@ export class ConversationReplyGuard {
   }
 
   static apply(reply: string, ctx: ReplyGuardContext): string {
-    if (!reply || EXEMPT_SOURCES.has(ctx.source)) return reply;
+    if (!reply) return reply;
     let out = reply;
+    const workflow = ctx.workflow;
+    if (workflow?.midWorkflow) {
+      // A workflow may repeat its current question, but never replay its welcome
+      // or generic acquisition pitch in the middle of collection.
+      const pieces = out.split(/(?<=[.!?؟])\s+|\n+/u);
+      out = pieces.filter(piece => !/^(?:hello|hi|welcome|bonjour|salut|salam(?:\s+w)?\s*marhba|مرحبا|السلام عليكم)\b/iu.test(piece.trim())).join('\n').trim() || out;
+    }
+    if (workflow?.pendingPrompt) {
+      const prompt = workflow.pendingPrompt.trim();
+      const first = prompt ? out.indexOf(prompt) : -1;
+      if (first >= 0) {
+        const duplicate = out.indexOf(prompt, first + prompt.length);
+        if (duplicate >= 0) out = `${out.slice(0, duplicate)}${out.slice(duplicate + prompt.length)}`.replace(/\n{3,}/g, '\n\n').trim();
+      }
+    }
+    const claimsBooking = /\b(?:booked|booking confirmed|appointment confirmed|réserv(?:é|ée)|rendez-vous confirm(?:é|ée))\b|تم الحجز|تأكد الموعد|تسجل الموعد/iu.test(out);
+    const claimsOrder = /\b(?:order confirmed|commande confirm(?:é|ée))\b|تم تأكيد الطلب|تأكد الطلب/iu.test(out);
+    const hasCommitEvidence = Boolean(workflow && Object.prototype.hasOwnProperty.call(workflow, 'committedOutcome'));
+    if (hasCommitEvidence && ((claimsBooking && workflow?.committedOutcome !== 'BOOKING_CONFIRMED') ||
+        (claimsOrder && workflow?.committedOutcome !== 'ORDER_CONFIRMED'))) {
+      return ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);
+    }
+    if (workflow?.sideAnswer) {
+      // Remove acquisition CTAs; the controller appends the one pending prompt.
+      out = out.split(/(?<=[.!?؟])\s+|\n+/u)
+        .filter(piece => !/(?:book|réserver|reserve|buy now|order now|contact us|bghit.*demo|kteb.*demo|احجز|اطلب الآن|تواصل معنا)/iu.test(piece))
+        .join(' ').trim() || ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);
+    }
+    if (EXEMPT_SOURCES.has(ctx.source)) return out;
     if (ctx.completedWorkflow) out = withoutFlowInvitations(out, ctx.completedWorkflow) || ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);
     // Only substantial replies count as repeats; a short "Bla jmil" may legitimately come back, and catalog answers
     // (products, services) can look alike for different items.

@@ -174,6 +174,21 @@ export class ConversationService {
     });
   }
 
+  async getResumablePausedSession(tenantId: string, conversationId: string, now = new Date()): Promise<WorkflowSession | null> {
+    const session = await this.prisma.workflowSession.findFirst({
+      where: { tenantId, conversationId, status: 'PAUSED' },
+      orderBy: { updatedAt: 'desc' }
+    });
+    if (!session) return null;
+    const pause = (session.contextData as any)?._pausedWorkflow;
+    const resumeUntil = typeof pause?.resumeUntil === 'string' ? new Date(pause.resumeUntil) : null;
+    if (!resumeUntil || Number.isNaN(resumeUntil.getTime()) || resumeUntil.getTime() <= now.getTime()) {
+      await this.prisma.workflowSession.update({ where: { id: session.id }, data: { status: 'EXPIRED' } });
+      return null;
+    }
+    return session;
+  }
+
   async getLatestCompletedSession(tenantId: string, conversationId: string): Promise<WorkflowSession | null> {
     return this.prisma.workflowSession.findFirst({
       where: { tenantId, conversationId, status: 'COMPLETED' },
