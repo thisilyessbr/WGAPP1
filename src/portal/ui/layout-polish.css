@@ -177,6 +177,31 @@
 /* The save bar is not needed (and would cover the composer) on the Test chatbot tab. */
 #business-form .section-panel:has(#client-test-card):not([hidden]) ~ .sticky-save{display:none}
 
+/* Progressive navigation, ambient depth and purposeful motion. */
+.client-shell .sidebar{overflow:hidden}
+.client-shell .sidebar::before{content:"";position:absolute;z-index:-1;top:-110px;inset-inline-start:-90px;width:250px;height:250px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--green) 11%,transparent),transparent 68%);pointer-events:none}
+.client-shell .nav-label-sub{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.client-shell .nav a{position:relative;overflow:hidden;transition:color .18s ease,background .18s ease,transform .18s ease,box-shadow .18s ease}
+.client-shell .nav a:hover{transform:translateX(3px)}
+:root[dir=rtl] .client-shell .nav a:hover{transform:translateX(-3px)}
+.client-shell .nav a.active{box-shadow:inset 3px 0 0 var(--green),0 5px 18px color-mix(in srgb,var(--green) 8%,transparent)}
+:root[dir=rtl] .client-shell .nav a.active{box-shadow:inset -3px 0 0 var(--green),0 5px 18px color-mix(in srgb,var(--green) 8%,transparent)}
+.client-shell .nav a span{transition:transform .18s ease}
+.client-shell .nav a:hover span{transform:scale(1.08)}
+.client-shell .main{position:relative;isolation:isolate;overflow:hidden}
+.client-shell .main::before{content:"";position:absolute;z-index:-1;top:30px;inset-inline-end:-180px;width:540px;height:540px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--green) 7%,transparent),transparent 68%);pointer-events:none}
+.client-shell .content>*{animation:workspace-enter .38s cubic-bezier(.2,.75,.25,1) both}
+.client-shell .content>*:nth-child(2){animation-delay:.035s}
+.client-shell .content>*:nth-child(3){animation-delay:.07s}
+.client-shell .content>*:nth-child(4){animation-delay:.105s}
+.client-shell .card{transition:border-color .22s ease,box-shadow .22s ease,transform .22s ease}
+.client-shell .card:hover{border-color:color-mix(in srgb,var(--green) 24%,var(--line));box-shadow:0 14px 40px rgba(7,21,19,.055)}
+.client-shell .status-dot{animation:workspace-pulse 2.3s ease-in-out infinite}
+@keyframes workspace-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes workspace-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 30%,transparent)}50%{box-shadow:0 0 0 5px transparent}}
+@media(prefers-reduced-motion:reduce){.client-shell .content>*,.client-shell .status-dot{animation:none}.client-shell .nav a,.client-shell .nav a span,.client-shell .card{transition:none}}
+@media(max-width:760px){.client-shell .sidebar::before{display:none}.client-shell .nav a:hover{transform:none}}
+
 /* Client calendar: month grid and week timeline. */
 .cal-overview{display:grid;grid-template-columns:1.15fr repeat(3,1fr);margin-bottom:16px;border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
 .cal-overview>div{display:flex;flex-direction:column;justify-content:center;min-width:0;padding:15px 18px;border-inline-start:1px solid var(--line)}

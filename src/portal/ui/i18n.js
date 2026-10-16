@@ -739,6 +739,7 @@
     ["Book the chosen time in the calendar","Réserver le créneau choisi dans le calendrier","حجز الوقت المختار في التقويم"],
     ["Uses the calendar day and time steps. The bot says the demo is confirmed only after the booking succeeds.","Utilise les étapes jour et heure du calendrier. Le bot confirme la démo seulement après une réservation réussie.","يستخدم خطوتي اليوم والوقت في التقويم. لا يؤكد الروبوت العرض إلا بعد نجاح الحجز."],
     ["Calendar","Calendrier","التقويم"],
+    ["Grow your business","Développez votre activité","طوّر نشاطك"],
     ["Not a calendar step","Pas une étape de calendrier","ليست خطوة تقويم"],
     ["Ask the day, then offer free times","Demander le jour, puis proposer les créneaux libres","اسأل عن اليوم ثم اعرض الأوقات المتاحة"],
     ["Take the chosen time","Prendre l’heure choisie","تسجيل الوقت المختار"],
