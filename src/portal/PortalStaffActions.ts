@@ -159,7 +159,13 @@ export class PortalStaffActions {
               AND ("assignedToUserId" IS NULL OR "assignedToUserId"=${alert.recipientId})
               AND (${alert.kind}<>'FOLLOW_UP' OR "followUpAt"::text=${alert.occurrence})`;
           if (eligible.length && authorized.length) {
-            const path = alert.kind === 'HANDOFF' ? `/app/inbox/${alert.sourceId}` : `/app/leads/${alert.sourceId}`;
+            // A request made by a completed order workflow is announced as an order and opens in Orders.
+            const order = alert.kind === 'REQUEST' && (await this.store.db.$queryRaw<any[]>`SELECT 1 FROM "Lead" l
+              JOIN "WorkflowSession" ws ON ws.id=l."sourceWorkflowSessionId" AND ws."tenantId"=l."tenantId" AND ws.status='COMPLETED'
+              WHERE l.id=${alert.sourceId} AND l."tenantId"=${alert.tenantId}
+                AND (ws."workflowId" ~* '(checkout|cash_on_delivery|cod_order)' OR ws."collectedData" ?| array['product','product_name','produit'])`).length > 0;
+            if (order) alert.kind = 'ORDER';
+            const path = alert.kind === 'HANDOFF' ? `/app/inbox/${alert.sourceId}` : order ? `/app/orders/${alert.sourceId}` : `/app/leads/${alert.sourceId}`;
             const base = (process.env.PORTAL_PUBLIC_URL || '').replace(/\/$/, '');
             if (!base.startsWith('https://')) throw new Error('Secure portal URL required');
             await this.deliver(alert, base + path);
@@ -176,7 +182,8 @@ export class PortalStaffActions {
   }
 
   private static async sendEmail(alert: Alert, url: string) {
-    const subject = alert.kind === 'HANDOFF' ? 'Relayqo: customer needs a person' : alert.kind === 'FOLLOW_UP' ? 'Relayqo: follow-up due' : 'Relayqo: new customer request';
+    const subject = alert.kind === 'HANDOFF' ? 'Relayqo: a customer is waiting for you' : alert.kind === 'FOLLOW_UP' ? 'Relayqo: follow-up due'
+      : alert.kind === 'ORDER' ? 'Relayqo: new order to confirm' : 'Relayqo: new customer request';
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json',

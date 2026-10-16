@@ -19,6 +19,7 @@ import { logger } from '../utils/logger';
 import { InstagramService } from '../domain/channel/instagram/InstagramService';
 import { LEAD_STAGES, LeadStage, PortalLeads } from './PortalLeads';
 import { PortalLearnedWording } from './PortalLearnedWording';
+import { PortalOrders } from './PortalOrders';
 import { GoogleCalendarConnections } from '../domain/calendar/GoogleCalendarConnections';
 import { CalendarError, RelayqoCalendar } from '../domain/calendar/RelayqoCalendar';
 import { PortalStaffActions } from './PortalStaffActions';
@@ -44,9 +45,12 @@ const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.
 const clientProfile = (p: PortalProfile) => {
   const entitledModules = p.planSnapshot?.modules || [];
   const commerceActive = entitledModules.includes('commerce') && p.adminConfig?.capabilities?.ecommerceEnabled !== false;
+  // The Calendar page is shown to businesses that take appointments or whose workflows book in the calendar.
+  const workflows = { ...(p.planSnapshot?.template?.workflows || {}), ...(p.adminConfig?.workflows || {}) } as Record<string, any>;
+  const calendarInUse = entitledModules.includes('services') || Object.values(workflows).some(wf => Object.values(wf?.states || {}).some((st: any) => st?.calendar));
   return { accountId: p.accountId, status: p.status, draft: p.draft, revision: p.revision, publishedRevision: p.publishedRevision,
   requestedPlanId: p.requestedPlanId, plan: p.planSnapshot ? publicPlan(p.planSnapshot) : null,
-  commerceActive, productMode: commerceActive ? 'COMMERCE' : 'STANDARD',
+  commerceActive, calendarInUse, productMode: commerceActive ? 'COMMERCE' : 'STANDARD',
   effectiveModules: commerceActive ? entitledModules : entitledModules.filter(module => module !== 'commerce'),
   reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
   voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
@@ -77,6 +81,7 @@ function validateAccountChanges(changes: Record<string, any>) {
 export function createPortalRouter(services: PortalServices, deps: PortalRouterDeps): Router {
   const { store, auth, connections, documents } = services;
   const portalLeads = new PortalLeads(store);
+  const portalOrders = new PortalOrders(store, portalLeads);
   // Created on first use: the router is also built without a store (entry routes only).
   let learnedWordingInstance: PortalLearnedWording | undefined;
   const learnedWording = () => (learnedWordingInstance ??= new PortalLearnedWording(store.db as any));
@@ -235,6 +240,24 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     SELECT u.id,u.name FROM "PortalMembership" pm JOIN "PortalUser" u ON u.id=pm."userId"
     WHERE pm."tenantId"=${req.portal.tenantId!} AND pm."accountId"=${req.portal.accountId!} AND u.disabled=false
     ORDER BY u.name LIMIT 50` })));
+  // Orders: cash-on-delivery requests with a delivery status, for plans that include selling products.
+  client.use('/orders', (req, _res, next) => {
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => clientProfile(profile).commerceActive ? next() : next(new PortalError(403, 'ORDERS_NOT_INCLUDED')))
+      .catch(next);
+  });
+  client.get('/orders', route(async (req, res) => {
+    const status = String(req.query.status || 'ALL').toUpperCase();
+    send(res, await portalOrders.list(req.portal.tenantId!, req.portal.accountId!, status,
+      boundedQueryInteger(req.query.limit, 50, 1, 200), boundedQueryInteger(req.query.offset, 0, 0, 1_000_000)));
+  }));
+  client.get('/orders/summary', route(async (req, res) => send(res, await portalOrders.summary(req.portal.tenantId!, req.portal.accountId!))));
+  client.get('/orders/:id', route(async (req, res) => send(res, { order: await portalOrders.get(req.portal.tenantId!, req.portal.accountId!, String(req.params.id)) })));
+  client.patch('/orders/:id', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['status', 'note', 'product', 'quantity', 'city', 'address', 'customerName', 'total']);
+    if (!Object.keys(body).length) throw new PortalError(400, 'NO_ORDER_CHANGES');
+    send(res, { order: await portalOrders.update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id), req.portal.user.id, body) });
+  }));
   client.get('/leads', route(async (req, res) => {
     const status = String(req.query.status || 'ALL').toUpperCase();
     const view = String(req.query.view || 'ALL').toUpperCase();

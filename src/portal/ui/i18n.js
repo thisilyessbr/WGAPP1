@@ -310,8 +310,9 @@
     const key = source.trim();
     const found = translations.get(key)?.[locale];
     if (found) return left + found + right;
-    const greeting = key.match(/^(Welcome back|Let’s get you live), (.+)$/);
-    if (greeting) return left + (locale === 'fr' ? `${greeting[1] === 'Welcome back' ? 'Bon retour' : 'Préparons votre lancement'}, ${greeting[2]}` : `${greeting[1] === 'Welcome back' ? 'مرحبًا بعودتك' : 'لنبدأ إعدادك'}، ${greeting[2]}`) + right;
+    const greeting = key.match(/^(Welcome back|Let’s get you live|Almost there), (.+)$/);
+    if (greeting) { const words = { 'Welcome back': ['Bon retour', 'مرحبًا بعودتك'], 'Let’s get you live': ['Préparons votre lancement', 'لنبدأ إعدادك'], 'Almost there': ['Presque prêt', 'اقتربنا'] }[greeting[1]];
+      return left + (locale === 'fr' ? `${words[0]}, ${greeting[2]}` : `${words[1]}، ${greeting[2]}`) + right; }
     const count = key.match(/^([\d\s,.\u00a0]+) (messages|products|documents|WhatsApp numbers?|used|total|remaining)$/);
     if (count) return left + count[1] + ' ' + (translations.get(count[2])?.[locale] || count[2]) + right;
     const accountCount = key.match(/^(\d+) (matching )?accounts$/);
@@ -321,6 +322,13 @@
       const value = translations.get(adminStatus[1].replaceAll('_', ' '))?.[locale] || adminStatus[1];
       return left + (locale === 'fr' ? `Statut : ${value}. Les changements sont consignés dans l’historique.` : `الحالة: ${value}. تُسجّل التغييرات في سجل النشاط.`) + right;
     }
+    // Shop pages: counts and names inside a sentence.
+    const toConfirm = key.match(/^(\d+) to confirm$/);
+    if (toConfirm) return left + (locale === 'fr' ? `${toConfirm[1]} à confirmer` : `${toConfirm[1]} للتأكيد`) + right;
+    const prefixed = key.match(/^(Current plan|Connected|Times customers can book|Received): (.+)$/);
+    if (prefixed) return left + ({ 'Current plan': { fr: 'Offre actuelle', ar: 'الباقة الحالية' }, Connected: { fr: 'Connecté', ar: 'مربوط' }, 'Times customers can book': { fr: 'Créneaux réservables', ar: 'أوقات الحجز' }, Received: { fr: 'Reçue', ar: 'وصل' } }[prefixed[1]][locale]) + (locale === 'ar' ? '، ' : ' : ') + prefixed[2] + right;
+    const plannedLater = key.match(/^(\d+) planned for later$/);
+    if (plannedLater) return left + (locale === 'fr' ? `${plannedLater[1]} prévue(s) plus tard` : `${plannedLater[1]} مؤجلة`) + right;
     const savedPlan = key.match(/^Saved plan: (.+)$/);
     if (savedPlan) return left + (locale === 'fr' ? 'Offre enregistrée : ' : 'الباقة المحفوظة: ') + savedPlan[1] + right;
     const connectedInstagram = key.match(/^Connected as (@.+)$/);
@@ -608,6 +616,103 @@
     ['Saving does not change plans already assigned to clients.','L’enregistrement ne modifie pas les offres déjà attribuées aux clients.','لا يغيّر الحفظ الباقات المعيّنة للعملاء مسبقًا.'],
     ['Correct the advanced JSON before editing workflows.','Corrigez le JSON avancé avant de modifier les parcours.','صحّح إعدادات JSON المتقدمة قبل تعديل مسارات العمل.'],
     ['Guided workflows','Parcours guidés','مسارات العمل الموجّهة'],
+    ['Almost there','Presque prêt','اقتربنا'],
+    ['Everything is ready. Your bot goes live as soon as the review is done.','Tout est prêt. Votre bot sera en ligne dès la fin de la vérification.','كل شيء جاهز. سيعمل الروبوت فور انتهاء المراجعة.'],
+    ["Home","Accueil","الرئيسية"],
+    ["Orders","Commandes","الطلبات"],
+    ["Products","Produits","المنتجات"],
+    ["Bot knowledge","Connaissances du bot","معلومات الروبوت"],
+    ["Settings","Paramètres","الإعدادات"],
+    ["Your business","Votre activité","نشاطك"],
+    ["Try your bot","Tester votre bot","جرّب الروبوت"],
+    ["Write like a customer. It answers with your saved information; nothing is sent on WhatsApp.","Écrivez comme un client. Il répond avec vos informations enregistrées ; rien n’est envoyé sur WhatsApp.","اكتب كأنك زبون. يجيب بمعلوماتك المحفوظة، ولا يُرسل شيء على واتساب."],
+    ["Close","Fermer","إغلاق"],
+    ["Welcome back","Bon retour","مرحباً بعودتك"],
+    ["Your business this week.","Votre activité cette semaine.","نشاطك هذا الأسبوع."],
+    ["Four steps, and your bot answers your customers on WhatsApp.","Quatre étapes, et votre bot répond à vos clients sur WhatsApp.","أربع خطوات، ويجيب الروبوت زبناءك على واتساب."],
+    ["Live on WhatsApp","En ligne sur WhatsApp","يعمل على واتساب"],
+    ["Paused","En pause","متوقف"],
+    ["Your bot is paused by your administrator. Customers get no automatic replies.","Votre bot est mis en pause par votre administrateur. Les clients ne reçoivent pas de réponse automatique.","أوقف المسؤول الروبوت مؤقتاً. لا يتلقى الزبناء ردوداً تلقائية."],
+    ["Orders this week","Commandes cette semaine","طلبات هذا الأسبوع"],
+    ["Revenue this week","Chiffre d’affaires cette semaine","مداخيل هذا الأسبوع"],
+    ["Cancelled and returned not counted","Annulées et retournées non comptées","لا تُحتسب الملغاة والمرتجعة"],
+    ["All confirmed","Tout est confirmé","كل الطلبات مؤكدة"],
+    ["Requests to answer","Demandes à traiter","طلبات تنتظر الرد"],
+    ["Last 30 days","30 derniers jours","آخر 30 يوماً"],
+    ["Customers waiting for you","Clients qui vous attendent","زبناء ينتظرونك"],
+    ["Reply yourself in the inbox","Répondez vous-même dans la boîte de réception","رُدّ بنفسك من صندوق الرسائل"],
+    ["Nobody waiting","Personne n’attend","لا أحد ينتظر"],
+    ["Latest conversations","Dernières conversations","آخر المحادثات"],
+    ["Open inbox ›","Ouvrir la boîte de réception ›","فتح صندوق الرسائل ›"],
+    ["Waiting for you","Vous attend","ينتظرك"],
+    ["Your bot is answering well","Votre bot répond bien","الروبوت يجيب بشكل جيد"],
+    ["No unanswered questions in the last 30 days. Try it yourself any time with “Try your bot”.","Aucune question sans réponse ces 30 derniers jours. Testez-le à tout moment avec « Tester votre bot ».","لا أسئلة بلا جواب في آخر 30 يوماً. جرّبه متى شئت عبر «جرّب الروبوت»."],
+    ["Questions to teach your bot","Questions à apprendre à votre bot","أسئلة لتعليمها للروبوت"],
+    ["Customers asked these and your bot had no answer. Add the answer in “What your bot knows”, then mark it done.","Des clients les ont posées et votre bot n’avait pas de réponse. Ajoutez la réponse dans « Ce que sait votre bot », puis marquez-la comme faite.","سأل الزبناء هذه الأسئلة ولم يجد الروبوت جواباً. أضف الجواب في «ما يعرفه الروبوت» ثم علّمه كمنجز."],
+    ["Open what your bot knows ›","Ouvrir ce que sait votre bot ›","فتح ما يعرفه الروبوت ›"],
+    ["Get your bot live","Mettez votre bot en ligne","شغّل الروبوت"],
+    ["Business profile","Profil de l’activité","ملف النشاط"],
+    ["Connect WhatsApp","Connecter WhatsApp","ربط واتساب"],
+    ["Tell your bot what you sell, your delivery and return rules","Dites à votre bot ce que vous vendez, vos règles de livraison et de retour","عرّف الروبوت بما تبيعه وبشروط التوصيل والإرجاع"],
+    ["Pick the plan that fits your business","Choisissez l’offre adaptée à votre activité","اختر الباقة المناسبة لنشاطك"],
+    ["Link the number your customers write to","Reliez le numéro auquel vos clients écrivent","اربط الرقم الذي يراسلك عليه الزبناء"],
+    ["The Relayqo team checks everything and switches your bot on","L’équipe Relayqo vérifie tout et active votre bot","يراجع فريق Relayqo كل شيء ويشغّل الروبوت"],
+    ["Start ›","Commencer ›","ابدأ ›"],
+    ["Review ›","Revoir ›","مراجعة ›"],
+    ["Open ›","Ouvrir ›","فتح ›"],
+    ["Sent for review. The Relayqo team will switch your bot on after checking your information.","Envoyé pour vérification. L’équipe Relayqo activera votre bot après avoir vérifié vos informations.","أُرسل للمراجعة. سيشغّل فريق Relayqo الروبوت بعد التحقق من معلوماتك."],
+    ["Changes asked:","Modifications demandées :","تعديلات مطلوبة:"],
+    ["Orders your chatbot took in WhatsApp. Call or message the customer to confirm, then follow the delivery.","Les commandes prises par votre chatbot sur WhatsApp. Appelez ou écrivez au client pour confirmer, puis suivez la livraison.","الطلبات التي أخذها الروبوت على واتساب. اتصل بالزبون أو راسله للتأكيد، ثم تابع التوصيل."],
+    ["This week","Cette semaine","هذا الأسبوع"],
+    ["orders","commandes","طلبات"],
+    ["To confirm","À confirmer","للتأكيد"],
+    ["call before shipping","appelez avant l’envoi","اتصل قبل الإرسال"],
+    ["cancelled and returned not counted","annulées et retournées non comptées","لا تُحتسب الملغاة والمرتجعة"],
+    ["Confirmed","Confirmée","مؤكد"],
+    ["Shipped","Expédiée","تم الإرسال"],
+    ["Delivered","Livrée","تم التسليم"],
+    ["Returned","Retournée","مرتجع"],
+    ["Cancelled","Annulée","ملغى"],
+    ["All orders","Toutes les commandes","كل الطلبات"],
+    ["Confirm","Confirmer","تأكيد"],
+    ["Cancel","Annuler","إلغاء"],
+    ["Mark shipped","Marquer expédiée","تم الإرسال"],
+    ["Open chat","Ouvrir la discussion","فتح المحادثة"],
+    ["Call","Appeler","اتصال"],
+    ["Details","Détails","التفاصيل"],
+    ["Price not found","Prix introuvable","الثمن غير موجود"],
+    ["Product not given","Produit non indiqué","المنتج غير محدد"],
+    ["No orders to confirm. New orders taken by your chatbot appear here.","Aucune commande à confirmer. Les nouvelles commandes prises par votre chatbot apparaissent ici.","لا طلبات للتأكيد. تظهر هنا الطلبات الجديدة التي يأخذها الروبوت."],
+    ["No orders yet. When a customer orders in WhatsApp, the order appears here.","Pas encore de commande. Quand un client commande sur WhatsApp, la commande apparaît ici.","لا طلبات بعد. عندما يطلب زبون على واتساب، يظهر الطلب هنا."],
+    ["Order","Commande","الطلب"],
+    ["Order details","Détails de la commande","تفاصيل الطلب"],
+    ["Customer name","Nom du client","اسم الزبون"],
+    ["Quantity","Quantité","الكمية"],
+    ["Delivery address","Adresse de livraison","عنوان التوصيل"],
+    ["(optional)","(facultatif)","(اختياري)"],
+    ["Order saved.","Commande enregistrée.","حُفظ الطلب."],
+    ["Cancel this order? The customer is not told automatically.","Annuler cette commande ? Le client n’est pas prévenu automatiquement.","إلغاء هذا الطلب؟ لن يُبلَّغ الزبون تلقائياً."],
+    ["For example: customer asked for delivery after 18:00","Par exemple : le client veut être livré après 18 h","مثال: طلب الزبون التوصيل بعد 18:00"],
+    ["Enter the total","Saisir le total","أدخل المجموع"],
+    ["Your WhatsApp number, plan and optional chatbot features.","Votre numéro WhatsApp, votre offre et les options du chatbot.","رقم واتساب، الباقة، وخيارات الروبوت."],
+    ["Link the number your customers write to.","Reliez le numéro auquel vos clients écrivent.","اربط الرقم الذي يراسلك عليه الزبناء."],
+    ["Manage","Gérer","إدارة"],
+    ["Connect","Connecter","ربط"],
+    ["Plan","Offre","الباقة"],
+    ["Choose the plan for your business.","Choisissez l’offre de votre activité.","اختر باقة نشاطك."],
+    ["Choose","Choisir","اختيار"],
+    ["What your bot knows","Ce que sait votre bot","ما يعرفه الروبوت"],
+    ["Business profile, delivery and returns, FAQs and PDF files.","Profil, livraison et retours, FAQ et fichiers PDF.","ملف النشاط، التوصيل والإرجاع، الأسئلة الشائعة وملفات PDF."],
+    ["Times customers can book, and your bookings.","Les créneaux réservables et vos réservations.","أوقات الحجز وحجوزاتك."],
+    ["Answer private messages on your Instagram professional account.","Répondez aux messages privés de votre compte Instagram professionnel.","الرد على الرسائل الخاصة في حساب إنستغرام المهني."],
+    ["Choose a plan first","Choisissez d’abord une offre","اختر باقة أولاً"],
+    ["Your plan sets how many WhatsApp numbers you can connect. Choose a plan, and your administrator approves it; then come back here to connect your number.","Votre offre fixe le nombre de numéros WhatsApp. Choisissez une offre, votre administrateur la valide, puis revenez ici connecter votre numéro.","تحدد الباقة عدد أرقام واتساب التي يمكنك ربطها. اختر باقة ويوافق عليها المسؤول، ثم عد هنا لربط رقمك."],
+    ["Your plan has no WhatsApp number yet","Votre offre n’inclut pas encore de numéro WhatsApp","باقتك لا تتضمن رقم واتساب بعد"],
+    ["Ask your administrator to add a WhatsApp number to your plan, then connect it here.","Demandez à votre administrateur d’ajouter un numéro WhatsApp à votre offre, puis connectez-le ici.","اطلب من المسؤول إضافة رقم واتساب إلى باقتك، ثم اربطه هنا."],
+    ["All your numbers are connected","Tous vos numéros sont connectés","كل أرقامك مربوطة"],
+    ["The products your bot can show, with prices, stock and photos. Changes go live after review.","Les produits que votre bot peut montrer, avec prix, stock et photos. Les changements sont publiés après vérification.","المنتجات التي يعرضها الروبوت بأثمنتها ومخزونها وصورها. تُنشر التعديلات بعد المراجعة."],
+    ["Everything your bot uses to answer customers. Changes go live after review.","Tout ce que votre bot utilise pour répondre aux clients. Les changements sont publiés après vérification.","كل ما يستعمله الروبوت للرد على الزبناء. تُنشر التعديلات بعد المراجعة."],
+    ["You’re replying","Vous répondez","أنت ترد"],
     ["Month","Mois","شهر"],
     ["Week","Semaine","أسبوع"],
     ["Previous","Précédent","السابق"],

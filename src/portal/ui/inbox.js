@@ -799,6 +799,8 @@
     cleanup();
     const version = renderVersion;
     try { numberFilter = new URLSearchParams(location.search).get('number') || ''; } catch {}
+    // /app/inbox?filter=needs_human (the former Today page) opens on that filter.
+    try { const wanted = new URLSearchParams(location.search).get('filter'); if (['all', 'open', 'needs_human', 'human_active', 'resolved', 'unread'].includes(wanted)) currentFilter = wanted; } catch {}
 
     // Determine initial conversation ID from path if present: /app/inbox/:id
     const parts = location.pathname.split('/');
@@ -810,7 +812,7 @@
       { key: 'all', label: 'All' },
       { key: 'open', label: 'Open' },
       { key: 'needs_human', label: 'Needs you' },
-      { key: 'human_active', label: 'Human active' },
+      { key: 'human_active', label: 'You’re replying' },
       { key: 'resolved', label: 'Resolved' },
       { key: 'unread', label: 'Unread' }
     ];

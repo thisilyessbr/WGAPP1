@@ -312,3 +312,83 @@
   .cal-next-booking{grid-column:1/-1;border-inline-start:0!important}
   .cal-day-title{gap:10px}
 }
+
+/* "Try your bot": floating button and drawer on client pages. */
+.try-bot-fab{position:fixed;bottom:22px;inset-inline-end:22px;z-index:25;display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:11px 18px;border:0;border-radius:999px;background:var(--green);color:#0b1a10;font-weight:700;font-size:14px;box-shadow:0 12px 32px rgba(7,21,19,.22);cursor:pointer}
+.try-bot-fab[aria-expanded=true]{opacity:0;pointer-events:none}
+.try-bot-drawer{position:fixed;bottom:22px;inset-inline-end:22px;z-index:26;display:flex;flex-direction:column;width:min(400px,calc(100vw - 32px));height:min(620px,calc(100vh - 44px));border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:0 24px 60px rgba(7,21,19,.28);overflow:hidden}
+.try-bot-drawer[hidden]{display:none}
+.try-bot-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 16px 12px;border-bottom:1px solid var(--line)}
+.try-bot-head strong{display:block;font-size:15px}
+.try-bot-head small{display:block;margin-top:3px;color:var(--muted);font-size:12px;line-height:1.45}
+.try-bot-close{flex:none;width:34px;height:34px;border:1px solid var(--line);border-radius:9px;background:transparent;color:var(--text);font-size:20px;line-height:1;cursor:pointer}
+#try-bot #client-test-card{display:flex;flex:1;flex-direction:column;min-height:0;padding:12px 14px 14px;gap:10px}
+#try-bot .client-test-thread{flex:1;min-height:0;max-height:none;overflow-y:auto}
+#try-bot .try-bot-new{align-self:flex-start;min-height:34px;padding:6px 12px;font-size:12px}
+
+/* Orders. */
+.order-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.order-summary>div{display:flex;flex-direction:column;gap:4px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.order-summary span{color:var(--muted);font-size:12px;font-weight:650}
+.order-summary strong{font-size:24px}
+.order-summary small{color:var(--muted);font-size:12px}
+.order-summary .is-urgent,.home-kpi.is-urgent{border-color:color-mix(in srgb,#e7a33b 55%,var(--line))}
+.order-summary .is-urgent strong{color:#e7a33b}
+.order-tabs{flex-wrap:wrap;margin-bottom:6px}
+.order-tabs small{color:var(--muted);font-weight:700}
+.order-rows{display:grid}
+.order-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 18px;align-items:center;padding:16px 4px;border-top:1px solid var(--line)}
+.order-row:first-child{border-top:0}
+.order-row-top{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.order-row-top small{color:var(--muted);font-size:12px}
+.order-row h3{font-size:15px}
+.order-row p{margin-top:3px;color:var(--muted);font-size:13px}
+.order-row-total{text-align:end}
+.order-row-total strong{display:block;font-size:16px}
+.order-row-total small{color:#e7a33b;font-size:11px}
+.order-row-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.order-row-actions .btn{min-height:36px;padding:7px 13px;font-size:13px}
+.order-detail{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:16px;align-items:start}
+.order-detail-main h2{margin-top:6px;font-size:22px}
+.order-detail-product{margin-top:14px;font-size:15px}
+.order-detail-total{margin:6px 0 18px;font-size:24px;font-weight:750}
+.order-detail-total small{color:var(--muted);font-size:13px;font-weight:500}
+
+/* Settings: one tile per thing set up once. */
+.settings-links{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-bottom:16px}
+.settings-link-card{display:flex;flex-direction:column;justify-content:space-between;gap:14px;margin:0;color:var(--text);text-decoration:none}
+.settings-link-card h2{font-size:16px}
+.settings-link-card p{margin-top:4px;color:var(--muted);font-size:13px}
+.settings-link-state{color:var(--green);font-size:13px;font-weight:700}
+.needs-action{border-color:color-mix(in srgb,#e7a33b 55%,var(--line))}
+.needs-action .settings-link-state{color:#e7a33b}
+
+/* Home: four numbers once live; the checklist during setup. */
+.home-kpis{grid-template-columns:repeat(4,minmax(0,1fr))!important;margin-bottom:16px}
+.home-kpi{color:var(--text);text-decoration:none}
+.home-kpi strong{display:block;margin:8px 0 4px;font-size:26px}
+.home-kpi small{color:var(--muted)}
+.home-kpi.is-urgent small{color:#e7a33b;font-weight:650}
+.home-checklist .check-row.is-next{border-radius:12px;background:color-mix(in srgb,var(--green) 7%,transparent)}
+.home-checklist .check-row .btn{min-height:36px;padding:7px 14px}
+.conversation-row{color:var(--text);text-decoration:none}
+
+@media(max-width:1120px){.home-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:760px){
+  /* Phone: the main pages in a bottom bar; everything else is under Settings. */
+  .client-shell .sidebar .nav{position:fixed;inset:auto 0 0 0;z-index:30;flex-direction:row;gap:0;justify-content:space-around;padding:5px 4px calc(5px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface);overflow:visible}
+  .client-shell .sidebar .nav>a:not([data-primary]),.client-shell .sidebar .nav .nav-label,.client-shell .sidebar .help-card{display:none}
+  .client-shell .sidebar .nav>a{flex:1 1 0;flex-direction:column;justify-content:center;gap:3px;min-width:0;min-height:52px;padding:5px 2px;border-radius:10px;font-size:10.5px;line-height:1.1;text-align:center}
+  .client-shell .sidebar .nav>a>span:last-child{overflow:hidden;max-width:100%;text-overflow:ellipsis;white-space:nowrap}
+  .client-shell .content{padding-bottom:110px}
+  .try-bot-fab{bottom:76px;inset-inline-end:14px;min-height:42px;padding:9px 14px;font-size:13px}
+  .try-bot-drawer{bottom:72px;inset-inline:8px;width:auto;height:calc(100vh - 150px)}
+  .order-summary{grid-template-columns:1fr 1fr}
+  .order-summary>div:last-child{grid-column:1/-1}
+  .order-detail{grid-template-columns:1fr}
+  .home-kpis{gap:10px}
+}
+/* Keep "Try your bot" clear of the save bar and of notifications. */
+.client-shell:has(.sticky-save) .try-bot-fab{bottom:104px}
+body:has(.try-bot-fab) #toast{bottom:84px}
+@media(max-width:760px){.client-shell:has(.sticky-save) .try-bot-fab{bottom:150px}body:has(.try-bot-fab) #toast{bottom:132px}}
