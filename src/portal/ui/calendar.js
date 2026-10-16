@@ -25,7 +25,7 @@
     const data = await api('/client/calendar');
     const s = data.settings || {}, g = data.google || {}, today = data.today;
     const slotTimes = s.slotTimes || ['10:00', '12:00', '14:00', '16:00', '18:00'], working = s.workingDays || [1, 2, 3, 4, 5, 6], duration = s.durationMinutes || 30;
-    let view = remember('relayqo.calendar.view') === 'week' ? 'week' : 'month', cursor = today, selected = today, bookings = [];
+    let view = remember('relayqo.calendar.view') === 'week' ? 'week' : 'month', cursor = today, selected = today, bookings = [], drawVersion = 0;
     const notice = new URLSearchParams(location.search);
 
     const num = (id, label, value, hint) => `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="number" value="${escape(value)}"><span class="hint">${hint}</span></div>`;
@@ -49,7 +49,12 @@
         <div class="actions"><button type="button" class="btn secondary" id="g-connect">${reconnect ? 'Connect again' : 'Use another Google account'}</button><button type="button" class="btn secondary" id="g-disconnect">Disconnect</button></div>`
         : '<button type="button" class="btn secondary" id="g-connect">Connect Google Calendar</button>'}</article>`;
     root.innerHTML = shell(header('Calendar', 'Your chatbot books demos and appointments here, only at times you are free.') +
-      `<article class="card cal-card"><div class="cal-toolbar"><div class="cal-nav"><button type="button" class="btn secondary" id="cal-today">Today</button><button type="button" class="btn secondary cal-arrow" id="cal-prev" aria-label="Previous">‹</button><button type="button" class="btn secondary cal-arrow" id="cal-next" aria-label="Next">›</button><h2 id="cal-title-label"></h2></div>
+      `<section class="cal-overview" aria-label="Calendar overview">
+        <div class="cal-overview-status ${s.enabled === false ? 'paused' : ''}"><span class="cal-status-dot" aria-hidden="true"></span><div><small>Booking status</small><strong>${s.enabled === false ? 'Bookings paused' : 'Open for bookings'}</strong></div></div>
+        <div><small>Bookings in view</small><strong id="cal-booking-count">—</strong></div>
+        <div><small>Blocked times</small><strong id="cal-block-count">—</strong></div>
+        <div class="cal-next-booking"><small>Next booking</small><strong id="cal-next-booking">—</strong></div>
+      </section><article class="card cal-card"><div class="cal-toolbar"><div class="cal-nav"><button type="button" class="btn secondary" id="cal-today">Today</button><button type="button" class="btn secondary cal-arrow" id="cal-prev" aria-label="Previous period">‹</button><button type="button" class="btn secondary cal-arrow" id="cal-next" aria-label="Next period">›</button><h2 id="cal-title-label"></h2></div>
         <div class="section-tabs cal-views" role="tablist"><button type="button" role="tab" data-view="month">Month</button><button type="button" role="tab" data-view="week">Week</button></div></div>
         <div id="cal-view" class="cal-view" aria-live="polite"></div></article><article class="card" id="cal-day"></article>` + availability + googleCard, false, 'Calendar');
     bind();
@@ -105,8 +110,8 @@
           : `<p><bdi>${escape(b.customerName || b.title)}</bdi>${b.contact ? ` · <span class="small muted" dir="ltr">${escape(b.contact)}</span>` : ''}</p><p class="small muted">${escape(b.title)}</p>
             ${Object.entries(b.details || {}).filter(([k]) => !['fullName', 'name', 'email', 'phone', 'demoDay', 'demoSlot'].includes(k)).slice(0, 6).map(([k, v]) => `<p class="small muted cal-detail"><span>${escape(k)}:</span> <bdi>${escape(v)}</bdi></p>`).join('')}`}</div>
         <button type="button" class="btn secondary" data-cancel="${escape(b.id)}" data-kind="${escape(b.kind)}">${b.kind === 'BLOCKED' ? 'Remove' : 'Cancel booking'}</button></div>`;
-      $('cal-day').innerHTML = `<div class="card-title"><div><h2>${escape(fmt(selected, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</h2><p>${closed ? 'Not a working day: the chatbot does not offer times.' : selected < today ? 'Past day.' : `Times customers can book: ${escape(slotTimes.join(', '))}`}</p></div></div>
-        ${items.map(row).join('') || '<p class="empty">No bookings on this day.</p>'}
+      $('cal-day').innerHTML = `<div class="card-title cal-day-title"><div><p class="eyebrow">Selected day</p><h2>${escape(fmt(selected, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</h2><p>${closed ? 'Not a working day: the chatbot does not offer times.' : selected < today ? 'Past day.' : `Times customers can book: ${escape(slotTimes.join(', '))}`}</p></div><span class="cal-day-count"><strong>${items.length}</strong><small>Calendar items</small></span></div>
+        ${items.map(row).join('') || `<div class="cal-empty"><span aria-hidden="true">✓</span><div><strong>No bookings on this day</strong><p>${closed ? 'This is outside your working days.' : selected < today ? 'There were no calendar items.' : 'This day is clear and ready for bookings.'}</p></div></div>`}
         ${selected >= today ? `<details class="booking-block"><summary>Block time on this day</summary><form id="cal-block" class="form-grid">
           <div class="field"><label for="block-from">From</label><input id="block-from" type="time"></div>
           <div class="field"><label for="block-to">To</label><input id="block-to" type="time"><span class="hint">Leave both times empty to block the whole day.</span></div>
@@ -122,13 +127,27 @@
     }
 
     async function draw() {
+      const version = ++drawVersion;
       const [from, to] = range();
       $('cal-title-label').textContent = view === 'week'
         ? `${fmt(from, { day: 'numeric', month: 'short' })} – ${fmt(to, { day: 'numeric', month: 'short', year: 'numeric' })}`
         : fmt(cursor, { month: 'long', year: 'numeric' });
       root.querySelectorAll('.cal-views [data-view]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === view)));
-      try { bookings = (await api(`/client/calendar/bookings?from=${from}&to=${to}`)).bookings; }
-      catch (error) { toast(error.message || 'Bookings could not be loaded.', true); bookings = []; }
+      $('cal-view').setAttribute('aria-busy', 'true');
+      $('cal-view').innerHTML = '<div class="cal-loading"><span class="spinner"></span><span>Loading calendar…</span></div>';
+      try {
+        const result = await api(`/client/calendar/bookings?from=${from}&to=${to}`);
+        if (version !== drawVersion) return;
+        bookings = result.bookings;
+      } catch (error) { toast(error.message || 'Bookings could not be loaded.', true); bookings = []; }
+      if (version !== drawVersion) return;
+      $('cal-view').setAttribute('aria-busy', 'false');
+      const booked = bookings.filter(b => b.kind !== 'BLOCKED');
+      const blocked = bookings.filter(b => b.kind === 'BLOCKED');
+      const next = booked.filter(b => b.day >= today).sort((a, b) => `${a.day}${a.startTime}`.localeCompare(`${b.day}${b.startTime}`))[0];
+      $('cal-booking-count').textContent = String(booked.length);
+      $('cal-block-count').textContent = String(blocked.length);
+      $('cal-next-booking').textContent = next ? `${fmt(next.day, { month: 'short', day: 'numeric' })} · ${next.startTime}` : 'None in view';
       $('cal-view').innerHTML = view === 'week' ? week() : month();
       $('cal-view').querySelectorAll('[data-day]').forEach(el => el.onclick = event => {
         if (el.classList.contains('cal-col') && event.target !== el) return;

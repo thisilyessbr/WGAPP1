@@ -178,12 +178,21 @@
 #business-form .section-panel:has(#client-test-card):not([hidden]) ~ .sticky-save{display:none}
 
 /* Client calendar: month grid and week timeline. */
+.cal-overview{display:grid;grid-template-columns:1.15fr repeat(3,1fr);margin-bottom:16px;border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
+.cal-overview>div{display:flex;flex-direction:column;justify-content:center;min-width:0;padding:15px 18px;border-inline-start:1px solid var(--line)}
+.cal-overview>div:first-child{border-inline-start:0}
+.cal-overview small{margin-bottom:5px;color:var(--muted);font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.045em}
+.cal-overview strong{overflow:hidden;color:var(--text);font-size:15px;text-overflow:ellipsis;white-space:nowrap}
+.cal-overview-status{flex-direction:row!important;align-items:center;justify-content:flex-start!important;gap:11px}
+.cal-status-dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px color-mix(in srgb,var(--green) 14%,transparent)}
+.cal-overview-status.paused .cal-status-dot{background:#e7bd7b;box-shadow:0 0 0 5px color-mix(in srgb,#e7bd7b 14%,transparent)}
 .cal-card{padding-bottom:18px}
 .cal-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .cal-nav{display:flex;align-items:center;gap:8px;min-width:0}
 .cal-nav h2{margin-left:6px;font-size:18px;text-transform:capitalize;white-space:nowrap}
 .cal-arrow{min-width:40px;padding:8px 0;font-size:18px;line-height:1}
 .cal-views{margin:0;border-bottom:0}
+.cal-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:360px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:13px}
 .cal-month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .cal-head{padding:9px 10px;border-bottom:1px solid var(--line);background:var(--raised);color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .cal-cell{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-height:104px;padding:7px 7px 8px;border:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:transparent;color:var(--text);text-align:start;cursor:pointer;min-width:0}
@@ -229,6 +238,15 @@
 .cal-slot-key,.cal-blocked-key{display:inline-block;width:14px;height:10px;border-radius:3px;border:1px dashed var(--green)}
 .cal-blocked-key{border:0;background:var(--raised);box-shadow:inset 3px 0 0 var(--muted)}
 .cal-detail span{color:var(--muted)}
+.cal-day-title{align-items:flex-start}
+.cal-day-title .eyebrow{margin-bottom:5px;color:var(--green);font-size:10px;letter-spacing:.08em}
+.cal-day-count{display:flex;align-items:baseline;gap:5px;flex:none;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--raised);color:var(--muted);font-size:11px;font-weight:650}
+.cal-day-count strong{color:var(--text);font-size:12px}
+.cal-day-count small{font:inherit}
+.cal-empty{display:flex;align-items:center;gap:12px;padding:17px;border:1px dashed var(--line);border-radius:11px;background:color-mix(in srgb,var(--raised) 45%,transparent)}
+.cal-empty>span{display:grid;place-items:center;flex:none;width:31px;height:31px;border-radius:50%;background:var(--soft);color:var(--green);font-weight:800}
+.cal-empty strong{font-size:13px}
+.cal-empty p{margin-top:2px;color:var(--muted);font-size:12px}
 .cal-settings>summary{display:flex;align-items:center;justify-content:space-between;list-style:none;padding:0}
 .cal-settings>summary span{display:flex;flex-direction:column;gap:3px}
 .cal-settings>summary strong{color:var(--text);font-size:15px}
@@ -238,6 +256,11 @@
 .cal-settings[open]>summary::after{transform:rotate(180deg)}
 .booking-row{align-items:flex-start;gap:14px}
 @media(max-width:760px){
+  .cal-overview{grid-template-columns:1fr 1fr}
+  .cal-overview>div:nth-child(3){border-inline-start:0}
+  .cal-overview>div:nth-child(n+3){border-top:1px solid var(--line)}
+  .cal-overview>div{padding:13px 14px}
+  .cal-overview strong{font-size:13px}
   .cal-cell{min-height:58px;padding:5px 3px;align-items:center}
   .cal-chips{display:none}
   .cal-dots{display:flex;gap:3px;justify-content:center}
@@ -247,4 +270,8 @@
   .cal-nav{flex-wrap:wrap}
   .cal-nav h2{flex-basis:100%;order:-1;margin:0 0 4px;font-size:16px;white-space:normal}
   .cal-toolbar{gap:8px}
+}
+@media(max-width:460px){
+  .cal-next-booking{grid-column:1/-1;border-inline-start:0!important}
+  .cal-day-title{gap:10px}
 }
