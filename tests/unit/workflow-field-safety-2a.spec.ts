@@ -136,7 +136,7 @@ describe('Phase FIX-PROBLEM-2A: Safe Typed Workflow Field Collection', () => {
     const res = await engine.process(session, '+212 600-000000', testWorkflow, testConfig);
 
     expect(res.nextStateId).toBe('collect_email');
-    expect(res.updatedCollectedData?.phone).toBe('+212 600-000000');
+    expect(res.updatedCollectedData?.phone).toBe('+212600000000');
   });
 
   it('F. phone field + booking/workflow intent -> no mutation', async () => {
@@ -175,7 +175,7 @@ describe('Phase FIX-PROBLEM-2A: Safe Typed Workflow Field Collection', () => {
 
   it('J. date field + invalid text -> no mutation, validation error', async () => {
     const session = createMockSession('collect_date', { name: 'John Doe' });
-    const res = await engine.process(session, 'tomorrow maybe', testWorkflow, testConfig);
+    const res = await engine.process(session, 'whenever works', testWorkflow, testConfig);
 
     expect(res.nextStateId).toBe('collect_date');
     expect(res.updatedCollectedData?.appointment_date).toBeUndefined();

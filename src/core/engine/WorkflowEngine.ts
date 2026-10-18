@@ -843,7 +843,12 @@ export class WorkflowEngine {
         const mixedTurn = interpretation.kind === 'ANSWER_AND_QUESTION' && interpretation.fieldSourceSpan && interpretation.questionSourceSpan
           ? { fieldValue: interpretation.fieldSourceSpan.text, question: interpretation.questionSourceSpan.text } : null;
         const questionText = interpretation.questionSourceSpan?.text || trimmedMsg;
-        const valueSpan = interpretation.fieldSourceSpan || interpretation.newValueSourceSpan;
+        // Once UNCLEAR re-prompts are used up the whole reply is validated as
+        // the answer; without a span here the customer would loop forever.
+        const unclearExhausted = interpretation.kind === 'UNCLEAR' && Boolean(trimmedMsg)
+          && (currentContext['_consecutiveUnmatched'] || 0) + 1 > WorkflowEngine.MAX_UNCLEAR_REPROMPTS;
+        const valueSpan = interpretation.fieldSourceSpan || interpretation.newValueSourceSpan
+          || (unclearExhausted ? { text: trimmedMsg, start: 0, end: trimmedMsg.length } : null);
         const parsedField = valueSpan ? WorkflowFieldValueParser.parse(valueSpan, fieldConfig) : null;
         const fieldValue = parsedField?.value;
         const turnKind = interpretation.kind;
@@ -937,7 +942,12 @@ export class WorkflowEngine {
         if (stateConfig.field && typeof stateConfig.field === 'object' && fieldValue !== undefined) {
           fieldValidationErr = this.fieldValidator.validate(fieldValue, stateConfig.field);
         } else if (fieldValue === undefined) {
-          fieldValidationErr = 'Value is missing.';
+          // The customer sent something but it did not parse ("abc" for a phone):
+          // report the field's own error ("type a valid phone number") rather
+          // than a generic "format is not valid".
+          const typedErr = valueSpan && stateConfig.field && typeof stateConfig.field === 'object'
+            ? this.fieldValidator.validate(valueSpan.text, stateConfig.field) : null;
+          fieldValidationErr = typedErr || 'Value is missing.';
         }
 
         const advanceField = (answer?: string): WorkflowResult => {

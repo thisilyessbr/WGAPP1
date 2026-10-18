@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LLMMockProvider } from '../../src/core/llm/LLMProvider';
 import { WorkflowFieldValueParser } from '../../src/core/engine/WorkflowFieldValueParser';
-import { WorkflowTurnInterpreter } from '../../src/core/engine/WorkflowTurnInterpreter';
+import { WorkflowTurnInterpreter, isBareArabicName } from '../../src/core/engine/WorkflowTurnInterpreter';
 
 const pending = { name: 'fullName', label: 'Name', type: 'string' as const,
   semanticType: 'person_name' as const, collected: false };
@@ -63,5 +63,31 @@ describe('deterministic workflow value parsing', () => {
     const parsed = WorkflowFieldValueParser.parse(span, { name: 'day', type: 'date', required: true }, new Date('2026-10-16T10:00:00Z'));
     expect(parsed?.value).toBe('2026-10-17');
     expect(parsed?.rawSpan).toBe(span);
+  });
+
+  it('accepts bare Arabic-script names when the model is unavailable', async () => {
+    const failing = new LLMMockProvider();
+    failing.generateResponse = async () => { throw new Error('provider down'); };
+    for (const name of ['ياسين', 'كريم العلمي', 'فاطمة الزهراء بناني']) {
+      const result = await WorkflowTurnInterpreter.interpret({
+        message: name, pendingField: pending, pendingPrompt: 'شنو سميتك؟', fields: [pending], llm: failing
+      });
+      expect(result.kind).toBe('FIELD_ANSWER');
+      expect(result.fieldSourceSpan?.text).toBe(name);
+    }
+  });
+
+  it('accepts a Latin name with a trailing initial', async () => {
+    const result = await WorkflowTurnInterpreter.interpret({
+      message: 'Karim B.', pendingField: pending, pendingPrompt: 'Name?', fields: [pending]
+    });
+    expect(result.kind).toBe('FIELD_ANSWER');
+  });
+
+  it('never takes Arabic greetings, acknowledgements or sentences as a name', () => {
+    for (const text of ['السلام عليكم', 'شكرا', 'واخا', 'بغيت نعرف الثمن', 'الاسم إلياس', 'عندي سؤال', 'غدا', 'كريم ٢']) {
+      expect(isBareArabicName(text), text).toBe(false);
+    }
+    expect(isBareArabicName('ياسين')).toBe(true);
   });
 });

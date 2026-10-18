@@ -96,6 +96,24 @@ function deterministicSplit(message: string): { answer: SourceSpan; question: So
   return null;
 }
 
+// Words that make a short Arabic-script reply a sentence rather than a name.
+const ARABIC_SENTENCE_WORDS = new Set([
+  'بغيت', 'بغينا', 'عندي', 'عندك', 'عندكم', 'كاين', 'كاينة', 'ماكاين', 'ماشي', 'مازال', 'دابا', 'غدا', 'اليوم',
+  'لا', 'اه', 'آه', 'ايه', 'إيه', 'نعم', 'واخا', 'صافي', 'مزيان', 'شكرا', 'سلام', 'السلام', 'عليكم', 'مرحبا', 'اهلا', 'أهلا',
+  'انا', 'أنا', 'نتا', 'نتي', 'هو', 'هي', 'حنا', 'في', 'من', 'على', 'مع', 'ديال', 'هاد', 'هادي', 'هذا', 'هذه',
+  'الثمن', 'التمن', 'الطلب', 'التوصيل', 'المنتج', 'موعد', 'نلغي', 'لغيت', 'وقف', 'حبس', 'عافاك', 'فضلك', 'الاسم', 'اسم', 'اسمي', 'سميتي', 'السمية', 'سمية'
+]);
+
+export function isBareArabicName(message: string): boolean {
+  const words = message.trim().split(/\s+/u);
+  if (words.length < 1 || words.length > 3) return false;
+  if (!words.every(word => /^[ء-ي٠-٩ٮ-ۓً-ٰٟ]{2,20}$/u.test(word))) return false;
+  if (/[٠-٩]/u.test(message)) return false;
+  const normalized = GreetingRouter.normalize(message);
+  if (GreetingRouter.isKnownGreeting(normalized) || GreetingRouter.isAcknowledgement(normalized)) return false;
+  return !words.some(word => ARABIC_SENTENCE_WORDS.has(normalizeSpanText(word)));
+}
+
 function safeFieldName(value: unknown, fields: WorkflowFieldDescriptor[]): string | null {
   if (typeof value !== 'string') return null;
   const normalized = normalizeSpanText(value);
@@ -136,9 +154,10 @@ export class WorkflowTurnInterpreter {
       const introduced = /^(?:my name is|je m['’]appelle|smiti|smiyti|اسمي|سميتي)\s+(.{1,80})$/iu.exec(message);
       const introducedSpan = introduced ? exactSpan(message, introduced[1].replace(/[.!،,؛;]+$/u, '').trim()) : null;
       if (introducedSpan) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: introducedSpan };
-      // A bare, title-cased Latin name is deterministic enough for degraded
-      // mode. Sentence-like lower-case text is never treated as a name.
-      if (/^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]+){0,2}$/u.test(message)) {
+      // A bare, title-cased Latin name (a trailing initial such as "Karim B."
+      // included) is deterministic enough for degraded mode. Sentence-like
+      // lower-case text is never treated as a name.
+      if (/^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]*\.?){0,2}$/u.test(message)) {
         return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
       }
     }
@@ -202,6 +221,11 @@ export class WorkflowTurnInterpreter {
       return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
     }
     if (CORRECTION.test(GreetingRouter.normalize(message))) return empty('UNCLEAR');
+    // Arabic script has no letter case, so the title-case rule above never
+    // matches "ياسين" or "كريم العلمي". When the model is missing or failed,
+    // accept 1-3 bare Arabic words unless they are a greeting, an
+    // acknowledgement or contain a common sentence word.
+    if (isBareArabicName(message)) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
     return empty('UNCLEAR');
   }
 

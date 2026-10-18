@@ -205,6 +205,10 @@ describe('production risk fixes', () => {
     it('counts UNCLEAR replies toward the unmatched limit instead of looping forever', async () => {
       const llm = new LLMMockProvider();
       llm.intentMock = 'UNCLEAR';
+      // The turn interpreter reads strict JSON from generateResponse.
+      llm.responseResolver = (_prompt, _history, options) => options?.purpose === 'structured_turn_interpretation'
+        ? JSON.stringify({ kind: 'UNCLEAR', fieldSourceSpan: null, questionSourceSpan: null, targetField: null, newValueSourceSpan: null, intent: null })
+        : 'Mocked response';
       const workflow: WorkflowConfig = {
         id: 'demo', name: 'Demo', description: 'Demo', initialState: 'need',
         states: {

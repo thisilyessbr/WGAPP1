@@ -37,7 +37,7 @@ describe('cash-on-delivery checkout in three languages', () => {
         isWorkflowCompleted:false,workflowId:workflow.id,userMessage:value});
     }
     expect(session.stateId).toBe('confirm');
-    expect(session.collectedData).toMatchObject({product:values[0],quantity:values[1],customer_name:values[2],phone:values[3],city:values[4],address:values[5]});
+    expect(session.collectedData).toMatchObject({product:values[0],quantity:Number(values[1]),customer_name:values[2],phone:values[3],city:values[4],address:values[5]});
     const confirmation = await engine.process(session,'?',workflow,DEFAULT_BUSINESS_CONFIG,undefined,undefined,undefined,undefined,lang,script);
     expect(confirmation.response).toMatch(confirmationPattern);
     expect(confirmation.response).toMatch(labelPattern);
