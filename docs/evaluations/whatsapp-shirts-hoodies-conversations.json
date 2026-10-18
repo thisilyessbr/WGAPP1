@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "created_at": "2026-10-18",
+    "source": "WhatsApp Business Web",
+    "business_context": "shirts_and_hoodies",
+    "conversations_checked": 73,
+    "restore_controls_triggered_this_pass": 10,
+    "search_failures": 1,
+    "usable_conversations": 10,
+    "total_conversations_with_text": 21,
+    "privacy": "Phone numbers, URLs, emails, and social handles redacted; media omitted.",
+    "limitations": "Disappearing messages and unavailable phone history cannot be reconstructed."
+  },
+  "conversations": [
+    {
+      "conversation_id": "conv_0001",
+      "language": "latin_other",
+      "messages": [{"role": "customer", "text": "???"}],
+      "quality": {"older_messages_requested": true, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0002",
+      "language": "darija_arabizi",
+      "messages": [
+        {"role": "customer", "text": "Slm"},
+        {"role": "customer", "text": "Cc"},
+        {"role": "customer", "text": "Cv"},
+        {"role": "customer", "text": "B4it wahd l9obiya"},
+        {"role": "customer", "text": "[PHONE] Bx7al"},
+        {"role": "customer", "text": "Jwb"},
+        {"role": "customer", "text": "Slm"},
+        {"role": "customer", "text": "Cc"},
+        {"role": "customer", "text": "Slm"},
+        {"role": "customer", "text": "Ww"},
+        {"role": "customer", "text": "Jwb"},
+        {"role": "customer", "text": "Jawb"},
+        {"role": "business", "text": "ta nchoflk wach ba9yin akhi o nrd 3lk"},
+        {"role": "customer", "text": "Safi xokran"},
+        {"role": "customer", "text": "Slm"},
+        {"role": "customer", "text": "Jwb"},
+        {"role": "customer", "text": "Ww"},
+        {"role": "customer", "text": "Dazt 10 yam 3la nhar li glti Liya \"ta nchoflk wach ba9yin akhi o nrd 3lk\""},
+        {"role": "customer", "text": "Yak vu"}
+      ],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0004",
+      "language": "darija_arabizi",
+      "messages": [
+        {"role": "customer", "text": "NARUTO T-SHIRT OVERSIZE Prix"},
+        {"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"},
+        {"role": "customer", "text": "Lala mebghitch"}
+      ],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0005",
+      "language": "darija_arabizi",
+      "messages": [
+        {"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"},
+        {"role": "customer", "text": "[MEDIA]"}
+      ],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0007",
+      "language": "arabic_darija",
+      "messages": [{"role": "customer", "text": "سلام عليكم"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0010",
+      "language": "darija_arabizi",
+      "messages": [{"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0019",
+      "language": "arabic_darija",
+      "messages": [{"role": "customer", "text": "شحل تمن"}],
+      "quality": {"older_messages_requested": true, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0024",
+      "language": "darija_arabizi",
+      "messages": [{"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0025",
+      "language": "arabic_darija",
+      "messages": [{"role": "customer", "text": "السلام عليكم"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0028",
+      "language": "darija_arabizi",
+      "messages": [
+        {"role": "business", "text": "Salam, Welcome To SAMURAI MAROC, Anime High Quality T-SHIRTS & HOODIES, Sizes: S / M / L / XL / XXL, Tawsil FABOR finma knty flmghrib, cash on delivery"},
+        {"role": "business", "text": "Salam, t-shirt wa7d b 169dh, o joj b 289dh. 9obiya w7da b 229dh, o joj kayb9aw b 409dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"}
+      ],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0035",
+      "language": "latin_other",
+      "messages": [{"role": "customer", "text": "Oky"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0039",
+      "language": "darija_arabizi",
+      "messages": [{"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0041",
+      "language": "mixed_arabic_latin",
+      "messages": [
+        {"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"},
+        {"role": "customer", "text": "هوليك 3 بشحال"}
+      ],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0043",
+      "language": "latin_other",
+      "messages": [{"role": "customer", "text": "Slm"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0055",
+      "language": "mixed_arabic_latin",
+      "messages": [{"role": "customer", "text": "معرفتشي هدك t-shirt wa7d"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0057",
+      "language": "darija_arabizi",
+      "messages": [{"role": "business", "text": "Salam, 9obiya w7da b 259dh, o joj kayb9aw b 469dh. (-50dh mn total) t-shirt wa7d b 169dh, o joj b 289dh. Tawsil FABOR flmghrib kaml. 3ndk l79 t9lb 3ad khlss. Hahoma ga3 lmodelat li kaynin: [URL]. khtar designs li 3jbok mer7ba"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0063",
+      "language": "darija_arabizi",
+      "messages": [{"role": "business", "text": "mra okhra inchalah"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0064",
+      "language": "english",
+      "messages": [
+        {"role": "business", "text": "Hi! Please let us know how we can help you."},
+        {"role": "customer", "text": "Where are you located?"}
+      ],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": true}
+    },
+    {
+      "conversation_id": "conv_0070",
+      "language": "darija_arabizi",
+      "messages": [{"role": "business", "text": "achmn design tbghi"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0072",
+      "language": "darija_arabizi",
+      "messages": [
+        {"role": "business", "text": "mer7ba akhi"},
+        {"role": "business", "text": "achmn design tbghi?"}
+      ],
+      "quality": {"older_messages_requested": true, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    },
+    {
+      "conversation_id": "conv_0074",
+      "language": "latin_other",
+      "messages": [{"role": "customer", "text": "ok"}],
+      "quality": {"older_messages_requested": false, "media_omitted": true, "identifiers_redacted": true, "usable_for_training": false}
+    }
+  ]
+}
