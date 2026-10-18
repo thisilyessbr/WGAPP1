@@ -948,3 +948,89 @@ model CalendarConnection {
 
   @@index([tenantId])
 }
+
+model OperatorAlert {
+  id        String    @id @default(uuid())
+  key       String
+  bucket    String
+  severity  String
+  title     String
+  detail    String
+  error     String?
+  sentAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([key, bucket])
+  @@index([createdAt])
+}
+
+model MarketingConsent {
+  id           String   @id @default(uuid())
+  tenantId     String
+  accountId    String
+  customerId   String
+  status       String
+  source       String
+  evidence     String   @default("")
+  recordedById String?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([accountId, customerId])
+  @@index([tenantId, accountId, status])
+}
+
+model WhatsAppTemplate {
+  id            String   @id @default(uuid())
+  tenantId      String
+  accountId     String
+  wabaId        String
+  name          String
+  language      String
+  category      String
+  status        String
+  body          String   @default("")
+  variableCount Int      @default(0)
+  syncedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([accountId, wabaId, name, language])
+}
+
+model Broadcast {
+  id               String    @id @default(uuid())
+  tenantId         String
+  accountId        String
+  phoneNumberId    String
+  templateId       String
+  variables        Json      @default("[]")
+  segment          Json      @default("{}")
+  status           String    @default("PENDING_APPROVAL")
+  recipientCount   Int       @default(0)
+  estimatedCostUsd Float     @default(0)
+  createdById      String
+  reviewedById     String?
+  reviewNote       String    @default("")
+  startedAt        DateTime? @db.Timestamptz(3)
+  completedAt      DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, accountId, createdAt])
+  @@index([status])
+}
+
+model BroadcastRecipient {
+  id          String    @id @default(uuid())
+  broadcastId String
+  customerId  String
+  waId        String
+  status      String    @default("PENDING")
+  messageId   String?
+  error       String?
+  attempts    Int       @default(0)
+  leaseUntil  DateTime? @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([broadcastId, customerId])
+  @@index([broadcastId, status])
+}

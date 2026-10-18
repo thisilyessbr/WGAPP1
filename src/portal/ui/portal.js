@@ -30,6 +30,7 @@
       +'<p class="nav-label nav-label-sub">Your business</p>'
       +(commerceInPlan?link('/app/products','◫','Products',true):'')
       +link('/app/business',icons.data,'Bot knowledge',false)
+      +link('/app/broadcasts','➚','Broadcasts',false)
       +(instagramInPlan?link('/app/instagram','◎','Instagram',false):'')
       +link('/app/settings',icons.settings,'Settings',true);
   }
@@ -325,10 +326,13 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
   let adminOutcomeDays = 30;
   let adminOutcomeAccount = '';
   async function adminHome(){
-    const [d, outcomes, accountsData] = await Promise.all([
+    const [d, outcomes, accountsData, pilot, health, pendingBroadcasts] = await Promise.all([
       api('/admin/overview'),
       api(`/admin/outcomes/summary?days=${adminOutcomeDays}${adminOutcomeAccount ? '&accountId=' + encodeURIComponent(adminOutcomeAccount) : ''}`).catch(() => null),
-      api('/admin/accounts').catch(() => ({ accounts: [] }))
+      api('/admin/accounts').catch(() => ({ accounts: [] })),
+      api(`/admin/pilot-metrics?days=${adminOutcomeDays}`).catch(() => null),
+      api('/admin/health-alerts').catch(() => null),
+      api('/admin/broadcasts?status=PENDING_APPROVAL').catch(() => null)
     ]);
     const count=s=>Number(d.counts.find(x=>x.status===s)?.count||0);
     const total=d.counts.reduce((n,x)=>n+Number(x.count),0),traffic=d.traffic||{},usage=d.usage||{};
@@ -340,14 +344,21 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     const oCurrencies = Object.entries(oTotals.confirmedOrderValueByCurrency || {}).map(([curr, val]) => `${val.toLocaleString()} ${curr}`).join(', ');
     const oOrderCaption = oCurrencies || 'Platform total';
     const outcomeCard = outcomes ? `<article class="card outcome-card"><div class="card-title"><div><h2>Platform outcomes</h2><p>Aggregated business results across client accounts.</p></div><div class="admin-outcome-controls"><select id="admin-outcome-account" class="small-select"><option value="">All clients</option>${(accountsData.accounts||[]).map(a=>`<option value="${escape(a.accountId)}" ${adminOutcomeAccount===a.accountId?'selected':''}>${escape(a.name)}</option>`).join('')}</select><select id="admin-outcome-period" class="small-select"><option value="7" ${adminOutcomeDays===7?'selected':''}>7 days</option><option value="30" ${adminOutcomeDays===30?'selected':''}>30 days</option><option value="90" ${adminOutcomeDays===90?'selected':''}>90 days</option></select></div></div><div class="dashboard-metrics outcome-metrics"><div class="outcome-metric"><span class="metric-symbol">★</span><p>New leads</p><strong>${Number(oTotals.leadsCreated||0).toLocaleString()}</strong><small>Platform total</small></div><div class="outcome-metric"><span class="metric-symbol">✓</span><p>Qualified leads</p><strong>${Number(oTotals.leadsQualified||0).toLocaleString()}</strong><small>${Math.round((oTotals.qualificationRate||0)*100)}% qualification rate</small></div><div class="outcome-metric"><span class="metric-symbol">📅</span><p>Confirmed bookings</p><strong>${Number(oTotals.confirmedBookings||0).toLocaleString()}</strong><small>Platform total</small></div><div class="outcome-metric"><span class="metric-symbol">📦</span><p>Confirmed orders</p><strong>${Number(oTotals.confirmedOrders||0).toLocaleString()}</strong><small>${escape(oOrderCaption)}</small></div><div class="outcome-metric"><span class="metric-symbol">?</span><p>Missed questions</p><strong>${Number(oTotals.missedQuestions||0).toLocaleString()}</strong><small>${Math.round((oTotals.missedQuestionResolutionRate||0)*100)}% resolved</small></div><div class="outcome-metric"><span class="metric-symbol">↳</span><p>Resolved handoffs</p><strong>${Number(oTotals.handoffsResolved||0).toLocaleString()}</strong><small>${Math.round((oTotals.handoffResolutionRate||0)*100)}% resolved</small></div></div></article>` : '';
+    const pct=v=>v===null||v===undefined?'—':`${Math.round(v*100)}%`;
+    const rateBadge=(v,good,bad,invert)=>v===null||v===undefined?'<span class="badge">—</span>':`<span class="badge ${(invert?v<=good:v>=good)?'green':(invert?v>=bad:v<=bad)?'red':'orange'}">${pct(v)}</span>`;
+    const pilotRows=(pilot?.accounts||[]).map(a=>`<tr><td><a href="/admin/client/${escape(a.accountId)}" data-route><strong>${escape(a.name)}</strong></a></td><td>${Number(a.conversations)}</td><td>${rateBadge(a.deliveryRate,0.98,0.9)}<small> ${Number(a.repliesFailed)} failed</small></td><td>${rateBadge(a.handoffRate,0.15,0.35,true)}<small> ${Number(a.handoffs)}</small></td><td>${Number(a.leads)}</td><td>${Number(a.orders)}</td><td>${Number(a.bookings)}</td><td>${Number(a.missedQuestions)}</td><td>${a.openFlags?`<span class="badge red">${Number(a.openFlags)} open</span>`:'<span class="badge green">0</span>'}<small> ${Number(a.flaggedAnswers)} total</small></td></tr>`).join('');
+    const pilotCard=pilot?`<article class="card table-card pilot-card"><div class="card-title"><div><h2>Pilot scorecard</h2><p>Active clients · last ${Number(pilot.days)} days. Delivery = AI replies WhatsApp accepted; wrong answers = replies the client flagged.</p></div></div><div class="table-wrap"><table><thead><tr><th>Client</th><th>Conversations</th><th>Replies delivered</th><th>Handoff rate</th><th>Leads</th><th>Orders</th><th>Bookings</th><th>Missed questions</th><th>Wrong answers</th></tr></thead><tbody>${pilotRows||'<tr><td colspan="9" class="empty compact">No active clients yet.</td></tr>'}</tbody></table></div></article>`:'';
+    const findings=health?.findings||[];
+    const healthCard=health?`<article class="card admin-attention health-card"><div class="card-title"><div><h2>Platform health</h2><p>${health.alertsConfigured?'Alerts are sent to you by email or webhook, at most once per hour per problem.':'Alerts are not being sent: set OPERATOR_ALERT_WEBHOOK_URL or OPERATOR_ALERT_EMAILS on the worker.'}</p></div><span class="badge ${findings.some(f=>f.severity==='critical')?'red':findings.length?'orange':'green'}">${findings.length?`${findings.length} issue${findings.length>1?'s':''}`:'All clear'}</span></div>${findings.map(f=>`<div class="attention-row"><span><strong>${escape(f.title)}</strong><br><small>${escape(f.detail)}</small></span><span class="badge ${f.severity==='critical'?'red':'orange'}">${escape(f.severity)}</span></div>`).join('')||'<p class="empty compact">No problems detected right now.</p>'}</article>`:'';
     const recent=(d.recentAccounts||[]).map(p=>`<a class="admin-account-row" href="/admin/client/${p.accountId}" data-route><span class="business-icon">${escape(String(p.name||'?').slice(0,1).toUpperCase())}</span><span><strong>${escape(p.name)}</strong><small>${escape(p.planName||'No plan')} · ${new Date(p.updatedAt).toLocaleDateString()}</small></span>${status(p.status)}<b>›</b></a>`).join('')||'<p class="empty">No client accounts yet.</p>';
-    root.innerHTML=shell(header('Platform dashboard','Your client activity, chatbot traffic and operating costs in one place.',`<a class="btn" href="/admin/clients" data-route>Manage clients</a>`)+alertCard+cards+outcomeCard+
+    root.innerHTML=shell(header('Platform dashboard','Your client activity, chatbot traffic and operating costs in one place.',`<a class="btn" href="/admin/clients" data-route>Manage clients</a>`)+alertCard+healthCard+(window.RelayqoBroadcasts?.adminCard(pendingBroadcasts?.broadcasts,escape)||'')+cards+outcomeCard+pilotCard+
       `<div class="admin-insights"><article class="card chart-card"><div class="card-title"><div><h2>Message activity</h2><p>Incoming and chatbot messages · last 14 days</p></div><span class="badge blue">Last 14 days</span></div>${chartBars(d.daily||[],'No customer messages in the last 14 days.')}</article><article class="card admin-attention"><h2>Needs attention</h2><div class="attention-row"><span>Setups awaiting review</span><strong>${count('SUBMITTED')}</strong></div><div class="attention-row"><span>Accounts needing changes</span><strong>${count('NEEDS_CHANGES')}</strong></div><div class="attention-row"><span>Handoff requests · 30 days</span><strong>${Number(traffic.handoffs||0)}</strong></div><div class="attention-row"><span>Failed WhatsApp deliveries · 30 days</span><strong>${Number(d.failedDeliveries||0)}</strong></div><div class="attention-row"><span>AI calls this month</span><strong>${Number(usage.llmCalls||0).toLocaleString()}</strong></div><a class="row-link" href="/admin/clients" data-route>Open client accounts ›</a></article></div>`+
       `<div class="admin-insights lower"><article class="card"><div class="card-title"><div><h2>Recent client accounts</h2><p>Latest account changes</p></div><a class="row-link" href="/admin/clients" data-route>All clients ›</a></div>${recent}</article><article class="card"><div class="card-title"><div><h2>Platform activity</h2><p>Recent recorded actions</p></div></div>${activity(d.activity||[])}</article></div><p class="dashboard-footnote">Activity uses recorded account and message data. AI spend is an estimate; hosting and WhatsApp charges are excluded.</p>`,true,'Dashboard');
     const periodSel = document.querySelector('#admin-outcome-period');
     if (periodSel) periodSel.onchange = e => { adminOutcomeDays = Number(e.target.value); adminHome(); };
     const acctSel = document.querySelector('#admin-outcome-account');
     if (acctSel) acctSel.onchange = e => { adminOutcomeAccount = e.target.value; adminHome(); };
+    window.RelayqoBroadcasts?.bindAdmin(root, api, toast, adminHome);
     bind();
   }
   const activity=a=>a.slice(0,7).map(x=>`<div class="activity-item"><span class="metric-icon">${icons.settings}</span><div><p>${escape((t=>t.charAt(0).toUpperCase()+t.slice(1))(x.action.toLowerCase().replaceAll('_',' ')))}</p><small>${new Date(x.createdAt).toLocaleString()}</small></div></div>`).join('')||'<p class="empty">No activity yet.</p>';
@@ -661,7 +672,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     navigationController?.abort(new DOMException('Navigation cancelled','AbortError'));navigationController=new AbortController();reads.clear();profileRead=null;
     whatsappCleanup();window.RelayqoInbox?.cleanup();
     if(session&&!authRoutes[path]){
-      const titles={'/app':'Home','/app/today':'Inbox','/app/answer-reviews':'Inbox','/app/inbox':'Inbox','/app/orders':'Orders','/app/products':'Products','/app/leads':'Requests','/app/business':'Bot knowledge','/app/settings':'Settings','/app/whatsapp':'WhatsApp','/app/instagram':'Instagram','/app/calendar':'Calendar','/app/plans':'Plans','/admin':'Overview','/admin/clients':'Clients','/admin/plans':'Plans','/admin/users':'Users','/admin/usage':'Usage & costs'};
+      const titles={'/app':'Home','/app/today':'Inbox','/app/answer-reviews':'Inbox','/app/inbox':'Inbox','/app/orders':'Orders','/app/broadcasts':'Broadcasts','/app/products':'Products','/app/leads':'Requests','/app/business':'Bot knowledge','/app/settings':'Settings','/app/whatsapp':'WhatsApp','/app/instagram':'Instagram','/app/calendar':'Calendar','/app/plans':'Plans','/admin':'Overview','/admin/clients':'Clients','/admin/plans':'Plans','/admin/users':'Users','/admin/usage':'Usage & costs'};
       const title=titles[path]||(path.startsWith('/admin/client/')?'Client account':path.startsWith('/admin/business/')?'Business data':path.startsWith('/app/inbox/')?'Inbox':path.startsWith('/app/orders/')?'Orders':'Requests');
       root.innerHTML=shell(`<div class="page-loading" role="status" aria-live="polite"><span class="spinner"></span><span>Loading…</span></div><div class="navigation-skeleton" aria-hidden="true"><div></div><div></div><div></div></div>`,session.user.role==='ADMIN',title);
       bind();
@@ -721,6 +732,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
       if(path==='/app/leads'||path.startsWith('/app/leads/'))return requestsInPlan
         ? await window.RelayqoLeads.renderLeads({root,shell,header,escape,toast,api,bind,go,path})
         : go('/app',{replace:true});
+      if(path==='/app/broadcasts')return await window.RelayqoBroadcasts.render({root,shell,header,escape,toast,api,bind,go,path});
       if(path==='/app/business')return await business(undefined,'knowledge');
       if(path==='/app/settings')return await clientSettings();
       if(path==='/app/whatsapp')return await whatsapp(connection);

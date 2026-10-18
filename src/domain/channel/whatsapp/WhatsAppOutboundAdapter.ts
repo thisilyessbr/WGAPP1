@@ -395,6 +395,28 @@ export class WhatsAppOutboundAdapter {
   }
 
   /**
+   * Lists the message templates of a WhatsApp Business Account, using the
+   * token of the number that belongs to it (fails closed like sending).
+   * Endpoint: GET https://graph.facebook.com/{version}/{wabaId}/message_templates
+   */
+  async listTemplates(phoneNumberId: string, wabaId: string): Promise<Array<{
+    name: string; language: string; status: string; category: string; components?: Array<{ type: string; text?: string }>;
+  }>> {
+    const token = await this.resolveToken(phoneNumberId);
+    if (!token) throw new Error('WhatsApp connection has no usable access token');
+    const templates: any[] = [];
+    let url: string | null = `${this.baseUrl}/${this.version}/${encodeURIComponent(wabaId.trim())}/message_templates?fields=name,language,status,category,components&limit=100`;
+    for (let page = 0; url && page < 10; page++) {
+      const response: Response = await this.fetchFn(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) });
+      const body: any = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`Meta returned ${response.status}${body?.error?.message ? `: ${body.error.message}` : ''}`);
+      templates.push(...(Array.isArray(body.data) ? body.data : []));
+      url = typeof body.paging?.next === 'string' && body.paging.next.startsWith(this.baseUrl) ? body.paging.next : null;
+    }
+    return templates;
+  }
+
+  /**
    * Sends a pre-approved template message via Meta WhatsApp Cloud API (e.g. outside 24h window).
    * Endpoint: POST https://graph.facebook.com/{version}/{phoneNumberId}/messages
    */

@@ -41,6 +41,7 @@ import { QrSessionManager } from './domain/channel/routing/QrSessionManager';
 import { QrWebTransport } from './domain/channel/routing/QrWebTransport';
 import { TelemetryClient, telemetry } from './core/telemetry/TelemetryClient';
 import { PortalService } from './portal/PortalService';
+import { OperatorAlerts } from './portal/OperatorAlerts';
 import { PortalDb } from './portal/types';
 import { ConversationAutomationService } from './domain/conversation/ConversationAutomationService';
 import { OutboundMessageQueue, PostgresOutboundQueue, MemoryOutboundQueue, WhatsAppOutboundWorker } from './domain/channel/whatsapp/WhatsAppOutboundQueue';
@@ -502,6 +503,16 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
     if (autoStart && process.env.PORTAL_STAFF_ALERT_WORKER === 'true' && process.env.NODE_ENV !== 'test') {
       portalService.staffActions.start();
       logger.info('Portal staff alert worker started');
+    }
+    if (autoStart && process.env.NODE_ENV !== 'test' && OperatorAlerts.configured()) {
+      portalService.operatorAlerts.start();
+      logger.info('Operator health alerts started');
+    }
+    // STOP replies always withdraw broadcast consent, even when sending is switched off.
+    whatsAppWorker.setInboundObserver((tenantId, accountId, waId, text) => portalService.broadcasts.handleInbound(tenantId, accountId, waId, text));
+    if (autoStart && process.env.NODE_ENV !== 'test' && process.env.BROADCASTS_ENABLED === 'true') {
+      portalService.broadcasts.start();
+      logger.info('Broadcast sender started');
     }
   }
 

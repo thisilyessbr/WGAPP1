@@ -5,6 +5,9 @@ import { PortalConnections } from './PortalConnections';
 import { PortalDocuments } from './PortalDocuments';
 import { PortalStore } from './PortalStore';
 import { PortalStaffActions } from './PortalStaffActions';
+import { OperatorAlerts } from './OperatorAlerts';
+import { PortalBroadcasts } from './PortalBroadcasts';
+import { WhatsAppOutboundAdapter } from '../domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { PortalDb } from './types';
 
 export class PortalService {
@@ -12,6 +15,8 @@ export class PortalService {
   readonly auth: PortalAuth;
   readonly budget: PortalBudget;
   readonly staffActions: PortalStaffActions;
+  readonly operatorAlerts: OperatorAlerts;
+  broadcasts: PortalBroadcasts;
   connections!: PortalConnections;
   documents!: PortalDocuments;
   constructor(db: PortalDb) {
@@ -22,11 +27,16 @@ export class PortalService {
     });
     this.budget = new PortalBudget(this.store);
     this.staffActions = new PortalStaffActions(this.store);
+    this.operatorAlerts = new OperatorAlerts(this.store);
+    this.broadcasts = new PortalBroadcasts(this.store);
   }
   attach(deps: ChatbotDependencies) {
+    // Template sync (web) and sending (worker) use the same per-number token resolution as replies.
+    this.broadcasts = new PortalBroadcasts(this.store, deps.whatsAppOutboundAdapter
+      || new WhatsAppOutboundAdapter({ numberService: deps.whatsAppNumberService, secretBox: deps.secretBox }));
     this.connections = new PortalConnections(this.store, deps);
     this.documents = new PortalDocuments(this.store, this.budget, deps.pdfIngestionService, deps.accountConfigService!);
     if (process.env.PORTAL_DOCUMENT_WORKER === 'true' && process.env.NODE_ENV !== 'test') this.documents.start();
   }
-  stop() { this.documents?.stop(); this.staffActions.stop(); this.budget.dispose(); }
+  stop() { this.documents?.stop(); this.staffActions.stop(); this.operatorAlerts.stop(); this.broadcasts.stop(); this.budget.dispose(); }
 }

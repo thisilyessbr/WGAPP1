@@ -23,13 +23,16 @@ import { PortalOrders } from './PortalOrders';
 import { GoogleCalendarConnections } from '../domain/calendar/GoogleCalendarConnections';
 import { CalendarError, RelayqoCalendar } from '../domain/calendar/RelayqoCalendar';
 import { PortalStaffActions } from './PortalStaffActions';
+import { OperatorAlerts } from './OperatorAlerts';
+import { pilotMetrics } from './PilotMetrics';
+import { PortalBroadcasts, broadcastsNeedApproval } from './PortalBroadcasts';
 import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService';
 import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
 import { BoundedRateLimiter } from '../utils/rateLimiter';
 import { imageId } from './validation';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
-export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; }
+export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; broadcasts?: PortalBroadcasts; }
 export interface PortalRouterDeps {
   prisma: any;
   conversationEngine?: Pick<ConversationEngine, 'previewMessage'>;
@@ -90,6 +93,9 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   let learnedWordingInstance: PortalLearnedWording | undefined;
   const learnedWording = () => (learnedWordingInstance ??= new PortalLearnedWording(store.db as any));
   const staffActions = new PortalStaffActions(store);
+  const operatorAlerts = new OperatorAlerts(store);
+  // Without a channel (local previews) templates cannot sync, but everything else works.
+  const broadcasts = () => services.broadcasts ?? new PortalBroadcasts(store);
   const photos = new PortalProductImages(store);
   const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1048576, files: 1, fields: 0 } }).single('file');
   const serveImage = async (req: Request, res: Response, id: string, accountId?: string) => {
@@ -261,6 +267,33 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     const body = object(req.body); allowed(body, ['status', 'note', 'product', 'quantity', 'city', 'address', 'customerName', 'total']);
     if (!Object.keys(body).length) throw new PortalError(400, 'NO_ORDER_CHANGES');
     send(res, { order: await portalOrders.update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id), req.portal.user.id, body) });
+  }));
+  // Broadcasts: approved WhatsApp templates sent to customers who opted in.
+  client.get('/broadcasts', route(async (req, res) => {
+    const t = req.portal.tenantId!, a = req.portal.accountId!, b = broadcasts();
+    const [numbers, templates, consent, items] = await Promise.all([b.numbers(t, a), b.templates(t, a), b.consentSummary(t, a), b.list(t, a)]);
+    send(res, { numbers, templates, consent, broadcasts: items, requiresApproval: broadcastsNeedApproval() });
+  }));
+  client.post('/broadcasts/templates/sync', route(async (req, res) =>
+    send(res, { templates: await broadcasts().syncTemplates(req.portal.tenantId!, req.portal.accountId!) })));
+  client.post('/broadcasts/consent', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['phones', 'evidence', 'confirmed']);
+    send(res, await broadcasts().importConsent(req.portal.tenantId!, req.portal.accountId!, req.portal.user.id,
+      { phones: list(body.phones, 5000).map(p => text(p, 40)), evidence: text(body.evidence, 500), confirmed: body.confirmed === true }));
+  }));
+  client.post('/broadcasts/estimate', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['templateId', 'segment']);
+    send(res, await broadcasts().estimate(req.portal.tenantId!, req.portal.accountId!, { templateId: text(body.templateId, 100), segment: body.segment }));
+  }));
+  client.post('/broadcasts', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['templateId', 'phoneNumberId', 'variables', 'segment']);
+    send(res, { broadcast: await broadcasts().create(req.portal.tenantId!, req.portal.accountId!, req.portal.user.id, {
+      templateId: text(body.templateId, 100), phoneNumberId: text(body.phoneNumberId, 200),
+      variables: list(body.variables || [], 20).map(v => text(v, 200)), segment: body.segment }) }, 201);
+  }));
+  client.post('/broadcasts/:id/cancel', route(async (req, res) => {
+    await broadcasts().cancel(req.portal.tenantId!, req.portal.accountId!, req.portal.user.id, String(req.params.id));
+    send(res, { ok: true });
   }));
   client.get('/leads', route(async (req, res) => {
     const status = String(req.query.status || 'ALL').toUpperCase();
@@ -1164,6 +1197,25 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       WHERE c."humanRequested"=true AND c.status IN ('HANDOFF_REQUESTED','HUMAN_ACTIVE') AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
       ORDER BY c."humanRequestedAt" ASC NULLS LAST LIMIT 100`;
     send(res, { conversations });
+  }));
+  // Live platform health (AI failures are counted by the worker, so this view shows the database checks).
+  admin.get('/health-alerts', route(async (_req, res) => {
+    const [findings, recent] = await Promise.all([operatorAlerts.check(), operatorAlerts.recent(50)]);
+    send(res, { findings, recent, alertsConfigured: OperatorAlerts.configured() });
+  }));
+  admin.get('/broadcasts', route(async (req, res) => {
+    const status = req.query.status ? text(req.query.status, 40).toUpperCase() : null;
+    send(res, { broadcasts: await broadcasts().list(null, null, null, status) });
+  }));
+  admin.post('/broadcasts/:id/review', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['approve', 'note']);
+    if (typeof body.approve !== 'boolean') throw new PortalError(400, 'APPROVE_REQUIRED');
+    await broadcasts().review(req.portal.user.id, String(req.params.id), body.approve, text(body.note, 500));
+    send(res, { ok: true });
+  }));
+  admin.get('/pilot-metrics', route(async (req, res) => {
+    const days = Number(req.query.days || 30) || 30;
+    send(res, { days, accounts: await pilotMetrics(store.db, days) });
   }));
   admin.get('/accounts', route(async (req, res) => send(res, { accounts: await store.accounts(text(req.query.search, 160), Number(req.query.offset || 0) || 0) })));
   admin.get('/accounts/:id', route(async (req, res) => {

@@ -59,6 +59,13 @@ export class WhatsAppWorker {
     this.registerHandler();
   }
 
+  private inboundObserver?: (tenantId: string, accountId: string, waId: string, text: string) => Promise<unknown>;
+
+  /** Sees every inbound customer text before the reply (used for broadcast opt-outs). Never blocks the reply. */
+  setInboundObserver(observer: (tenantId: string, accountId: string, waId: string, text: string) => Promise<unknown>): void {
+    this.inboundObserver = observer;
+  }
+
   private registerHandler(): void {
     this.queue.registerHandler(async (job: InboundQueueJob) => {
       return await this.processJob(job);
@@ -86,6 +93,10 @@ export class WhatsAppWorker {
       } catch { /* Interactive reply titles are plain text. */ }
     }
     const displayContent = media ? `[Attachment: ${job.rawType}] ${media.caption || ''}`.trim() : job.message;
+    if (this.inboundObserver && !media) {
+      await this.inboundObserver(job.tenantId, job.accountId, job.waId.trim(), job.message)
+        .catch(error => logger.warn(`WhatsAppWorker: inbound observer failed for job [${job.wamid}]: ${error?.message || error}`));
+    }
 
     // 1. Client Safety Guard Check
     if (this.safetyGuard) {
