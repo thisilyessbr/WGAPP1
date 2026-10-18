@@ -37,7 +37,7 @@ const DELIVERY_CUE = /(?:receive|recevoir|re[cç]oi|arrive|reach|my\s+order|ma\s
 /** Words that describe the question, never the product. */
 const STOP = new Set(`
 a an the is are am be do does did have has had can could would will i me my you your we our it this that these those of for to in on at by with and or but please pls thanks thank
-hi hello hey salut bonjour bonsoir salam slm salamo alaykom labas lbas khouya khoya akhi khti 3afak afak 3afakom svp stp merci
+hi hello hey salut bonjour bonsoir salam slm choukran chokran shukran xokran wahd wa7d wahed jwb jawb jaweb cc cv oky ykhalik yak lala salamo alaykom labas lbas khouya khoya akhi khti 3afak afak 3afakom svp stp merci
 how much what which where when who price prices cost costs costing available availability stock instock still sell selling buy order want would like need
 send show me picture pictures photo photos pic pics image images see view size sizes colour color colours colors
 combien coute coûte coûtent prix tarif est-ce disponible disponibles dispo encore reste stock avez vous nous je veux voudrais aimerais acheter commander
@@ -53,7 +53,7 @@ taille pointure numero nmra nemra
 شحال بشحال بكم شنو شنهو اش آش علاش فين أين اين إمتى امتى كيفاش ممكن يمكن يمكنني أريد اريد بغيت بغينا نطلب نشري نشريها نشريه نشوف أرسل ارسل صيفط صيفطي سيفط عطيني
 لي ليا لي ديال ديالكم ديالي ديالو ديالها من في على عن الى إلى مع هاد هادا هادي هذا هذه ذلك تلك صورة صور تصويرة تصاور الصورة الصور تصوير شوف وريني
 مقاس المقاس مقاسات قياس القياس نمرة النمرة لون اللون ألوان الألوان من فضلك عافاك عفاك الله يخليك سلام السلام عليكم مرحبا أهلا اهلا شكرا بزاف
-وكم وشحال الي إلى الى توصيل التوصيل ليفريزون شحن الشحن مادة صنع الثوب ثوب جودة
+وكم وشحال الي إلى الى توصيل التوصيل ليفريزون شحن الشحن مادة صنع الثوب ثوب جودة معرفتش معرفتشي ماعرفتش هداك هدك هديك داك جاوب جاوبني واحد
 له لها ليه ليها ديالو ديالها تصويرتو تصويرتها صورته صورتها أرسل أرسلي ابعث dyalo dyalha tswirto tswirtha tswirtou
 `.trim().split(/\s+/)));
 

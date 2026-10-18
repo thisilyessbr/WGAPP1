@@ -29,7 +29,7 @@ export const LEXICON_CONCEPTS: Record<string, string[]> = {
   bag: ['sac', 'sacs', 'bag', 'bags', 'handbag', 'handbags', 'purse', 'purses', 'clutch', 'tote', 'sacoche', 'pochette', 'sak', 'sakk', 'saka', 'صاك', 'صاكات', 'حقيبة', 'حقائب', 'شنطة', 'chanta', 'sacados', 'cartable'],
   leather: ['cuir', 'leather', 'جلد', 'جلدية', 'جلدي', 'jeld', 'jild', 'jlad'],
   watch: ['montre', 'montres', 'watch', 'watches', 'wristwatch', 'wristwatches', 'timepiece', 'montre-bracelet', 'ساعة', 'ساعات', 'مونطر', 'مونطرة', 'montra', 'magana', 'ماكانة'],
-  hoodie: ['hoodie', 'hoodies', 'hoody', 'sweat', 'sweatshirt', 'capuche', 'capuchon', 'كابوشون', 'كابيشون', 'هودي', 'هوديز', 'kabbouchon', 'kapuchon', 'kabouchon'],
+  hoodie: ['hoodie', 'hoodies', 'hoody', 'sweat', 'sweatshirt', 'capuche', 'capuchon', 'كابوشون', 'كابيشون', 'هودي', 'هوديز', 'kabbouchon', 'kapuchon', 'kabouchon', '9obiya', 'l9obiya', '9obiyat', '9ubiya', 'qobiya', 'kobiya', 'قبية', 'القبية', 'قبيات'],
   tshirt: ['tshirt', 'tshirts', 'teeshirt', 'tee', 'tricot', 'tricots', 'تيشورت', 'تيشيرت', 'تيشرت', 'تريكو', 'tishort', 'tichort', 'tichirt', 'tishirt', 'قميص'],
   shirt: ['chemise', 'chemises', 'shirt', 'shirts', 'قميص', 'قمجة', 'kamis', '9amis', 'kamija', '9amija'],
   dress: ['robe', 'robes', 'dress', 'dresses', 'gown', 'gowns', 'كسوة', 'روبة', 'فستان', 'فساتين', 'ksswa', 'kswa', 'keswa', 'roba'],
@@ -97,8 +97,32 @@ export const LEXICON_ARABIZI_WORDS: string[] = [
     'kidayr', 'kidayra', 'rje3', 'arja3', 'wakha', 'iyih', 'wah', 'flous', 'flousi', 'zwin',
     'zwina', 'bzzaf', 'bzaf', 'n3ref', 'n3raf', 't9dro', 't3awnoni', 'katkhedmo', 'taman',
     'khedma', 'ndir', 'bach', 'mouchkil', 'baghi', 'baghya', 'nchri', 'nshri', 'ncommandi',
-    'mabghitch', 'mabghitsh', 'makaynch', 'machi', 'bghitch', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al',
+    'mabghitch', 'mabghitsh', 'mebghitch', 'makaynch', 'machi', 'bghitch', 'jwb', 'jawb', 'jaweb', 'lala', 'xokran', 'b4it', 'bx7al', 'yak', 'dazt', 'glti', 'golti', 'nchoflk', 'nrd', '3lk', 'nhder', 'ndwi', 'wahed', 'ch7al', 'sh7al', 'bch7al',
     'bchhal', 'bchehal', 'bche7al', 'bshal', 'safi', 'nlghi', 'n7jez', 'mn', 'ach', 'achno', 'msawb', 'msawba', 'wla', 'mazal', 'ba9i', 'tswira', 'tsawer', 'sift', 'mrakch', 'twslo', 'katwslo', 'twsalni', 'nkhles', 'ntb3', 'ntbe3', 'fabor', 'fabour', 'batel', 'b7al', 'imta', 'emta', 'katsdo', 'katsedo', 'kat7lo', 'kat7elo', 'fo9ach', 'fou9ach', 'foqach', 'khdamin', 'khdama', 'letnin', 'tnin', 'smiti', 'smitek', 'smitk', 'ykhalik', 'ykhallik', 'm7lolin', 'mhlolin', 'l7ed', 'ghedda', 'l3chiya', 'lw9t', 'lwe9t', 'kayakhod', 'kaydoum', 'n9ess', '9ess', 'wjeh', 'lwejh', 'l7lawa', 'l7enna', 'rjlin', 'katjiw', 'rjal', 'y9dro', 'yjiw', 'nparki', 'nbdel', 'lghit', 'nfs'
   ];
 
 export const LEXICON_PROMPT_GLOSSARY = 'Moroccan vocabulary: "nkhles 3nd stilam", "lkhlas f lbab", "الخلاص عند الاستلام", "ملي توصلني السلعة" mean paying cash when the order is delivered (cash on delivery). "livraison", "twsil", "ليفريزون", "التوصيل" mean delivery. "nbedel", "نبدل" mean exchange. "trj3o lflouss", "ترجعو الفلوس" mean refund. "lkarta", "carte guichet" mean bank card. "khdamin", "حالين" mean open. "lghit", "nlghi", "لغيت", "نلغي" mean cancel; "khlas" right after a cancellation means a fee. "nbdel rdv", "نبدل الموعد" mean reschedule. "rdv", "موعد" mean appointment. "7lawa", "الحلاوة" mean waxing. "l7enna", "الحنة" mean henna. "fo9ach kat7lo", "فوقاش كتحلو" ask the opening time; "katsdo", "كتسدو" ask the closing time. Weekdays in Darija: lundi = tnin / الاثنين, mardi = tlat / الثلاثاء, mercredi = larb3 / الأربعاء, jeudi = lkhmis / الخميس, vendredi = jjem3a / الجمعة, samedi = sebt / السبت, dimanche = l7ed / الحد; never swap one day for another. Write Arabic script with standard Arabic letters only (no پ, ڤ, چ).';
+
+/**
+ * Real WhatsApp spellings of common Darija words: "4" for gh (b4it = bghit), "x" for ch
+ * (bx7al = bch7al, xokran = choukran), and short Arabic-script forms (شحل تمن = شحال ثمن).
+ * Only these whole words are rewritten, so names, addresses and French words ("prix", "deux") are untouched.
+ */
+export const LEXICON_SPELLING_VARIANTS: Record<string, string> = {
+  b4it: 'bghit', b4iti: 'bghiti', b4ina: 'bghina', b4a: 'bgha', b4ito: 'bghito', mab4itch: 'mabghitch',
+  '4ir': 'ghir', '4adi': 'ghadi', '4ali': 'ghali', '4alya': 'ghalya',
+  x7al: 'ch7al', bx7al: 'bch7al', xhal: 'chhal', bxhal: 'bchhal', bx7l: 'bch7al', x7l: 'ch7al',
+  xokran: 'choukran', xoukran: 'choukran', xkran: 'choukran', xokrn: 'choukran',
+  xno: 'chno', xnou: 'chno', axno: 'achno', wax: 'wach', wx: 'wach', xof: 'chof', xouf: 'chouf', nxri: 'nchri', nxof: 'nchof',
+  'شحل': 'شحال', 'بشحل': 'بشحال', 'تمن': 'ثمن', 'التمن': 'الثمن', 'تمنها': 'ثمنها', 'تمنو': 'ثمنو'
+};
+
+export function normalizeSpellingVariants(text: string): string {
+  if (!text) return text;
+  return text.replace(/[\p{L}\p{N}]+/gu, word => {
+    const canonical = LEXICON_SPELLING_VARIANTS[word.toLowerCase()];
+    if (!canonical) return word;
+    return word[0] === word[0].toUpperCase() && word[0] !== word[0].toLowerCase()
+      ? canonical[0].toUpperCase() + canonical.slice(1) : canonical;
+  });
+}

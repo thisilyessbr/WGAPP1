@@ -32,7 +32,7 @@ import { EcommerceIntentParser } from '../ecommerce/EcommerceIntent';
 import { HandoffService } from './HandoffService';
 import { TurnDecision, TurnDecisionResolver } from './TurnDecision';
 import { MessageUnderstanding } from '../understanding/MessageUnderstanding';
-import { LEXICON_PROMPT_GLOSSARY } from '../understanding/MoroccanLexicon';
+import { LEXICON_PROMPT_GLOSSARY, normalizeSpellingVariants } from '../understanding/MoroccanLexicon';
 import { LearnedPhraseStore, MemoryLearnedPhraseStore, PhraseKind, matchLearnedPhrase } from '../understanding/LearnedPhraseStore';
 import { AnswerComposer, outboundMediaContext } from './AnswerComposer';
 import { ProductLookupResult } from '../ecommerce/EcommerceService';
@@ -1002,6 +1002,9 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       routed.type = 'TEXT_AND_IMAGE';
       routed.effectiveContent = `${question} (photo: ${routed.effectiveContent})`;
     }
+    // Understand "b4it", "bx7al", "شحل تمن" like "bghit", "bch7al", "شحال ثمن"; the inbox keeps the customer's own words.
+    routed.effectiveContent = normalizeSpellingVariants(routed.effectiveContent);
+    if (payload.text) payload = { ...payload, text: normalizeSpellingVariants(payload.text) };
 
     telemetry.emit({
       eventType: 'routing_decided',
