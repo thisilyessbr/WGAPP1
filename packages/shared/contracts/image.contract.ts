@@ -11,7 +11,35 @@ export interface ImageUnderstandingRequest {
 export interface ImageUnderstandingMetadata {
   inputTokens?: number;
   outputTokens?: number;
+  /** Thinking tokens, billed at the output rate. */
+  thoughtsTokens?: number;
+  /** Model that produced the billed response; differs from `model` after a fallback. */
+  billedModel?: string;
+  /** 'provider' when the counts come from the provider's usage receipt. */
+  tokenSource?: 'provider';
+  /** false when no request reached a billable provider response (validation, fetch, rate limit or HTTP rejection). */
+  providerBilled?: boolean;
   estimatedCostUsd?: number;
+}
+
+/** Gemini Developer API standard paid-tier list prices, USD per 1M tokens (ai.google.dev/gemini-api/docs/pricing, checked 2026-10-18).
+ * Image input is billed at the text rate; thinking tokens are billed as output. */
+export const GEMINI_IMAGE_PRICES: Record<string, { input: number; output: number }> = {
+  'gemini-2.5-flash': { input: 0.30, output: 2.50 },
+  'gemini-2.5-flash-lite': { input: 0.10, output: 0.40 },
+  'gemini-3.1-flash-lite': { input: 0.25, output: 1.50 }
+};
+export const GEMINI_IMAGE_PRICE_BASIS = 'Gemini list prices 2026-10-18 (2.5 Flash $0.30/$2.50, 2.5 Flash-Lite $0.10/$0.40, 3.1 Flash-Lite $0.25/$1.50 per 1M in/out)';
+
+/** Charge in micro-USD for one analysis: 0 when the provider was never billed, null when usage is unknown.
+ * Unlisted models are priced at the highest listed rate. */
+export function imageUsageMicros(meta: ImageUnderstandingMetadata | undefined | null): number | null {
+  if (meta?.providerBilled === false) return 0;
+  if (meta?.tokenSource !== 'provider') return null;
+  const counts = [meta.inputTokens, meta.outputTokens, meta.thoughtsTokens || 0];
+  if (!counts.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0)) return null;
+  const rates = GEMINI_IMAGE_PRICES[meta.billedModel || ''] || GEMINI_IMAGE_PRICES['gemini-2.5-flash'];
+  return Math.ceil(meta.inputTokens! * rates.input + (meta.outputTokens! + (meta.thoughtsTokens || 0)) * rates.output);
 }
 
 export interface ImageUnderstandingResult {

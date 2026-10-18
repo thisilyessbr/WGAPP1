@@ -1007,7 +1007,10 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
 
     if (!routed.allowed) {
       const incomingText = (payload.text || '').trim();
-      const detectedLang = incomingText ? LanguageDetector.detect(incomingText) : (config.identity?.language || 'en');
+      // A photo without a caption keeps the language the conversation was already using.
+      const previousLang = (conversation.contextData as any)?._lang;
+      const detectedLang = incomingText ? LanguageDetector.detect(incomingText)
+        : (['en', 'fr', 'ar', 'darija'].includes(previousLang) ? previousLang : config.identity?.language || 'en');
       const imageScript = incomingText ? DirectRagGuard.detectScript(incomingText, detectedLang as any) : (conversation.contextData as any)?._script;
       const defaultFallback = detectedLang === 'darija' && imageScript === 'arabizi' ? 'Ma n9derch n9ra tswira daba. 3afak wsef lia chno bghiti.'
         : DEFAULT_IMAGE_FALLBACK_MESSAGES[detectedLang as keyof typeof DEFAULT_IMAGE_FALLBACK_MESSAGES] || DEFAULT_IMAGE_FALLBACK_MESSAGES.en;
