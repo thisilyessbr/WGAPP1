@@ -136,7 +136,7 @@ export class AccountConfigService {
     if (overrides.prompts && typeof overrides.prompts === 'object' && !Array.isArray(overrides.prompts)) {
       for (const [key, value] of Object.entries(overrides.prompts)) {
         if (value === null || value === undefined) continue;
-        if (['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded', ...CLIENT_WORKFLOW_MESSAGE_KEYS].includes(key)) {
+        if (['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded', 'teamFollowUp', ...CLIENT_WORKFLOW_MESSAGE_KEYS].includes(key)) {
           if (typeof value === 'object' && !Array.isArray(value)) {
             const current = typeof (merged.prompts as any)[key] === 'object' ? (merged.prompts as any)[key] : { en: (merged.prompts as any)[key] };
             (merged.prompts as any)[key] = { ...current, ...value };

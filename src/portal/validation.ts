@@ -113,8 +113,8 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
     }
   }
   if (config.prompts) {
-    allowed(config.prompts, [...Object.keys(DEFAULT_BUSINESS_CONFIG.prompts), ...CLIENT_WORKFLOW_MESSAGE_KEYS]);
-    const localized = ['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded', ...CLIENT_WORKFLOW_MESSAGE_KEYS];
+    allowed(config.prompts, [...Object.keys(DEFAULT_BUSINESS_CONFIG.prompts), 'teamFollowUp', ...CLIENT_WORKFLOW_MESSAGE_KEYS]);
+    const localized = ['greeting', 'fallback', 'handoff', 'postCompletionClosing', 'postCompletionFallback', 'imageFallback', 'limitExceeded', 'teamFollowUp', ...CLIENT_WORKFLOW_MESSAGE_KEYS];
     for (const [key, value] of Object.entries(config.prompts)) {
       if (localized.includes(key) && typeof value === 'object') stringMap(value);
       else text(value, 20000);

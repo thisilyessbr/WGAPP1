@@ -55,6 +55,7 @@ model Account {
   portalPublications PortalPublication[]
   portalUsageBuckets PortalUsageBucket[]
   portalUsageEntries PortalUsageEntry[]
+  portalUsageAlerts PortalUsageAlert[]
   portalConnectionAttempts PortalConnectionAttempt[]
   portalDocuments PortalDocument[]
   actionAlerts PortalActionAlert[]
@@ -629,6 +630,21 @@ model PortalUsageBucket {
   reservedMicros BigInt @default(0)
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   @@id([accountId, period])
+}
+
+/// Monthly usage alert for the merchant: one per account, month and threshold (80 or 100).
+model PortalUsageAlert {
+  id String @id
+  accountId String
+  tenantId String
+  period String
+  threshold Int
+  metric String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  dismissedAt DateTime? @db.Timestamptz(3)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, period, threshold], map: "PortalUsageAlert_period_threshold_idx")
 }
 
 model PortalUsageEntry {

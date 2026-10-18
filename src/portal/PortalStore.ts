@@ -368,6 +368,18 @@ export class PortalStore {
   async connections(accountId: string, tenantId: string) { return this.db.$queryRaw<any[]>`SELECT c.id,c.provider,c.status,c.enabled,c."botEnabled",c."connectionKey" AS label,c."updatedAt",n.id AS "numberRecordId",n."phoneNumberId",n."displayPhoneNumber",n.status AS "numberStatus",n.enabled AS "numberEnabled"
     FROM "ChannelConnection" c LEFT JOIN "WhatsAppBusinessNumber" n ON n."connectionId"=c.id AND n."tenantId"=c."tenantId" AND n."accountId"=c."accountId"
     WHERE c."accountId"=${accountId} AND c."tenantId"=${tenantId} ORDER BY c."createdAt"`; }
+  /** This month's highest usage alert (80 or 100 percent) the merchant has not dismissed. */
+  async usageAlert(accountId: string, tenantId: string): Promise<{ id: string; threshold: number; period: string } | null> {
+    const period = new Date().toISOString().slice(0, 7);
+    return (await this.db.$queryRaw<any[]>`SELECT id,threshold,period FROM "PortalUsageAlert"
+      WHERE "accountId"=${accountId} AND "tenantId"=${tenantId} AND period=${period} AND "dismissedAt" IS NULL
+      ORDER BY threshold DESC LIMIT 1`)[0] || null;
+  }
+  async dismissUsageAlert(accountId: string, tenantId: string, id: string) {
+    const changed = await this.db.$executeRaw`UPDATE "PortalUsageAlert" SET "dismissedAt"=NOW()
+      WHERE id=${id} AND "accountId"=${accountId} AND "tenantId"=${tenantId} AND "dismissedAt" IS NULL`;
+    if (!changed) throw new PortalError(404, 'USAGE_ALERT_NOT_FOUND');
+  }
   async usage(accountId: string) {
     const period = new Date().toISOString().slice(0, 7);
     return (await this.db.$queryRaw<any[]>`SELECT * FROM "PortalUsageBucket" WHERE "accountId"=${accountId} AND period=${period}`)[0] || { period, messages: 0, llmCalls: 0, images: 0, embeddings: 0, spentMicros: 0, reservedMicros: 0 };
