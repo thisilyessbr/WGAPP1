@@ -26,8 +26,8 @@
     </article>`).join('');
 
     const allowanceRow = `<div class="broadcast-allowance">
-      <div><span>Broadcasts left this month</span><p>${n(a.remaining.broadcasts)} <small>/</small> ${n(a.limit.broadcasts)}</p></div>
-      <div><span>Recipients left this month</span><p>${n(a.remaining.recipients)} <small>/</small> ${n(a.limit.recipients)}</p></div></div>`;
+      <div><span class="broadcast-stat-icon" aria-hidden="true">↗</span><span>Broadcasts left this month</span><p>${n(a.remaining.broadcasts)} <small>/</small> ${n(a.limit.broadcasts)}</p><i style="--usage:${Math.min(100, Math.max(0, 100 - (a.remaining.broadcasts / Math.max(1, a.limit.broadcasts) * 100)))}%"></i></div>
+      <div><span class="broadcast-stat-icon" aria-hidden="true">◎</span><span>Recipients left this month</span><p>${n(a.remaining.recipients)} <small>/</small> ${n(a.limit.recipients)}</p><i style="--usage:${Math.min(100, Math.max(0, 100 - (a.remaining.recipients / Math.max(1, a.limit.recipients) * 100)))}%"></i></div></div>`;
 
     const compose = !hasNumber
       ? `<p class="empty compact">Broadcasts need a WhatsApp number connected through Meta. The QR connection cannot send broadcasts (WhatsApp would block the number).</p>`
@@ -47,12 +47,13 @@
           <button class="btn" type="submit" id="bc-send">${data.requiresApproval ? 'Send for approval' : 'Send broadcast'}</button>
         </form>`;
 
-    root.innerHTML = shell(header('Broadcasts', 'Send an approved WhatsApp template to customers who agreed to hear from you.',
+    root.innerHTML = shell(header('Broadcasts', 'Turn customer consent into timely WhatsApp campaigns—and know the audience and Meta cost before anything is sent.',
       `<button class="btn secondary" type="button" id="bc-sync" ${hasNumber ? '' : 'disabled'}>Sync templates</button>`) +
+      `<section class="broadcast-hero"><div><span class="plan-section-label">Customer re-engagement</span><h2>Bring the right customers back at the right moment.</h2><p>Use Meta-approved templates, target only opted-in contacts and keep every send inside your monthly plan allowance.</p></div><ol class="broadcast-steps"><li><span>1</span><b>Choose a message</b><small>Sync an approved Meta template.</small></li><li><span>2</span><b>Refine the audience</b><small>Filter opted-in customers by activity and status.</small></li><li><span>3</span><b>Review and send</b><small>Confirm reach and estimated Meta fees.</small></li></ol></section>`+
       allowanceRow +
       `<div class="grid-2 broadcast-grid">
-        <article class="card"><h2>New broadcast</h2>${compose}</article>
-        <article class="card"><h2>Customers who agreed</h2>
+        <article class="card broadcast-compose-card"><div class="card-title"><div><span class="plan-section-label">Create campaign</span><h2>New broadcast</h2></div><span class="feature-chip">WhatsApp</span></div>${compose}</article>
+        <article class="card broadcast-consent-card"><div class="card-title"><div><span class="plan-section-label">Permission first</span><h2>Customers who agreed</h2></div><span class="feature-chip safe">Opt-in only</span></div>
           <div class="broadcast-consent"><div><span>Opted in</span>${n(data.consent?.optedIn)}</div><div><span>Opted out</span>${n(data.consent?.optedOut)}</div></div>
           <p class="muted">Customers who reply STOP, وقف or nlghi are removed automatically and never re-added by an import.</p>
           <form id="consent-form" class="broadcast-form">

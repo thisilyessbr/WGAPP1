@@ -11,6 +11,14 @@ window.RelayqoPlans = (() => {
   };
   const features = {knowledge:'FAQs and PDF knowledge',services:'Services and customer inquiries',calendar:'Booking calendar and appointments',commerce:'Product catalog',images:'Product images',instagram:'Instagram DM channel (admin enabled)',qr:'QR connection (experimental)',broadcasts:'Broadcasts to opted-in customers (admin enabled)'};
   const labels = {messages:'Customer messages',llmCalls:'AI replies',images:'Images',embeddings:'Document indexing',monthlyUsd:'AI spend ceiling (USD)',numbers:'WhatsApp numbers',products:'Products',documents:'PDF documents',storageMb:'Document storage (MB)',broadcasts:'Broadcasts per month',broadcastRecipients:'Broadcast recipients per month'};
+  const outcomes = {
+    services: ['Reply instantly, even after hours', 'Turn conversations into qualified requests'],
+    calendar: ['Let customers book without back-and-forth', 'Keep availability and appointments organized'],
+    commerce: ['Recommend products and answer buying questions', 'Capture purchase requests while interest is high'],
+    broadcasts: ['Bring opted-in customers back with targeted offers', 'See the audience and Meta cost before sending'],
+    instagram: ['Handle WhatsApp and Instagram from one assistant', 'Keep the same approved business knowledge everywhere'],
+    knowledge: ['Give customers consistent answers from your approved content']
+  };
   const number = value => new Intl.NumberFormat(document.documentElement.lang || 'en').format(value);
   // The capacity a client can compare between plans. Each value is its own element so the label stays translatable.
   function limitList(plan, escape) {
@@ -29,14 +37,23 @@ window.RelayqoPlans = (() => {
     if (!profile.requestedPlanId || profile.requestedPlanId === profile.plan?.id) return '';
     return `<div class="notice plan-request-notice"><strong>Plan request awaiting administrator approval</strong> <span>${escape(requested?.name || '')}</span><br><span>Nothing changes until your administrator approves it. You will see the new features here once it is assigned.</span></div>`;
   }
+  function outcomeList(plan) {
+    const selected = [];
+    for (const module of ['commerce','calendar','services','broadcasts','instagram','knowledge']) {
+      for (const item of outcomes[module] || []) if (!selected.includes(item) && selected.length < 3) selected.push(item);
+    }
+    return `<div class="plan-outcomes"><span class="plan-section-label">Built to help you</span><ul>${selected.map(item => `<li><span class="plan-check" aria-hidden="true">✓</span><span>${item}</span></li>`).join('')}</ul></div>`;
+  }
   async function renderClient({root,shell,header,escape,toast,api,bind}) {
     const [catalog, account] = await Promise.all([api('/portal/plans'),api('/client/profile')]);
     const plans = catalog.plans || [], profile = account.profile;
     root.innerHTML = shell(header('Choose a plan','Pick the features that fit your business. Your administrator confirms the final offer.') +
       requestedNotice(plans, profile, escape) +
-      `<div class="plan-grid">${plans.map(plan => {
+      `<div class="plan-value-strip"><div><strong>One assistant, ready when customers are.</strong><span>Choose the workflow that matches how your business converts conversations into revenue.</span></div><div><strong>Controlled by your plan.</strong><span>Every optional feature is activated by Relayqo after your request is approved.</span></div><div><strong>Clear monthly capacity.</strong><span>Know what is included before you commit.</span></div></div>`+
+      `<div class="plan-grid plan-grid-market">${plans.map((plan, index) => {
         const current = profile.plan?.id === plan.id, requested = !current && profile.requestedPlanId === plan.id;
-        return `<article class="card plan"><span class="badge ${current?'green':requested?'orange':''}">${current?'Current plan':requested?'Awaiting approval':'Available'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><ul>${plan.modules.map(module => `<li>${escape(features[module] || module)}</li>`).join('') || '<li>Core chatbot</li>'}${plan.modules.includes('commerce') ? '<li>Sales leads and CSV export</li>' : plan.modules.includes('services') ? '<li>Service inquiries and CSV export</li>' : ''}</ul>${limitList(plan, escape)}<button class="btn ${current||requested?'secondary':''}" data-plan="${escape(plan.id)}" ${current||requested?'disabled':''}>${current?'Assigned':requested?'Awaiting approval':'Request this plan'}</button></article>`;
+        const featured = !current && !requested && plans.length > 1 && index === 1;
+        return `<article class="card plan plan-market ${current?'is-current':''} ${featured?'is-featured':''}"><div class="plan-card-top"><span class="badge ${current?'green':requested?'orange':''}">${current?'Current plan':requested?'Awaiting approval':featured?'Recommended':'Available'}</span><span class="plan-fit">${plan.modules.includes('commerce')?'For shops':plan.modules.includes('calendar')?'For bookings':'For service teams'}</span></div><h2>${escape(plan.name)}</h2><p class="muted plan-description">${escape(plan.description)}</p><div class="plan-price"><strong>${escape(plan.price)}</strong> <small>${escape(plan.currency)} / month</small></div>${outcomeList(plan)}<details class="plan-details"><summary>See everything included</summary><ul class="plan-feature-list">${plan.modules.map(module => `<li>${escape(features[module] || module)}</li>`).join('') || '<li>Core chatbot</li>'}${plan.modules.includes('commerce') ? '<li>Sales leads and CSV export</li>' : plan.modules.includes('services') ? '<li>Service inquiries and CSV export</li>' : ''}</ul>${limitList(plan, escape)}</details><div class="plan-action"><button class="btn ${current||requested?'secondary':''}" data-plan="${escape(plan.id)}" ${current||requested?'disabled':''}>${current?'Assigned to your workspace':requested?'Awaiting administrator approval':'Request this plan'}</button><small>${current?'Active now':requested?'We will notify you after review':'No feature changes until approval'}</small></div></article>`;
       }).join('') || '<p class="empty">Plans will appear here when your administrator publishes them.</p>'}</div>`+
       '<p class="muted small plan-fees-note">Prices do not include Meta’s WhatsApp fees for template and broadcast messages, which Meta bills to your WhatsApp Business account. Replies to customers who message you first are free.</p>',false,'Plans');
     root.querySelectorAll('[data-plan]').forEach(button => button.onclick = async () => {
@@ -64,7 +81,7 @@ window.RelayqoPlans = (() => {
         ? `<p><strong>Plan request awaiting administrator approval</strong></p><p class="muted"><span>${escape(requested.name)}</span> · Nothing changes until your administrator approves it.</p>`
         : `<p><strong>Not included in your current plan.</strong></p>${eligible.length ? `<p class="muted">Plans that include it:</p><div class="locked-plans">${eligible.map(plan => `<div class="locked-plan"><span><strong>${escape(plan.name)}</strong> <small><bdi>${escape(plan.price)}</bdi> <span>${escape(plan.currency)} / month</span></small></span><button class="btn" type="button" data-plan="${escape(plan.id)}">Request this plan</button></div>`).join('')}</div>` : '<p class="muted">No published plan includes it yet. Contact Relayqo support.</p>'}`;
     root.innerHTML = shell(header(feature.title, feature.text) +
-      `<article class="card locked-feature"><span class="locked-icon" aria-hidden="true">🔒</span><div>${body}<a class="row-link" href="/app/plans" data-route>Compare plans ›</a></div></article>`, false, feature.title);
+      `<article class="card locked-feature"><div class="locked-visual" aria-hidden="true"><span class="locked-orbit"></span><span class="locked-icon">${key==='calendar'?'◷':key==='products'?'◇':key==='orders'?'↗':'✦'}</span></div><div class="locked-content"><span class="plan-section-label">Optional growth feature</span><h2><span>${escape(feature.title)}</span> <span>can be added to your workspace</span></h2>${body}<a class="row-link" href="/app/plans" data-route>Compare plans ›</a></div></article>`, false, feature.title);
     root.querySelectorAll('[data-plan]').forEach(button => button.onclick = async () => {
       button.disabled = true;
       try { await api('/client/plan-request',{method:'POST',body:JSON.stringify({planId:button.dataset.plan})}); toast('Plan request sent to your administrator.'); await renderLocked({root,shell,header,escape,toast,api,bind}, key); }

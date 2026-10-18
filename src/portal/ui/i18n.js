@@ -1410,6 +1410,40 @@
     ['Appointment booking & time slots','Prise de rendez-vous et créneaux horaires','حجز المواعيد والفترات الزمنية']
   ]) translations.set(en, { fr, ar });
 
+  // Value-led plan and broadcast UI. Keep marketing promises translatable and
+  // leave customer-authored content untouched.
+  for (const [en, fr, ar] of [
+    ['One assistant, ready when customers are.','Un assistant disponible quand vos clients le sont.','مساعد واحد جاهز عندما يكون عملاؤك جاهزين.'],
+    ['Choose the workflow that matches how your business converts conversations into revenue.','Choisissez le parcours qui transforme vos conversations en revenus.','اختر المسار الذي يناسب طريقة تحويل محادثاتك إلى مبيعات.'],
+    ['Controlled by your plan.','Contrôlé par votre offre.','متحكم فيه من خلال باقتك.'],
+    ['Every optional feature is activated by Relayqo after your request is approved.','Chaque fonctionnalité optionnelle est activée par Relayqo après validation.','تُفعّل Relayqo كل ميزة اختيارية بعد الموافقة على طلبك.'],
+    ['Clear monthly capacity.','Capacité mensuelle claire.','سعة شهرية واضحة.'],
+    ['Know what is included before you commit.','Sachez ce qui est inclus avant de vous engager.','اعرف ما تتضمنه الباقة قبل الالتزام.'],
+    ['Built to help you','Pensé pour vous aider','مصمم لمساعدتك'],
+    ['Reply instantly, even after hours','Répondez instantanément, même après les horaires','رد فورًا حتى خارج أوقات العمل'],
+    ['Turn conversations into qualified requests','Transformez les conversations en demandes qualifiées','حوّل المحادثات إلى طلبات جادة'],
+    ['Let customers book without back-and-forth','Laissez les clients réserver sans échanges inutiles','دع العملاء يحجزون دون رسائل متكررة'],
+    ['Keep availability and appointments organized','Organisez disponibilités et rendez-vous','نظّم المواعيد والأوقات المتاحة'],
+    ['Recommend products and answer buying questions','Recommandez des produits et répondez aux questions d’achat','اقترح المنتجات وأجب عن أسئلة الشراء'],
+    ['Capture purchase requests while interest is high','Captez les demandes d’achat au bon moment','سجّل طلبات الشراء وقت اهتمام العميل'],
+    ['Bring opted-in customers back with targeted offers','Faites revenir les clients consentants avec des offres ciblées','أعد العملاء الموافقين بعروض موجهة'],
+    ['See the audience and Meta cost before sending','Voyez l’audience et le coût Meta avant l’envoi','اعرف الجمهور وتكلفة Meta قبل الإرسال'],
+    ['Give customers consistent answers from your approved content','Donnez des réponses cohérentes depuis vos contenus validés','قدّم إجابات متناسقة من محتواك المعتمد'],
+    ['Recommended','Recommandé','موصى بها'],['For shops','Pour les boutiques','للمتاجر'],['For bookings','Pour les réservations','للحجوزات'],['For service teams','Pour les équipes de service','لفرق الخدمات'],
+    ['See everything included','Voir tout ce qui est inclus','عرض كل ما تتضمنه الباقة'],
+    ['Assigned to your workspace','Attribuée à votre espace','مفعّلة في مساحة عملك'],
+    ['Active now','Active maintenant','مفعّلة الآن'],['No feature changes until approval','Aucun changement avant validation','لا تتغير الميزات قبل الموافقة'],
+    ['Optional growth feature','Fonctionnalité de croissance optionnelle','ميزة نمو اختيارية'],
+    ['can be added to your workspace','peut être ajouté à votre espace','يمكن إضافتها إلى مساحة عملك'],
+    ['Customer re-engagement','Réengagement client','إعادة تفاعل العملاء'],
+    ['Bring the right customers back at the right moment.','Faites revenir les bons clients au bon moment.','أعد العملاء المناسبين في الوقت المناسب.'],
+    ['Use Meta-approved templates, target only opted-in contacts and keep every send inside your monthly plan allowance.','Utilisez des modèles approuvés par Meta, ciblez uniquement les contacts consentants et respectez votre capacité mensuelle.','استخدم قوالب معتمدة من Meta، واستهدف فقط العملاء الموافقين، والتزم بسعة باقتك الشهرية.'],
+    ['Choose a message','Choisir un message','اختر رسالة'],['Sync an approved Meta template.','Synchronisez un modèle Meta approuvé.','زامن قالبًا معتمدًا من Meta.'],
+    ['Refine the audience','Affiner l’audience','حدد الجمهور'],['Filter opted-in customers by activity and status.','Filtrez les clients consentants par activité et statut.','صفِّ العملاء الموافقين حسب النشاط والحالة.'],
+    ['Review and send','Vérifier et envoyer','راجع وأرسل'],['Confirm reach and estimated Meta fees.','Confirmez la portée et les frais Meta estimés.','راجع عدد المستلمين ورسوم Meta التقديرية.'],
+    ['Create campaign','Créer une campagne','أنشئ حملة'],['Permission first','Le consentement d’abord','الموافقة أولًا'],['Opt-in only','Consentement uniquement','للموافقين فقط']
+  ]) translations.set(en, { fr, ar });
+
   function setLocale(next) {
     if (!supported.has(next)) return;
     locale = next;
