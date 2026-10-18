@@ -1537,7 +1537,16 @@
     ['Active lines','Lignes actives','الأرقام المتصلة'],
     ['Customer follow-ups','Suivis clients','متابعة العملاء'],
     ['Social DM channel','Canal DM social','قناة رسائل إنستغرام'],
-    ['Unified knowledge','Connaissance unifiée','معرفة موحدة']
+    ['Unified knowledge','Connaissance unifiée','معرفة موحدة'],
+    ['WhatsApp campaign','Campagne WhatsApp','حملة واتساب'],
+    ['Official API linked','API officielle connectée','واجهة رسمية مرتبطة'],
+    ['Link official number','Connecter un numéro officiel','ربط رقم رسمي'],
+    ['Templates:','Modèles :','القوالب:'],
+    ['approved','approuvés','معتمدة'],
+    ['Opted in:','Inscrits :','الموافقون:'],
+    ['Message preview','Aperçu du message','معاينة الرسالة'],
+    ['Campaign review','Validation des campagnes','مراجعة الحملات'],
+    ['Send Meta-approved WhatsApp campaigns to opted-in customers.','Envoyez des campagnes WhatsApp approuvées par Meta aux clients consentants.','أرسل حملات واتساب معتمدة من Meta للعملاء الموافقين.']
   ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {

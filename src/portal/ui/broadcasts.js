@@ -17,29 +17,43 @@
     const hasNumber = data.numbers.length > 0;
     const a = data.allowance;
     const history = data.broadcasts.map(b => `<article class="card broadcast-row">
-      <div class="card-title"><div><h3><bdi>${esc(b.templateName)}</bdi> <small class="muted">${esc(b.language)}</small></h3>
+      <div class="card-title"><div><span class="plan-section-label">WhatsApp campaign</span><h3><bdi>${esc(b.templateName)}</bdi> <small class="muted">${esc(b.language)}</small></h3>
         <p class="broadcast-meta"><span>${esc(when(b.createdAt))}</span> · ${n(b.recipientCount)} <span>recipients</span> · <span>Meta fee ≈</span> <bdi>${esc(usd(b.estimatedCostUsd))}</bdi></p></div>
         <span class="badge ${BADGE[b.status] || ''}">${esc(LABELS[b.status] || b.status)}</span></div>
-      <p class="broadcast-counts">${n(b.sent)} <span>sent</span> · ${n(b.failed)} <span>failed</span> · ${n(b.skipped)} <span>skipped</span>${b.pending ? ` · ${n(b.pending)} <span>waiting</span>` : ''}</p>
-      ${b.reviewNote ? `<p class="muted"><span>Note:</span> <bdi>${esc(b.reviewNote)}</bdi></p>` : ''}
-      ${['PENDING_APPROVAL', 'SENDING'].includes(b.status) ? `<button class="btn secondary" type="button" data-cancel="${esc(b.id)}">Cancel</button>` : ''}
+      <div class="broadcast-row-foot">
+        <p class="broadcast-counts">${n(b.sent)} <span>sent</span> · ${n(b.failed)} <span>failed</span> · ${n(b.skipped)} <span>skipped</span>${b.pending ? ` · ${n(b.pending)} <span>waiting</span>` : ''}</p>
+        ${['PENDING_APPROVAL', 'SENDING'].includes(b.status) ? `<button class="btn secondary" type="button" data-cancel="${esc(b.id)}">Cancel</button>` : ''}
+      </div>
+      ${b.reviewNote ? `<p class="muted broadcast-review-note"><span>Note:</span> <bdi>${esc(b.reviewNote)}</bdi></p>` : ''}
     </article>`).join('');
+
+    const optedInCount = Number(data.consent?.optedIn || 0);
+    const launchBar = `<div class="admin-launch-bar">
+      <span class="launch-step ${hasNumber ? 'is-done' : ''}"><i>${hasNumber ? '✓' : '1'}</i><strong>WhatsApp:</strong> <span>${hasNumber ? 'Official API linked' : 'Link official number'}</span></span>
+      <span class="launch-step ${approved.length ? 'is-done' : ''}"><i>${approved.length ? '✓' : '2'}</i><strong>Templates:</strong> ${n(approved.length)} <span>approved</span></span>
+      <span class="launch-step ${optedInCount > 0 ? 'is-done' : ''}"><i>${optedInCount > 0 ? '✓' : '3'}</i><strong>Opted in:</strong> ${n(optedInCount)} <span>customers</span></span>
+    </div>`;
 
     const allowanceRow = `<div class="broadcast-allowance">
       <div><span class="broadcast-stat-icon" aria-hidden="true">↗</span><span>Broadcasts left this month</span><p>${n(a.remaining.broadcasts)} <small>/</small> ${n(a.limit.broadcasts)}</p><i style="--usage:${Math.min(100, Math.max(0, 100 - (a.remaining.broadcasts / Math.max(1, a.limit.broadcasts) * 100)))}%"></i></div>
       <div><span class="broadcast-stat-icon" aria-hidden="true">◎</span><span>Recipients left this month</span><p>${n(a.remaining.recipients)} <small>/</small> ${n(a.limit.recipients)}</p><i style="--usage:${Math.min(100, Math.max(0, 100 - (a.remaining.recipients / Math.max(1, a.limit.recipients) * 100)))}%"></i></div></div>`;
 
     const compose = !hasNumber
-      ? `<p class="empty compact">Broadcasts need a WhatsApp number connected through Meta. The QR connection cannot send broadcasts (WhatsApp would block the number).</p>`
+      ? `<div class="broadcast-empty-box"><p class="empty compact">Broadcasts need a WhatsApp number connected through Meta. The QR connection cannot send broadcasts (WhatsApp would block the number).</p><div class="actions"><a class="btn secondary" href="/app/whatsapp" data-route>Connect WhatsApp</a></div></div>`
       : !approved.length
-        ? `<p class="empty compact">No approved template yet. Create one in Meta WhatsApp Manager, wait for approval, then press “Sync templates”.</p>`
+        ? `<div class="broadcast-empty-box"><p class="empty compact">No approved template yet. Create one in Meta WhatsApp Manager, wait for approval, then press “Sync templates”.</p></div>`
         : `<form id="broadcast-form" class="broadcast-form">
-          <label><span>Template</span><select id="bc-template">${approved.map(x => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.language)} · ${esc(x.category)}</option>`).join('')}</select></label>
-          <blockquote id="bc-preview" class="broadcast-preview" data-no-translate dir="auto"></blockquote>
-          <div id="bc-variables"></div>
-          <label><span>Send from</span><select id="bc-number">${data.numbers.map(x => `<option value="${esc(x.phoneNumberId)}">${esc(x.displayPhoneNumber || x.phoneNumberId)}</option>`).join('')}</select></label>
+          <div class="broadcast-form-row">
+            <label class="field"><span>Template</span><select id="bc-template">${approved.map(x => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.language)} · ${esc(x.category)}</option>`).join('')}</select></label>
+            <label class="field"><span>Send from</span><select id="bc-number">${data.numbers.map(x => `<option value="${esc(x.phoneNumberId)}">${esc(x.displayPhoneNumber || x.phoneNumberId)}</option>`).join('')}</select></label>
+          </div>
+          <div class="broadcast-preview-wrap">
+            <span class="broadcast-preview-label">Message preview</span>
+            <blockquote id="bc-preview" class="broadcast-preview" data-no-translate dir="auto"></blockquote>
+          </div>
+          <div id="bc-variables" class="broadcast-variables"></div>
           <fieldset><legend>Audience: opted-in customers</legend>
-            <label><span>Active in the last</span><select id="bc-days"><option value="">Any time</option><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option></select></label>
+            <label class="field"><span>Active in the last</span><select id="bc-days"><option value="">Any time</option><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option></select></label>
             <div class="broadcast-statuses">${LEAD_STATUSES.map(([value, label]) => `<label class="check"><input type="checkbox" value="${value}" data-lead-status> <span>${label}</span></label>`).join('')}</div>
             <small class="muted">Leave the request types empty to include every opted-in customer.</small>
           </fieldset>
@@ -49,22 +63,23 @@
 
     root.innerHTML = shell(header('Broadcasts', 'Turn customer consent into timely WhatsApp campaigns—and know the audience and Meta cost before anything is sent.',
       `<button class="btn secondary" type="button" id="bc-sync" ${hasNumber ? '' : 'disabled'}>Sync templates</button>`) +
+      launchBar +
       `<section class="broadcast-hero"><div><span class="plan-section-label">Customer re-engagement</span><h2>Bring the right customers back at the right moment.</h2><p>Use Meta-approved templates, target only opted-in contacts and keep every send inside your monthly plan allowance.</p></div><ol class="broadcast-steps"><li><span>1</span><b>Choose a message</b><small>Sync an approved Meta template.</small></li><li><span>2</span><b>Refine the audience</b><small>Filter opted-in customers by activity and status.</small></li><li><span>3</span><b>Review and send</b><small>Confirm reach and estimated Meta fees.</small></li></ol></section>`+
       allowanceRow +
       `<div class="grid-2 broadcast-grid">
         <article class="card broadcast-compose-card"><div class="card-title"><div><span class="plan-section-label">Create campaign</span><h2>New broadcast</h2></div><span class="feature-chip">WhatsApp</span></div>${compose}</article>
         <article class="card broadcast-consent-card"><div class="card-title"><div><span class="plan-section-label">Permission first</span><h2>Customers who agreed</h2></div><span class="feature-chip safe">Opt-in only</span></div>
-          <div class="broadcast-consent"><div><span>Opted in</span>${n(data.consent?.optedIn)}</div><div><span>Opted out</span>${n(data.consent?.optedOut)}</div></div>
-          <p class="muted">Customers who reply STOP, وقف or nlghi are removed automatically and never re-added by an import.</p>
+          <div class="broadcast-consent"><div class="is-opted-in"><span>Opted in</span>${n(data.consent?.optedIn)}</div><div><span>Opted out</span>${n(data.consent?.optedOut)}</div></div>
+          <p class="muted small">Customers who reply STOP, وقف or nlghi are removed automatically and never re-added by an import.</p>
           <form id="consent-form" class="broadcast-form">
-            <label><span>Phone numbers, one per line</span><textarea id="consent-phones" rows="5" dir="ltr" placeholder="0612345678&#10;+212 7 00 00 00 01"></textarea></label>
-            <label><span>How did they agree?</span><input id="consent-evidence" maxlength="500" placeholder="Ticked “send me offers” at checkout"></label>
-            <label class="check"><input type="checkbox" id="consent-confirm"> <span>Every customer on this list agreed to receive WhatsApp messages from my business.</span></label>
+            <label class="field"><span>Phone numbers, one per line</span><textarea id="consent-phones" rows="4" dir="ltr" placeholder="0612345678&#10;+212 7 00 00 00 01"></textarea></label>
+            <label class="field"><span>How did they agree?</span><input id="consent-evidence" maxlength="500" placeholder="Ticked “send me offers” at checkout"></label>
+            <label class="check consent-check"><input type="checkbox" id="consent-confirm"> <span>Every customer on this list agreed to receive WhatsApp messages from my business.</span></label>
             <button class="btn secondary" type="submit">Add customers</button>
           </form>
         </article>
       </div>
-      <h2 class="section-title">History</h2>${history || '<p class="empty compact">No broadcasts yet.</p>'}`, false, 'Broadcasts');
+      <div class="broadcast-history-section"><h2 class="section-title">History</h2>${history ? `<div class="broadcast-history-list">${history}</div>` : '<p class="empty compact">No broadcasts yet.</p>'}</div>`, false, 'Broadcasts');
 
     root.querySelector('#bc-sync')?.addEventListener('click', async event => {
       event.target.disabled = true;
@@ -110,7 +125,7 @@
         const x = template();
         root.querySelector('#bc-preview').textContent = x.body || '—';
         root.querySelector('#bc-variables').innerHTML = Array.from({ length: Number(x.variableCount) }, (_, i) =>
-          `<label><span>Template value</span> <bdi>{{${i + 1}}}</bdi><input data-variable maxlength="200" required dir="auto"></label>`).join('');
+          `<label class="field"><span><span>Template value</span> <bdi>{{${i + 1}}}</bdi></span><input data-variable maxlength="200" required dir="auto" placeholder="{{${i + 1}}}"></label>`).join('');
         void estimate();
       };
       root.querySelector('#bc-template').onchange = showTemplate;
@@ -135,11 +150,11 @@
   // Admin: broadcasts waiting for a decision during the pilot.
   function adminCard(items, esc) {
     if (!items?.length) return '';
-    return `<article class="card admin-attention broadcast-review"><div class="card-title"><div><h2>Broadcasts awaiting approval</h2>
+    return `<article class="card admin-attention broadcast-review"><div class="card-title"><div><span class="plan-section-label">Campaign review</span><h2>Broadcasts awaiting approval</h2>
       <p>Check the text and audience size before customers receive it.</p></div><span class="badge orange">${items.length}</span></div>
-      ${items.map(b => `<div class="attention-row"><span><strong>${esc(b.accountName)}</strong> · <bdi>${esc(b.templateName)}</bdi> (${esc(b.language)}) · ${n(b.recipientCount)} <span>recipients</span> · ≈ <bdi>${esc(usd(b.estimatedCostUsd))}</bdi><br>
-        <small dir="auto" data-no-translate>${esc(b.body)}</small><br><small class="muted"><span>Values:</span> <bdi>${esc((b.variables || []).join(' · ') || '—')}</bdi></small></span>
-        <span><button class="btn" type="button" data-review="${esc(b.id)}" data-approve="true">Approve</button>
+      ${items.map(b => `<div class="attention-row"><div class="broadcast-review-body"><strong>${esc(b.accountName)}</strong> · <bdi>${esc(b.templateName)}</bdi> (${esc(b.language)}) · ${n(b.recipientCount)} <span>recipients</span> · ≈ <bdi>${esc(usd(b.estimatedCostUsd))}</bdi>
+        <small class="broadcast-review-text" dir="auto" data-no-translate>${esc(b.body)}</small><small class="muted"><span>Values:</span> <bdi>${esc((b.variables || []).join(' · ') || '—')}</bdi></small></div>
+        <span class="broadcast-review-actions"><button class="btn" type="button" data-review="${esc(b.id)}" data-approve="true">Approve</button>
         <button class="btn secondary" type="button" data-review="${esc(b.id)}" data-approve="false">Reject</button></span></div>`).join('')}</article>`;
   }
   function bindAdmin(root, api, toast, reload) {
