@@ -1433,6 +1433,8 @@
     ['See everything included','Voir tout ce qui est inclus','عرض كل ما تتضمنه الباقة'],
     ['Assigned to your workspace','Attribuée à votre espace','مفعّلة في مساحة عملك'],
     ['Active now','Active maintenant','مفعّلة الآن'],['No feature changes until approval','Aucun changement avant validation','لا تتغير الميزات قبل الموافقة'],
+    ['Awaiting administrator approval','En attente de validation administrateur','في انتظار موافقة المسؤول'],
+    ['We will notify you after review','Nous vous informerons après vérification','سنبلغك بعد المراجعة'],
     ['Optional growth feature','Fonctionnalité de croissance optionnelle','ميزة نمو اختيارية'],
     ['can be added to your workspace','peut être ajouté à votre espace','يمكن إضافتها إلى مساحة عملك'],
     ['Customer re-engagement','Réengagement client','إعادة تفاعل العملاء'],
