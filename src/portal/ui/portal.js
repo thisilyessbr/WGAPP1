@@ -1,5 +1,5 @@
 (() => {
-  const root = document.querySelector('#root'); let session, csrf, plans=[], portalSettings={}, authNotice='', instagramInPlan=false, requestsInPlan=false, commerceInPlan=false, servicesInPlan=false, calendarInUse=false;
+  const root = document.querySelector('#root'); let session, csrf, plans=[], portalSettings={}, authNotice='', instagramInPlan=false, requestsInPlan=false, commerceInPlan=false, servicesInPlan=false, calendarInUse=false, broadcastsActive=false;
   const icons={home:'⌂',inbox:'✉',data:'▤',wa:'◉',plan:'◇',users:'♙',chart:'↗',settings:'⚙',logout:'↪',plus:'+'};
   let navigationController, profileRead, sessionReadAt=0;
   const reads=new Map();
@@ -30,7 +30,7 @@
       +'<p class="nav-label nav-label-sub">Your business</p>'
       +(commerceInPlan?link('/app/products','◫','Products',true):'')
       +link('/app/business',icons.data,'Bot knowledge',false)
-      +link('/app/broadcasts','➚','Broadcasts',false)
+      +(broadcastsActive?link('/app/broadcasts','➚','Broadcasts',false):'')
       +(instagramInPlan?link('/app/instagram','◎','Instagram',false):'')
       +link('/app/settings',icons.settings,'Settings',true);
   }
@@ -541,6 +541,12 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     qrCard.insertAdjacentHTML('beforeend','<p><a href="#account-allowances">Edit WhatsApp number allowance</a></p>');
     if(qrInPlan||p.qrAllowed)document.querySelector('#technical').before(qrCard);
     qrCard.querySelector('button').onclick=async()=>{const button=qrCard.querySelector('button');button.disabled=true;try{await api('/admin/accounts/'+id+'/qr-access',{method:'PATCH',body:JSON.stringify({allowed:!p.qrAllowed})});clientAdmin(id);}catch(e){button.disabled=false;toast(e.message,true);}};
+    // Broadcasts need the plan module and this switch; turning it off cancels unfinished broadcasts.
+    const broadcastCard=document.createElement('article');broadcastCard.className='card';broadcastCard.id='admin-broadcasts-card';
+    const broadcastsInPlan=Boolean(p.planSnapshot?.modules.includes('broadcasts')),broadcastLimits=p.planSnapshot?.limits||{};
+    broadcastCard.innerHTML=`<div class="card-title"><div><h2>Broadcasts</h2><p>${broadcastsInPlan?`Plan allowance: <strong>${Number(broadcastLimits.broadcasts??4)}</strong> broadcast(s) and <strong>${Number(broadcastLimits.broadcastRecipients??2000)}</strong> recipient(s) per month.`:'The assigned plan does not include broadcasts.'} Turn on only after the client has an official Meta number and an approved template.</p></div><button type="button" class="btn ${p.broadcastsAllowed?'secondary':''}" ${!broadcastsInPlan&&!p.broadcastsAllowed?'disabled':''}>${p.broadcastsAllowed?'Turn off broadcasts':'Turn on broadcasts'}</button></div>`;
+    if(broadcastsInPlan||p.broadcastsAllowed)document.querySelector('#technical').before(broadcastCard);
+    broadcastCard.querySelector('button').onclick=async()=>{const button=broadcastCard.querySelector('button');if(p.broadcastsAllowed&&!confirm('Turn off broadcasts? Unfinished broadcasts for this client are cancelled.'))return;button.disabled=true;try{await api('/admin/accounts/'+id+'/broadcasts',{method:'PATCH',body:JSON.stringify({allowed:!p.broadcastsAllowed})});toast(p.broadcastsAllowed?'Broadcasts turned off.':'Broadcasts turned on for this client.');clientAdmin(id);}catch(e){button.disabled=false;toast(e.message,true)}};
     const voiceCard=document.createElement('article');voiceCard.className='card';voiceCard.id='admin-voice-notes-card';
     voiceCard.innerHTML=`<div class="card-title"><div><h2>Voice notes</h2><p>Choose one transcription provider for this account. Deepgram targets Moroccan Arabic; Groq handles several languages. The client can only turn voice notes on after you allow them.</p></div><button type="button" class="btn ${p.voiceNotesAllowed?'secondary':''}" id="admin-voice-notes">${p.voiceNotesAllowed?'Revoke voice notes':'Allow voice notes'}</button></div><div class="field"><label for="admin-voice-provider">Transcription model</label><select id="admin-voice-provider"><option value="groq" ${p.voiceTranscriptionProvider==='groq'?'selected':''} ${p.availableVoiceProviders?.groq?'':'disabled'}>Groq · multilingual</option><option value="deepgram" ${p.voiceTranscriptionProvider==='deepgram'?'selected':''} ${p.availableVoiceProviders?.deepgram?'':'disabled'}>Deepgram · Moroccan Arabic</option></select><p class="small muted">${p.voiceNotesAvailable?'Provider ready':'The selected provider needs an API key.'} · Client switch: ${p.voiceNotesEnabled?'On':'Off'}</p><button type="button" class="btn secondary" id="save-voice-provider">Save voice model</button></div>`;document.querySelector('#technical').before(voiceCard);
     voiceCard.querySelector('button').onclick=async()=>{const button=voiceCard.querySelector('button');button.disabled=true;try{await api('/admin/accounts/'+id+'/voice-notes',{method:'PATCH',body:JSON.stringify({allowed:!p.voiceNotesAllowed})});toast(p.voiceNotesAllowed?'Voice-note permission revoked.':'Voice-note permission granted. The client can now turn it on.');clientAdmin(id);}catch(e){button.disabled=false;toast(e.message,true);}};
@@ -719,27 +725,30 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
       if(version!==renderVersion)return;
       instagramInPlan=Boolean(profile.plan?.modules?.includes('instagram'));
       requestsInPlan=Boolean(profile.plan?.modules?.some(module=>module==='services'||module==='commerce'));
-      commerceInPlan=profile.commerceActive===true;servicesInPlan=Boolean(profile.plan?.modules?.includes('services'));calendarInUse=profile.calendarInUse===true;
+      commerceInPlan=profile.commerceActive===true;servicesInPlan=Boolean(profile.plan?.modules?.includes('services'));calendarInUse=profile.calendarInUse===true;broadcastsActive=profile.broadcastsActive===true;
       window.relayqoSaveBusiness=null;
       // Today is the inbox opened on the customers waiting for a person.
       if(path==='/app/today')return go('/app/inbox?filter=needs_human',{replace:true});
+      // A feature this account cannot use opens a page that says why and how to get it, instead of a silent redirect.
       if(path==='/app/orders'||path.startsWith('/app/orders/'))return commerceInPlan
         ? await window.RelayqoOrders.render({root,shell,header,escape,toast,api,bind,go,path})
-        : go('/app',{replace:true});
-      if(path==='/app/products')return commerceInPlan?await business(undefined,'products'):go('/app/business',{replace:true});
+        : await window.RelayqoPlans.renderLocked({root,shell,header,escape,toast,api,bind},'orders');
+      if(path==='/app/products')return commerceInPlan?await business(undefined,'products'):await window.RelayqoPlans.renderLocked({root,shell,header,escape,toast,api,bind},'products');
       if(path==='/app/answer-reviews')return go('/app/inbox');
       if(path==='/app/inbox'||path.startsWith('/app/inbox/'))return await window.RelayqoInbox?.renderInbox({root,shell,header,escape,toast,api,bind,go,path});
       if(path==='/app/leads'||path.startsWith('/app/leads/'))return requestsInPlan
         ? await window.RelayqoLeads.renderLeads({root,shell,header,escape,toast,api,bind,go,path})
         : go('/app',{replace:true});
-      if(path==='/app/broadcasts')return await window.RelayqoBroadcasts.render({root,shell,header,escape,toast,api,bind,go,path});
+      if(path==='/app/broadcasts')return broadcastsActive
+        ? await window.RelayqoBroadcasts.render({root,shell,header,escape,toast,api,bind,go,path})
+        : await window.RelayqoPlans.renderLocked({root,shell,header,escape,toast,api,bind},'broadcasts');
       if(path==='/app/business')return await business(undefined,'knowledge');
       if(path==='/app/settings')return await clientSettings();
       if(path==='/app/whatsapp')return await whatsapp(connection);
       if(path==='/app/instagram')return await window.RelayqoInstagram.render({root,shell,header,escape,toast,api,bind});
       if(path==='/app/calendar')return calendarInUse
         ? await window.RelayqoCalendar.render({root,shell,header,escape,toast,api,bind})
-        : go('/app',{replace:true});
+        : await window.RelayqoPlans.renderLocked({root,shell,header,escape,toast,api,bind},'calendar');
       if(path==='/app/plans')return await window.RelayqoPlans.renderClient({root,shell,header,escape,toast,api,bind});
       return await clientHome(dashboard);
     }catch(e){

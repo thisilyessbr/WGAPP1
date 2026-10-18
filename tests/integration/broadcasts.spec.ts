@@ -15,6 +15,10 @@ async function setup() {
   const shop = await store.register(randomUUID() + '@example.test', 'Shop', 'hash', null);
   const other = await store.register(randomUUID() + '@example.test', 'Other', 'hash', null);
   const actor = (await store.db.$queryRaw<any[]>`SELECT "userId" FROM "PortalMembership" WHERE "accountId"=${shop.accountId}`)[0].userId;
+  const plan = (limits: Record<string, number> = {}, modules = ['knowledge', 'broadcasts']) => store.db.$executeRaw`UPDATE "PortalProfile"
+    SET "planSnapshot"=${JSON.stringify({ id: 'p', name: 'Plan', modules, limits: { broadcasts: 4, broadcastRecipients: 2000, ...limits } })}::jsonb WHERE "accountId"=${shop.accountId}`;
+  await plan();
+  await store.db.$executeRaw`UPDATE "PortalProfile" SET "broadcastsAllowed"=true WHERE "accountId"=${shop.accountId}`;
   await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId","wabaId",status,enabled,transport,"updatedAt")
     VALUES (${randomUUID()},${shop.tenantId},${shop.accountId},'pn-official','waba-1','CONNECTED',true,'META_CLOUD',NOW())`;
   await store.db.$executeRaw`INSERT INTO "WhatsAppBusinessNumber"(id,"tenantId","accountId","phoneNumberId","wabaId",status,enabled,transport,"updatedAt")
@@ -29,7 +33,7 @@ async function setup() {
       return { success: true, providerMessageId: 'wamid.' + sends.length };
     }
   };
-  return { database, store, shop, other, actor, sends, channel, failNext: (n: number) => { failNext = n; } };
+  return { database, store, shop, other, actor, sends, channel, plan, failNext: (n: number) => { failNext = n; } };
 }
 
 describe('broadcasts', () => {
@@ -104,6 +108,42 @@ describe('broadcasts', () => {
       await broadcasts.cancel(t.shop.tenantId, t.shop.accountId, t.actor, second.id);
       await broadcasts.tick();
       expect(await broadcasts.get(t.shop.tenantId, t.shop.accountId, second.id)).toMatchObject({ status: 'CANCELLED', sent: 0, skipped: 2 });
+    } finally { await t.database.pg.close(); }
+  });
+
+  it('needs the plan module and the administrator switch, and enforces monthly limits', async () => {
+    const t = await setup();
+    try {
+      process.env.BROADCAST_REQUIRE_APPROVAL = 'false';
+      const broadcasts = new PortalBroadcasts(t.store, t.channel);
+      await broadcasts.importConsent(t.shop.tenantId, t.shop.accountId, t.actor, { phones: ['0612345678', '0612345679', '0612345670'], evidence: 'Shop sign-up form', confirmed: true });
+      const [approved] = (await broadcasts.syncTemplates(t.shop.tenantId, t.shop.accountId)).filter(x => x.status === 'APPROVED');
+      const send = () => broadcasts.create(t.shop.tenantId, t.shop.accountId, t.actor, { templateId: approved.id, phoneNumberId: 'pn-official', variables: ['10%', 'Sunday'] });
+
+      await t.store.db.$executeRaw`UPDATE "PortalProfile" SET "broadcastsAllowed"=false WHERE "accountId"=${t.shop.accountId}`;
+      await expect(send()).rejects.toMatchObject({ code: 'BROADCASTS_NOT_ENABLED' });
+      await t.plan({}, ['knowledge']);
+      await expect(send()).rejects.toMatchObject({ code: 'BROADCASTS_NOT_INCLUDED' });
+      await expect(t.store.setBroadcastsAllowed(t.actor, t.shop.accountId, true)).rejects.toMatchObject({ code: 'BROADCASTS_PLAN_REQUIRED' });
+
+      await t.plan({ broadcasts: 1, broadcastRecipients: 2 });
+      await t.store.setBroadcastsAllowed(t.actor, t.shop.accountId, true);
+      await expect(send()).rejects.toMatchObject({ code: 'BROADCAST_RECIPIENT_LIMIT_REACHED' });
+      await t.plan({ broadcasts: 1, broadcastRecipients: 10 });
+      const first = await send();
+      expect((await broadcasts.allowance(t.shop.tenantId, t.shop.accountId))).toMatchObject({ used: { broadcasts: 1, recipients: 3 }, remaining: { broadcasts: 0, recipients: 7 } });
+      await expect(send()).rejects.toMatchObject({ code: 'BROADCAST_LIMIT_REACHED' });
+
+      // A broadcast cancelled before anything went out gives its allowance back.
+      await broadcasts.cancel(t.shop.tenantId, t.shop.accountId, t.actor, first.id);
+      expect((await broadcasts.allowance(t.shop.tenantId, t.shop.accountId)).used).toEqual({ broadcasts: 0, recipients: 0 });
+
+      // Turning broadcasts off stops one in progress.
+      const second = await send();
+      await t.store.setBroadcastsAllowed(t.actor, t.shop.accountId, false);
+      await broadcasts.tick();
+      expect(await broadcasts.get(t.shop.tenantId, t.shop.accountId, second.id)).toMatchObject({ status: 'CANCELLED', sent: 0 });
+      expect(t.sends).toHaveLength(0);
     } finally { await t.database.pg.close(); }
   });
 

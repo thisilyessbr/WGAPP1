@@ -140,6 +140,23 @@ export class PortalStore {
       return s.profile(accountId);
     });
   }
+  async setBroadcastsAllowed(actorId: string, accountId: string, allowed: boolean) {
+    return this.transaction(async s => {
+      const p = await s.lockProfile(accountId);
+      if (allowed && !p.planSnapshot?.modules.includes('broadcasts')) throw new PortalError(409, 'BROADCASTS_PLAN_REQUIRED', 'Assign a plan that includes broadcasts first.');
+      await s.db.$executeRaw`UPDATE "PortalProfile" SET "broadcastsAllowed"=${allowed},revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      if (!allowed) await s.stopBroadcasts(accountId, 'Broadcasts turned off by the administrator');
+      await s.audit(actorId, accountId, allowed ? 'BROADCASTS_ALLOWED' : 'BROADCASTS_REVOKED');
+      return s.profile(accountId);
+    });
+  }
+  /** Cancels broadcasts that have not finished; messages already sent stay sent. */
+  async stopBroadcasts(accountId: string, reason: string) {
+    await this.db.$executeRaw`UPDATE "BroadcastRecipient" r SET status='SKIPPED',error=${reason},"updatedAt"=NOW()
+      FROM "Broadcast" b WHERE b.id=r."broadcastId" AND b."accountId"=${accountId} AND b.status IN ('PENDING_APPROVAL','SENDING') AND r.status='PENDING'`;
+    await this.db.$executeRaw`UPDATE "Broadcast" SET status='CANCELLED',"reviewNote"=${reason},"completedAt"=NOW(),"updatedAt"=NOW()
+      WHERE "accountId"=${accountId} AND status IN ('PENDING_APPROVAL','SENDING')`;
+  }
   async setQrAllowed(actorId:string,accountId:string,allowed:boolean) {
     return this.transaction(async s=>{
       const p=await s.lockProfile(accountId);
@@ -244,6 +261,15 @@ export class PortalStore {
       await s.db.$executeRaw`UPDATE "PortalProfile" SET status=${profile.status},"planId"=${profile.planId},"planSnapshot"=${json(profile.planSnapshot)}::jsonb,
         "autoPublish"=${profile.autoPublish},"reviewNote"=${profile.reviewNote},"lockedFields"=${json(profile.lockedFields)}::jsonb,"adminConfig"=${json(profile.adminConfig)}::jsonb,
         revision=revision+1,"updatedAt"=NOW() WHERE "accountId"=${accountId}`;
+      if (profile.broadcastsAllowed && !profile.planSnapshot?.modules.includes('broadcasts')) {
+        await s.db.$executeRaw`UPDATE "PortalProfile" SET "broadcastsAllowed"=false WHERE "accountId"=${accountId}`;
+        await s.stopBroadcasts(accountId, 'The new plan does not include broadcasts');
+        await s.audit(actorId, accountId, 'BROADCASTS_REVOKED', { reason: 'PLAN_CHANGED' });
+      }
+      // Assigning the plan the client asked for answers their request.
+      if (changes.planId !== undefined && profile.requestedPlanId && profile.requestedPlanId === profile.planId) {
+        await s.db.$executeRaw`UPDATE "PortalProfile" SET "requestedPlanId"=NULL WHERE "accountId"=${accountId}`;
+      }
       if (instagramRemoved) {
         await s.db.$executeRaw`UPDATE "PortalProfile" SET "instagramAllowed"=false WHERE "accountId"=${accountId}`;
         await s.db.$executeRaw`UPDATE "InstagramConnection" SET enabled=false WHERE "accountId"=${accountId}`;

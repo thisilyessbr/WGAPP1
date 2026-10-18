@@ -6,7 +6,7 @@ import { PortalAuth, hashPassword, hashToken } from './PortalAuth';
 import { PortalConnections } from './PortalConnections';
 import { PortalDocuments } from './PortalDocuments';
 import { PortalProductImages } from './PortalProductImages';
-import { EMPTY_BUSINESS, PortalError, PortalPrincipal, PortalProfile, PortalPlan } from './types';
+import { DEFAULT_PLAN_LIMITS, EMPTY_BUSINESS, PortalError, PortalPrincipal, PortalProfile, PortalPlan } from './types';
 import { allowed, compileBusiness, email, integer, list, object, text, validateAdminConfig, validatePlan } from './validation';
 import { ConversationEngine } from '../domain/conversation/ConversationEngine';
 import { responseMediaStorage } from '../domain/conversation/ResponseMediaContext';
@@ -44,7 +44,12 @@ export interface PortalRouterDeps {
   outcomeTrackingService?: OutcomeTrackingService;
   [key: string]: any;
 }
-const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules });
+const PUBLIC_LIMITS = ['messages', 'llmCalls', 'numbers', 'products', 'documents', 'storageMb', 'images', 'broadcasts', 'broadcastRecipients'] as const;
+// Clients see what a plan includes and its capacity; the AI spend ceiling and indexing quotas stay internal.
+const publicPlan = (p: PortalPlan) => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, modules: p.modules,
+  limits: Object.fromEntries(PUBLIC_LIMITS.map(key => [key, p.limits?.[key] ?? DEFAULT_PLAN_LIMITS[key]])) });
+/** Broadcasts need the plan module and the administrator's switch. */
+const broadcastAccess = (p: PortalProfile) => ({ inPlan: Boolean(p.planSnapshot?.modules.includes('broadcasts')), allowed: p.broadcastsAllowed === true });
 const clientProfile = (p: PortalProfile) => {
   const entitledModules = p.planSnapshot?.modules || [];
   const commerceActive = entitledModules.includes('commerce') && p.adminConfig?.capabilities?.ecommerceEnabled !== false;
@@ -62,6 +67,7 @@ const clientProfile = (p: PortalProfile) => {
   reviewNote: p.reviewNote, lockedFields: p.lockedFields, editingFrozen: p.editingFrozen, autoPublish: p.autoPublish,
   voiceNotesEnabled: p.voiceNotesEnabled, voiceNotesAllowed: p.voiceNotesAllowed,
   qrAllowed:p.qrAllowed,qrConsentAt:p.qrConsentAt,
+  broadcastsInPlan: broadcastAccess(p).inPlan, broadcastsActive: broadcastAccess(p).inPlan && broadcastAccess(p).allowed,
   voiceNotesAvailable: p.voiceNotesAllowed && voiceTranscriptionAvailable(p.voiceTranscriptionProvider), publishState: publishState(p) };
 };
 function send(res: Response, data: unknown, status = 200) { res.status(status).json(JSON.parse(JSON.stringify(data, (_key, value) => typeof value === 'bigint' ? Number(value) : value))); }
@@ -268,11 +274,20 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (!Object.keys(body).length) throw new PortalError(400, 'NO_ORDER_CHANGES');
     send(res, { order: await portalOrders.update(req.portal.tenantId!, req.portal.accountId!, String(req.params.id), req.portal.user.id, body) });
   }));
-  // Broadcasts: approved WhatsApp templates sent to customers who opted in.
+  // Broadcasts: approved WhatsApp templates sent to customers who opted in. Plan module + administrator switch.
+  client.use('/broadcasts', (req, _res, next) => {
+    store.profile((req as PortalRequest).portal.accountId!, (req as PortalRequest).portal.tenantId!)
+      .then(profile => {
+        const access = broadcastAccess(profile);
+        next(!access.inPlan ? new PortalError(403, 'BROADCASTS_NOT_INCLUDED', 'Your plan does not include broadcasts.')
+          : !access.allowed ? new PortalError(403, 'BROADCASTS_NOT_ENABLED', 'Your administrator has not turned on broadcasts for this account yet.') : undefined);
+      })
+      .catch(next);
+  });
   client.get('/broadcasts', route(async (req, res) => {
     const t = req.portal.tenantId!, a = req.portal.accountId!, b = broadcasts();
-    const [numbers, templates, consent, items] = await Promise.all([b.numbers(t, a), b.templates(t, a), b.consentSummary(t, a), b.list(t, a)]);
-    send(res, { numbers, templates, consent, broadcasts: items, requiresApproval: broadcastsNeedApproval() });
+    const [numbers, templates, consent, items, allowance] = await Promise.all([b.numbers(t, a), b.templates(t, a), b.consentSummary(t, a), b.list(t, a), b.allowance(t, a)]);
+    send(res, { numbers, templates, consent, broadcasts: items, allowance, requiresApproval: broadcastsNeedApproval() });
   }));
   client.post('/broadcasts/templates/sync', route(async (req, res) =>
     send(res, { templates: await broadcasts().syncTemplates(req.portal.tenantId!, req.portal.accountId!) })));
@@ -1296,6 +1311,11 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (typeof body.allowed !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
     if (body.allowed && !voiceTranscriptionAvailable((await store.profile(String(req.params.id))).voiceTranscriptionProvider)) throw new PortalError(503, 'VOICE_NOTES_UNAVAILABLE', 'Configure the transcription provider before allowing voice notes.');
     send(res, { profile: await store.setVoiceNotesAllowed(req.portal.user.id, String(req.params.id), body.allowed) });
+  }));
+  admin.patch('/accounts/:id/broadcasts', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['allowed']);
+    if (typeof body.allowed !== 'boolean') throw new PortalError(400, 'INVALID_SETTING');
+    send(res, { profile: await store.setBroadcastsAllowed(req.portal.user.id, String(req.params.id), body.allowed) });
   }));
   admin.patch('/accounts/:id/qr-access',route(async(req,res)=>{
     const body=object(req.body);allowed(body,['allowed']);if(typeof body.allowed!=='boolean')throw new PortalError(400,'INVALID_SETTING');

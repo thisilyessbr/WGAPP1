@@ -399,7 +399,10 @@ describe('portal PostgreSQL and HTTP boundaries', () => {
     expect(dashboard.body).toHaveProperty('metrics.totals');expect(dashboard.body).toHaveProperty('documents');
     expect(dashboard.body.metrics).not.toHaveProperty('usage');expect(dashboard.body.profile.plan).toBeNull();
     const publishedPlans=await request(app).get('/api/portal/plans');
-    expect(publishedPlans.body.plans[0]).not.toHaveProperty('limits');
+    // Clients compare plan capacity; internal cost guards stay private.
+    expect(publishedPlans.body.plans[0]).toHaveProperty('limits.messages');
+    expect(publishedPlans.body.plans[0].limits).not.toHaveProperty('monthlyUsd');
+    expect(publishedPlans.body.plans[0].limits).not.toHaveProperty('embeddings');
     expect(JSON.stringify(dashboard.body)).not.toContain('spentMicros');expect(JSON.stringify(dashboard.body)).not.toContain('adminConfig');
     const adminOverview=await request(app).get('/api/admin/overview').set(adminHeaders);
     expect(adminOverview.status).toBe(200);expect(adminOverview.body).toHaveProperty('traffic.conversations');

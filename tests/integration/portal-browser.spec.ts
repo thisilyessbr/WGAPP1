@@ -63,7 +63,9 @@ describe('portal browser flow',()=>{
       mkdirSync(resolve('output/portal-verification'),{recursive:true});await page.screenshot({path:resolve('output/portal-verification/client-setup-dashboard.png'),fullPage:true});
       await page.locator('.language-select').selectOption('fr');await page.getByRole('link',{name:'Connaissances du bot'}).waitFor();
       await page.getByRole('link',{name:'Paramètres',exact:true}).click();await page.locator('a.settings-link-card[href="/app/plans"]').click();await page.getByRole('heading',{name:'Choisir une offre'}).waitFor();
-      expect(await page.locator('.plan-grid').innerText()).not.toContain('messages');
+      // Plan capacity is translated too ("messages clients par mois" is French; the English phrases must not remain).
+      const planGrid=await page.locator('.plan-grid').innerText();
+      for(const english of ['customer messages','AI replies','per month','Request this plan'])expect(planGrid).not.toContain(english);
       expect(await page.locator('.language-select').inputValue()).toBe('fr');
       await page.locator('.language-select').selectOption('en');
       await page.getByRole('link',{name:'Bot knowledge',exact:true}).click();await page.getByLabel('What does your business offer?').fill('Chaussures et vêtements au Maroc');await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.getByText('All changes saved',{exact:true}).waitFor();

@@ -20,10 +20,12 @@ export interface PortalPlan {
 export interface PlanLimits {
   messages: number; llmCalls: number; images: number; embeddings: number; monthlyUsd: number;
   numbers: number; products: number; documents: number; storageMb: number;
+  /** Broadcasts started per calendar month, and customers they may reach in that month. */
+  broadcasts: number; broadcastRecipients: number;
 }
 export const DEFAULT_PLAN_LIMITS: PlanLimits = {
   messages: 1000, llmCalls: 1000, images: 0, embeddings: 2000, monthlyUsd: 5,
-  numbers: 1, products: 100, documents: 5, storageMb: 25
+  numbers: 1, products: 100, documents: 5, storageMb: 25, broadcasts: 4, broadcastRecipients: 2000
 };
 export interface BusinessData {
   name: string; email: string; phone: string; website: string; description: string;
@@ -40,7 +42,7 @@ export interface PortalProfile {
   revision: number; publishedRevision: number; planId: string | null; planSnapshot: PortalPlan | null;
   requestedPlanId: string | null; autoPublish: boolean; reviewNote: string; lockedFields: string[]; editingFrozen: boolean; voiceNotesEnabled: boolean; voiceNotesAllowed: boolean; instagramAllowed: boolean; voiceTranscriptionProvider: 'groq' | 'deepgram';
   adminConfig: Record<string, any>; createdAt: Date; updatedAt: Date;
-  qrAllowed: boolean; qrConsentAt: Date | null;
+  qrAllowed: boolean; qrConsentAt: Date | null; broadcastsAllowed: boolean;
 }
 export const EMPTY_BUSINESS: BusinessData = {
   name: '', email: '', phone: '', website: '', description: '', address: '', hours: '', currency: 'MAD',

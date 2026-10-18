@@ -1,5 +1,5 @@
 window.RelayqoPlans = (() => {
-  const base = {messages:1000,llmCalls:900,images:0,embeddings:300,monthlyUsd:5,numbers:1,products:0,documents:3,storageMb:25};
+  const base = {messages:1000,llmCalls:900,images:0,embeddings:300,monthlyUsd:5,numbers:1,products:0,documents:3,storageMb:25,broadcasts:4,broadcastRecipients:2000};
   const presets = {
     servicesQr:{name:'Service Assistant · QR Pilot',description:'Official API by default. Additional QR numbers require admin-approved number allowance and client acceptance. Experimental text replies only.',price:549,modules:['knowledge','services','qr'],limits:{...base,numbers:2,messages:2000,llmCalls:1800,embeddings:600,monthlyUsd:10,documents:8,storageMb:75}},
     commerceQr:{name:'Sales Assistant · QR Pilot',description:'Official API by default. Additional QR numbers require admin-approved number allowance and client acceptance. No campaigns.',price:749,modules:['knowledge','commerce','images','qr'],limits:{...base,numbers:2,messages:3000,llmCalls:2500,images:100,embeddings:1000,monthlyUsd:18,products:300,documents:10,storageMb:150}},
@@ -9,19 +9,66 @@ window.RelayqoPlans = (() => {
     servicesInstagram:{name:'Service Assistant · Instagram',description:'Service assistant with optional Instagram DM replies. Client account connection and admin approval are required.',price:699,modules:['knowledge','services','instagram'],limits:{...base,messages:3000,llmCalls:2500,embeddings:900,monthlyUsd:15,documents:8,storageMb:75}},
     commerceInstagram:{name:'Sales Assistant · Instagram',description:'Sales assistant with product images and optional Instagram DM replies. Client account connection and admin approval are required.',price:899,modules:['knowledge','commerce','images','instagram'],limits:{...base,messages:4000,llmCalls:3200,images:100,embeddings:1200,monthlyUsd:23,products:300,documents:10,storageMb:150}}
   };
-  const features = {knowledge:'FAQs and PDF knowledge',services:'Services and customer inquiries',calendar:'Booking calendar and appointments',commerce:'Product catalog',images:'Product images',instagram:'Instagram DM channel (admin enabled)',qr:'QR connection (experimental)'};
-  const labels = {messages:'Customer messages',llmCalls:'AI replies',images:'Images',embeddings:'Document indexing',monthlyUsd:'AI spend ceiling (USD)',numbers:'WhatsApp numbers',products:'Products',documents:'PDF documents',storageMb:'Document storage (MB)'};
+  const features = {knowledge:'FAQs and PDF knowledge',services:'Services and customer inquiries',calendar:'Booking calendar and appointments',commerce:'Product catalog',images:'Product images',instagram:'Instagram DM channel (admin enabled)',qr:'QR connection (experimental)',broadcasts:'Broadcasts to opted-in customers (admin enabled)'};
+  const labels = {messages:'Customer messages',llmCalls:'AI replies',images:'Images',embeddings:'Document indexing',monthlyUsd:'AI spend ceiling (USD)',numbers:'WhatsApp numbers',products:'Products',documents:'PDF documents',storageMb:'Document storage (MB)',broadcasts:'Broadcasts per month',broadcastRecipients:'Broadcast recipients per month'};
+  const number = value => new Intl.NumberFormat(document.documentElement.lang || 'en').format(value);
+  // The capacity a client can compare between plans. Each value is its own element so the label stays translatable.
+  function limitList(plan, escape) {
+    const l = plan.limits || {}, rows = [];
+    const row = (value, label) => rows.push(`<li><strong>${escape(value)}</strong> <span>${label}</span></li>`);
+    if (l.messages !== undefined) row(l.messages === -1 ? '∞' : number(l.messages), 'customer messages per month');
+    if (l.llmCalls !== undefined) row(number(l.llmCalls), 'AI replies per month');
+    if (l.numbers !== undefined) row(number(l.numbers), 'WhatsApp numbers');
+    if (plan.modules.includes('knowledge') && l.documents !== undefined) row(number(l.documents), 'PDF documents');
+    if (plan.modules.includes('commerce') && l.products !== undefined) row(number(l.products), 'products');
+    if (plan.modules.includes('broadcasts') && l.broadcasts !== undefined) { row(number(l.broadcasts), 'broadcasts per month'); row(number(l.broadcastRecipients), 'broadcast recipients per month'); }
+    return rows.length ? `<ul class="plan-limits">${rows.join('')}</ul>` : '';
+  }
+  function requestedNotice(plans, profile, escape) {
+    const requested = profile.requestedPlanId && profile.requestedPlanId !== profile.plan?.id ? plans.find(plan => plan.id === profile.requestedPlanId) : null;
+    if (!profile.requestedPlanId || profile.requestedPlanId === profile.plan?.id) return '';
+    return `<div class="notice plan-request-notice"><strong>Plan request awaiting administrator approval</strong> <span>${escape(requested?.name || '')}</span><br><span>Nothing changes until your administrator approves it. You will see the new features here once it is assigned.</span></div>`;
+  }
   async function renderClient({root,shell,header,escape,toast,api,bind}) {
     const [catalog, account] = await Promise.all([api('/portal/plans'),api('/client/profile')]);
     const plans = catalog.plans || [], profile = account.profile;
     root.innerHTML = shell(header('Choose a plan','Pick the features that fit your business. Your administrator confirms the final offer.') +
+      requestedNotice(plans, profile, escape) +
       `<div class="plan-grid">${plans.map(plan => {
-        const current = profile.plan?.id === plan.id;
-        return `<article class="card plan"><span class="badge ${current?'green':''}">${current?'Current plan':'Available'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><ul>${plan.modules.map(module => `<li>${escape(features[module] || module)}</li>`).join('') || '<li>Core chatbot</li>'}${plan.modules.includes('commerce') ? '<li>Sales leads and CSV export</li>' : plan.modules.includes('services') ? '<li>Service inquiries and CSV export</li>' : ''}${plan.modules.includes('calendar') ? '<li>Appointment booking calendar</li>' : ''}</ul><button class="btn ${current?'secondary':''}" data-plan="${escape(plan.id)}" ${current?'disabled':''}>${current?'Assigned':'Request this plan'}</button></article>`;
-      }).join('') || '<p class="empty">Plans will appear here when your administrator publishes them.</p>'}</div>`,false,'Plans');
+        const current = profile.plan?.id === plan.id, requested = !current && profile.requestedPlanId === plan.id;
+        return `<article class="card plan"><span class="badge ${current?'green':requested?'orange':''}">${current?'Current plan':requested?'Awaiting approval':'Available'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><ul>${plan.modules.map(module => `<li>${escape(features[module] || module)}</li>`).join('') || '<li>Core chatbot</li>'}${plan.modules.includes('commerce') ? '<li>Sales leads and CSV export</li>' : plan.modules.includes('services') ? '<li>Service inquiries and CSV export</li>' : ''}</ul>${limitList(plan, escape)}<button class="btn ${current||requested?'secondary':''}" data-plan="${escape(plan.id)}" ${current||requested?'disabled':''}>${current?'Assigned':requested?'Awaiting approval':'Request this plan'}</button></article>`;
+      }).join('') || '<p class="empty">Plans will appear here when your administrator publishes them.</p>'}</div>`+
+      '<p class="muted small plan-fees-note">Prices do not include Meta’s WhatsApp fees for template and broadcast messages, which Meta bills to your WhatsApp Business account. Replies to customers who message you first are free.</p>',false,'Plans');
     root.querySelectorAll('[data-plan]').forEach(button => button.onclick = async () => {
-      try {await api('/client/plan-request',{method:'POST',body:JSON.stringify({planId:button.dataset.plan})});toast('Plan request sent to your administrator.');}
+      try {await api('/client/plan-request',{method:'POST',body:JSON.stringify({planId:button.dataset.plan})});toast('Plan request sent to your administrator.');await renderClient({root,shell,header,escape,toast,api,bind});}
       catch(error) {toast(error.message,true);}
+    });
+    bind();
+  }
+  // A feature page the account cannot use yet: why, which plans include it, and how to ask for it.
+  const LOCKED = {
+    orders: { module: 'commerce', title: 'Orders', text: 'Follow the cash-on-delivery orders your chatbot takes, from “to confirm” to delivered.' },
+    products: { module: 'commerce', title: 'Products', text: 'Give your chatbot your catalog, prices, sizes and photos so it can sell for you.' },
+    calendar: { module: 'calendar', title: 'Calendar', text: 'Let customers book appointments in free time slots, with optional Google Calendar sync.' },
+    broadcasts: { module: 'broadcasts', title: 'Broadcasts', text: 'Send an approved WhatsApp message to the customers who agreed to hear from you.' }
+  };
+  async function renderLocked({root,shell,header,escape,toast,api,bind}, key) {
+    const feature = LOCKED[key];
+    const [catalog, account] = await Promise.all([api('/portal/plans').catch(() => ({ plans: [] })), api('/client/profile')]);
+    const profile = account.profile, inPlan = Boolean(profile.plan?.modules?.includes(feature.module));
+    const eligible = (catalog.plans || []).filter(plan => plan.modules.includes(feature.module) && plan.id !== profile.plan?.id);
+    const requested = eligible.find(plan => plan.id === profile.requestedPlanId);
+    const body = inPlan
+      ? `<p><strong>Included in your plan, but not turned on yet.</strong></p><p class="muted">Your administrator activates this feature for each account. Contact Relayqo support to have it switched on.</p>`
+      : requested
+        ? `<p><strong>Plan request awaiting administrator approval</strong></p><p class="muted"><span>${escape(requested.name)}</span> · Nothing changes until your administrator approves it.</p>`
+        : `<p><strong>Not included in your current plan.</strong></p>${eligible.length ? `<p class="muted">Plans that include it:</p><div class="locked-plans">${eligible.map(plan => `<div class="locked-plan"><span><strong>${escape(plan.name)}</strong> <small><bdi>${escape(plan.price)}</bdi> <span>${escape(plan.currency)} / month</span></small></span><button class="btn" type="button" data-plan="${escape(plan.id)}">Request this plan</button></div>`).join('')}</div>` : '<p class="muted">No published plan includes it yet. Contact Relayqo support.</p>'}`;
+    root.innerHTML = shell(header(feature.title, feature.text) +
+      `<article class="card locked-feature"><span class="locked-icon" aria-hidden="true">🔒</span><div>${body}<a class="row-link" href="/app/plans" data-route>Compare plans ›</a></div></article>`, false, feature.title);
+    root.querySelectorAll('[data-plan]').forEach(button => button.onclick = async () => {
+      button.disabled = true;
+      try { await api('/client/plan-request',{method:'POST',body:JSON.stringify({planId:button.dataset.plan})}); toast('Plan request sent to your administrator.'); await renderLocked({root,shell,header,escape,toast,api,bind}, key); }
+      catch (error) { button.disabled = false; toast(error.message, true); }
     });
     bind();
   }
@@ -62,7 +109,7 @@ window.RelayqoPlans = (() => {
       const fill = item => {
         plan = {...plan,...item};
         for(const [id,value] of [['name',plan.name],['price',plan.price],['currency',plan.currency],['description',plan.description]]) form.querySelector('#plan-'+id).value = value;
-        for(const key of Object.keys(base)) form.querySelector('#plan-'+key).value = plan.limits[key] === -1 ? '' : plan.limits[key];
+        for(const key of Object.keys(base)) form.querySelector('#plan-'+key).value = plan.limits[key] === -1 ? '' : (plan.limits[key] ?? base[key]);
         form.querySelector('#plan-unlimited').checked = plan.limits.messages === -1;
         form.querySelector('#plan-messages').disabled = plan.limits.messages === -1;
         form.querySelectorAll('[data-module]').forEach(box => box.checked = plan.modules.includes(box.dataset.module));
@@ -86,6 +133,7 @@ window.RelayqoPlans = (() => {
           if(!existing && modules.includes('commerce') && modules.includes('services'))throw new Error('Choose either a service assistant or a sales assistant for a new offer. Keep legacy mixed plans only for existing clients.');
           if(modules.includes('commerce') && limits.products < 1)throw new Error('Commerce needs room for at least one product.');
           if(modules.includes('images') && limits.images < 1)throw new Error('Product images need a positive image allowance.');
+          if(modules.includes('broadcasts') && (limits.broadcasts < 1 || limits.broadcastRecipients < 1))throw new Error('Broadcasts need at least one broadcast and one recipient per month.');
           if(form.querySelector('#plan-published').checked && (limits.llmCalls < 1 || limits.monthlyUsd <= 0))throw new Error('Published AI plans need positive AI reply and spend limits.');
           const payload = {name:form.querySelector('#plan-name').value,description:form.querySelector('#plan-description').value,
             price:Number(form.querySelector('#plan-price').value),currency:form.querySelector('#plan-currency').value,
@@ -99,5 +147,5 @@ window.RelayqoPlans = (() => {
     };
     list();
   }
-  return {renderAdmin,renderClient};
+  return {renderAdmin,renderClient,renderLocked};
 })();

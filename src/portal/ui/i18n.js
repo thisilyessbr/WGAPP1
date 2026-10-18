@@ -299,6 +299,117 @@
     ['The selected provider needs an API key.','Le service choisi nécessite une clé API.','المزود المختار يحتاج إلى مفتاح API.'],
     ['Save voice model','Enregistrer le modèle vocal','حفظ النموذج الصوتي']
   ]) translations.set(en, {fr, ar});
+  // Broadcasts, locked features and plan capacity. Existing translations of the same text win.
+  for (const [en, fr, ar] of [
+    ["Broadcasts", "Diffusions", "الرسائل الجماعية"],
+    ["Send an approved WhatsApp template to customers who agreed to hear from you.", "Envoyez un modèle WhatsApp approuvé aux clients qui ont accepté de recevoir vos messages.", "أرسل قالب واتساب معتمدًا إلى العملاء الذين وافقوا على تلقي رسائلك."],
+    ["Sync templates", "Synchroniser les modèles", "مزامنة القوالب"],
+    ["Broadcasts left this month", "Diffusions restantes ce mois-ci", "الرسائل الجماعية المتبقية هذا الشهر"],
+    ["Recipients left this month", "Destinataires restants ce mois-ci", "المستلمون المتبقون هذا الشهر"],
+    ["New broadcast", "Nouvelle diffusion", "رسالة جماعية جديدة"],
+    ["Template", "Modèle", "القالب"],
+    ["Send from", "Envoyer depuis", "الإرسال من"],
+    ["Audience: opted-in customers", "Audience : clients ayant donné leur accord", "الجمهور: العملاء الموافقون"],
+    ["Active in the last", "Actifs au cours des", "نشطون خلال آخر"],
+    ["Any time", "Peu importe", "أي وقت"],
+    ["30 days", "30 jours", "30 يومًا"],
+    ["90 days", "90 jours", "90 يومًا"],
+    ["180 days", "180 jours", "180 يومًا"],
+    ["New requests", "Nouvelles demandes", "طلبات جديدة"],
+    ["Contacted", "Contactés", "تم التواصل"],
+    ["Qualified", "Qualifiés", "مؤهلون"],
+    ["Customers who bought", "Clients ayant acheté", "العملاء الذين اشتروا"],
+    ["Lost", "Perdus", "مفقودون"],
+    ["Leave the request types empty to include every opted-in customer.", "Ne cochez aucun type de demande pour inclure tous les clients ayant donné leur accord.", "اترك أنواع الطلبات فارغة لتشمل كل العملاء الموافقين."],
+    ["Send for approval", "Envoyer pour validation", "إرسال للموافقة"],
+    ["Send broadcast", "Envoyer la diffusion", "إرسال الرسالة الجماعية"],
+    ["Customers who agreed", "Clients ayant donné leur accord", "العملاء الموافقون"],
+    ["Opted in", "Inscrits", "مشتركون"],
+    ["Opted out", "Désinscrits", "ألغوا الاشتراك"],
+    ["Customers who reply STOP, وقف or nlghi are removed automatically and never re-added by an import.", "Les clients qui répondent STOP, وقف ou nlghi sont retirés automatiquement et ne sont jamais réinscrits par un import.", "العملاء الذين يردّون بـ STOP أو وقف أو nlghi يُحذفون تلقائيًا ولا يُعاد إدراجهم عبر الاستيراد."],
+    ["Phone numbers, one per line", "Numéros de téléphone, un par ligne", "أرقام الهاتف، رقم في كل سطر"],
+    ["How did they agree?", "Comment ont-ils donné leur accord ?", "كيف وافقوا؟"],
+    ["Ticked “send me offers” at checkout", "Case « recevoir les offres » cochée lors de la commande", "اختاروا «أرسلوا لي العروض» عند الطلب"],
+    ["Every customer on this list agreed to receive WhatsApp messages from my business.", "Chaque client de cette liste a accepté de recevoir des messages WhatsApp de mon entreprise.", "وافق كل عميل في هذه القائمة على تلقي رسائل واتساب من نشاطي التجاري."],
+    ["Add customers", "Ajouter des clients", "إضافة عملاء"],
+    ["History", "Historique", "السجل"],
+    ["No broadcasts yet.", "Aucune diffusion pour le moment.", "لا توجد رسائل جماعية بعد."],
+    ["Awaiting approval", "En attente de validation", "في انتظار الموافقة"],
+    ["Sending", "Envoi en cours", "جارٍ الإرسال"],
+    ["Sent", "Envoyée", "أُرسلت"],
+    ["Cancelled", "Annulée", "أُلغيت"],
+    ["Not approved", "Non approuvée", "غير معتمدة"],
+    ["recipients", "destinataires", "مستلمين"],
+    ["Meta fee ≈", "Frais Meta ≈", "رسوم Meta ≈"],
+    ["sent", "envoyés", "أُرسلت"],
+    ["failed", "échoués", "فشلت"],
+    ["skipped", "ignorés", "تم تخطيها"],
+    ["waiting", "en attente", "في الانتظار"],
+    ["Note:", "Note :", "ملاحظة:"],
+    ["Cancel", "Annuler", "إلغاء"],
+    ["customers", "clients", "عملاء"],
+    ["per message, estimate. Meta bills your WhatsApp Business account directly.", "par message, estimation. Meta facture directement votre compte WhatsApp Business.", "لكل رسالة، تقديريًا. تُصدر Meta الفاتورة مباشرة لحساب واتساب للأعمال الخاص بك."],
+    ["Limited per broadcast to", "Limité par diffusion à", "الحد الأقصى لكل رسالة جماعية"],
+    ["This month’s broadcasts are used. Ask your administrator for a larger plan.", "Les diffusions de ce mois sont épuisées. Demandez une offre supérieure à votre administrateur.", "استُهلكت رسائل هذا الشهر الجماعية. اطلب من المسؤول باقة أكبر."],
+    ["This audience is larger than the recipients left this month. Narrow the audience or ask for a larger plan.", "Cette audience dépasse les destinataires restants ce mois-ci. Réduisez l’audience ou demandez une offre supérieure.", "هذا الجمهور أكبر من عدد المستلمين المتبقين هذا الشهر. قلّص الجمهور أو اطلب باقة أكبر."],
+    ["Template value", "Valeur du modèle", "قيمة القالب"],
+    ["Broadcasts need a WhatsApp number connected through Meta. The QR connection cannot send broadcasts (WhatsApp would block the number).", "Les diffusions nécessitent un numéro WhatsApp connecté via Meta. La connexion QR ne peut pas envoyer de diffusions (WhatsApp bloquerait le numéro).", "تتطلب الرسائل الجماعية رقم واتساب مربوطًا عبر Meta. لا يمكن لاتصال QR إرسالها (قد يحظر واتساب الرقم)."],
+    ["No approved template yet. Create one in Meta WhatsApp Manager, wait for approval, then press “Sync templates”.", "Aucun modèle approuvé pour le moment. Créez-en un dans Meta WhatsApp Manager, attendez sa validation, puis cliquez sur « Synchroniser les modèles ».", "لا يوجد قالب معتمد بعد. أنشئ قالبًا في Meta WhatsApp Manager، وانتظر الموافقة، ثم اضغط «مزامنة القوالب»."],
+    ["Templates synced from Meta.", "Modèles synchronisés depuis Meta.", "تمت مزامنة القوالب من Meta."],
+    ["Broadcast cancelled.", "Diffusion annulée.", "أُلغيت الرسالة الجماعية."],
+    ["Customers added.", "Clients ajoutés.", "تمت إضافة العملاء."],
+    ["Customers added. Some numbers were skipped (opted out or invalid).", "Clients ajoutés. Certains numéros ont été ignorés (désinscrits ou invalides).", "تمت إضافة العملاء. تم تخطي بعض الأرقام (ألغت الاشتراك أو غير صالحة)."],
+    ["Sent for approval.", "Envoyée pour validation.", "أُرسلت للموافقة."],
+    ["Broadcast started.", "Diffusion lancée.", "بدأ إرسال الرسالة الجماعية."],
+    ["Cancel this broadcast? Messages already sent cannot be recalled.", "Annuler cette diffusion ? Les messages déjà envoyés ne peuvent pas être rappelés.", "إلغاء هذه الرسالة الجماعية؟ لا يمكن استرجاع الرسائل المرسلة."],
+    ["Send this broadcast for approval? It starts once Relayqo approves it.", "Envoyer cette diffusion pour validation ? Elle démarre dès que Relayqo l’approuve.", "إرسال هذه الرسالة الجماعية للموافقة؟ يبدأ الإرسال بعد موافقة Relayqo."],
+    ["Send this broadcast now?", "Envoyer cette diffusion maintenant ?", "إرسال هذه الرسالة الجماعية الآن؟"],
+    ["Your plan does not include broadcasts.", "Votre offre n’inclut pas les diffusions.", "باقتك لا تتضمن الرسائل الجماعية."],
+    ["Your administrator has not turned on broadcasts for this account yet.", "Votre administrateur n’a pas encore activé les diffusions pour ce compte.", "لم يفعّل المسؤول الرسائل الجماعية لهذا الحساب بعد."],
+    ["No opted-in customers match this audience.", "Aucun client ayant donné son accord ne correspond à cette audience.", "لا يوجد عملاء موافقون يطابقون هذا الجمهور."],
+    ["Meta has not approved this template yet.", "Meta n’a pas encore approuvé ce modèle.", "لم توافق Meta على هذا القالب بعد."],
+    ["Confirm that every customer on the list agreed to receive your messages.", "Confirmez que chaque client de la liste a accepté de recevoir vos messages.", "أكّد أن كل عميل في القائمة وافق على تلقي رسائلك."],
+    ["Say how these customers agreed (for example \"ticked the box at checkout\").", "Indiquez comment ces clients ont donné leur accord (par exemple « case cochée lors de la commande »).", "اذكر كيف وافق هؤلاء العملاء (مثلًا «اختاروا الخانة عند الطلب»)."],
+    ["Broadcasts awaiting approval", "Diffusions en attente de validation", "رسائل جماعية في انتظار الموافقة"],
+    ["Check the text and audience size before customers receive it.", "Vérifiez le texte et la taille de l’audience avant l’envoi aux clients.", "تحقق من النص وحجم الجمهور قبل وصوله إلى العملاء."],
+    ["Values:", "Valeurs :", "القيم:"],
+    ["Approve and start sending now?", "Approuver et lancer l’envoi maintenant ?", "الموافقة وبدء الإرسال الآن؟"],
+    ["Why is it not approved? The client sees this note.", "Pourquoi n’est-elle pas approuvée ? Le client verra cette note.", "لماذا لم تتم الموافقة؟ سيرى العميل هذه الملاحظة."],
+    ["Broadcast approved.", "Diffusion approuvée.", "تمت الموافقة على الرسالة الجماعية."],
+    ["Broadcast rejected.", "Diffusion refusée.", "رُفضت الرسالة الجماعية."],
+    ["Turn on broadcasts", "Activer les diffusions", "تفعيل الرسائل الجماعية"],
+    ["Turn off broadcasts", "Désactiver les diffusions", "إيقاف الرسائل الجماعية"],
+    ["Broadcasts turned on for this client.", "Diffusions activées pour ce client.", "تم تفعيل الرسائل الجماعية لهذا العميل."],
+    ["Broadcasts turned off.", "Diffusions désactivées.", "تم إيقاف الرسائل الجماعية."],
+    ["Turn off broadcasts? Unfinished broadcasts for this client are cancelled.", "Désactiver les diffusions ? Les diffusions non terminées de ce client seront annulées.", "إيقاف الرسائل الجماعية؟ ستُلغى الرسائل غير المكتملة لهذا العميل."],
+    ["Orders", "Commandes", "الطلبات"],
+    ["Products", "Produits", "المنتجات"],
+    ["Calendar", "Calendrier", "التقويم"],
+    ["Follow the cash-on-delivery orders your chatbot takes, from “to confirm” to delivered.", "Suivez les commandes en paiement à la livraison prises par votre chatbot, de « à confirmer » à livrée.", "تابع طلبات الدفع عند الاستلام التي يسجلها روبوت المحادثة، من «للتأكيد» حتى التسليم."],
+    ["Give your chatbot your catalog, prices, sizes and photos so it can sell for you.", "Donnez à votre chatbot votre catalogue, vos prix, tailles et photos pour qu’il vende à votre place.", "زوّد روبوت المحادثة بكتالوجك وأسعارك ومقاساتك وصورك ليبيع نيابةً عنك."],
+    ["Let customers book appointments in free time slots, with optional Google Calendar sync.", "Laissez vos clients réserver des rendez-vous sur les créneaux libres, avec synchronisation Google Agenda en option.", "اسمح للعملاء بحجز المواعيد في الأوقات المتاحة، مع مزامنة اختيارية مع تقويم Google."],
+    ["Send an approved WhatsApp message to the customers who agreed to hear from you.", "Envoyez un message WhatsApp approuvé aux clients qui ont accepté de recevoir vos messages.", "أرسل رسالة واتساب معتمدة إلى العملاء الذين وافقوا على تلقي رسائلك."],
+    ["Included in your plan, but not turned on yet.", "Inclus dans votre offre, mais pas encore activé.", "مضمّن في باقتك، لكنه غير مفعّل بعد."],
+    ["Your administrator activates this feature for each account. Contact Relayqo support to have it switched on.", "Votre administrateur active cette fonction pour chaque compte. Contactez le support Relayqo pour l’activer.", "يفعّل المسؤول هذه الميزة لكل حساب. تواصل مع دعم Relayqo لتفعيلها."],
+    ["Plan request awaiting administrator approval", "Demande d’offre en attente de validation par l’administrateur", "طلب الباقة في انتظار موافقة المسؤول"],
+    ["· Nothing changes until your administrator approves it.", "· Rien ne change tant que votre administrateur ne l’a pas approuvée.", "· لن يتغير شيء حتى يوافق المسؤول."],
+    ["Not included in your current plan.", "Non inclus dans votre offre actuelle.", "غير مضمّن في باقتك الحالية."],
+    ["Plans that include it:", "Offres qui l’incluent :", "الباقات التي تتضمنه:"],
+    ["No published plan includes it yet. Contact Relayqo support.", "Aucune offre publiée ne l’inclut pour le moment. Contactez le support Relayqo.", "لا توجد باقة منشورة تتضمنه بعد. تواصل مع دعم Relayqo."],
+    ["Compare plans ›", "Comparer les offres ›", "مقارنة الباقات ›"],
+    ["Request this plan", "Demander cette offre", "طلب هذه الباقة"],
+    ["Plan request sent to your administrator.", "Demande d’offre envoyée à votre administrateur.", "أُرسل طلب الباقة إلى المسؤول."],
+    ["customer messages per month", "messages clients par mois", "رسالة من العملاء شهريًا"],
+    ["AI replies per month", "réponses IA par mois", "رد بالذكاء الاصطناعي شهريًا"],
+    ["WhatsApp numbers", "numéros WhatsApp", "أرقام واتساب"],
+    ["PDF documents", "documents PDF", "مستندات PDF"],
+    ["products", "produits", "منتجات"],
+    ["broadcasts per month", "diffusions par mois", "رسالة جماعية شهريًا"],
+    ["broadcast recipients per month", "destinataires de diffusion par mois", "مستلم للرسائل الجماعية شهريًا"],
+    ["Broadcasts to opted-in customers (admin enabled)", "Diffusions aux clients inscrits (activées par l’administrateur)", "رسائل جماعية للعملاء الموافقين (يفعّلها المسؤول)"],
+    ["Nothing changes until your administrator approves it. You will see the new features here once it is assigned.", "Rien ne change tant que votre administrateur ne l’a pas approuvée. Les nouvelles fonctions apparaîtront ici une fois l’offre attribuée.", "لن يتغير شيء حتى يوافق المسؤول. ستظهر الميزات الجديدة هنا بعد تعيين الباقة."],
+    ["Prices do not include Meta’s WhatsApp fees for template and broadcast messages, which Meta bills to your WhatsApp Business account. Replies to customers who message you first are free.", "Les prix n’incluent pas les frais WhatsApp de Meta pour les messages modèles et les diffusions, facturés par Meta à votre compte WhatsApp Business. Les réponses aux clients qui vous écrivent en premier sont gratuites.", "لا تشمل الأسعار رسوم واتساب من Meta على رسائل القوالب والرسائل الجماعية، والتي تُصدر Meta فاتورتها لحساب واتساب للأعمال الخاص بك. الرد على العملاء الذين يراسلونك أولًا مجاني."]
+  ]) if (!translations.has(en)) translations.set(en, { fr, ar });
   const originals = new WeakMap();
   const attributeOriginals = new WeakMap();
   const title = 'Relayqo · Your business, connected';
@@ -347,6 +458,8 @@
     if (numberReport) return left + (locale === 'fr' ? `Numéros WhatsApp · ${numberReport[1]} derniers jours` : `أرقام واتساب · آخر ${numberReport[1]} يومًا`) + right;
     const providerSwitch = key.match(/^(Provider ready|The selected provider needs an API key\.) · Client switch: (On|Off)$/);
     if (providerSwitch) return left + `${translations.get(providerSwitch[1])?.[locale] || providerSwitch[1]} · ${translations.get('Client switch:')?.[locale] || 'Client switch:'} ${translations.get(providerSwitch[2])?.[locale] || providerSwitch[2]}` + right;
+    const monthlyPrice = key.match(/^([A-Z]{3}) \/ month$/);
+    if (monthlyPrice) return left + (locale === 'fr' ? `${monthlyPrice[1]} / mois` : `${monthlyPrice[1] === 'MAD' ? 'درهم' : monthlyPrice[1]} / شهريًا`) + right;
     const planPrice = key.match(/^MAD \/ month · suggested$/);
     if (planPrice) return left + (locale === 'fr' ? 'MAD / mois · suggéré' : 'درهم / شهر · مقترح') + right;
     const planSuggestion = key.match(/^(.+) · suggested (\d+) MAD$/);
@@ -1325,5 +1438,6 @@
     queueMicrotask(() => { scheduled = false; apply(); });
   }).observe(document, { childList: true, characterData: true, subtree: true });
   document.addEventListener('DOMContentLoaded', decorate);
-  window.RelayqoI18n = { decorate, setLocale, getLocale: () => locale };
+  // t() is for text the DOM pass cannot reach: confirm() and prompt() dialogs.
+  window.RelayqoI18n = { decorate, setLocale, getLocale: () => locale, t: text => translate(String(text)) };
 })();

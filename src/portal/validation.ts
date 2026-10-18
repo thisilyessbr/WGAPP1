@@ -282,12 +282,13 @@ export function validateAdminConfig(input: unknown): Record<string, any> {
 export function validatePlan(input: unknown): Omit<PortalPlan, 'id' | 'revision'> {
   const p = object(input); allowed(p, ['name', 'description', 'price', 'currency', 'published', 'modules', 'limits', 'template', 'revision']);
   const name = text(p.name, 100); if (!name) throw new PortalError(400, 'PLAN_NAME_REQUIRED');
-  const modules = list(p.modules || [], 8).map(m => text(m, 30));
-  if (modules.some(m => !['commerce', 'services', 'knowledge', 'images', 'qr', 'instagram', 'calendar'].includes(m))) throw new PortalError(400, 'INVALID_MODULE');
+  const modules = list(p.modules || [], 10).map(m => text(m, 30));
+  if (modules.some(m => !['commerce', 'services', 'knowledge', 'images', 'qr', 'instagram', 'calendar', 'broadcasts'].includes(m))) throw new PortalError(400, 'INVALID_MODULE');
   const rawLimits = object(p.limits || {}); allowed(rawLimits, Object.keys(DEFAULT_PLAN_LIMITS));
   const limits = { ...DEFAULT_PLAN_LIMITS };
   for (const key of Object.keys(limits) as (keyof PlanLimits)[]) if (rawLimits[key] !== undefined) limits[key] = key === 'monthlyUsd' ? money(rawLimits[key], 10000) : integer(rawLimits[key], key === 'messages' ? -1 : 0, key === 'numbers' ? 100 : 1000000);
-  if (limits.documents > 100 || limits.storageMb > 1000 || limits.products > 2000) throw new PortalError(400, 'PLAN_LIMIT_TOO_LARGE');
+  if (limits.documents > 100 || limits.storageMb > 1000 || limits.products > 2000 || limits.broadcasts > 100 || limits.broadcastRecipients > 100000) throw new PortalError(400, 'PLAN_LIMIT_TOO_LARGE');
+  if (modules.includes('broadcasts') && (limits.broadcasts < 1 || limits.broadcastRecipients < 1)) throw new PortalError(400, 'BROADCAST_LIMITS_REQUIRED', 'A plan with broadcasts needs at least one broadcast and one recipient per month.');
   const currency = text(p.currency, 3, 'MAD').toUpperCase(); if (!/^[A-Z]{3}$/.test(currency)) throw new PortalError(400, 'INVALID_CURRENCY');
   return { name, description: text(p.description, 1000), price: money(p.price ?? 0), currency, published: p.published === true, modules, limits, template: validateAdminConfig(p.template || {}) };
 }

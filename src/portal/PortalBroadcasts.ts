@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { PortalStore } from './PortalStore';
-import { PortalError } from './types';
+import { DEFAULT_PLAN_LIMITS, PortalError } from './types';
 import { logger } from '../utils/logger';
 import type { OutboundSendResult, OutboundTemplateRequest } from '../domain/channel/whatsapp/WhatsAppOutboundAdapter';
 
@@ -162,6 +162,34 @@ export class PortalBroadcasts {
       ORDER BY mc."updatedAt" LIMIT ${limit}`;
   }
 
+  /**
+   * The plan's monthly allowance and what this month's broadcasts already use. Rejected
+   * broadcasts and ones cancelled before any message went out do not count.
+   */
+  async allowance(tenantId: string, accountId: string) {
+    const profile = await this.store.profile(accountId, tenantId);
+    const plan = profile.planSnapshot;
+    const inPlan = Boolean(plan?.modules.includes('broadcasts')), allowed = profile.broadcastsAllowed === true;
+    const limit = { broadcasts: Number(plan?.limits?.broadcasts ?? DEFAULT_PLAN_LIMITS.broadcasts),
+      recipients: Number(plan?.limits?.broadcastRecipients ?? DEFAULT_PLAN_LIMITS.broadcastRecipients) };
+    const period = new Date().toISOString().slice(0, 7);
+    const used = (await this.store.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS broadcasts,COALESCE(SUM(counted),0)::int AS recipients FROM (
+        SELECT CASE WHEN b.status='CANCELLED' THEN (SELECT COUNT(*) FROM "BroadcastRecipient" r WHERE r."broadcastId"=b.id AND r.status='SENT')
+          ELSE b."recipientCount" END AS counted, b.status
+        FROM "Broadcast" b WHERE b."tenantId"=${tenantId} AND b."accountId"=${accountId}
+          AND to_char(b."createdAt" AT TIME ZONE 'UTC','YYYY-MM')=${period} AND b.status<>'REJECTED'
+      ) month WHERE month.status<>'CANCELLED' OR month.counted>0`)[0];
+    return { inPlan, allowed, period, limit, used: { broadcasts: Number(used.broadcasts), recipients: Number(used.recipients) },
+      remaining: { broadcasts: Math.max(0, limit.broadcasts - Number(used.broadcasts)), recipients: Math.max(0, limit.recipients - Number(used.recipients)) } };
+  }
+
+  private async requireAccess(tenantId: string, accountId: string) {
+    const allowance = await this.allowance(tenantId, accountId);
+    if (!allowance.inPlan) throw new PortalError(403, 'BROADCASTS_NOT_INCLUDED', 'Your plan does not include broadcasts.');
+    if (!allowance.allowed) throw new PortalError(403, 'BROADCASTS_NOT_ENABLED', 'Your administrator has not turned on broadcasts for this account yet.');
+    return allowance;
+  }
+
   private async approvedTemplate(tenantId: string, accountId: string, templateId: string) {
     const template = (await this.store.db.$queryRaw<any[]>`SELECT * FROM "WhatsAppTemplate" WHERE id=${templateId} AND "tenantId"=${tenantId} AND "accountId"=${accountId}`)[0];
     if (!template) throw new PortalError(404, 'TEMPLATE_NOT_FOUND');
@@ -171,13 +199,16 @@ export class PortalBroadcasts {
 
   /** Recipient count and Meta's fee before anything is sent. */
   async estimate(tenantId: string, accountId: string, input: { templateId: string; segment?: any }) {
+    const allowance = await this.requireAccess(tenantId, accountId);
     const template = await this.approvedTemplate(tenantId, accountId, input.templateId);
     const segment = cleanSegment(input.segment);
     const cap = maxRecipients();
-    const recipients = (await this.audience(tenantId, accountId, segment, cap + 1)).length;
+    const matching = (await this.audience(tenantId, accountId, segment, cap + 1)).length;
+    const recipients = Math.min(matching, cap);
     const unit = broadcastPrice(template.category);
-    return { recipients: Math.min(recipients, cap), capped: recipients > cap, maxRecipients: cap, category: template.category,
-      unitPriceUsd: unit, estimatedCostUsd: Number((Math.min(recipients, cap) * unit).toFixed(4)), segment };
+    return { recipients, capped: matching > cap, maxRecipients: cap, category: template.category,
+      unitPriceUsd: unit, estimatedCostUsd: Number((recipients * unit).toFixed(4)), segment, allowance,
+      overAllowance: allowance.remaining.broadcasts < 1 ? 'broadcasts' : recipients > allowance.remaining.recipients ? 'recipients' : null };
   }
 
   async create(tenantId: string, accountId: string, actorId: string, input: { templateId: string; phoneNumberId: string; variables?: unknown[]; segment?: any }) {
@@ -190,6 +221,8 @@ export class PortalBroadcasts {
     }
     const estimate = await this.estimate(tenantId, accountId, input);
     if (!estimate.recipients) throw new PortalError(409, 'NO_RECIPIENTS', 'No opted-in customers match this audience.');
+    if (estimate.overAllowance === 'broadcasts') throw new PortalError(402, 'BROADCAST_LIMIT_REACHED', `Your plan allows ${estimate.allowance.limit.broadcasts} broadcast(s) per month and they are used. Ask your administrator for a larger plan.`);
+    if (estimate.overAllowance === 'recipients') throw new PortalError(402, 'BROADCAST_RECIPIENT_LIMIT_REACHED', `Your plan has ${estimate.allowance.remaining.recipients} broadcast recipient(s) left this month. Narrow the audience or ask for a larger plan.`);
     const recipients = await this.audience(tenantId, accountId, estimate.segment, estimate.maxRecipients);
     const id = randomUUID(), status = broadcastsNeedApproval() ? 'PENDING_APPROVAL' : 'SENDING';
     await this.store.transaction(async tx => {
@@ -232,6 +265,10 @@ export class PortalBroadcasts {
 
   /** Admin decision during the pilot. */
   async review(actorId: string, id: string, approve: boolean, note: string) {
+    const target = (await this.store.db.$queryRaw<any[]>`SELECT "tenantId","accountId" FROM "Broadcast" WHERE id=${id}`)[0];
+    if (!target) throw new PortalError(404, 'BROADCAST_NOT_FOUND');
+    // The plan or the switch may have changed since the client asked.
+    if (approve) await this.requireAccess(target.tenantId, target.accountId);
     const changed = await this.store.db.$executeRaw`UPDATE "Broadcast" SET status=${approve ? 'SENDING' : 'REJECTED'},"reviewedById"=${actorId},
       "reviewNote"=${String(note || '').slice(0, 500)},"startedAt"=${approve ? new Date() : null},"completedAt"=${approve ? null : new Date()},"updatedAt"=NOW()
       WHERE id=${id} AND status='PENDING_APPROVAL'`;

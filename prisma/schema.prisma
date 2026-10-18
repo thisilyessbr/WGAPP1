@@ -584,6 +584,7 @@ model PortalProfile {
   voiceNotesAllowed Boolean @default(false)
   instagramAllowed Boolean @default(false)
   qrAllowed Boolean @default(false)
+  broadcastsAllowed Boolean @default(false)
   qrConsentAt DateTime? @db.Timestamptz(6)
   voiceTranscriptionProvider String @default("groq")
   adminConfig Json @default("{}")
