@@ -1516,7 +1516,28 @@
     ['Paused · Replies off','En pause · Réponses désactivées','متوقف · الردود متوقفة'],
     ['Note for the client (optional)','Note pour le client (optionnel)','ملاحظة للعميل (اختياري)'],
     ['WhatsApp number','Numéro WhatsApp','رقم واتساب'],
-    ['Pause or enable automated replies on this number.','Mettez en pause ou activez les réponses automatiques sur ce numéro.','أوقف أو فعّل الردود التلقائية على هذا الرقم.']
+    ['Pause or enable automated replies on this number.','Mettez en pause ou activez les réponses automatiques sur ce numéro.','أوقف أو فعّل الردود التلقائية على هذا الرقم.'],
+    ['Continuous improvement','Amélioration continue','تحسين مستمر'],
+    ['Quick launch guide','Guide de lancement rapide','دليل الإطلاق السريع'],
+    ['Customer inbox','Boîte de réception client','صندوق رسائل العملاء'],
+    ['Assistant quality','Qualité de l’assistant','جودة المساعد'],
+    ['Instant answers','Réponses instantanées','إجابات فورية'],
+    ['Service catalog','Catalogue de services','كتالوج الخدمات'],
+    ['WhatsApp shop catalog','Catalogue boutique WhatsApp','كتالوج متجر واتساب'],
+    ['Brand identity','Identité de marque','هوية النشاط'],
+    ['Customer trust','Confiance client','ثقة العملاء'],
+    ['Reference files','Fichiers de référence','ملفات مرجعية'],
+    ['Messaging channel','Canal de messagerie','قناة المراسلة'],
+    ['Subscription','Abonnement','الاشتراك'],
+    ['AI brain','Cerveau IA','معرفة المساعد'],
+    ['Appointments','Rendez-vous','المواعيد'],
+    ['Social DM','Messages privés','الرسائل الخاصة'],
+    ['Official Meta connection','Connexion officielle Meta','ربط Meta الرسمي'],
+    ['Capacity reached','Capacité atteinte','اكتمل العدد'],
+    ['Active lines','Lignes actives','الأرقام المتصلة'],
+    ['Customer follow-ups','Suivis clients','متابعة العملاء'],
+    ['Social DM channel','Canal DM social','قناة رسائل إنستغرام'],
+    ['Unified knowledge','Connaissance unifiée','معرفة موحدة']
   ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {

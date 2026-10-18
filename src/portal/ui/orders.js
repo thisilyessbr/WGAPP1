@@ -36,7 +36,7 @@
       `<div class="order-summary"><div><span>This week</span><strong>${Number(summary.weekOrders || 0)}</strong><small>orders</small></div>
         <div><span>Revenue this week</span><strong>${esc(money(summary.weekRevenue || 0, summary.currency))}</strong><small>${summary.weekWithoutPrice ? `${Number(summary.weekWithoutPrice)} without a catalog price` : 'cancelled and returned not counted'}</small></div>
         <div class="${summary.toConfirm ? 'is-urgent' : ''}"><span>To confirm</span><strong>${Number(summary.toConfirm || 0)}</strong><small>call before shipping</small></div></div>
-      <article class="card order-list"><div class="section-tabs order-tabs" role="tablist">${TABS.map(s => `<button type="button" role="tab" data-status="${s}" aria-selected="${s === status}"><span>${esc(LABELS[s])}</span> <small>${Number(data.counts?.[s] || 0)}</small></button>`).join('')}</div>
+      <article class="card order-list"><div class="section-tabs order-tabs" role="tablist">${TABS.map(s => `<button type="button" role="tab" data-status="${s}" aria-selected="${s === status}"><span>${esc(LABELS[s])}</span><small class="tab-badge" aria-hidden="true">${Number(data.counts?.[s] || 0)}</small></button>`).join('')}</div>
       <div class="order-rows">${data.orders.map(row).join('') || `<p class="empty">${esc(empty)}</p>`}</div></article>`, false, 'Orders');
     root.querySelectorAll('[data-status]').forEach(b => b.onclick = () => go('/app/orders?status=' + b.dataset.status));
     root.querySelectorAll('[data-set]').forEach(b => b.onclick = async () => {
