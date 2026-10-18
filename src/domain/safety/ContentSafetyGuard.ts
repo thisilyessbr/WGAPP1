@@ -194,7 +194,7 @@ export class ContentSafetyGuard {
   /**
    * Adds token variations (prefix-stripped, collapsed, arabizi normalized).
    */
-  private static addTokenVariants(t: string, tokenSet: Set<string>): void {
+  private static addTokenVariants(t: string, tokenSet: Set<string>, afterArticle = false): void {
     if (!t) return;
     tokenSet.add(t);
 
@@ -204,15 +204,18 @@ export class ContentSafetyGuard {
     const arabizi = this.normalizeArabiziToken(t);
     tokenSet.add(arabizi);
     tokenSet.add(this.collapseFully(arabizi));
+    // A one-letter proclitic never follows the article: الفخاري → فخاري, never → خاري (an insult).
+    if (afterArticle) return;
 
-    // Strip common prefixes for Arabic & Darija: 'ال', 'و', 'ب', 'ف', 'ك', 'ل', 'يا'
-    if (t.startsWith('ال') && t.length > 3) this.addTokenVariants(t.substring(2), tokenSet);
-    if (t.startsWith('وال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet);
-    if (t.startsWith('بال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet);
-    if (t.startsWith('فال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet);
-    if (t.startsWith('كال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet);
+    // Strip common prefixes for Arabic & Darija: 'ال', 'و', 'ب', 'ك', 'ل', 'يا'.
+    // Not a bare 'ف': it starts ordinary nouns (فخار، فخاري "clay") far more often than it prefixes an insult.
+    if (t.startsWith('ال') && t.length > 3) this.addTokenVariants(t.substring(2), tokenSet, true);
+    if (t.startsWith('وال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet, true);
+    if (t.startsWith('بال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet, true);
+    if (t.startsWith('فال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet, true);
+    if (t.startsWith('كال') && t.length > 4) this.addTokenVariants(t.substring(3), tokenSet, true);
     if (t.startsWith('يا') && t.length > 3) this.addTokenVariants(t.substring(2), tokenSet);
-    if ((t.startsWith('و') || t.startsWith('ب') || t.startsWith('ف') || t.startsWith('ك') || t.startsWith('ل')) && t.length > 3) {
+    if ((t.startsWith('و') || t.startsWith('ب') || t.startsWith('ك') || t.startsWith('ل')) && t.length > 3) {
       this.addTokenVariants(t.substring(1), tokenSet);
     }
 

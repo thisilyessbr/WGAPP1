@@ -2138,7 +2138,14 @@ Check again: the business-owner evidence above lists the business's policies, se
             } else if (turnDecision.intent === 'COMPARE') {
               const targets: Array<{ id?: string; sku?: string; name?: string; category?: string; ordinalIndex?: number; color?: string; size?: string }> = [];
 
-              if (turnDecision.compareProductNames && turnDecision.compareProductNames.length >= 2) {
+              // Names such as "T-shirt Casa" lose their city/category words in parsing; resolve the raw pair against the catalog.
+              const rawPair = (!turnDecision.compareProductNames || turnDecision.compareProductNames.length < 2)
+                ? EcommerceIntentParser.explicitComparePair(content) : null;
+              const pairFacts = rawPair ? await Promise.all(rawPair.map(name =>
+                this.ecommerceService!.getProductFact(tenantId, targetAccountId, { name }, effectiveLang).catch(() => null))) : [];
+              if (pairFacts.length === 2 && pairFacts[0] && pairFacts[1] && pairFacts[0].product.id !== pairFacts[1].product.id) {
+                for (const fact of pairFacts) targets.push({ id: fact!.product.id });
+              } else if (turnDecision.compareProductNames && turnDecision.compareProductNames.length >= 2) {
                 for (const name of turnDecision.compareProductNames) {
                   targets.push({ name });
                 }

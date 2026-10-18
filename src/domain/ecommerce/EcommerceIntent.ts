@@ -562,6 +562,22 @@ export class EcommerceIntentParser {
     return false;
   }
 
+  /**
+   * The two raw names of "compare X and Y" / "قارن بين X و Y", before any cleaning. Product names often
+   * contain city or category words ("T-shirt Casa", "Hoodie Rabat") that cleaning removes, so callers
+   * resolve these against the catalog instead of trusting them as names.
+   */
+  public static explicitComparePair(text: string): [string, string] | null {
+    const m = (text || '').match(/(?:compare|comparer|comparez|comparaison|مقارنة|قارن بين|قارن|9aren bin|9aren)\s*(?:bin|بين|entre|between)?\s*(.+?)\s+(?:and|et|و|مع|avec|vs|versus|w|wa)\s+(.+)/iu);
+    if (!m) return null;
+    const clean = (s: string) => s.replace(/[?؟!.,،;:]+/g, ' ')
+      .replace(/^(?:the|a|an|le|la|les|l['’]|un|une|al-|ال)\s*/iu, '')
+      .replace(/\s+(?:prices?|prix|tarifs?|price\s+and\s+\w+|:.*|en\s+prix.*|الثمن|السعر|ثمن)\s*$/iu, '')
+      .trim();
+    const a = clean(m[1]), b = clean(m[2]);
+    return a && b ? [a, b] : null;
+  }
+
   public static isNonProductReference(
     name: string,
     catalogCategories?: string[] | null,

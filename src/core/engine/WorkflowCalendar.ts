@@ -242,6 +242,9 @@ export class WorkflowCalendar {
       if (booking.ok) { collected._bookingId = booking.id; if (movedFrom) await cal.scheduler.cancel(cal.cfg, String(movedFrom)); }
       delete collected._rescheduleOf;
       response = booking.ok ? calendarMessage(movedFrom ? 'moved' : 'booked', lang, script, { when }) : calendarMessage('notBooked', lang, script, { when });
+      // The merchant's own closing message (the workflow's end step) keeps the last word after a new booking.
+      const closing = String(result.response || '').trim();
+      if (booking.ok && !movedFrom && closing) response = `${response}\n${closing}`;
     } else if (result.isComplete && workflow.calendarBooking && collected._slotStart && !collected._booked && !cal) {
       const when = String(collected._slotWhen || collected._slotLabel || '');
       collected.demoBooked = 'no — team to confirm';

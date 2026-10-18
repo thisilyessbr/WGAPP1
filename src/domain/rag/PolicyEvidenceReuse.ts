@@ -126,9 +126,18 @@ export class PolicyEvidenceReuse {
     vancouver: 'canada'
   };
 
+  // ISO 3166-1 alpha-2 codes, as stored in identity.country. Only used for configured
+  // countries, never to detect a destination in customer text ("ma" is also a word).
+  private static readonly ISO_COUNTRY_CODES: Record<string, string> = {
+    ma: 'morocco', fr: 'france', es: 'spain', us: 'united states', ca: 'canada', gb: 'united kingdom', uk: 'united kingdom',
+    de: 'germany', it: 'italy', be: 'belgium', ch: 'switzerland', nl: 'netherlands', pt: 'portugal', jp: 'japan',
+    cn: 'china', eg: 'egypt', tn: 'tunisia', dz: 'algeria', sa: 'saudi', ae: 'uae'
+  };
+
   public static normalizeLocationName(name?: string | null): string {
     if (!name) return '';
     const clean = name.toLowerCase().trim();
+    if (this.ISO_COUNTRY_CODES[clean]) return this.ISO_COUNTRY_CODES[clean];
     for (const [canonical, aliases] of Object.entries(this.COUNTRY_MAP)) {
       if (canonical === clean || aliases.includes(clean)) {
         return canonical;

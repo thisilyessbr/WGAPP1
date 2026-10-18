@@ -201,8 +201,9 @@ export const CALENDAR_MESSAGES = {
     'عافاك ختار واحد من هاد الأوقات:\n{slots}', '3afak khtar wa7ed mn had lw9at:\n{slots}'),
   taken: M('That time was just taken. Here is what is still free {day}:\n{slots}', 'Ce créneau vient d’être pris. Voici ce qui reste {day} :\n{slots}',
     'تم حجز هذا الوقت للتو. هذه الأوقات المتبقية {day}:\n{slots}', 'هاد الوقت تحجز دابا. ها شنو باقي خاوي {day}:\n{slots}', 'Had lw9t tdreb daba. Ha chno ba9i khawi {day}:\n{slots}'),
-  booked: M('✅ Your demo is confirmed for {when}. See you then!', '✅ Votre démo est confirmée pour {when}. À bientôt !',
-    '✅ تم تأكيد موعد العرض التوضيحي {when}. نراك قريبًا!', '✅ تأكد الموعد ديالك {when}. نتلاقاو فالديمو إن شاء الله!', '✅ Tkked lmaw3id dyalek {when}. Ntla9aw f demo nchallah!'),
+  // Neutral wording: the same booking step serves demos, fittings, salon visits... The workflow's own end message follows it.
+  booked: M('✅ Your appointment is confirmed for {when}.', '✅ Votre rendez-vous est confirmé pour {when}.',
+    '✅ تم تأكيد موعدك {when}.', '✅ تأكد الموعد ديالك {when}.', '✅ Tkked lmaw3id dyalek {when}.'),
   notBooked: M('Your request is saved ✅ We could not lock the time automatically, so our team will confirm {when} with you shortly.',
     'Votre demande est enregistrée ✅ Le créneau n’a pas pu être réservé automatiquement : notre équipe vous confirmera {when} très vite.',
     'تم تسجيل طلبك ✅ لم نتمكن من حجز الوقت تلقائيًا، وسيؤكد لك فريقنا {when} قريبًا.',

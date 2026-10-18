@@ -65,6 +65,8 @@ export const LEXICON_CONCEPTS: Record<string, string[]> = {
   marrakech: ['marrakech', 'marrakesh', 'مراكش', 'mrakch', 'rrakch'],
   fes: ['fes', 'fès', 'fez', 'فاس'],
   accessories: ['accessoire', 'accessoires', 'accessories', 'accessory', 'اكسسوارات', 'إكسسوارات', 'aksiswar'],
+  home: ['maison', 'home', 'house', 'decor', 'décor', 'deco', 'déco', 'decoration', 'décoration', 'homeware', 'ديكور', 'dekor', 'dikor'],
+  beauty: ['beauté', 'beaute', 'beauty', 'cosmetic', 'cosmetics', 'cosmétique', 'cosmetique', 'cosmétiques', 'تجميل', 'التجميل', 'tajmil'],
   // Beauty and wellness services (Moroccan spas, salons, hammams).
   hammam: ['hammam', 'hamam', 'hammams', 'حمام', 'الحمام', '7mam', 'l7mam', '7ammam'],
   scrub: ['gommage', 'scrub', 'exfoliation', 'kessa', 'kassa', 'كسالة', 'الكسالة', 'تقشير', 'kessala', 'kesala', 'ghassoul', 'غاسول', 'enveloppement', 'wrap'],

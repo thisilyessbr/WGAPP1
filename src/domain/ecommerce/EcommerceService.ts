@@ -11,6 +11,18 @@ export type { ProductFact } from './ProductRepository';
 export class EcommerceService {
   constructor(private productRepo: ProductRepository) {}
 
+  /** Words of a general "show me what you have" question; anything else names a product to look for. */
+  private static readonly BROWSE_WORDS = new Set(`anything something everything items item products product things thing stuff catalog catalogue
+    store shop boutique gift gifts present idea ideas cadeau cadeaux idee idees produits produit articles article choses quoi offer offers
+    under below less than moins max maximum around budget mad dh dhs dirham dirhams درهم دراهم
+    منتجات منتوجات حاجة حوايج شي هدية هدايا سلعة الكاتالوج hdiya hdia l7wayj 7wayj sl3a 7aja chi
+    sold vendez vendre vend vendu proposez katbi3o katbi3ou katbi3u kanbi3o kanbi3ou tbi3o tbi3ou tatbi3o 3andkom 3ndkom
+    vendezvous que qu proposezvous تبيعون تبيعو كتبيعو كاتبيعو تبيع نبيعو كنبيعو تقدمون ماذا متجر متجركم المتجر محل محلكم المحل`.split(/\s+/).filter(Boolean));
+
+  static isBrowseQuery(text: string): boolean {
+    return CatalogMatcher.queryTokens(text || '').every(t => EcommerceService.BROWSE_WORDS.has(t));
+  }
+
   private matchesColor(variantColor: string, requestedColor: string): boolean {
     const variant = variantColor.trim().toLowerCase();
     const requested = requestedColor.trim().toLowerCase();
@@ -205,6 +217,19 @@ export class EcommerceService {
         && (!options?.color && !options?.size || p.variants.some(v => (!options?.size || v.size?.toLowerCase() === options.size.toLowerCase())
           && (!options?.color || (v.color && this.matchesColor(v.color, options.color))))))
         .slice(0, options?.limit || 5);
+    }
+    // "What do you sell?" / "anything for a gift under 200?" name no product: show a spread of the
+    // catalog (one product per category first) instead of "no items matching 'do you sell'".
+    if (!products.length && !options?.color && !options?.size && EcommerceService.isBrowseQuery(rankText)) {
+      const all = await this.productRepo.search({ tenantId, accountId, maxPrice: options?.maxPrice, limit: 200 });
+      const byCategory = new Map<string, typeof all>();
+      for (const p of all) {
+        const key = (p.category || '').toLowerCase();
+        byCategory.set(key, [...(byCategory.get(key) || []), p]);
+      }
+      const groups = [...byCategory.values()], spread: typeof all = [];
+      for (let i = 0; spread.length < Math.min(all.length, 8); i++) for (const g of groups) if (g[i] && spread.length < 8) spread.push(g[i]);
+      products = spread;
     }
 
     return products.map(product => {
