@@ -68,7 +68,7 @@
       const button = document.createElement('button'); button.type = 'button'; button.id = `${key}-tab-${i}`;
       button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', panel.id);
       const svg = icons[group.name] || '';
-      const badge = group.badge ? `<small class="tab-badge" data-no-translate>${group.badge}</small>` : '';
+      const badge = group.badge ? `<small class="tab-badge" aria-hidden="true" data-no-translate>${group.badge}</small>` : '';
       button.innerHTML = `${svg}<span>${group.name}</span>${badge}`;
       button.onclick = () => choose(group.name);
       button.onkeydown = event => { const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
@@ -92,19 +92,19 @@
     const technical = document.querySelector('#technical'); if (!technical || technical.dataset.sections) return; technical.dataset.sections = 'true';
     const content = document.querySelector('.content'), oldTabs = content.querySelector(':scope > .tabs');
     const settings = document.querySelector('#everyday-settings'), overview = content.querySelector(':scope > .grid-2');
-    const readiness = content.querySelector(':scope > .admin-readiness-strip');
+    const readiness = content.querySelector(':scope > .admin-launch-bar');
     const editing = document.querySelector('#editing-freeze')?.closest('article');
     const clientMeta = document.querySelector('#client-owned-meta');
     const channelNodes = [document.querySelector('#admin-qr-connection'), document.querySelector('#admin-broadcasts-card'), document.querySelector('#admin-voice-notes-card'), document.querySelector('#admin-instagram-card'), clientMeta].filter(Boolean);
     const historyCount = document.querySelectorAll('#history .connection-card').length;
     const lockedCount = document.querySelectorAll('#technical input[type=checkbox]:checked:not(#auto)').length;
     const groups = [
-      { name: 'Overview', nodes: [readiness, overview, editing] },
+      { name: 'Overview', nodes: [readiness, overview] },
       { name: 'Chatbot & limits', nodes: [settings] },
       { name: 'Workflows', nodes: [document.querySelector('#workflow-editor')] },
       { name: 'Test chatbot', nodes: [document.querySelector('#preview-form')?.closest('article'), document.querySelector('#admin-wording-card')] },
       { name: 'Channels', badge: channelNodes.length || '', nodes: channelNodes },
-      { name: 'Permissions & advanced', badge: lockedCount || '', nodes: [technical] },
+      { name: 'Permissions & advanced', badge: lockedCount || '', nodes: [editing, technical] },
       { name: 'Statistics', nodes: [document.querySelector('#usage')] },
       { name: 'Documents', nodes: [document.querySelector('#documents-list')?.closest('article')] },
       { name: 'Conversations', nodes: [document.querySelector('#conversation-list')?.closest('article')] },

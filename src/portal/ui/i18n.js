@@ -1497,7 +1497,26 @@
     ['WhatsApp channel','Canal WhatsApp','قناة واتساب'],
     ['Connected & live','Connecté et actif','متصل ومباشر'],
     ['Pending connection','Connexion en attente','بانتظار الربط'],
-    ['All','Tous','الكل'],['Active','Actif','نشط'],['Review','En revue','مراجعة'],['Draft','Brouillon','مسودة'],['Paused','En pause','متوقف']
+    ['All','Tous','الكل'],['Active','Actif','نشط'],['Review','En revue','مراجعة'],['Draft','Brouillon','مسودة'],['Paused','En pause','متوقف'],
+    ['Your clients, active chatbots and pending reviews at a glance.','Vos clients, chatbots actifs et validations en attente en un coup d’œil.','عملاؤك والروبوتات النشطة والمراجعات المعلقة في لمحة واحدة.'],
+    ['Live on WhatsApp','Actif sur WhatsApp','نشط على واتساب'],
+    ['Ready to validate','Prêt à valider','جاهز للمراجعة'],
+    ['Linked WhatsApp lines','Lignes WhatsApp liées','أرقام واتساب مرتبطة'],
+    ['Traffic, outcomes & detailed reports','Trafic, résultats et rapports détaillés','حركة الرسائل والنتائج والتقارير التفصيلية'],
+    ['View 30-day message volume, AI spend, business outcomes and per-client breakdown','Consultez le volume sur 30 jours, le budget IA, les résultats et le détail par client','اعرض حجم الرسائل خلال 30 يومًا وميزانية الذكاء الاصطناعي والنتائج وتفاصيل كل عميل'],
+    ['Show details','Voir les détails','عرض التفاصيل'],
+    ['Click any business to manage their plan or WhatsApp','Cliquez sur une entreprise pour gérer son offre ou son WhatsApp','اضغط على أي نشاط لإدارة باقته أو رقم واتساب'],
+    ['Plan & activation','Offre et activation','الباقة والتفعيل'],
+    ['Assign a plan, publish the client’s content, and switch the account live.','Attribuez une offre, publiez le contenu du client et activez le compte.','عيّن باقة، وانشر محتوى العميل، وفعّل الحساب.'],
+    ['Draft · Setting up','Brouillon · En configuration','مسودة · قيد الإعداد'],
+    ['Submitted · Waiting for review','Soumis · En attente de revue','مرسل · بانتظار المراجعة'],
+    ['Needs changes · Sent back to client','Modifications requises · Renvoyé au client','يحتاج تعديلات · أُعيد للعميل'],
+    ['Approved · Ready to connect','Approuvé · Prêt à connecter','معتمد · جاهز للربط'],
+    ['Active · Live on WhatsApp','Actif · En ligne sur WhatsApp','نشط · مباشر على واتساب'],
+    ['Paused · Replies off','En pause · Réponses désactivées','متوقف · الردود متوقفة'],
+    ['Note for the client (optional)','Note pour le client (optionnel)','ملاحظة للعميل (اختياري)'],
+    ['WhatsApp number','Numéro WhatsApp','رقم واتساب'],
+    ['Pause or enable automated replies on this number.','Mettez en pause ou activez les réponses automatiques sur ce numéro.','أوقف أو فعّل الردود التلقائية على هذا الرقم.']
   ]) translations.set(en, { fr, ar });
 
   function setLocale(next) {
