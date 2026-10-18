@@ -5,13 +5,16 @@
 .admin-account-page .page-heading h1{overflow-wrap:anywhere}
 .admin-account-page .page-heading .actions{justify-content:flex-end;max-width:530px}
 .admin-account-page #admin-save-status{min-height:17px;margin:0 0 14px}
-.admin-account-page>.section-tabs{display:flex;gap:5px;padding:6px;margin:0 0 25px;border:1px solid var(--line);border-radius:13px;background:var(--raised);overflow-x:auto;scrollbar-width:thin}
-.admin-account-page>.section-tabs button{border:0;border-radius:9px;padding:11px 15px;color:var(--muted);font-weight:700;transition:background .16s,color .16s,box-shadow .16s}
-.admin-account-page>.section-tabs button[aria-selected=true]{color:var(--text);background:var(--surface);box-shadow:0 2px 9px rgba(7,21,19,.08)}
-.admin-account-page>.section-tabs button:hover:not([aria-selected=true]){background:color-mix(in srgb,var(--surface) 58%,transparent);color:var(--text)}
-.admin-account-page>.section-panel{max-width:1120px;animation:account-panel-in .18s ease-out}
+.admin-account-page>.section-tabs,.section-tabs{display:flex;gap:6px;padding:6px;margin:0 0 25px;border:1px solid var(--line);border-radius:14px;background:var(--raised);overflow-x:auto;scrollbar-width:thin}
+.admin-account-page>.section-tabs button,.section-tabs button{position:relative;display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:10px;padding:10px 15px;color:var(--muted);font-weight:700;transition:background .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease,border-color .18s ease}
+.admin-account-page>.section-tabs button svg,.section-tabs button svg{width:16px;height:16px;opacity:.85;transition:transform .18s ease,color .18s ease}
+.admin-account-page>.section-tabs button .tab-badge,.section-tabs button .tab-badge{display:inline-grid;place-items:center;min-width:19px;height:19px;padding:0 6px;border-radius:999px;background:var(--soft);color:var(--green);font-size:10px;font-weight:800;line-height:1}
+.admin-account-page>.section-tabs button[aria-selected=true],.section-tabs button[aria-selected=true]{color:var(--text);background:var(--surface);border-color:color-mix(in srgb,var(--green) 42%,var(--line));box-shadow:0 4px 14px rgba(7,21,19,.1),inset 0 -2px 0 var(--green)}
+.admin-account-page>.section-tabs button[aria-selected=true] svg,.section-tabs button[aria-selected=true] svg{color:var(--green);opacity:1;transform:scale(1.08)}
+.admin-account-page>.section-tabs button:hover:not([aria-selected=true]),.section-tabs button:hover:not([aria-selected=true]){background:color-mix(in srgb,var(--surface) 62%,transparent);color:var(--text);transform:translateY(-1px)}
+.admin-account-page>.section-panel{max-width:1200px;animation:account-panel-in .22s cubic-bezier(.2,.75,.25,1)}
 .admin-account-page>.section-panel[hidden]{display:none!important}
-.admin-account-page>.section-panel>.card,.admin-account-page>.section-panel>.grid-2{margin-bottom:16px}
+.admin-account-page>.section-panel>.card,.admin-account-page>.section-panel>.grid-2,.admin-account-page>.section-panel>.plan-value-strip{margin-bottom:18px}
 .admin-account-page>.section-panel>.card:last-child,.admin-account-page>.section-panel>.grid-2:last-child{margin-bottom:0}
 .admin-account-page>.section-panel>.grid-2{grid-template-columns:minmax(0,1.45fr) minmax(280px,.8fr)}
 .admin-account-page>.section-panel>.grid-2>.card{margin:0}
@@ -25,10 +28,10 @@
 .admin-account-page #admin-voice-notes-card .field .btn{align-self:flex-start}
 .admin-account-page #client-owned-meta .form-grid{margin-top:20px}
 .admin-account-page #editing-freeze .card-title{margin-bottom:0}
-.admin-account-page .preview-console{max-width:1120px}
+.admin-account-page .preview-console{max-width:1200px}
 .admin-account-page #technical .check-options{gap:10px}
 .admin-account-page #technical .check-options label{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--raised)}
-@keyframes account-panel-in{from{opacity:.6;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes account-panel-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media(max-width:1120px){.admin-account-page>.section-panel>.grid-2{grid-template-columns:1fr}.admin-account-page .page-heading{flex-direction:column}.admin-account-page .page-heading .actions{justify-content:flex-start;max-width:none}}
 @media(max-width:760px){.admin-account-page>.section-tabs{margin-bottom:18px}.admin-account-page>.section-tabs button{padding:10px 12px;font-size:12px}.admin-account-page .page-heading .actions{width:100%}.admin-account-page .page-heading .actions .btn{flex:1 1 auto}.admin-account-page .card-title{flex-direction:column;align-items:flex-start}.admin-account-page .card-title>.btn{width:100%}}
-@media(prefers-reduced-motion:reduce){.admin-account-page>.section-panel{animation:none}}
+@media(prefers-reduced-motion:reduce){.admin-account-page>.section-panel{animation:none}.admin-account-page>.section-tabs button,.section-tabs button{transition:none}}

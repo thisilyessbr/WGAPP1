@@ -392,3 +392,33 @@
 .client-shell:has(.sticky-save) .try-bot-fab{bottom:104px}
 body:has(.try-bot-fab) #toast{bottom:84px}
 @media(max-width:760px){.client-shell:has(.sticky-save) .try-bot-fab{bottom:150px}body:has(.try-bot-fab) #toast{bottom:132px}}
+
+/* Admin shell: ambient depth, progressive navigation, dynamic metrics and table controls. */
+.admin-shell .sidebar{overflow:hidden}
+.admin-shell .sidebar::before{content:"";position:absolute;z-index:-1;top:-110px;inset-inline-start:-90px;width:250px;height:250px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--green) 11%,transparent),transparent 68%);pointer-events:none}
+.admin-shell .nav a{position:relative;overflow:hidden;transition:color .18s ease,background .18s ease,transform .18s ease,box-shadow .18s ease}
+.admin-shell .nav a:hover{transform:translateX(3px)}
+:root[dir=rtl] .admin-shell .nav a:hover{transform:translateX(-3px)}
+.admin-shell .nav a.active{box-shadow:inset 3px 0 0 var(--green),0 5px 18px color-mix(in srgb,var(--green) 8%,transparent)}
+:root[dir=rtl] .admin-shell .nav a.active{box-shadow:inset -3px 0 0 var(--green),0 5px 18px color-mix(in srgb,var(--green) 8%,transparent)}
+.admin-shell .nav a span{transition:transform .18s ease}
+.admin-shell .nav a:hover span{transform:scale(1.08)}
+.admin-shell .main{position:relative;isolation:isolate;overflow:hidden}
+.admin-shell .main::before{content:"";position:absolute;z-index:-1;top:30px;inset-inline-end:-180px;width:540px;height:540px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--green) 7%,transparent),transparent 68%);pointer-events:none}
+.admin-shell .content>*{animation:workspace-enter .38s cubic-bezier(.2,.75,.25,1) both}
+.admin-shell .content>*:nth-child(2){animation-delay:.035s}
+.admin-shell .content>*:nth-child(3){animation-delay:.07s}
+.admin-shell .content>*:nth-child(4){animation-delay:.105s}
+.admin-shell .card{transition:border-color .22s ease,box-shadow .22s ease,transform .22s ease}
+.admin-shell .card:hover{border-color:color-mix(in srgb,var(--green) 24%,var(--line));box-shadow:0 14px 40px rgba(7,21,19,.055)}
+.admin-shell .status-dot{animation:workspace-pulse 2.3s ease-in-out infinite}
+.admin-metric .metric-bar{position:absolute;inset:auto 0 0;height:3px;background:linear-gradient(90deg,var(--green) var(--usage,60%),color-mix(in srgb,var(--line) 60%,transparent) var(--usage,60%));opacity:.85;transition:opacity .2s}
+.admin-metric:hover .metric-bar{opacity:1}
+.admin-table-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.admin-filter-pills{display:flex;gap:6px;flex-wrap:wrap}
+.spend-cell{display:grid;gap:5px;min-width:110px}
+.spend-meter{display:block;height:4px;border-radius:999px;background:var(--raised);overflow:hidden}
+.spend-meter>i{display:block;height:100%;border-radius:999px;background:var(--green)}
+@media(prefers-reduced-motion:reduce){.admin-shell .content>*,.admin-shell .status-dot{animation:none}.admin-shell .nav a,.admin-shell .nav a span,.admin-shell .card{transition:none}}
+@media(max-width:760px){.admin-shell .sidebar::before{display:none}.admin-shell .nav a:hover{transform:none}.admin-table-controls{width:100%;justify-content:flex-start}.admin-table-controls .search{max-width:none;width:100%}}
+

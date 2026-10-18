@@ -18,7 +18,20 @@
     Settings: icon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
     Requests: icon('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
     Calendar: icon('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4m8-4v4"/>'),
-    Inbox: icon('<path d="M22 12h-6l-2 3H10l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>')
+    Inbox: icon('<path d="M22 12h-6l-2 3H10l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
+    'Chatbot & limits': icon('<path d="M12 3v3m0 12v3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M3 12h3m12 0h3M4.9 19.1 7 17m10-10 2.1-2.1"/><circle cx="12" cy="12" r="4"/>'),
+    Workflows: icon('<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M9 6h6M7.5 8.5 11 15.5m5.5-7L13 15.5"/>'),
+    'Test chatbot': icon('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="m9 10 2 2 4-4"/>'),
+    Channels: icon('<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5M19.1 4.9C23 8.8 23 15.1 19.1 19"/><circle cx="12" cy="12" r="2"/>'),
+    'Permissions & advanced': icon('<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+    Statistics: icon('<path d="M3 3v18h18"/><path d="m7 14 4-4 4 3 5-6"/>'),
+    Documents: icon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>'),
+    Conversations: icon('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 10h8M8 14h5"/>'),
+    History: icon('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5m4-1v5l3 2"/>'),
+    Profile: icon('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2m-2 4h2M7 16h10"/>'),
+    Policies: icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>'),
+    Services: icon('<path d="m12 3 1.9 5.8H20l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8L4 8.8h6.1z"/>'),
+    FAQs: icon('<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4m.1 3h.01"/>')
   };
   function themeButtons() {
     const dark = document.documentElement.dataset.theme === 'dark';
@@ -53,7 +66,10 @@
       panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `${key}-tab-${i}`);
       const first = group.nodes[0]; first.before(panel); group.nodes.forEach(node => panel.append(node)); group.panel = panel;
       const button = document.createElement('button'); button.type = 'button'; button.id = `${key}-tab-${i}`;
-      button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', panel.id); button.textContent = group.name;
+      button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', panel.id);
+      const svg = icons[group.name] || '';
+      const badge = group.badge ? `<small class="tab-badge" data-no-translate>${group.badge}</small>` : '';
+      button.innerHTML = `${svg}<span>${group.name}</span>${badge}`;
       button.onclick = () => choose(group.name);
       button.onkeydown = event => { const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
         if (delta) { event.preventDefault(); choose(groups[(i + delta + groups.length) % groups.length].name, true); }
@@ -69,28 +85,32 @@
     const articles = [...form.querySelectorAll(':scope > article')];
     const documents = document.querySelector('#documents');
     if (documents && !form.dataset.adminReview) { form.insertBefore(documents, form.querySelector('.sticky-save')); articles.push(documents); }
-    if (articles.length > 1) tabs(form, articles.map(node => { const title = node.querySelector('h2').textContent; return { name: names[title] || title, nodes: [node] }; }), 'business');
+    if (articles.length > 1) tabs(form, articles.map(node => { const title = node.querySelector('h2').textContent; const count = node.querySelectorAll('.collection-item').length; return { name: names[title] || title, badge: count || '', nodes: [node] }; }), 'business');
     form.querySelectorAll('[data-path]').forEach(el => { if (/description|address|hours|policies/.test(el.dataset.path)) el.closest('.field').classList.add('full'); });
   }
   function accountSections() {
     const technical = document.querySelector('#technical'); if (!technical || technical.dataset.sections) return; technical.dataset.sections = 'true';
     const content = document.querySelector('.content'), oldTabs = content.querySelector(':scope > .tabs');
     const settings = document.querySelector('#everyday-settings'), overview = content.querySelector(':scope > .grid-2');
+    const readiness = content.querySelector(':scope > .admin-readiness-strip');
     const editing = document.querySelector('#editing-freeze')?.closest('article');
     const clientMeta = document.querySelector('#client-owned-meta');
+    const channelNodes = [document.querySelector('#admin-qr-connection'), document.querySelector('#admin-broadcasts-card'), document.querySelector('#admin-voice-notes-card'), document.querySelector('#admin-instagram-card'), clientMeta].filter(Boolean);
+    const historyCount = document.querySelectorAll('#history .connection-card').length;
+    const lockedCount = document.querySelectorAll('#technical input[type=checkbox]:checked:not(#auto)').length;
     const groups = [
-      { name: 'Overview', nodes: [overview, editing] },
+      { name: 'Overview', nodes: [readiness, overview, editing] },
       { name: 'Chatbot & limits', nodes: [settings] },
       { name: 'Workflows', nodes: [document.querySelector('#workflow-editor')] },
       { name: 'Test chatbot', nodes: [document.querySelector('#preview-form')?.closest('article'), document.querySelector('#admin-wording-card')] },
-      { name: 'Channels', nodes: [document.querySelector('#admin-qr-connection'), document.querySelector('#admin-voice-notes-card'), document.querySelector('#admin-instagram-card'), clientMeta] },
-      { name: 'Permissions & advanced', nodes: [technical] },
+      { name: 'Channels', badge: channelNodes.length || '', nodes: channelNodes },
+      { name: 'Permissions & advanced', badge: lockedCount || '', nodes: [technical] },
       { name: 'Statistics', nodes: [document.querySelector('#usage')] },
       { name: 'Documents', nodes: [document.querySelector('#documents-list')?.closest('article')] },
       { name: 'Conversations', nodes: [document.querySelector('#conversation-list')?.closest('article')] },
-      { name: 'History', nodes: [document.querySelector('#history')] }
+      { name: 'History', badge: historyCount || '', nodes: [document.querySelector('#history')] }
     ].map(g => ({ ...g, nodes: g.nodes.filter(Boolean) })).filter(g => g.nodes.length);
-    tabs(content, groups, 'account', oldTabs || overview); oldTabs?.remove();
+    tabs(content, groups, 'account', oldTabs || readiness || overview); oldTabs?.remove();
     content.classList.add('admin-account-page');
     ready(content);
   }
