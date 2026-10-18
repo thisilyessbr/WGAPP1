@@ -184,7 +184,8 @@ export class WhatsAppWorker {
       ? await this.conversationEngine.getOutboundProductImage(job.tenantId, job.accountId, job.wamid)
       : null;
 
-    // If response is empty (e.g. human active, automation capped, or suppressed), go silent
+    // If response is empty (e.g. human active, automation capped, or suppressed), go silent.
+    // A used-up monthly allowance is not silent: the engine returns a one-time team follow-up notice.
     if (!response || !response.trim()) {
       return {
         jobId: job.id,

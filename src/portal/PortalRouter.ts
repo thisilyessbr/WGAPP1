@@ -200,7 +200,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   }));
   client.get('/dashboard', route(async (req, res) => {
     const accountId = req.portal.accountId!, tenantId = req.portal.tenantId!;
-    const [profile, connections, stats, portalDocuments, recentConversations, leadSummary] = await Promise.all([
+    const [profile, connections, stats, portalDocuments, recentConversations, leadSummary, usageAlert] = await Promise.all([
       store.profile(accountId, tenantId),
       store.connections(accountId, tenantId),
       store.stats(accountId, tenantId, 30),
@@ -209,7 +209,8 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
         WHERE "accountId"=${accountId} AND "tenantId"=${tenantId}
           AND NOT EXISTS (SELECT 1 FROM "Customer" preview WHERE preview.id="Conversation"."customerId" AND preview."tenantId"="Conversation"."tenantId" AND preview."externalId" LIKE 'portal-preview:%')
         ORDER BY "updatedAt" DESC LIMIT 6`,
-      portalLeads.summary(tenantId, accountId)
+      portalLeads.summary(tenantId, accountId),
+      store.usageAlert(accountId, tenantId)
     ]);
     const maskCustomer = (value: unknown) => {
       const raw = String(value || 'Customer');
@@ -220,9 +221,14 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
       connections: connections.map(c => ({ id: c.id, provider: c.provider, status: c.status, enabled: c.enabled, displayPhoneNumber: c.displayPhoneNumber, numberStatus: c.numberStatus, updatedAt: c.updatedAt })),
       metrics: { totals: stats.totals, daily: stats.daily, leads: stats.leads },
       leadSummary,
+      usageAlert,
       documents: { total: portalDocuments.length, ready: portalDocuments.filter(d => d.status === 'READY').length, pending: portalDocuments.filter(d => d.status !== 'READY').length },
       recentConversations: recentConversations.map(c => ({ id: c.id, status: c.status, messageCount: c.messageCount, humanRequested: c.humanRequested, updatedAt: c.updatedAt, customerLabel: maskCustomer(c.customerId) }))
     });
+  }));
+  client.post('/usage-alerts/:id/dismiss', route(async (req, res) => {
+    await store.dismissUsageAlert(req.portal.accountId!, req.portal.tenantId!, String(req.params.id));
+    send(res, { ok: true });
   }));
   const leadRows = async (accountId: string, tenantId: string, limit = 1000, offset = 0, status = '') => store.db.$queryRaw<any[]>`
     SELECT l.id,l.status,l.interest,l.note,l.details,l."followUpAt",l."createdAt",l."updatedAt",c."externalId" AS "contact",

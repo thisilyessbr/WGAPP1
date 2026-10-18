@@ -153,7 +153,9 @@ export class PortalStaffActions {
             JOIN "PortalUser" u ON u.id=pm."userId" AND u.disabled=false AND u."verifiedAt" IS NOT NULL
             JOIN "PortalProfile" p ON p."accountId"=pm."accountId" AND p."tenantId"=pm."tenantId" AND p.status='ACTIVE'
             WHERE pm."tenantId"=${alert.tenantId} AND pm."accountId"=${alert.accountId} AND pm."userId"=${alert.recipientId}`;
-          const eligible = alert.kind === 'HANDOFF'
+          const eligible = alert.kind === 'USAGE'
+            ? await this.store.db.$queryRaw<any[]>`SELECT 1 FROM "PortalUsageAlert" WHERE id=${alert.sourceId} AND "tenantId"=${alert.tenantId} AND "accountId"=${alert.accountId}`
+            : alert.kind === 'HANDOFF'
             ? await this.store.db.$queryRaw<any[]>`SELECT 1 FROM "Conversation" WHERE id=${alert.sourceId} AND "tenantId"=${alert.tenantId} AND "accountId"=${alert.accountId} AND status='HANDOFF_REQUESTED'`
             : await this.store.db.$queryRaw<any[]>`SELECT 1 FROM "Lead" WHERE id=${alert.sourceId} AND "tenantId"=${alert.tenantId} AND "accountId"=${alert.accountId} AND status IN ('NEW','CONTACTED','QUALIFIED')
               AND ("assignedToUserId" IS NULL OR "assignedToUserId"=${alert.recipientId})
@@ -165,7 +167,7 @@ export class PortalStaffActions {
               WHERE l.id=${alert.sourceId} AND l."tenantId"=${alert.tenantId}
                 AND (ws."workflowId" ~* '(checkout|cash_on_delivery|cod_order)' OR ws."collectedData" ?| array['product','product_name','produit'])`).length > 0;
             if (order) alert.kind = 'ORDER';
-            const path = alert.kind === 'HANDOFF' ? `/app/inbox/${alert.sourceId}` : order ? `/app/orders/${alert.sourceId}` : `/app/leads/${alert.sourceId}`;
+            const path = alert.kind === 'USAGE' ? '/app' : alert.kind === 'HANDOFF' ? `/app/inbox/${alert.sourceId}` : order ? `/app/orders/${alert.sourceId}` : `/app/leads/${alert.sourceId}`;
             const base = (process.env.PORTAL_PUBLIC_URL || '').replace(/\/$/, '');
             if (!base.startsWith('https://')) throw new Error('Secure portal URL required');
             await this.deliver(alert, base + path);
@@ -182,15 +184,34 @@ export class PortalStaffActions {
   }
 
   private static async sendEmail(alert: Alert, url: string) {
+    if (alert.kind === 'USAGE') return PortalStaffActions.send(alert, ...usageEmail(alert.occurrence, url));
     const subject = alert.kind === 'HANDOFF' ? 'Relayqo: a customer is waiting for you' : alert.kind === 'FOLLOW_UP' ? 'Relayqo: follow-up due'
       : alert.kind === 'ORDER' ? 'Relayqo: new order to confirm' : 'Relayqo: new customer request';
+    return PortalStaffActions.send(alert, subject,
+      `A customer action needs your attention in Relayqo.\n\nOpen your workspace: ${url}\n\nThis message contains no customer conversation content.`);
+  }
+
+  private static async send(alert: Alert, subject: string, text: string) {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json',
         'Idempotency-Key': `relayqo-action-${alert.id}` },
-      body: JSON.stringify({ from: process.env.PORTAL_MAIL_FROM, to: [alert.email], subject,
-        text: `A customer action needs your attention in Relayqo.\n\nOpen your workspace: ${url}\n\nThis message contains no customer conversation content.` })
+      body: JSON.stringify({ from: process.env.PORTAL_MAIL_FROM, to: [alert.email], subject, text })
     });
     if (!response.ok) throw new Error(`Email provider returned ${response.status}`);
   }
+}
+
+/** Subject and body of the monthly usage email; `occurrence` is "<YYYY-MM>:<threshold>". */
+export function usageEmail(occurrence: string, url: string): [string, string] {
+  if (occurrence.endsWith(':100')) {
+    return ['Relayqo: your monthly plan allowance is used up',
+      `Your chatbot has used this month's plan allowance and can no longer answer automatically.\n\n`
+      + `Customers who write are told your team will get back to them, and their conversations wait for you in the inbox. `
+      + `Automatic replies resume next month, or sooner if you change your plan.\n\nOpen your workspace: ${url}`];
+  }
+  return ['Relayqo: 80% of your monthly plan allowance used',
+    `Your chatbot has used 80% of this month's plan allowance.\n\n`
+    + `When it is used up, customers are told your team will get back to them and their conversations wait for you in the inbox. `
+    + `To keep automatic replies running, consider changing your plan.\n\nOpen your workspace: ${url}`];
 }

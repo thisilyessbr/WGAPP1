@@ -7,16 +7,30 @@ import { ImageCapabilityGateway } from '../core/gateway/ImageCapabilityGateway';
 import { GEMINI_IMAGE_PRICE_BASIS, ImageUnderstandingResult, imageUsageMicros } from '../../packages/shared/contracts/image.contract';
 import { telemetry } from '../core/telemetry/TelemetryClient';
 import { PortalStore } from './PortalStore';
-import { PortalError, PortalProfile } from './types';
+import { PlanLimits, PortalError, PortalProfile } from './types';
+import { logger } from '../utils/logger';
 import { VoiceProvider, VoiceTranscript, VoiceNoteTranscriber, effectiveVoiceProvider } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
 import { voiceNoteChargeMicros } from './VoiceNoteUsage';
 
 /** Per-photo ceiling (USD 0.05) held while the analysis runs and kept in full when usage is unknown. */
 export const IMAGE_RESERVATION_MICROS = 50000;
 
+/** A monthly usage threshold reached by one account. */
+interface UsageAlert { accountId: string; tenantId: string; period: string; threshold: 80 | 100; metric: string; }
 interface UsageContext { profile: PortalProfile; key: string; sequence: number; llm: number; embedding: number; image: number; events: Record<string, unknown>; allowInactive: boolean; preview?: boolean; llmTimedOut?: boolean; }
+const COUNTED_LIMITS = ['messages', 'llmCalls', 'images', 'embeddings'] as const;
+/** The highest alert threshold (80% or 100%) any monthly limit has reached, or null below 80%.
+ * Spend counts settled charges only: an in-flight reservation is not usage yet. */
+export function usageLevel(limits: PlanLimits, bucket: Record<string, unknown>): { threshold: 80 | 100; metric: string } | null {
+  const ratios: [string, number][] = COUNTED_LIMITS.filter(key => limits[key] > 0).map(key => [key, Number(bucket[key] || 0) / limits[key]]);
+  if (limits.monthlyUsd > 0) ratios.push(['monthlyUsd', Number(bucket.spentMicros || 0) / (limits.monthlyUsd * 1000000)]);
+  const [metric, ratio] = ratios.reduce((top, item) => item[1] > top[1] ? item : top, ['', 0] as [string, number]);
+  return ratio >= 1 ? { threshold: 100, metric } : ratio >= 0.8 ? { threshold: 80, metric } : null;
+}
 export class PortalBudget {
   private context = new AsyncLocalStorage<UsageContext>();
+  /** Usage alerts known to be recorded, so later operations skip the insert. */
+  private alerted = new Set<string>();
   private unsubscribe: () => void;
   constructor(private store: PortalStore, observeTelemetry = true) {
     this.unsubscribe = observeTelemetry ? telemetry.onEvent(event => {
@@ -89,7 +103,9 @@ export class PortalBudget {
       }
     }, blocked);
   }
-  async runTurn<T>(tenantId: string, accountId: string | null | undefined, externalId: string | null | undefined, run: () => Promise<T>, blocked: T): Promise<T> {
+  /** `onBlocked` answers a turn the message reservation refused (with the refusal code) in place of `blocked`. */
+  async runTurn<T>(tenantId: string, accountId: string | null | undefined, externalId: string | null | undefined, run: () => Promise<T>, blocked: T,
+    onBlocked?: (code: string) => Promise<T>): Promise<T> {
     const profiles = await this.store.db.$queryRaw<PortalProfile[]>`SELECT * FROM "PortalProfile" WHERE "tenantId"=${tenantId} AND (${accountId || null}::text IS NULL OR "accountId"=${accountId || null}) LIMIT 2`;
     if (!profiles.length) return run(); // Legacy clients retain their current path until explicitly adopted.
     if (!accountId || profiles.length !== 1 || profiles[0].status !== 'ACTIVE' || !profiles[0].planSnapshot) return blocked;
@@ -99,7 +115,10 @@ export class PortalBudget {
     return this.context.run(ctx, async () => {
       let reservation: string;
       try { reservation = await this.reserve('message', 0, key, true); }
-      catch (error) { if (error instanceof PortalError && error.status === 402) return blocked; throw error; }
+      catch (error) {
+        if (!(error instanceof PortalError) || error.status !== 402) throw error;
+        return onBlocked ? onBlocked(error.code) : blocked;
+      }
       const started = Date.now();
       try {
         const result = await run();
@@ -124,6 +143,16 @@ export class PortalBudget {
     if (!ctx) return '';
     if (ctx.preview) return '';
     const dedupeKey = key || `${ctx.key}:${++ctx.sequence}:${kind}`;
+    const alert: { value?: UsageAlert } = {};
+    try {
+      return await this.reserveIn(ctx, kind, reservedMicros, dedupeKey, allowCompleted, alert);
+    } finally {
+      // Recorded after the reservation committed or was refused: an alert never blocks or rolls back usage.
+      if (alert.value) await this.recordUsageAlert(alert.value);
+    }
+  }
+  private async reserveIn(ctx: UsageContext, kind: 'message' | 'llm' | 'image' | 'embedding' | 'audio', reservedMicros: number, dedupeKey: string, allowCompleted: boolean,
+    alert: { value?: UsageAlert }): Promise<string> {
     return this.store.transaction(async s => {
       const p = await s.lockProfile(ctx.profile.accountId);
       if (!p.planSnapshot || (!ctx.allowInactive && p.status !== 'ACTIVE') || p.status === 'SUSPENDED') throw new PortalError(402, 'ACCOUNT_NOT_ACTIVE');
@@ -139,7 +168,9 @@ export class PortalBudget {
       const bucket = (await s.db.$queryRaw<any[]>`SELECT * FROM "PortalUsageBucket" WHERE "accountId"=${p.accountId} AND period=${period} FOR UPDATE`)[0];
       const field = kind === 'message' ? 'messages' : kind === 'llm' ? 'llmCalls' : kind === 'image' ? 'images' : 'embeddings';
       const limits = p.planSnapshot.limits;
-      if ((kind !== 'audio' && !(kind === 'message' && limits.messages === -1) && Number(bucket[field]) >= limits[field]) || Number(bucket.spentMicros) + Number(bucket.reservedMicros) + reservedMicros > Math.floor(limits.monthlyUsd * 1000000)) {
+      const countExhausted = kind !== 'audio' && !(kind === 'message' && limits.messages === -1) && Number(bucket[field]) >= limits[field];
+      if (countExhausted || Number(bucket.spentMicros) + Number(bucket.reservedMicros) + reservedMicros > Math.floor(limits.monthlyUsd * 1000000)) {
+        alert.value = { accountId: p.accountId, tenantId: p.tenantId, period, threshold: 100, metric: countExhausted ? field : 'monthlyUsd' };
         throw new PortalError(402, 'ALLOWANCE_EXHAUSTED', 'The account allowance has been reached. Contact the administrator.');
       }
       const id = randomUUID();
@@ -147,11 +178,15 @@ export class PortalBudget {
       await s.db.$executeRaw`UPDATE "PortalUsageBucket" SET messages=messages+${kind === 'message' ? 1 : 0},"llmCalls"="llmCalls"+${kind === 'llm' ? 1 : 0},
         images=images+${kind === 'image' ? 1 : 0},embeddings=embeddings+${kind === 'embedding' ? 1 : 0},"reservedMicros"="reservedMicros"+${reservedMicros}
         WHERE "accountId"=${p.accountId} AND period=${period}`;
+      const level = kind === 'audio' ? null : usageLevel(limits, { ...bucket, [field]: Number(bucket[field]) + 1 });
+      if (level) alert.value = { accountId: p.accountId, tenantId: p.tenantId, period, ...level };
       return id;
     });
   }
   private async finish(id: string, chargedMicros: number | null, metadata: Record<string, unknown>) {
     if (!id) return;
+    const profile = this.context.getStore()?.profile;
+    const alert: { value?: UsageAlert } = {};
     await this.store.transaction(async s => {
       const entry = (await s.db.$queryRaw<any[]>`SELECT * FROM "PortalUsageEntry" WHERE id=${id} FOR UPDATE`)[0];
       if (!entry || entry.status !== 'RESERVED') return;
@@ -159,9 +194,33 @@ export class PortalBudget {
       // Missing provider usage retains the full reservation as an explicitly estimated charge.
       const charge = known ? Math.max(0, Math.ceil(chargedMicros)) : Number(entry.reservedMicros);
       await s.db.$executeRaw`UPDATE "PortalUsageEntry" SET status=${known ? 'COMPLETED' : 'UNKNOWN'},"chargedMicros"=${charge},metadata=${JSON.stringify(metadata)}::jsonb WHERE id=${id}`;
-      await s.db.$executeRaw`UPDATE "PortalUsageBucket" SET "reservedMicros"="reservedMicros"-${Number(entry.reservedMicros)},"spentMicros"="spentMicros"+${charge}
-        WHERE "accountId"=${entry.accountId} AND period=${entry.period}`;
+      const bucket = (await s.db.$queryRaw<any[]>`UPDATE "PortalUsageBucket" SET "reservedMicros"="reservedMicros"-${Number(entry.reservedMicros)},"spentMicros"="spentMicros"+${charge}
+        WHERE "accountId"=${entry.accountId} AND period=${entry.period} RETURNING *`)[0];
+      const level = bucket && charge > 0 && profile?.planSnapshot && profile.accountId === entry.accountId ? usageLevel(profile.planSnapshot.limits, bucket) : null;
+      if (level) alert.value = { accountId: entry.accountId, tenantId: profile!.tenantId, period: entry.period, ...level };
     });
+    if (alert.value) await this.recordUsageAlert(alert.value);
+  }
+  /** Records an 80% or 100% alert for the merchant once per account, month and threshold, and queues its email. */
+  private async recordUsageAlert(alert: UsageAlert) {
+    const key = `${alert.accountId}:${alert.period}:${alert.threshold}`;
+    if (this.alerted.has(key)) return;
+    try {
+      await this.store.transaction(async s => {
+        const inserted = await s.db.$queryRaw<{ id: string }[]>`INSERT INTO "PortalUsageAlert"(id,"accountId","tenantId",period,threshold,metric)
+          VALUES (${randomUUID()},${alert.accountId},${alert.tenantId},${alert.period},${alert.threshold},${alert.metric}) ON CONFLICT DO NOTHING RETURNING id`;
+        if (!inserted.length) return;
+        // The staff alert worker emails every member when email is configured.
+        await s.db.$executeRaw`INSERT INTO "PortalActionAlert"(id,"tenantId","accountId","recipientId",kind,"sourceId",occurrence)
+          SELECT gen_random_uuid()::text,${alert.tenantId},${alert.accountId},u.id,'USAGE',${inserted[0].id},${alert.period + ':' + alert.threshold}
+          FROM "PortalMembership" pm JOIN "PortalUser" u ON u.id=pm."userId"
+          WHERE pm."accountId"=${alert.accountId} AND pm."tenantId"=${alert.tenantId} AND u.disabled=false AND u."verifiedAt" IS NOT NULL AND u.email NOT ILIKE '%.test'
+          ON CONFLICT DO NOTHING`;
+      });
+      this.alerted.add(key);
+    } catch (error) {
+      logger.error('PortalBudget: usage alert not recorded', error);
+    }
   }
   wrapLLM(inner: LLMProvider, defaults: { provider: string; model: string }): LLMProvider {
     const execute = async <T>(prompt: string, input: string, options: LLMRequestOptions | undefined, call: (options: LLMRequestOptions) => Promise<T>) => {

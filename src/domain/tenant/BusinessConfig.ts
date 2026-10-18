@@ -132,6 +132,17 @@ export const DEFAULT_IMAGE_FALLBACK_MESSAGES = {
   darija: "ما كنعالجش التصاور دابا — عفاك واش تقدر توصف ليا شنو بغيتي؟"
 };
 
+/** Sent once when the bot cannot answer a customer itself; the conversation goes to the team.
+ * Never mentions billing or limits. Merchants override it with `prompts.teamFollowUp`. */
+export const DEFAULT_TEAM_FOLLOW_UP_MESSAGES = {
+  en: "Thanks for your message! Our team will get back to you shortly.",
+  fr: "Merci pour votre message ! Notre équipe vous répondra très bientôt.",
+  ar: "شكرًا على رسالتك! سيتواصل معك فريقنا قريبًا.",
+  darija: "Chokran 3la mssaj dyalek! L-fariq dyalna ghadi yjawbek f a9rab wa9t.",
+  darija_arabic: "شكرا على الميساج ديالك! الفريق ديالنا غادي يجاوبك فأقرب وقت.",
+  darija_arabizi: "Chokran 3la mssaj dyalek! L-fariq dyalna ghadi yjawbek f a9rab wa9t."
+};
+
 export const DEFAULT_LIMIT_EXCEEDED_MESSAGES = {
   en: "Conversation has reached the maximum allowed length. Please start a new conversation.",
   fr: "La conversation a atteint la longueur maximale autorisée. Veuillez démarrer une nouvelle conversation.",
@@ -169,6 +180,7 @@ export interface PromptsConfig {
   postCompletionFallback?: LocalizedPrompt;
   imageFallback?: LocalizedPrompt;
   limitExceeded?: LocalizedPrompt;
+  teamFollowUp?: LocalizedPrompt;
   collectFallback?: LocalizedPrompt;
   unclearReprompt?: LocalizedPrompt;
   confirmHint?: LocalizedPrompt;

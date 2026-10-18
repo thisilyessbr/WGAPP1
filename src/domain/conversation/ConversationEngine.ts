@@ -19,7 +19,7 @@ import { calendarMessage, parseDay } from '../calendar/CalendarScheduler';
 import { asksAppointment, asksReschedule, explicitTime } from '../../core/engine/WorkflowCalendar';
 import { LanguageDetector } from '../faq/FaqMatcher';
 import { FaqAnswerPolicy } from '../faq/FaqAnswerPolicy';
-import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES, DEFAULT_OPEN_REQUEST_MESSAGES } from '../tenant/BusinessConfig';
+import { BusinessConfig, WorkflowConfig, resolveLocalizedPrompt, DEFAULT_POST_COMPLETION_MESSAGES, DEFAULT_LIMIT_EXCEEDED_MESSAGES, DEFAULT_IMAGE_FALLBACK_MESSAGES, DEFAULT_EXECUTION_LIMIT_MESSAGES, DEFAULT_OPEN_REQUEST_MESSAGES, DEFAULT_TEAM_FOLLOW_UP_MESSAGES } from '../tenant/BusinessConfig';
 import { WorkflowTurnGate } from '../../core/engine/WorkflowTurnGate';
 import { AccountConfigService } from '../tenant/AccountConfigService';
 import { GreetingRouter } from './GreetingRouter';
@@ -756,7 +756,112 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     accountId?: string | null, options?: { externalMessageId?: string | null; phoneNumberId?: string | null }
   ): Promise<string> {
     if (!this.portalBudget) return this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options);
-    return this.portalBudget.runTurn(tenantId, accountId, options?.externalMessageId, () => this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options), '');
+    return this.portalBudget.runTurn(tenantId, accountId, options?.externalMessageId, () => this.handleMessageInternal(tenantId, customerExternalId, contentInput, accountId, options), '',
+      code => code === 'ALLOWANCE_EXHAUSTED' ? this.handleTeamFollowUpTurn(tenantId, customerExternalId, contentInput, accountId, options) : Promise.resolve(''));
+  }
+
+  /** Releases an expired workflow pause, then reports whether a person owns the conversation (bot stays quiet). */
+  private async isHumanHandling(tenantId: string, conversation: Awaited<ReturnType<ConversationService['getOrCreateConversation']>>): Promise<boolean> {
+    // A workflow handoff may pause automation for a bounded period. Release it
+    // before evaluating ownership so the next inbound turn can resume normally.
+    const releaseExpiredPause = (this.conversationService as Partial<ConversationService>).releaseExpiredWorkflowPause;
+    const expiredWorkflowPauseReleased = typeof releaseExpiredPause === 'function'
+      ? await releaseExpiredPause.call(this.conversationService, tenantId, conversation.id)
+      : false;
+    if (expiredWorkflowPauseReleased) {
+      conversation.status = 'ACTIVE';
+      conversation.humanRequested = false;
+      conversation.humanRequestedAt = null;
+    }
+
+    // If conversation is in HUMAN_ACTIVE mode, human agent is handling it -> pause bot automation
+    if (conversation.status === 'HUMAN_ACTIVE' || Boolean(conversation.humanRequested)) return true;
+    // Keep the engine compatible with lightweight service implementations used by
+    // integrations that do not expose the optional automation-state capability.
+    const getAutomationState = (this.conversationService as Partial<ConversationService>).getAutomationState;
+    const autoState = typeof getAutomationState === 'function'
+      ? await getAutomationState.call(this.conversationService, tenantId, conversation.id)
+      : null;
+    if (!autoState) return false;
+    return autoState.humanTakeover || !autoState.botEnabled || Boolean(autoState.pausedUntil && autoState.pausedUntil > new Date());
+  }
+
+  /**
+   * The account's monthly allowance is used up, so no automatic answer can be
+   * paid for. Instead of silence the customer is told, once per conversation
+   * per month, that the team will reply, and the conversation is flagged for
+   * the team. No AI call is made and nothing about billing reaches the customer.
+   */
+  private async handleTeamFollowUpTurn(
+    tenantId: string, customerExternalId: string, contentInput: string | IncomingMessagePayload,
+    accountId?: string | null, options?: { externalMessageId?: string | null; phoneNumberId?: string | null }
+  ): Promise<string> {
+    if (customerExternalId.startsWith('portal-preview:')) return '';
+    const payload: IncomingMessagePayload = typeof contentInput === 'string' ? { text: contentInput } : contentInput;
+    const conversation = await this.conversationService.getOrCreateConversation(tenantId, customerExternalId, accountId || null);
+    const externalMessageId = options?.externalMessageId?.trim() || null;
+    if (externalMessageId) {
+      const existingResponse = await this.conversationService.findExistingTurnResponse(tenantId, externalMessageId, conversation.id);
+      if (existingResponse !== null) return existingResponse;
+    }
+    const userMessage = payload.text?.trim() || (payload.imageBase64 || payload.imageUrl ? 'Image uploaded' : 'Media message');
+    if (await this.isHumanHandling(tenantId, conversation)) {
+      await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', userMessage, externalMessageId, options?.phoneNumberId);
+      return '';
+    }
+    if (conversation.automationCapped || conversation.postCompletionCapped) return '';
+
+    const effectiveAccountId = accountId || conversation.accountId;
+    const config = (effectiveAccountId && this.accountConfigService)
+      ? await this.accountConfigService.getEffectiveConfig(tenantId, effectiveAccountId)
+      : await this.configService.getConfig(tenantId);
+    const context = (conversation.contextData || {}) as Record<string, any>;
+    const period = new Date().toISOString().slice(0, 7);
+    let reply = '';
+    if (context._teamFollowUpNotice !== period) {
+      const text = payload.text?.trim() || '';
+      const lang = text ? LanguageDetector.detect(text) : (context._lang || config.identity?.language || 'en');
+      const script = text ? DirectRagGuard.detectScript(text, lang as any) : context._script;
+      const defaults: Record<string, string> = DEFAULT_TEAM_FOLLOW_UP_MESSAGES;
+      const builtIn = lang === 'darija' && (script === 'arabic' || script === 'arabizi') ? defaults[`darija_${script}`]
+        : defaults[lang] || defaults.en;
+      reply = this.applyResponseLimit(resolveLocalizedPrompt(config.prompts?.teamFollowUp, lang, builtIn, script), config.limits?.maxResponseLength);
+    }
+    // Flagged even when the customer was already told this month: the team
+    // may have closed the earlier request and this message still needs them.
+    const flaggedAt = new Date();
+    await this.conversationService.commitConversationTurn({
+      tenantId,
+      conversationId: conversation.id,
+      expectedVersion: conversation.version,
+      userMessage,
+      assistantMessage: reply || null,
+      externalMessageId,
+      phoneNumberId: options?.phoneNumberId,
+      contextData: { ...context, _teamFollowUpNotice: period },
+      flagHumanRequested: true,
+      newStatus: 'HANDOFF_REQUESTED',
+      responseType: 'HANDOFF'
+    });
+    if (this.outcomeService && effectiveAccountId) {
+      try {
+        await this.outcomeService.recordEvent({
+          tenantId,
+          accountId: effectiveAccountId,
+          conversationId: conversation.id,
+          customerId: conversation.customerId,
+          type: 'HANDOFF_REQUESTED',
+          source: 'HANDOFF',
+          occurredAt: flaggedAt,
+          idempotencyKey: `handoff:requested:${conversation.id}:${externalMessageId || conversation.version}`,
+          metadata: { reason: 'allowance_exhausted' }
+        });
+      } catch (outcomeErr) {
+        logger.warn('ConversationEngine: Non-blocking outcome tracking error (team follow-up)', { error: outcomeErr });
+      }
+    }
+    logger.info(`ConversationEngine: Monthly allowance reached; conversation [${conversation.id}] flagged for the team${reply ? ' and the customer told' : ''}.`);
+    return reply;
   }
 
   private async handleMessageInternal(
@@ -852,37 +957,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
       provider: usage.provider, model: usage.model, metadata: { ...usage }
     }));
 
-    // A workflow handoff may pause automation for a bounded period. Release it
-    // before evaluating ownership so the next inbound turn can resume normally.
-    const releaseExpiredPause = (this.conversationService as Partial<ConversationService>).releaseExpiredWorkflowPause;
-    const expiredWorkflowPauseReleased = typeof releaseExpiredPause === 'function'
-      ? await releaseExpiredPause.call(this.conversationService, tenantId, conversation.id)
-      : false;
-    if (expiredWorkflowPauseReleased) {
-      conversation.status = 'ACTIVE';
-      conversation.humanRequested = false;
-      conversation.humanRequestedAt = null;
-    }
-
-    // If conversation is in HUMAN_ACTIVE mode, human agent is handling it -> pause bot automation
-    let isHumanHandling = conversation.status === 'HUMAN_ACTIVE' || Boolean(conversation.humanRequested);
-    if (!isHumanHandling) {
-      // Keep the engine compatible with lightweight service implementations used by
-      // integrations that do not expose the optional automation-state capability.
-      const getAutomationState = (this.conversationService as Partial<ConversationService>).getAutomationState;
-      const autoState = typeof getAutomationState === 'function'
-        ? await getAutomationState.call(this.conversationService, tenantId, conversation.id)
-        : null;
-      if (autoState) {
-        if (autoState.humanTakeover || !autoState.botEnabled) {
-          isHumanHandling = true;
-        } else if (autoState.pausedUntil && autoState.pausedUntil > new Date()) {
-          isHumanHandling = true;
-        }
-      }
-    }
-
-    if (isHumanHandling) {
+    if (await this.isHumanHandling(tenantId, conversation)) {
       logger.info(`ConversationEngine: Conversation [${conversation.id}] is in human takeover or bot automation paused. Pausing bot automation.`);
       await this.conversationService.persistMessage(tenantId, conversation.id, 'USER', payload.text || 'Image uploaded', externalMessageId, options?.phoneNumberId);
       telemetry.emit({
