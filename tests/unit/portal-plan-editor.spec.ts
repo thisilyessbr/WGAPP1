@@ -22,15 +22,12 @@ describe('plan editor presets', () => {
     expect(root.textContent).toContain('No COD workflow is activated just by creating a plan.');
     (root.querySelector('#save-suggested') as HTMLButtonElement).click();
     await new Promise(resolve => setTimeout(resolve,0));
-    expect(created.map(plan => plan.name).sort()).toEqual(['Service Assistant','Appointment Assistant','Sales Assistant','Service Assistant · Instagram','Sales Assistant · Instagram','Service Assistant · QR Pilot','Sales Assistant · QR Pilot'].sort());
-    expect(created.find(plan=>plan.name==='Appointment Assistant').modules).toEqual(['knowledge','services','calendar']);
+    expect(created.map(plan => plan.name).sort()).toEqual(['Essentiel','Rendez-vous','Commerce','Pro Omnicanal'].sort());
     expect(created.every(plan => plan.published === false)).toBe(true);
-    expect(created.find(plan=>plan.name==='Service Assistant').modules).toEqual(['knowledge','services']);
-    expect(created.find(plan=>plan.name==='Sales Assistant').modules).toEqual(['knowledge','commerce','images']);
-    expect(created.find(plan=>plan.name==='Service Assistant · Instagram').modules).toEqual(['knowledge','services','instagram']);
-    expect(created.find(plan=>plan.name==='Sales Assistant · Instagram').modules).toEqual(['knowledge','commerce','images','instagram']);
-    expect(created.find(plan=>plan.name==='Service Assistant · QR Pilot').modules).toEqual(['knowledge','services','qr']);
-    expect(created.find(plan=>plan.name==='Sales Assistant · QR Pilot').modules).toEqual(['knowledge','commerce','images','qr']);
+    expect(created.find(plan=>plan.name==='Essentiel')).toMatchObject({price:199,currency:'MAD',modules:['knowledge','services']});
+    expect(created.find(plan=>plan.name==='Rendez-vous')).toMatchObject({price:299,currency:'MAD',modules:['knowledge','services','calendar']});
+    expect(created.find(plan=>plan.name==='Commerce')).toMatchObject({price:399,currency:'MAD',modules:['knowledge','commerce','images']});
+    expect(created.find(plan=>plan.name==='Pro Omnicanal')).toMatchObject({price:599,currency:'MAD',modules:['knowledge','commerce','images','instagram','broadcasts']});
     expect(savedPlan.name).toBe('p1');
     dom.window.close();
   });
@@ -51,7 +48,7 @@ describe('plan editor presets', () => {
     const preset = root.querySelector('#plan-preset') as HTMLSelectElement;
     preset.value = 'commerce';
     preset.dispatchEvent(new dom.window.Event('change'));
-    expect((root.querySelector('#plan-price') as HTMLInputElement).value).toBe('649');
+    expect((root.querySelector('#plan-price') as HTMLInputElement).value).toBe('399');
     expect((root.querySelector('[data-module="commerce"]') as HTMLInputElement).checked).toBe(true);
     expect((root.querySelector('[data-module="qr"]') as HTMLInputElement).checked).toBe(false);
     await (root.querySelector('#plan-form') as any).onsubmit({preventDefault() {}});
@@ -66,7 +63,7 @@ describe('plan editor presets', () => {
     const root = dom.window.document.querySelector('#root')!;
     await (dom.window as any).RelayqoPlans.renderClient({root,shell:(html:string)=>html,
       header:(title:string)=>`<h1>${title}</h1>`,escape:(value:unknown)=>String(value),toast:()=>{},bind:()=>{},
-      api:async (path:string)=>path==='/portal/plans' ? {plans:[{id:'one',name:'Commerce',description:'Shop',price:649,currency:'MAD',modules:['commerce','images']}]} : {profile:{plan:null}}
+      api:async (path:string)=>path==='/portal/plans' ? {plans:[{id:'one',name:'Commerce',description:'Shop',price:399,currency:'MAD',modules:['commerce','images']}]} : {profile:{plan:null}}
     });
     expect(root.textContent).toContain('Product catalog');
     expect(root.textContent).toContain('Sales leads and CSV export');

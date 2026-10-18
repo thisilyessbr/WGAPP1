@@ -1,14 +1,12 @@
 window.RelayqoPlans = (() => {
-  const base = {messages:1000,llmCalls:900,images:0,embeddings:300,monthlyUsd:5,numbers:1,products:0,documents:3,storageMb:25,broadcasts:4,broadcastRecipients:2000};
+  const base = {messages:1500,llmCalls:1200,images:0,embeddings:500,monthlyUsd:5,numbers:1,products:0,documents:5,storageMb:50,broadcasts:0,broadcastRecipients:0};
   const presets = {
-    servicesQr:{name:'Service Assistant · QR Pilot',description:'Official API by default. Additional QR numbers require admin-approved number allowance and client acceptance. Experimental text replies only.',price:549,modules:['knowledge','services','qr'],limits:{...base,numbers:2,messages:2000,llmCalls:1800,embeddings:600,monthlyUsd:10,documents:8,storageMb:75}},
-    commerceQr:{name:'Sales Assistant · QR Pilot',description:'Official API by default. Additional QR numbers require admin-approved number allowance and client acceptance. No campaigns.',price:749,modules:['knowledge','commerce','images','qr'],limits:{...base,numbers:2,messages:3000,llmCalls:2500,images:100,embeddings:1000,monthlyUsd:18,products:300,documents:10,storageMb:150}},
-    services:{name:'Service Assistant',description:'For service businesses: answer FAQs and PDFs, explain services and follow up on customer inquiries. No appointment calendar or product catalog.',price:449,modules:['knowledge','services'],limits:{...base,messages:2000,llmCalls:1800,embeddings:600,monthlyUsd:10,documents:8,storageMb:75}},
-    booking:{name:'Appointment Assistant',description:'For booking businesses: answer FAQs, capture appointment requests with a built-in calendar, time slots and optional Google sync.',price:549,modules:['knowledge','services','calendar'],limits:{...base,messages:2000,llmCalls:1800,embeddings:600,monthlyUsd:10,documents:8,storageMb:75}},
-    commerce:{name:'Sales Assistant',description:'For shops: answer FAQs and PDFs, show products and images, capture purchase requests and optionally configure COD. No service bookings.',price:649,modules:['knowledge','commerce','images'],limits:{...base,messages:3000,llmCalls:2500,images:100,embeddings:1000,monthlyUsd:18,products:300,documents:10,storageMb:150}},
-    servicesInstagram:{name:'Service Assistant · Instagram',description:'Service assistant with optional Instagram DM replies. Client account connection and admin approval are required.',price:699,modules:['knowledge','services','instagram'],limits:{...base,messages:3000,llmCalls:2500,embeddings:900,monthlyUsd:15,documents:8,storageMb:75}},
-    commerceInstagram:{name:'Sales Assistant · Instagram',description:'Sales assistant with product images and optional Instagram DM replies. Client account connection and admin approval are required.',price:899,modules:['knowledge','commerce','images','instagram'],limits:{...base,messages:4000,llmCalls:3200,images:100,embeddings:1200,monthlyUsd:23,products:300,documents:10,storageMb:150}}
+    essentiel:{name:'Essentiel',description:'For service businesses, schools and agencies: answer FAQs and PDFs in Darija, Arabic, French and English, understand voice notes, and capture service inquiries in your team inbox.',price:199,modules:['knowledge','services'],limits:{...base,messages:1500,llmCalls:1200,images:0,embeddings:500,monthlyUsd:5,numbers:1,products:0,documents:5,storageMb:50,broadcasts:0,broadcastRecipients:0}},
+    booking:{name:'Rendez-vous',description:'For salons, clinics, doctors and restaurants: everything in Essentiel plus a built-in booking calendar, available time slots and optional Google Calendar sync.',price:299,modules:['knowledge','services','calendar'],limits:{...base,messages:2500,llmCalls:2000,images:0,embeddings:800,monthlyUsd:8,numbers:1,products:0,documents:8,storageMb:75,broadcasts:0,broadcastRecipients:0}},
+    commerce:{name:'Commerce',description:'For e-commerce and COD shops: product catalog with photos, sizes and stock, AI product image recognition, COD order capture and orders dashboard.',price:399,modules:['knowledge','commerce','images'],limits:{...base,messages:3500,llmCalls:3000,images:50,embeddings:1200,monthlyUsd:12,numbers:1,products:250,documents:10,storageMb:150,broadcasts:0,broadcastRecipients:0}},
+    pro:{name:'Pro Omnicanal',description:'For growing brands: full catalog and COD orders, Instagram DM automation, WhatsApp marketing broadcasts to opted-in customers, and 2 WhatsApp numbers.',price:599,modules:['knowledge','commerce','images','instagram','broadcasts'],limits:{...base,messages:6000,llmCalls:5000,images:150,embeddings:2500,monthlyUsd:20,numbers:2,products:600,documents:20,storageMb:250,broadcasts:4,broadcastRecipients:2000}}
   };
+  const presetNames = new Set(Object.values(presets).map(p => p.name.trim().toLowerCase()));
   const features = {knowledge:'FAQs and PDF knowledge',services:'Services and customer inquiries',calendar:'Booking calendar and appointments',commerce:'Product catalog',images:'Product images',instagram:'Instagram DM channel (admin enabled)',qr:'QR connection (experimental)',broadcasts:'Broadcasts to opted-in customers (admin enabled)'};
   const labels = {messages:'Customer messages',llmCalls:'AI replies',images:'Images',embeddings:'Document indexing',monthlyUsd:'AI spend ceiling (USD)',numbers:'WhatsApp numbers',products:'Products',documents:'PDF documents',storageMb:'Document storage (MB)',broadcasts:'Broadcasts per month',broadcastRecipients:'Broadcast recipients per month'};
   const outcomes = {
@@ -29,6 +27,7 @@ window.RelayqoPlans = (() => {
     if (l.numbers !== undefined) row(number(l.numbers), 'WhatsApp numbers');
     if (plan.modules.includes('knowledge') && l.documents !== undefined) row(number(l.documents), 'PDF documents');
     if (plan.modules.includes('commerce') && l.products !== undefined) row(number(l.products), 'products');
+    if (plan.modules.includes('images') && l.images !== undefined && l.images > 0) row(number(l.images), 'image analyses per month');
     if (plan.modules.includes('broadcasts') && l.broadcasts !== undefined) { row(number(l.broadcasts), 'broadcasts per month'); row(number(l.broadcastRecipients), 'broadcast recipients per month'); }
     return rows.length ? `<ul class="plan-limits">${rows.join('')}</ul>` : '';
   }
@@ -91,13 +90,35 @@ window.RelayqoPlans = (() => {
   }
   async function renderAdmin({root,shell,header,escape,toast,api,bind,go}) {
     const response = await api('/admin/plans');
-    const plans = response.plans || [];
+    let plans = response.plans || [];
+    const usageCount = plan => typeof plan.accountsCount === 'number' ? plan.accountsCount : 0;
+    const removePlan = async plan => {
+      await api('/admin/plans/' + encodeURIComponent(plan.id), { method: 'DELETE' });
+      plans = plans.filter(item => item.id !== plan.id);
+    };
     const list = () => {
       const missing = Object.entries(presets).filter(([,preset]) => !plans.some(plan => plan.name.trim().toLowerCase() === preset.name.toLowerCase()));
-      root.innerHTML = shell(header('Plans','Create clear offers for clients and keep provider costs under control.','<button class="btn" id="new-plan" type="button">Create plan</button>') +
-        `<div class="notice">Saved plans appear below. Suggested offers are examples until you save them as drafts; only published plans are visible to clients. Existing accounts keep their assigned plan until you update them.</div><div class="section-heading"><div><h2>Saved plans</h2><p class="muted small">These are the actual offers in your account.</p></div></div><div class="plan-grid">${plans.map(plan => `<article class="card plan"><span class="badge ${plan.published?'green':''}">${plan.published?'Published':'Draft'}</span><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><p class="small muted">${plan.modules.map(m => escape(features[m] || m)).join(' · ') || 'Core chatbot'}</p><ul><li>${plan.limits.messages === -1 ? 'Unlimited inbound messages' : plan.limits.messages + ' customer messages'}</li><li>${plan.limits.numbers} WhatsApp number${plan.limits.numbers===1?'':'s'}</li><li>Internal AI ceiling: $${plan.limits.monthlyUsd}</li></ul><button class="btn secondary edit-plan" data-id="${escape(plan.id)}">Edit plan</button></article>`).join('') || '<p class="empty">No saved plans yet.</p>'}</div><div class="section-heading plan-suggestions-heading"><div><h2>Suggested offers</h2><p class="muted small">Review a template, or save the missing offers as unpublished drafts.</p></div>${missing.length?'<button class="btn secondary" id="save-suggested" type="button">Create '+missing.length+' draft plan'+(missing.length===1?'':'s')+'</button>':''}</div><div class="plan-grid">${Object.entries(presets).map(([key,preset]) => `<article class="card plan"><span class="badge">${missing.some(([id])=>id===key)?'Suggested · not saved':'Already saved'}</span><h2>${escape(preset.name)}</h2><p class="muted small">${escape(preset.description)}</p><div class="plan-price">${preset.price} <small>MAD / month · suggested</small></div><ul><li>${preset.limits.messages} customer messages</li><li>${preset.limits.numbers} WhatsApp number${preset.limits.numbers===1?'':'s'}</li>${preset.modules.includes('commerce')?'<li>COD order workflow can be added per client</li>':preset.modules.includes('calendar')?'<li>Appointment booking & time slots</li>':''}</ul><button class="btn secondary use-preset" data-preset="${key}" type="button">${missing.some(([id])=>id===key)?'Review & create draft':'Edit saved plan'}</button></article>`).join('')}</div><article class="card plan-cod-guide"><h2>Cash on delivery (COD)</h2><p class="muted small">COD order capture is a client chatbot workflow, not a separate plan. After assigning a Commerce or Growth plan, open that client’s Chatbot controls → Guided workflows → Cash on delivery. Review, test, save and publish the workflow for that client. No COD workflow is activated just by creating a plan.</p></article>`,true,'Plans');
+      const unusedPlans = plans.filter(plan => usageCount(plan) === 0);
+      root.innerHTML = shell(header('Plans','Create clear offers in MAD for clients and keep provider costs under control.','<button class="btn" id="new-plan" type="button">Create plan</button>') +
+        `<div class="notice">Saved plans appear below. Only plans currently used in client accounts are kept; unused plans can be removed at any time.</div><div class="section-heading"><div><h2>Saved plans</h2><p class="muted small">Plans currently saved or assigned to client accounts.</p></div>${unusedPlans.length ? `<button class="btn secondary" id="prune-plans" type="button">Remove ${unusedPlans.length} unused plan${unusedPlans.length===1?'':'s'}</button>` : ''}</div><div class="plan-grid">${plans.map(plan => { const used = usageCount(plan); return `<article class="card plan"><div class="actions"><span class="badge ${plan.published?'green':''}">${plan.published?'Published':'Draft'}</span><span class="badge ${used?'blue':''}">${used?`Used in ${used} account${used===1?'':'s'}`:'Unused'}</span></div><h2>${escape(plan.name)}</h2><p class="muted small">${escape(plan.description)}</p><div class="plan-price">${escape(plan.price)} <small>${escape(plan.currency)} / month</small></div><p class="small muted">${plan.modules.map(m => escape(features[m] || m)).join(' · ') || 'Core chatbot'}</p><ul><li>${plan.limits.messages === -1 ? 'Unlimited inbound messages' : plan.limits.messages + ' customer messages'}</li><li>${plan.limits.llmCalls} AI replies</li><li>${plan.limits.numbers} WhatsApp number${plan.limits.numbers===1?'':'s'}</li><li>Internal AI ceiling: $${plan.limits.monthlyUsd}</li></ul><div class="actions"><button class="btn secondary edit-plan" data-id="${escape(plan.id)}" type="button">Edit plan</button>${used === 0 ? `<button class="btn secondary delete-plan" data-delete-id="${escape(plan.id)}" type="button">Remove</button>` : ''}</div></article>`; }).join('') || '<p class="empty">No saved plans yet. Save or publish the 4 MAD plans below.</p>'}</div><div class="section-heading plan-suggestions-heading"><div><h2>Relayqo MAD plans (4 offers)</h2><p class="muted small">Crafted in MAD for your platform features: Services, Booking Calendar, E-commerce COD, and Pro Omnichannel.</p></div>${missing.length?`<div class="actions"><button class="btn secondary" id="save-suggested" type="button">Create ${missing.length} draft plan${missing.length===1?'':'s'}</button><button class="btn" id="publish-suggested" type="button">Create & publish ${missing.length} plan${missing.length===1?'':'s'}</button></div>`:''}</div><div class="plan-grid">${Object.entries(presets).map(([key,preset]) => `<article class="card plan"><span class="badge">${missing.some(([id])=>id===key)?'Suggested · not saved':'Already saved'}</span><h2>${escape(preset.name)}</h2><p class="muted small">${escape(preset.description)}</p><div class="plan-price">${preset.price} <small>MAD / month</small></div><ul><li>${preset.limits.messages} customer messages · ${preset.limits.llmCalls} AI replies</li><li>${preset.limits.numbers} WhatsApp number${preset.limits.numbers===1?'':'s'} · ${preset.limits.documents} PDF documents</li>${preset.modules.includes('commerce')?`<li>Up to ${preset.limits.products} products · ${preset.limits.images} AI image checks</li><li>COD order workflow can be added per client</li>`:preset.modules.includes('calendar')?'<li>Appointment booking & time slots</li>':'<li>Service inquiries & team inbox</li>'}${preset.modules.includes('instagram')?'<li>Instagram DM + 4 broadcasts / month (2,000 recipients)</li>':''}</ul><button class="btn secondary use-preset" data-preset="${key}" type="button">${missing.some(([id])=>id===key)?'Review & create draft':'Edit saved plan'}</button></article>`).join('')}</div><article class="card plan-cod-guide"><h2>Cash on delivery (COD)</h2><p class="muted small">COD order capture is a client chatbot workflow, not a separate plan. After assigning a Commerce or Pro Omnicanal plan, open that client’s Chatbot controls → Guided workflows → Cash on delivery. Review, test, save and publish the workflow for that client. No COD workflow is activated just by creating a plan.</p></article>`,true,'Plans');
       root.querySelector('#new-plan').onclick = () => editor();
       root.querySelectorAll('.edit-plan').forEach(button => button.onclick = () => editor(plans.find(plan => plan.id === button.dataset.id)));
+      root.querySelectorAll('.delete-plan').forEach(button => button.onclick = async () => {
+        button.disabled = true;
+        const plan = plans.find(item => item.id === button.dataset.deleteId);
+        if (!plan) return;
+        try { await removePlan(plan); toast('Unused plan removed.'); list(); }
+        catch (error) { button.disabled = false; toast(error.message, true); }
+      });
+      const pruneButton = root.querySelector('#prune-plans');
+      if (pruneButton) pruneButton.onclick = async () => {
+        pruneButton.disabled = true;
+        try {
+          await api('/admin/plans/prune', { method: 'POST' });
+          toast('Unused plans removed.');
+          go('/admin/plans');
+        } catch (error) { pruneButton.disabled = false; toast(error.message, true); }
+      };
       root.querySelectorAll('.use-preset').forEach(button => button.onclick = () => {
         const preset = presets[button.dataset.preset];
         const saved = plans.find(plan => plan.name.trim().toLowerCase() === preset.name.toLowerCase());
@@ -109,7 +130,16 @@ window.RelayqoPlans = (() => {
         saveSuggested.disabled = true;
         try {
           for (const [,preset] of missing) await api('/admin/plans',{method:'POST',body:JSON.stringify({...preset,currency:'MAD',published:false,template:{}})});
-          toast('Suggested plans saved as drafts. Review each plan before publishing.');
+          toast('4 MAD plans saved as drafts. Review each plan before publishing.');
+          go('/admin/plans');
+        } catch (error) { toast(error.message,true); go('/admin/plans'); }
+      };
+      const publishSuggested = root.querySelector('#publish-suggested');
+      if (publishSuggested) publishSuggested.onclick = async () => {
+        publishSuggested.disabled = true;
+        try {
+          for (const [,preset] of missing) await api('/admin/plans',{method:'POST',body:JSON.stringify({...preset,currency:'MAD',published:true,template:{}})});
+          toast('Plans created and published.');
           go('/admin/plans');
         } catch (error) { toast(error.message,true); go('/admin/plans'); }
       };

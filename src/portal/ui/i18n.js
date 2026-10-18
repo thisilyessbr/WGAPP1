@@ -1407,7 +1407,25 @@
     ['Total requests','Total des demandes','إجمالي الطلبات'],
     ['All requests','Toutes les demandes','جميع الطلبات'],
     ['Appointment booking calendar','Calendrier de prise de rendez-vous','تقويم حجز المواعيد'],
-    ['Appointment booking & time slots','Prise de rendez-vous et créneaux horaires','حجز المواعيد والفترات الزمنية']
+    ['Appointment booking & time slots','Prise de rendez-vous et créneaux horaires','حجز المواعيد والفترات الزمنية'],
+    ['Essentiel','Essentiel','الأساسية (Essentiel)'],
+    ['Rendez-vous','Rendez-vous','المواعيد (Rendez-vous)'],
+    ['Commerce','Commerce','التجارة (Commerce)'],
+    ['Pro Omnicanal','Pro Omnicanal','برو الشاملة (Pro Omnicanal)'],
+    ['For service businesses, schools and agencies: answer FAQs and PDFs in Darija, Arabic, French and English, understand voice notes, and capture service inquiries in your team inbox.','Pour les entreprises de services, écoles et agences : réponses aux FAQ et PDF en darija, arabe, français et anglais, compréhension des messages vocaux et collecte des demandes dans la boîte d’équipe.','لشركات الخدمات والمدارس والوكالات: الإجابة عن الأسئلة المتكررة وملفات PDF بالدارجة والعربية والفرنسية والإنجليزية، فهم الرسائل الصوتية، وجمع طلبات الخدمات في صندوق الفريق.'],
+    ['For salons, clinics, doctors and restaurants: everything in Essentiel plus a built-in booking calendar, available time slots and optional Google Calendar sync.','Pour les salons, cliniques, médecins et restaurants : tout Essentiel avec en plus un calendrier de réservation intégré, des créneaux disponibles et la synchronisation Google Calendar en option.','للصالونات والعيادات والأطباء والمطاعم: كل مزايا الباقة الأساسية مع تقويم حجز مدمج، فترات زمنية متاحة، ومزامنة اختيارية مع تقويم Google.'],
+    ['For e-commerce and COD shops: product catalog with photos, sizes and stock, AI product image recognition, COD order capture and orders dashboard.','Pour les boutiques e-commerce et COD : catalogue produits avec photos, tailles et stock, reconnaissance d’images produits par IA, prise de commandes COD et tableau de bord des commandes.','للمتاجر الإلكترونية والدفع عند الاستلام (COD): كتالوج منتجات بالصور والمقاسات والمخزون، التعرف الذكي على صور المنتجات، تسجيل طلبات الدفع عند الاستلام ولوحة تتبع الطلبات.'],
+    ['For growing brands: full catalog and COD orders, Instagram DM automation, WhatsApp marketing broadcasts to opted-in customers, and 2 WhatsApp numbers.','Pour les marques en croissance : catalogue complet et commandes COD, automatisation Instagram DM, campagnes WhatsApp aux clients inscrits et 2 numéros WhatsApp.','للعلامات التجارية المتنامية: كتالوج كامل وطلبات الدفع عند الاستلام، أتمتة رسائل إنستغرام الخاصة، حملات واتساب التسويقية للعملاء المشتركين، ورقمَا واتساب.'],
+    ['image analyses per month','analyses d’images par mois','تحليلات صور شهريًا'],
+    ['Service inquiries & team inbox','Demandes de service et boîte d’équipe','استفسارات الخدمات وصندوق الفريق'],
+    ['Instagram DM + 4 broadcasts / month (2,000 recipients)','Instagram DM + 4 campagnes / mois (2 000 destinataires)','رسائل إنستغرام + 4 حملات شهريًا (2000 مستلم)'],
+    ['Unused','Non utilisé','غير مستخدمة'],
+    ['Unused plan removed.','Forfait inutilisé supprimé.','أُزيلت الباقة غير المستخدمة.'],
+    ['Unused plans removed.','Forfaits inutilisés supprimés.','أُزيلت الباقات غير المستخدمة.'],
+    ['Plans created and published.','Forfaits créés et publiés.','أُنشئت الباقات ونُشرت.'],
+    ['4 MAD plans saved as drafts. Review each plan before publishing.','4 forfaits en MAD enregistrés comme brouillons. Vérifiez chaque forfait avant publication.','حُفظت 4 باقات بالدرهم كمسودات. راجع كل باقة قبل النشر.'],
+    ['Relayqo MAD plans (4 offers)','Forfaits Relayqo en MAD (4 offres)','باقات Relayqo بالدرهم (4 عروض)'],
+    ['Crafted in MAD for your platform features: Services, Booking Calendar, E-commerce COD, and Pro Omnichannel.','Conçus en MAD selon les fonctionnalités de votre plateforme : Services, Calendrier de réservation, E-commerce COD et Pro Omnicanal.','مصممة بالدرهم المغربي حسب مزايا منصتك: الخدمات، تقويم المواعيد، التجارة والدفع عند الاستلام، وبرو الشاملة.']
   ]) translations.set(en, { fr, ar });
 
   // Value-led plan and broadcast UI. Keep marketing promises translatable and

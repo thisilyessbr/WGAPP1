@@ -1521,7 +1521,9 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
     if (plan.modules.includes('commerce') && plan.modules.includes('services')) throw new PortalError(400, 'MIXED_PLAN_NOT_SUPPORTED', 'Choose either services or commerce for a new plan.');
     send(res, { plan: await store.savePlan(req.portal.user.id, plan) }, 201);
   }));
+  admin.post('/plans/prune', route(async (req, res) => send(res, { removed: await store.pruneUnusedPlans(req.portal.user.id) })));
   admin.put('/plans/:id', route(async (req, res) => send(res, { plan: await store.savePlan(req.portal.user.id, validatePlan(req.body), String(req.params.id), integer(req.body?.revision, 1)) })));
+  admin.delete('/plans/:id', route(async (req, res) => { await store.deletePlan(req.portal.user.id, String(req.params.id)); send(res, { success: true }); }));
   admin.get('/users', route(async (_req, res) => send(res, { users: await store.db.$queryRaw<any[]>`SELECT id,email,name,role,"verifiedAt",disabled,"createdAt" FROM "PortalUser" ORDER BY "createdAt" DESC LIMIT 100` })));
   admin.patch('/users/:id/name', route(async (req, res) => {
     const input = object(req.body); allowed(input, ['name']);

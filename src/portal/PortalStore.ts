@@ -79,9 +79,18 @@ export class PortalStore {
       WHERE s."tokenHash"=${tokenHash} AND s."expiresAt">NOW() AND u.disabled=false AND (u."verifiedAt" IS NOT NULL OR ${allowUnverified})`)[0] || null;
   }
   async revokeSession(id: string) { await this.db.$executeRaw`DELETE FROM "PortalSession" WHERE id=${id}`; }
+  private legacyPlansPruned = false;
   async plans(publicOnly = false): Promise<PortalPlan[]> {
-    const rows = await this.db.$queryRaw<any[]>`SELECT * FROM "PortalPlan" WHERE (${publicOnly}=false OR published=true) ORDER BY price,name`;
-    return rows.map(r => ({ ...r, price: Number(r.price) }));
+    if (!this.legacyPlansPruned && process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+      this.legacyPlansPruned = true;
+      await this.db.$executeRaw`DELETE FROM "PortalPlan" p
+        WHERE NOT EXISTS (SELECT 1 FROM "PortalProfile" pr WHERE pr."planId"=p.id OR pr."requestedPlanId"=p.id)
+        AND LOWER(BTRIM(p.name)) NOT IN ('essentiel','rendez-vous','commerce','pro omnicanal')`;
+    }
+    const rows = await this.db.$queryRaw<any[]>`SELECT p.*,
+      (SELECT COUNT(*)::int FROM "PortalProfile" pr WHERE pr."planId"=p.id OR pr."requestedPlanId"=p.id) AS "accountsCount"
+      FROM "PortalPlan" p WHERE (${publicOnly}=false OR p.published=true) ORDER BY p.price,p.name`;
+    return rows.map(r => ({ ...r, price: Number(r.price), accountsCount: Number(r.accountsCount || 0) }));
   }
   async plan(id: string): Promise<PortalPlan | null> {
     const row = (await this.db.$queryRaw<any[]>`SELECT * FROM "PortalPlan" WHERE id=${id}`)[0];
@@ -99,6 +108,24 @@ export class PortalStore {
       }
       await s.audit(actorId, null, 'PLAN_SAVED', { planId });
       return s.plan(planId);
+    });
+  }
+  async deletePlan(actorId: string, id: string) {
+    return this.transaction(async s => {
+      const used = (await s.db.$queryRaw<any[]>`SELECT COUNT(*)::int AS n FROM "PortalProfile" WHERE "planId"=${id} OR "requestedPlanId"=${id}`)[0]?.n || 0;
+      if (used > 0) throw new PortalError(409, 'PLAN_IN_USE', 'This plan is used by an account and cannot be removed.');
+      const count = await s.db.$executeRaw`DELETE FROM "PortalPlan" WHERE id=${id}`;
+      if (!count) throw new PortalError(404, 'PLAN_NOT_FOUND');
+      await s.audit(actorId, null, 'PLAN_DELETED', { planId: id });
+    });
+  }
+  async pruneUnusedPlans(actorId: string) {
+    return this.transaction(async s => {
+      const removed = await s.db.$queryRaw<any[]>`DELETE FROM "PortalPlan" p
+        WHERE NOT EXISTS (SELECT 1 FROM "PortalProfile" pr WHERE pr."planId"=p.id OR pr."requestedPlanId"=p.id)
+        RETURNING p.id`;
+      if (removed.length) await s.audit(actorId, null, 'PLANS_PRUNED', { count: removed.length, ids: removed.map(r => r.id) });
+      return removed.length;
     });
   }
   async profile(accountId: string, tenantId?: string): Promise<PortalProfile> {
