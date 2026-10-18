@@ -779,7 +779,7 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     let contextDataUpdate: Record<string, any> | null = null;
 
     // 0. Capability Routing & Multi-modal payload resolution
-    const payload: IncomingMessagePayload = typeof contentInput === 'string' ? { text: contentInput } : contentInput;
+    let payload: IncomingMessagePayload = typeof contentInput === 'string' ? { text: contentInput } : contentInput;
 
     telemetry.emit({
       eventType: 'message_received',
@@ -991,6 +991,17 @@ Return only the JSON object required by OUTPUT CONTRACT. Preserve the exact requ
     }
 
     const routed = await this.capabilityRouter.route(tenantId, payload, config, correlationId);
+    // A photo sent without a caption asks "do you have this?" (shop) or "can you help with this?" (service).
+    // Give it that question in the conversation's language (else the business language) so it follows the
+    // same path as a captioned photo instead of an English description of the image.
+    if (routed.allowed && routed.type === 'IMAGE' && routed.imageAnalysis && !(payload.text || '').trim()) {
+      const ctx = (conversation.contextData as any) || {};
+      const lang = ctx._lang || config.identity?.language || 'en';
+      const question = ConversationEngine.implicitPhotoQuestion(lang, ctx._script, config.capabilities?.ecommerceEnabled === true);
+      payload = { ...payload, text: question };
+      routed.type = 'TEXT_AND_IMAGE';
+      routed.effectiveContent = `${question} (photo: ${routed.effectiveContent})`;
+    }
 
     telemetry.emit({
       eventType: 'routing_decided',
@@ -3168,16 +3179,11 @@ Check again: the business-owner evidence above lists the business's policies, se
           });
         } else if (routed.type === 'IMAGE' && routed.imageAnalysis) {
           responseSource = 'IMAGE';
-          const analysis = routed.imageAnalysis;
-          if (analysis.category) {
-            response = `I identified a product in the ${analysis.category} category (${analysis.description || analysis.objects.join(', ')}). How can I assist you with this item?`;
-          } else if (analysis.visibleText) {
-            response = `I detected the following text in your image: "${analysis.visibleText}". How can I help you with this?`;
-          } else if (analysis.description) {
-            response = `I see: ${analysis.description}. How can I assist you with this?`;
-          } else {
-            response = "I've analyzed your image. How can I help you with it?";
-          }
+          // Last resort: never echo the (English) image-service description; ask in the customer's language.
+          response = effectiveLang === 'fr' ? 'J’ai bien reçu votre photo. Que souhaitez-vous savoir à son sujet ?'
+            : effectiveLang === 'ar' ? 'وصلتني صورتك. ماذا تريد أن تعرف عنها؟'
+            : effectiveLang === 'darija' ? (effectiveScript === 'arabizi' ? 'Wslatni tswira dyalek. Chno bghiti t3ref 3liha?' : 'وصلاتني التصويرة ديالك. شنو بغيتي تعرف عليها؟')
+            : 'I got your photo. What would you like to know about it?';
         } else {
           // Static fallback ONLY with detected language localization. Zero LLM calls.
           responseSource = 'FALLBACK';
@@ -3654,6 +3660,17 @@ Check again: the business-owner evidence above lists the business's policies, se
    * True for an information question with no request wording ("what is…", "wach kayn…?", "combien…?").
    * Anything that sounds like asking to do something (want, book, order, demo, bghit, je veux…) is not plain.
    */
+  /** The question a customer means by a photo without a caption, in their language. */
+  static implicitPhotoQuestion(lang: string, script: string | undefined, shop: boolean): string {
+    if (lang === 'fr') return shop ? 'Vous avez ça ?' : 'Vous pouvez m’aider pour ça ?';
+    if (lang === 'ar') return shop ? 'هل لديكم هذا؟' : 'هل يمكنكم مساعدتي في هذا؟';
+    if (lang === 'darija') {
+      if (script === 'arabizi') return shop ? 'wach 3ndkom hadi?' : 'wach t9dro t3awnouni f hadi?';
+      return shop ? 'واش عندكم هادي؟' : 'واش تقدرو تعاونوني ف هادي؟';
+    }
+    return shop ? 'Do you have this?' : 'Can you help me with this?';
+  }
+
   static isPlainQuestion(content: string): boolean {
     const text = content.trim().toLowerCase();
     if (!text || text.length > 300) return false;
