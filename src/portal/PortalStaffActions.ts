@@ -135,6 +135,19 @@ export class PortalStaffActions {
           AND (l."assignedToUserId" IS NULL OR l."assignedToUserId"=u.id)
           AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
         ON CONFLICT DO NOTHING`;
+      // One reminder per handoff nobody has picked up after the wait limit; the occurrence suffix keeps it apart from the first alert.
+      const reminderMinutes = Math.max(5, Number(process.env.PORTAL_HANDOFF_REMINDER_MINUTES || 15));
+      await this.store.db.$executeRaw`INSERT INTO "PortalActionAlert"(id,"tenantId","accountId","recipientId",kind,"sourceId",occurrence)
+        SELECT gen_random_uuid()::text,c."tenantId",c."accountId",u.id,'HANDOFF',c.id,
+          c."humanRequestedAt"::text || '#reminder'
+        FROM "Conversation" c JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+        JOIN "PortalProfile" p ON p."accountId"=c."accountId" AND p."tenantId"=c."tenantId"
+        JOIN "PortalMembership" pm ON pm."accountId"=c."accountId" AND pm."tenantId"=c."tenantId"
+        JOIN "PortalUser" u ON u.id=pm."userId"
+        WHERE c.status='HANDOFF_REQUESTED' AND p.status='ACTIVE' AND u.disabled=false AND u."verifiedAt" IS NOT NULL AND u.email NOT ILIKE '%.test'
+          AND c."humanRequestedAt"<=NOW()-(${reminderMinutes} * INTERVAL '1 minute') AND c."humanRequestedAt">NOW()-INTERVAL '24 hours'
+          AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
+        ON CONFLICT DO NOTHING`;
       await this.store.db.$executeRaw`UPDATE "PortalStaffAlertCursor" SET "scannedThrough"=GREATEST("scannedThrough",${through}) WHERE id='staff-alerts'`;
       await this.store.db.$executeRaw`UPDATE "PortalActionAlert" SET status='PENDING',"leaseUntil"=NULL
         WHERE status='SENDING' AND "leaseUntil"<NOW()`;
@@ -182,7 +195,8 @@ export class PortalStaffActions {
   }
 
   private static async sendEmail(alert: Alert, url: string) {
-    const subject = alert.kind === 'HANDOFF' ? 'Relayqo: a customer is waiting for you' : alert.kind === 'FOLLOW_UP' ? 'Relayqo: follow-up due'
+    const subject = alert.kind === 'HANDOFF' && alert.occurrence.endsWith('#reminder') ? 'Relayqo: a customer is still waiting for you'
+      : alert.kind === 'HANDOFF' ? 'Relayqo: a customer is waiting for you' : alert.kind === 'FOLLOW_UP' ? 'Relayqo: follow-up due'
       : alert.kind === 'ORDER' ? 'Relayqo: new order to confirm' : 'Relayqo: new customer request';
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),

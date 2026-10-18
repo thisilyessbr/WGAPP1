@@ -81,6 +81,29 @@ describe('staff action boundaries and correction flow', () => {
     }
   });
 
+  it('reminds staff once when a customer has waited too long for a human', async () => {
+    const sent: string[] = [];
+    const previous = { key: process.env.RESEND_API_KEY, from: process.env.PORTAL_MAIL_FROM, url: process.env.PORTAL_PUBLIC_URL };
+    process.env.RESEND_API_KEY = 'test-key'; process.env.PORTAL_MAIL_FROM = 'Relayqo <test@example.test>';
+    process.env.PORTAL_PUBLIC_URL = 'https://app.example.test';
+    try {
+      await database.db.$executeRaw`INSERT INTO "PortalProfile"("accountId","tenantId",status,draft) VALUES (${b.account},${b.tenant},'ACTIVE','{}'::jsonb) ON CONFLICT DO NOTHING`;
+      await database.db.$executeRaw`UPDATE "Conversation" SET "humanRequestedAt"=NOW()-INTERVAL '20 minutes' WHERE id=${b.conversation}`;
+      const store: any = { db: database.db, audit: async () => {}, transaction: (fn: any) => database.db.$transaction((db: any) => fn({ db, audit: async () => {} })) };
+      const worker = new PortalStaffActions(store, async alert => { if (alert.sourceId === b.conversation) sent.push(alert.occurrence); });
+      await worker.tick(); await worker.tick();
+      expect(sent.filter(occurrence => occurrence.endsWith('#reminder'))).toHaveLength(1);
+      // Picked up: no further reminder.
+      await database.db.$executeRaw`UPDATE "Conversation" SET status='HUMAN_ACTIVE' WHERE id=${b.conversation}`;
+      await worker.tick();
+      expect(sent.filter(occurrence => occurrence.endsWith('#reminder'))).toHaveLength(1);
+    } finally {
+      if (previous.key === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = previous.key;
+      if (previous.from === undefined) delete process.env.PORTAL_MAIL_FROM; else process.env.PORTAL_MAIL_FROM = previous.from;
+      if (previous.url === undefined) delete process.env.PORTAL_PUBLIC_URL; else process.env.PORTAL_PUBLIC_URL = previous.url;
+    }
+  });
+
   it('rejects request assignment to a member of another account', async () => {
     const store: any = { db: database.db, audit: async () => {}, transaction: (fn: any) => database.db.$transaction((db: any) => fn({ db, audit: async () => {} })) };
     const lead = (await database.db.$queryRaw<any[]>`SELECT id FROM "Lead" WHERE "accountId"=${a.account}`)[0];
