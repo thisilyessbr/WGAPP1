@@ -75,9 +75,11 @@ describe('portal visual workflows',()=>{
     const wf=template('lead','test');wf.states.phone.next='start';wf.states.phone.field.name='fullName';
     const result=diagnostics({test:wf});expect(result.errors).toEqual([]);expect(result.warnings.join(' ')).toContain('collected more than once');
   });
-  it('builds the sales template as discovery questions, a pitch, a calendar day and time, then an email',()=>{
+  it('builds the sales template as discovery questions, a pitch, a calendar day and time, without an email step',()=>{
     const wf=template('sales','sales_test');
-    expect(orderedSteps(wf)).toEqual(['start','business','channels','problem','volume','demo_day','demo_time','email','done']);
+    expect(orderedSteps(wf)).toEqual(['start','business','channels','problem','volume','demo_day','demo_time','done']);
+    expect(wf.states.email).toBeUndefined();
+    expect(wf.states.done.prompt.darija).toContain('هنا فالواتساب');
     expect(['business','channels','problem','volume'].every(id=>wf.states[id].field.acceptAnyReply)).toBe(true);
     expect(wf.states.demo_day).toMatchObject({calendar:'day',pitch:true,next:'demo_time'});
     expect(wf.states.demo_time.calendar).toBe('slots');
@@ -89,7 +91,7 @@ describe('portal visual workflows',()=>{
   it('flags calendar steps that cannot work',()=>{
     const wf=template('sales','sales_test');
     expect(diagnostics({s:wf},[],{}).warnings.join(' ')).toContain('calendar bookings are paused');
-    wf.states.volume.next='demo_time';wf.states.demo_day.next='email';
+    wf.states.volume.next='demo_time';wf.states.demo_day.next='done';
     const errors=diagnostics({s:wf},[],{enabled:true,calendarId:'x'}).errors.join(' ');
     expect(errors).toContain('must come right after a calendar day step');
     expect(errors).toContain('must be a calendar time step');

@@ -1,11 +1,12 @@
 import { WorkflowSession } from '@prisma/client';
-import { BusinessConfig, WorkflowConfig, WorkflowStateConfig } from '../../domain/tenant/BusinessConfig';
+import { BusinessConfig, WorkflowConfig, WorkflowStateConfig, clientWorkflowMessage } from '../../domain/tenant/BusinessConfig';
 import { LLMProvider, LLMRequestOptions } from '../llm/LLMProvider';
 import { ResponseBuilder, getWorkflowMessage } from '../../domain/conversation/ResponseBuilder';
 import { LanguageDetector } from '../../domain/faq/FaqMatcher';
 import { CalendarConfig, CalendarScheduler, OfferedSlot, calendarMessage, dayLabel, defaultCalendarScheduler, schedulerForConnection, matchSlot, parseDay, slotList } from '../../domain/calendar/CalendarScheduler';
 import { logger } from '../../utils/logger';
 import type { WorkflowResult } from './WorkflowEngine';
+import { isDeclineReply } from './OptionalFieldSkip';
 
 /**
  * Calendar and sales-conversation features layered around the workflow engine:
@@ -60,19 +61,37 @@ export class WorkflowCalendar {
     effectiveLang?: string, effectiveScript?: string, isCancellation?: (m: string) => boolean): Promise<WorkflowResult | null> {
     const state = workflow.states[session.stateId] as WorkflowStateConfig & { calendar?: string };
     const ctx = { ...((session.contextData || {}) as Record<string, any>) };
-    // An optional email field: "ma3ndich email" / "pas d'email" moves on instead of looping.
-    const emailField = state?.type === 'collect' && typeof state.field === 'object' && state.field?.type === 'email' && state.field.required === false;
-    if (emailField && ctx._started && !/@/.test(message)
-      && /\b(?:no|don'?t have|pas d'?e?-?mail|n'ai pas|ma3ndich|ma 3ndich|makaynch|ma3endich|skip|sans)\b|ما عنديش|ماعنديش|معنديش|ما عندي|لا أملك|ليس لدي|ما كاينش/iu.test(message)) {
-      const f = (state.field as any).name;
-      const collected = { ...(((session as any).collectedData || {}) as Record<string, any>), [f]: 'not provided' };
-      const nextId = state.next || state.transitions?.[0]?.target;
-      const next = nextId ? workflow.states[nextId] : undefined;
-      const { lang, script } = this.langOf(session, message, effectiveLang, effectiveScript);
-      return { updatedContext: { ...ctx, [f]: 'not provided' }, nextStateId: nextId || null, isComplete: !next || next.type === 'end',
-        response: next && next.type !== 'end' ? this.statePrompt(next, config, { ...ctx, ...collected }, lang, script) : '',
-        updatedStateHistory: [...(session.stateHistory || []), session.stateId], updatedCollectedData: collected,
-        ...((!next || next.type === 'end') && workflow.outcome?.createLead === true ? { createLead: true } : {}) };
+    // An optional question ("email, if you want"): a refusal ("لا", "منبعد", "la merci", "ماعنديش") moves on, and so
+    // does a second unusable answer, so an optional step can never trap the customer. Nothing is stored for it.
+    const optional = state?.type === 'collect' && typeof state.field === 'object' && state.field?.required === false;
+    if (optional && ctx._started) {
+      const misses = Number(ctx._optionalMisses?.[session.stateId] || 0);
+      const usable = (state.field as { type?: string }).type === 'email' ? /\S+@\S+\.\S+/u.test(message) : !isDeclineReply(message);
+      if (isDeclineReply(message) || (!usable && misses >= 1)) {
+        const nextId = state.next || state.transitions?.[0]?.target;
+        const next = nextId ? workflow.states[nextId] : undefined;
+        const { lang, script } = this.langOf(session, message, effectiveLang, effectiveScript);
+        const collected = { ...(((session as any).collectedData || {}) as Record<string, any>) };
+        const { _optionalMisses: _done, ...rest } = ctx;
+        const done = !next || next.type === 'end';
+        return { updatedContext: rest, nextStateId: nextId || null, isComplete: done,
+          response: !next ? '' : next.type === 'end' ? ResponseBuilder.buildEndResponse(next, lang, script, { ...rest, ...collected })
+            : this.statePrompt(next, config, { ...rest, ...collected }, lang, script),
+          updatedStateHistory: [...(session.stateHistory || []), session.stateId], updatedCollectedData: collected,
+          ...(done && workflow.outcome?.createLead === true ? { createLead: true } : {}) };
+      }
+      // "واش ضروري؟", "علاش الإيميل؟", "c'est obligatoire ?": say it is optional, then ask again (not a miss).
+      const asksWhy = /[?؟]|^(?:واش|علاش|لماذا|هل|wach|3lach|pourquoi|why|is it)/iu.test(message.trim())
+        && /ضروري|لازم|إجباري|اجباري|واجب|علاش|لماذا|لاش|daroori|daruri|lazem|lazm|3lach|obligatoire|n[ée]cessaire|pourquoi|required|mandatory|necessary|why|إيميل|ايميل|الإيميل|البريد|e-?mail/iu.test(message);
+      if (asksWhy && (state.field as { type?: string }).type === 'email') {
+        const { lang, script } = this.langOf(session, message, effectiveLang, effectiveScript);
+        const explainer = clientWorkflowMessage(config, 'optionalEmailExplainer', lang, getWorkflowMessage('optionalEmailExplainer', lang, script), script);
+        return { updatedContext: ctx, nextStateId: session.stateId, isComplete: false,
+          response: `${explainer}\n\n${this.statePrompt(state, config, ctx, lang, script)}`,
+          updatedStateHistory: session.stateHistory || [], updatedCollectedData: ((session as any).collectedData || {}) };
+      }
+      // The core engine validates this answer; remember a miss so the next one can move on.
+      if (!usable) (session.contextData as Record<string, any>)._optionalMisses = { ...(ctx._optionalMisses || {}), [session.stateId]: misses + 1 };
     }
     // "Shall we book a demo?" answered with a day ("ghda", "jeudi"): that is a yes, and the day is taken right away.
     if (state?.type === 'confirm' && ctx._started && !isCancellation?.(message) && !/[?؟]/.test(message)) {

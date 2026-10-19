@@ -115,8 +115,15 @@ export class ConversationReplyGuard {
     if (workflow?.midWorkflow) {
       // A workflow may repeat its current question, but never replay its welcome
       // or generic acquisition pitch in the middle of collection.
-      const pieces = out.split(/(?<=[.!?؟])\s+|\n+/u);
-      out = pieces.filter(piece => !/^(?:hello|hi|welcome|bonjour|salut|salam(?:\s+w)?\s*marhba|مرحبا|السلام عليكم)\b/iu.test(piece.trim())).join('\n').trim() || out;
+      // Only a reply that really contains a welcome is rebuilt, with its own spacing; anything else is left
+      // exactly as written (re-joining every sentence with a line break chopped short questions into lines).
+      const isWelcome = (piece: string) => /^(?:hello|hi|welcome|bonjour|salut|salam(?:\s+w)?\s*marhba|مرحبا|السلام عليكم)\b/iu.test(piece.trim());
+      const pieces = out.split(/((?<=[.!?؟])\s+|\n+)/u);
+      if (pieces.some((piece, i) => i % 2 === 0 && isWelcome(piece))) {
+        const kept: string[] = [];
+        for (let i = 0; i < pieces.length; i += 2) if (!isWelcome(pieces[i])) kept.push(pieces[i], pieces[i + 1] || '');
+        out = kept.join('').trim() || out;
+      }
     }
     if (workflow?.pendingPrompt) {
       const prompt = workflow.pendingPrompt.trim();

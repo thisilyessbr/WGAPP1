@@ -1,0 +1,181 @@
+{
+ "id": "sales_demo",
+ "name": "مسار البيع وحجز الديمو",
+ "states": {
+  "demo": {
+   "next": "slot",
+   "type": "collect",
+   "field": {
+    "name": "demoDay",
+    "type": "string",
+    "required": true
+   },
+   "pitch": true,
+   "prompt": {
+    "ar": "ما رأيك أن نحجز لك موعداً قصيراً مع فريقنا، يعرض عليك فيه Demo للخدمة ويشرح لك السعر وكيف تستفيد منها؟\nما اليوم المناسب لك؟ اليوم، غداً، أم يوم آخر؟",
+    "en": "How about a short call with our team to show you a Demo, explain the price and how you'd benefit?\nWhich day suits you? Today, tomorrow, or another day?",
+    "fr": "Que diriez-vous d'un court rendez-vous avec notre équipe pour une Démo du service, le prix et comment en profiter ?\nQuel jour vous convient ? Aujourd'hui, demain, ou un autre jour ?",
+    "darija": "شنو رأيك نحجزو ليك واحد الموعد قصير مع الفريق ديالنا، يوريك فيه Demo ديال الخدمة ويشرح ليك الثمن وكيفاش تقدر تستافد منها؟\nشنو النهار اللي يناسبك؟ اليوم، غدا، ولا نهار آخر؟",
+    "darija_arabic": "شنو رأيك نحجزو ليك واحد الموعد قصير مع الفريق ديالنا، يوريك فيه Demo ديال الخدمة ويشرح ليك الثمن وكيفاش تقدر تستافد منها؟\nشنو النهار اللي يناسبك؟ اليوم، غدا، ولا نهار آخر؟",
+    "darija_arabizi": "Chno ra2yek n7jzo lik maw3id 9sir m3a l-fari9 dyalna, ywrik fih Demo dyal l-khidma w ychra7 lik taman w kifach t9der tstafd mnha?\nChmen nhar kaynasbek? Lyoum, ghda, wla nhar akhor?"
+   }
+  },
+  "done": {
+   "type": "end",
+   "prompt": {
+    "ar": "ممتاز! سجلنا طلب العرض التوضيحي الخاص بك. سيتواصل معك الفريق هنا على واتساب لتأكيد الموعد.",
+    "en": "Great! Your demo request is registered. Our team will contact you here on WhatsApp to confirm the appointment.",
+    "fr": "Parfait ! Votre demande de démo est enregistrée. Notre équipe vous contactera ici sur WhatsApp pour confirmer le rendez-vous.",
+    "darija": "ممتاز! سجلنا طلب الديمو ديالك. الفريق غادي يتواصل معاك هنا فالواتساب باش يأكد الموعد.",
+    "darija_arabic": "ممتاز! سجلنا طلب الديمو ديالك. الفريق غادي يتواصل معاك هنا فالواتساب باش يأكد الموعد.",
+    "darija_arabizi": "Mzyan! Sjjlna talab dyal demo dyalek. L-fari9 ghadi ytwasel m3ak hna f WhatsApp bach y2ekked l-maw3id."
+   }
+  },
+  "name": {
+   "next": "business",
+   "type": "collect",
+   "field": {
+    "name": "fullName",
+    "type": "string",
+    "required": true,
+    "semanticType": "person_name"
+   },
+   "prompt": {
+    "ar": "مرحباً بك! 👋😊\nمعك المساعد الذكي لـRelayqo.\nنساعد الشركات على الرد على رسائل عملائها في واتساب وإنستغرام، وإكمال المحادثات حتى طلبات الشراء.\nلنفهم كيف يمكننا مساعدتك، ما اسمك؟",
+    "en": "Hi and welcome! 👋😊\nI'm the Relayqo assistant.\nWe help businesses answer their customers' messages on WhatsApp and Instagram, all the way to the order.\nTo understand how we can help, what's your name?",
+    "fr": "Bonjour et bienvenue ! 👋😊\nJe suis l'assistant Relayqo.\nNous aidons les entreprises à répondre aux messages de leurs clients sur WhatsApp et Instagram, jusqu'à la commande.\nPour comprendre comment vous aider, quel est votre prénom ?",
+    "darija": "سلام ومرحبا بيك! 👋😊\nمعاك المساعد الذكي ديال Relayqo.\nكنعاونو البيزنس يجاوبو على الميساجات ديال الكليان فالواتساب والإنستغرام، ويكملو المحادثات حتى لطلبات شراء.\nباش نفهم كيفاش نقدرو نعاونوك، ممكن نعرف شنو سميتك؟",
+    "darija_arabic": "سلام ومرحبا بيك! 👋😊\nمعاك المساعد الذكي ديال Relayqo.\nكنعاونو البيزنس يجاوبو على الميساجات ديال الكليان فالواتساب والإنستغرام، ويكملو المحادثات حتى لطلبات شراء.\nباش نفهم كيفاش نقدرو نعاونوك، ممكن نعرف شنو سميتك؟",
+    "darija_arabizi": "Salam w mar7ba bik! 👋😊\nM3ak l-mosa3id dyal Relayqo.\nKan3awno l-business yjawbo 3la messages dyal clients f WhatsApp w Instagram, w ykmlo l-mo7adata 7ta l talab dyal chra.\nBach nfhem kifach n9dro n3awnok, chno smitek?"
+   }
+  },
+  "pain": {
+   "next": "volume",
+   "type": "collect",
+   "field": {
+    "name": "mainProblem",
+    "type": "string",
+    "required": true,
+    "acceptAnyReply": true
+   },
+   "prompt": {
+    "ar": "فهمتك يا {{fullName}} 👍\nعندما تصلك الرسائل، هل تستطيع الرد على الجميع في الوقت المناسب، أم أن بعضها يتأخر الرد عليه؟",
+    "en": "Got it, {{fullName}} 👍\nRight now, can you answer everyone on time, or do some messages wait too long for a reply?",
+    "fr": "Je vois, {{fullName}} 👍\nAujourd'hui, arrivez-vous à répondre à tout le monde à temps, ou certains messages attendent leur réponse ?",
+    "darija": "فهمتك {{fullName}} 👍\nدابا ملي كيوصلوك الميساجات، واش كتقدر تجاوب على الجميع فوقتهم، ولا كاينين شي ميساجات كيتأخرو فالجواب ديالهم؟",
+    "darija_arabic": "فهمتك {{fullName}} 👍\nدابا ملي كيوصلوك الميساجات، واش كتقدر تجاوب على الجميع فوقتهم، ولا كاينين شي ميساجات كيتأخرو فالجواب ديالهم؟",
+    "darija_arabizi": "Fhemtek {{fullName}} 👍\nDaba mlli kaywslok l-messages, wach kat9der tjawb 3la kolchi f wa9thom, wla kaynin chi messages kayt2khro?"
+   }
+  },
+  "slot": {
+   "next": "done",
+   "type": "collect",
+   "field": {
+    "name": "demoSlot",
+    "type": "string",
+    "required": true,
+    "acceptAnyReply": true
+   },
+   "prompt": {
+    "ar": "ما الوقت المناسب لك؟",
+    "en": "What time suits you?",
+    "fr": "Quelle heure vous convient ?",
+    "darija": "شنو الوقت اللي يناسبك؟",
+    "darija_arabic": "شنو الوقت اللي يناسبك؟",
+    "darija_arabizi": "Chmen wa9t kaynasbek?"
+   }
+  },
+  "volume": {
+   "next": "demo",
+   "type": "collect",
+   "field": {
+    "name": "dailyMessages",
+    "type": "string",
+    "required": true,
+    "acceptAnyReply": true
+   },
+   "prompt": {
+    "ar": "لنعطيك فكرة مناسبة لنشاطك، كم رسالة تصلك تقريباً في اليوم؟",
+    "en": "To give you a fitting idea, roughly how many messages do you get per day?",
+    "fr": "Pour vous donner une idée adaptée, combien de messages recevez-vous à peu près par jour ?",
+    "darija": "باش نعطيك فكرة مناسبة للبيزنس ديالك، تقريباً شحال من ميساج كيوصلك فالنهار؟",
+    "darija_arabic": "باش نعطيك فكرة مناسبة للبيزنس ديالك، تقريباً شحال من ميساج كيوصلك فالنهار؟",
+    "darija_arabizi": "Bach n3tik fikra mnasba l business dyalek, ta9riban ch7al mn message kaywslek f nhar?"
+   }
+  },
+  "business": {
+   "next": "channels",
+   "type": "collect",
+   "field": {
+    "name": "businessType",
+    "type": "string",
+    "required": true,
+    "acceptAnyReply": true
+   },
+   "prompt": {
+    "ar": "أهلاً {{fullName}}! تشرفنا 🙌\nما هو نشاطك التجاري؟ ماذا تبيع بالضبط؟",
+    "en": "Nice to meet you, {{fullName}}! 🙌\nWhat does your business do? What exactly do you sell?",
+    "fr": "Enchanté {{fullName}} ! 🙌\nQuelle est votre activité ? Que vendez-vous exactement ?",
+    "darija": "مرحبا بيك {{fullName}}! تشرفنا 🙌\nقولي، شنو هو النشاط التجاري ديالك؟ شنو كتبيع بالضبط؟",
+    "darija_arabic": "مرحبا بيك {{fullName}}! تشرفنا 🙌\nقولي، شنو هو النشاط التجاري ديالك؟ شنو كتبيع بالضبط؟",
+    "darija_arabizi": "Mar7ba bik {{fullName}}! Tcharrafna 🙌\n9oli, chno howa nachat dyalek? Chno katbi3 b dabt?"
+   }
+  },
+  "channels": {
+   "next": "pain",
+   "type": "collect",
+   "field": {
+    "name": "channels",
+    "type": "string",
+    "required": true,
+    "acceptAnyReply": true
+   },
+   "prompt": {
+    "ar": "رائع! 👌\nأين تصلك معظم رسائل عملائك؟ في واتساب، إنستغرام، أم في الاثنين؟",
+    "en": "Great! 👌\nWhere do most of your customers' messages come in? WhatsApp, Instagram, or both?",
+    "fr": "Très bien ! 👌\nOù recevez-vous la plupart des messages de vos clients ? WhatsApp, Instagram, ou les deux ?",
+    "darija": "زوين بزاف! 👌\nوفين كيوصلوك أغلب الميساجات ديال الكليان ديالك؟ فالواتساب، الإنستغرام، ولا بجوج؟",
+    "darija_arabic": "زوين بزاف! 👌\nوفين كيوصلوك أغلب الميساجات ديال الكليان ديالك؟ فالواتساب، الإنستغرام، ولا بجوج؟",
+    "darija_arabizi": "Zwin bzaf! 👌\nW fin kaywslok ktar messages dyal clients? F WhatsApp, Instagram, wla bjouj?"
+   }
+  }
+ },
+ "outcome": {
+  "createLead": true
+ },
+ "activation": {
+  "mode": "auto_start",
+  "keywords": [
+   "بغيت ديمو",
+   "بغيت نجرب",
+   "بغيت عرض",
+   "بغيت نحجز ديمو",
+   "بغيت نشوف كيفاش كيخدم",
+   "demo",
+   "book a demo",
+   "request a demo",
+   "je veux une démo",
+   "réserver une démo",
+   "bghit demo",
+   "bghit njreb",
+   "n9dr nakhod demo",
+   "baghi demo",
+   "باغي ديمو",
+   "باغية ديمو",
+   "أريد ديمو",
+   "أريد تجربة",
+   "je voudrais une démo",
+   "je souhaite une démo",
+   "I want a demo",
+   "can I get a demo"
+  ],
+  "allowManualStart": true
+ },
+ "description": "يتعرف على الكليان (السمية، النشاط، القنوات، المشكل، حجم الميساجات)، يشرح كيفاش Relayqo يعاونو، ويحجز ديمو فالكالوندر.",
+ "initialState": "name",
+ "executionLimit": {
+  "mode": "unlimited"
+ },
+ "calendarBooking": true,
+ "allowInterruption": true
+}

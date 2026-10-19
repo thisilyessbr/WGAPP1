@@ -72,6 +72,13 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
     fr: "Cette demande n'est plus disponible. Comment puis-je vous aider ?",
     ar: 'هذا الطلب لم يعد متاحاً. كيف يمكنني مساعدتك؟',
     darija: 'Had talab ma b9ach mota7. Kifach n9der n3awnek?'
+  },
+  // Answer to "is the email required? / why the email?" on an optional email step.
+  optionalEmailExplainer: {
+    en: "No, it's not required 😊 The email is only to send you the confirmation there too. If you'd rather not, just write \"no\" and we'll continue.",
+    fr: "Non, ce n'est pas obligatoire 😊 L'e-mail sert seulement à vous envoyer aussi la confirmation. Sinon, écrivez « non » et on continue.",
+    ar: 'لا، ليس ضرورياً 😊 البريد الإلكتروني فقط لنرسل لك التأكيد هناك أيضاً. إذا لم ترغب في ذلك، اكتب «لا» ونكمل.',
+    darija: 'La, machi daroori 😊 L-email ghir bach nsifto lik ta2kid 7ta tma. Ila mabghitich, kteb «la» w nkmlo.'
   }
 };
 
@@ -87,7 +94,8 @@ const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESS
   unclearReprompt: 'سمح ليا، ما فهمتش مزيان 🙏',
   confirmHint: 'جاوبني غير بـ«واخا» ولا «لا» 🙂',
   workflowCancelled: 'واخا، تلغى الطلب ديالك. إلا بغيتي شي حاجة أخرى، أنا هنا.',
-  workflowUnavailable: 'هاد الطلب ما بقاش متوفر. كيفاش نقدر نعاونك؟'
+  workflowUnavailable: 'هاد الطلب ما بقاش متوفر. كيفاش نقدر نعاونك؟',
+  optionalEmailExplainer: 'لا، ماشي ضروري 😊 الإيميل غير باش نصيفطو ليك التأكيد حتى تما. إلا ما بغيتيش، كتب «لا» ونكملو.'
 };
 
 /**
@@ -283,6 +291,15 @@ export class ResponseBuilder {
    * Ignores internal keys beginning with '_'.
    * Replaces null/undefined with empty string.
    */
+  /** The closing message of an end step: its own prompt, or the default completion text, filled with collected values. */
+  public static buildEndResponse(state: WorkflowStateConfig, lang: string, script: string | undefined, data: Record<string, unknown>): string {
+    const defaultCompletion = getWorkflowMessage('completion', lang, script);
+    const endPrompt = state.prompt && (!defaultWorkflowValues('completion').includes(state.prompt as string) || typeof state.prompt === 'object')
+      ? resolveLocalizedPrompt(state.prompt, lang, defaultCompletion, script)
+      : defaultCompletion;
+    return ResponseBuilder.interpolateTemplate(endPrompt, data);
+  }
+
   public static interpolateTemplate(template: string, data: Record<string, unknown>): string {
     if (!template || typeof template !== 'string') return '';
     return template.replace(/\{\{([a-zA-Z0-9_]+)\}\}|\{([a-zA-Z0-9_]+)\}/g, (_match, p1, p2) => {

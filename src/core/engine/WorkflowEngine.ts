@@ -20,6 +20,7 @@ import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
 import { telemetry } from '../telemetry/TelemetryClient';
 import { WorkflowCalendar } from './WorkflowCalendar';
+import { isDeclineReply } from './OptionalFieldSkip';
 import { CalendarScheduler } from '../../domain/calendar/CalendarScheduler';
 
 export interface WorkflowResult {
@@ -624,12 +625,7 @@ export class WorkflowEngine {
 
           if (nextStateConfig.type === 'end') {
             isComplete = true;
-            const defaultCompletion = getWorkflowMessage('completion', lang, script);
-            const defaultVals = defaultWorkflowValues('completion');
-            const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
-              ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
-              : defaultCompletion;
-            response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
+            response = ResponseBuilder.buildEndResponse(nextStateConfig, lang, script, currentContext);
           } else if (nextStateConfig.type === 'choice') {
             response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
           } else if (nextStateConfig.type === 'collect') {
@@ -756,12 +752,14 @@ export class WorkflowEngine {
         const normMsg = GreetingRouter.normalize(trimmedMsg);
         const lowerMsg = trimmedMsg.toLowerCase();
 
-        // 2. Cancellation check
-        if (WorkflowCancellationDetector.isCancellation(trimmedMsg)) {
+        // 2. Cancellation check. A plain "no" to a step that makes an offer ("how about a demo? which day?")
+        // declines the offer; it is never stored as the answer.
+        const declinedOffer = Boolean((stateConfig as { pitch?: boolean }).pitch) && isDeclineReply(trimmedMsg);
+        if (declinedOffer || WorkflowCancellationDetector.isCancellation(trimmedMsg)) {
           isComplete = true;
           collectedData['_confirmed'] = false;
           const defaultCancel = getWorkflowMessage('workflowCancelled', lang, script);
-          const promptToUse = businessConfig.prompts?.workflowCancelled;
+          const promptToUse = (declinedOffer && stateConfig.cancellationPrompt) || businessConfig.prompts?.workflowCancelled;
           const rawCancelMsg = promptToUse && (typeof promptToUse === 'object' || !DEFAULT_CANCELLED_VALUES.includes(promptToUse))
             ? resolveLocalizedPrompt(promptToUse, lang, defaultCancel, script)
             : defaultCancel;
@@ -968,12 +966,7 @@ export class WorkflowEngine {
             if (!nextStateConfig) throw new Error(`Unauthorized or missing target state: ${nextStateId}`);
             if (nextStateConfig.type === 'end') {
               isComplete = true;
-              const defaultCompletion = getWorkflowMessage('completion', lang, script);
-              const defaultVals = defaultWorkflowValues('completion');
-              const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
-                ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
-                : defaultCompletion;
-              response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
+              response = ResponseBuilder.buildEndResponse(nextStateConfig, lang, script, currentContext);
             } else if (nextStateConfig.type === 'choice') {
               response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
             } else if (nextStateConfig.type === 'collect') {
@@ -1191,12 +1184,7 @@ export class WorkflowEngine {
         
         if (nextStateConfig.type === 'end') {
           isComplete = true;
-          const defaultCompletion = getWorkflowMessage('completion', lang, script);
-          const defaultVals = defaultWorkflowValues('completion');
-          const endPrompt = nextStateConfig.prompt && (!defaultVals.includes(nextStateConfig.prompt as string) || typeof nextStateConfig.prompt === 'object')
-            ? resolveLocalizedPrompt(nextStateConfig.prompt, lang, defaultCompletion, script)
-            : defaultCompletion;
-          response = ResponseBuilder.interpolateTemplate(endPrompt, currentContext);
+          response = ResponseBuilder.buildEndResponse(nextStateConfig, lang, script, currentContext);
         } else if (nextStateConfig.type === 'handoff') {
           isComplete = true;
           requestHumanHandoff = true;

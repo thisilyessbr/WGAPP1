@@ -47,7 +47,7 @@ export type LocalizedPrompt = string | {
 };
 
 /** Small workflow messages each client can reword in the admin; empty means the built-in text. */
-export const CLIENT_WORKFLOW_MESSAGE_KEYS = ['collectFallback', 'unclearReprompt', 'confirmHint', 'invalidEmail', 'invalidPhone'] as const;
+export const CLIENT_WORKFLOW_MESSAGE_KEYS = ['collectFallback', 'unclearReprompt', 'confirmHint', 'invalidEmail', 'invalidPhone', 'optionalEmailExplainer'] as const;
 export type ClientWorkflowMessageKey = typeof CLIENT_WORKFLOW_MESSAGE_KEYS[number];
 
 /**

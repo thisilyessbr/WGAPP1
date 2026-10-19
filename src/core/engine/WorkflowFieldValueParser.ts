@@ -10,8 +10,12 @@ export class WorkflowFieldValueParser {
     if (!raw) return null;
     switch (config.type) {
       case 'string':
-      case 'email':
         return { rawSpan: span, value: raw };
+      case 'email': {
+        // "هاهو الإيميل ديالي salma@gmail.com", "c'est salma@gmail.com merci": keep only the address.
+        const address = raw.match(/[^\s@<>()[\]"'«»,;:،]+@[^\s@<>()[\]"'«»,;:،]+\.[^\s@<>()[\]"'«»,;:،.!?؟]+/u)?.[0];
+        return { rawSpan: span, value: address || raw };
+      }
       case 'phone': {
         const plus = raw.trim().startsWith('+');
         const digits = raw.replace(/\D/gu, '');

@@ -114,6 +114,24 @@ export function isBareArabicName(message: string): boolean {
   return !words.some(word => ARABIC_SENTENCE_WORDS.has(normalizeSpanText(word)));
 }
 
+// Lower-case words that are a reply, a channel or a Darija/French phrase rather than a first name.
+const LATIN_NOT_NAMES = new Set([
+  'salam', 'slm', 'salut', 'bonjour', 'bonsoir', 'hello', 'hi', 'hey', 'ok', 'okay', 'oui', 'non', 'no', 'yes', 'la', 'lla', 'iyeh', 'ah', 'wakha', 'safi',
+  'merci', 'chokran', 'choukran', 'shukran', 'whatsapp', 'instagram', 'insta', 'facebook', 'tiktok', 'bjouj', 'bjoj', 'demo', 'test', 'info', 'prix', 'price',
+  'taman', 'stop', 'cancel', 'bghit', 'baghi', 'baghya', 'wach', 'wash', 'chno', 'chnou', 'achno', 'ana', 'nta', 'nti', 'daba', 'ghda', 'lyoum', 'bzaf',
+  'mzyan', 'zwin', 'kifach', 'fin', 'imta', 'chhal', 'ch7al', 'magasin', 'boutique', 'salon', 'shop', 'store', 'help', 'aide', 'hola', 'mrhba', 'mar7ba'
+]);
+
+/** Degraded mode only: "youssef" or "karim alami" typed in lower case, as many Darija speakers do. */
+export function isBareLatinName(message: string): boolean {
+  const words = message.trim().toLocaleLowerCase().split(/\s+/u);
+  if (!words.length || words.length > 2) return false;
+  if (!words.every(word => /^[a-zà-ÿ][a-zà-ÿ'-]{1,19}$/u.test(word))) return false;
+  if (words.some(word => LATIN_NOT_NAMES.has(word))) return false;
+  const normalized = GreetingRouter.normalize(message);
+  return !GreetingRouter.isKnownGreeting(normalized) && !GreetingRouter.isAcknowledgement(normalized) && !QUESTION_START.test(normalized);
+}
+
 function safeFieldName(value: unknown, fields: WorkflowFieldDescriptor[]): string | null {
   if (typeof value !== 'string') return null;
   const normalized = normalizeSpanText(value);
@@ -151,9 +169,23 @@ export class WorkflowTurnInterpreter {
     }
 
     if (params.pendingField.type === 'string') {
-      const introduced = /^(?:my name is|je m['’]appelle|smiti|smiyti|اسمي|سميتي)\s+(.{1,80})$/iu.exec(message);
-      const introducedSpan = introduced ? exactSpan(message, introduced[1].replace(/[.!،,؛;]+$/u, '').trim()) : null;
+      // "اسمي يوسف", "أنا اسمي يوسف بنعلي", "سميتي ياسين، عندي حانوت": the name is the words after the
+      // introduction, up to the first comma.
+      const introduced = /^(?:(?:أنا|انا|ana|moi)\s+)?(?:my name is|je m['’]appelle|smiti|smiyti|esmi|ismi|اسمي|إسمي|سميتي)(?:\s+(?:هو|هي|huwa|hiya))?\s+(.{1,80})$/iu.exec(message);
+      const introducedText = introduced?.[1].split(/[،,؛;\n]/u)[0].replace(/[.!]+$/u, '').trim();
+      const introducedSpan = introducedText ? exactSpan(message, introducedText) : null;
       if (introducedSpan) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: introducedSpan };
+      if (params.pendingField.semanticType === 'person_name') {
+        // "انا كريم" / "ana karim": "I am" followed by a bare name; "يوسف، عندي محل…": a name, then more.
+        const iAm = /^(?:أنا|انا|ana|moi c['’]est|c['’]est|i['’]?m|i am)\s+(.{2,60})$/iu.exec(message)?.[1].trim();
+        const firstPart = message.split(/[،,؛;\n]/u)[0].trim();
+        for (const candidate of [iAm, firstPart !== message.trim() ? firstPart : undefined]) {
+          if (candidate && (isBareArabicName(candidate) || isBareLatinName(candidate) || /^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]+)?$/u.test(candidate))) {
+            const span = exactSpan(message, candidate);
+            if (span) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: span };
+          }
+        }
+      }
       // A bare, title-cased Latin name (a trailing initial such as "Karim B."
       // included) is deterministic enough for degraded mode. Sentence-like
       // lower-case text is never treated as a name.
@@ -225,7 +257,7 @@ export class WorkflowTurnInterpreter {
     // matches "ياسين" or "كريم العلمي". When the model is missing or failed,
     // accept 1-3 bare Arabic words unless they are a greeting, an
     // acknowledgement or contain a common sentence word.
-    if (isBareArabicName(message)) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
+    if (isBareArabicName(message) || isBareLatinName(message)) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
     return empty('UNCLEAR');
   }
 
