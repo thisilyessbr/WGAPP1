@@ -299,6 +299,10 @@
     ['The selected provider needs an API key.','Le service choisi nécessite une clé API.','المزود المختار يحتاج إلى مفتاح API.'],
     ['Save voice model','Enregistrer le modèle vocal','حفظ النموذج الصوتي']
   ]) translations.set(en, {fr, ar});
+  translations.set('Check your email to verify your account. Already signed up with this email before? Log in with that password, or reset it.', {
+    fr: 'Vérifiez vos e-mails pour confirmer votre compte. Déjà inscrit avec cet e-mail ? Connectez-vous avec ce mot de passe, ou réinitialisez-le.',
+    ar: 'تحقق من بريدك الإلكتروني لتأكيد حسابك. هل سجلت بهذا البريد من قبل؟ سجّل الدخول بكلمة المرور تلك، أو أعد تعيينها.'
+  });
   // Broadcasts, locked features and plan capacity. Existing translations of the same text win.
   for (const [en, fr, ar] of [
     ["Broadcasts", "Diffusions", "الرسائل الجماعية"],

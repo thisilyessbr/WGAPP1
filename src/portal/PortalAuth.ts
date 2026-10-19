@@ -107,10 +107,13 @@ export class PortalAuth {
       if (existing) return { message: 'An account already exists for this email. Log in with its password.', redirect: '/login' };
       return { message: 'Your account is ready. Log in to continue.', redirect: '/login' };
     }
-    if (existing?.verifiedAt || existing?.disabled) return { message: 'Check your email to continue, or log in if you already have an account.' };
+    // One answer whatever the email's state, so sign-up never reveals which emails have accounts. An existing
+    // account keeps its original password (a second sign-up must not set it), and the message says so.
+    const message = 'Check your email to verify your account. Already signed up with this email before? Log in with that password, or reset it.';
+    if (existing?.verifiedAt || existing?.disabled) return { message };
     await this.store.throttle('signup-mail:' + hashToken(address), 3, 900);
     const delivery = await this.sendToken(result.userId, address, 'VERIFY');
-    return { message: 'Check your email to verify your account.', ...delivery };
+    return { message, ...delivery };
   }
   async sendToken(userId: string, address: string, kind: 'VERIFY' | 'RESET') {
     const token = randomToken();
