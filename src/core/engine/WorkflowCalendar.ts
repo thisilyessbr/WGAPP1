@@ -284,7 +284,7 @@ export class WorkflowCalendar {
       .filter(Boolean).join('\n').slice(0, 6000);
     const language = lang === 'fr' ? 'French' : lang === 'en' ? 'English' : lang === 'ar' ? 'Modern Standard Arabic (فصحى), not Moroccan Darija' :script === 'arabizi' ? 'Moroccan Darija written in Latin letters (Arabizi)' : 'Moroccan Darija written in Arabic script';
     const system = `You are the WhatsApp sales assistant of this business. Write 2 short sentences for this prospect: first show you understood their situation from their answers, then explain concretely how the business's assistant solves their main problem. ${typeof instruction === 'string' ? instruction : ''}
-Speak TO the prospect in the second person (you; in Darija nta/nti: "katbi3…", "kaywslek…"; in French vous). Never write as the prospect, never use "I"/"je"/"ana"/"kan…" about their business, and do not copy their sentences: rephrase them.
+Speak TO the prospect in the second person (you; in Darija nta/nti: "katbi3…", "kaywslek…"; in French vous).${lang === 'darija' ? ` Open with "${script === 'arabizi' ? 'Fhmt bli…' : 'فهمت بلي…'}" or speak directly; never "كيفهمت" or "كتفهمت".` : ''} Never write as the prospect, never use "I"/"je"/"ana"/"kan…" about their business, and do not copy their sentences: rephrase them.
 Use ONLY the business facts. No prices, no numbers or features that are not in the facts, no greeting, no question, no markdown, at most 300 characters. Write ONLY in ${language}, even when the facts are written in another language or dialect.
 BUSINESS FACTS:\n${facts}`;
     // The prospect's own words in the first person ("Kanbi3 hwayj…", "Je vends…") read as if the bot were the customer.

@@ -103,3 +103,62 @@ describe('optional questions, names and emails in degraded mode', () => {
     expect(WorkflowFieldValueParser.parse({ text, start: 0, end: text.length }, { name: 'email', type: 'email' })?.value).toBe('salma123@gmail.com');
   });
 });
+
+describe('questions from an ad: answered, never stored as the name', () => {
+  const faq = [
+    { id: 'price', language: 'darija', question: 'شحال الثمن ديال Relayqo؟', answer: 'الثمن كيتبدل حسب عدد الرسائل والقنوات، والفريق كيقترح الباقة بعد الديمو.' },
+    { id: 'what', language: 'darija', question: 'شنو هو Relayqo؟', answer: 'Relayqo مساعد محادثات كيجاوب الزبناء ديالك بالدارجة.' }
+  ];
+  const autoConfig = { ...DEFAULT_BUSINESS_CONFIG, capabilities: { ...DEFAULT_BUSINESS_CONFIG.capabilities, faq },
+    workflows: { sales_demo: { ...workflow, activation: { ...workflow.activation, mode: 'auto_start' } } } } as any;
+
+  async function autoChat(turns: string[]) {
+    const db = inMemoryChatDb('relayqo');
+    const tenants = new TenantConfigService(db.prisma);
+    vi.spyOn(tenants, 'getConfig').mockResolvedValue(autoConfig);
+    const llm = new LLMMockProvider(); llm.shouldFail = true; llm.failureType = 'timeout' as any;
+    const rb = new ResponseBuilder();
+    const engine = new ConversationEngine(new ConversationService(db.prisma), tenants,
+      new WorkflowEngine(new WorkflowStateEvaluator(), undefined, rb, new FieldValidator()), llm, rb,
+      undefined, undefined, undefined, undefined, undefined, new CRMService(transactionalLeadMock(db.prisma)));
+    const replies: string[] = [];
+    for (const turn of turns) replies.push(String(await engine.handleMessage('relayqo', '212612345678', turn, 'relayqo-account')));
+    return { replies, session: db.sessions[db.sessions.length - 1] };
+  }
+
+  it('answers a first-message question, then asks the name', async () => {
+    const { replies, session } = await autoChat(['شحال الثمن ديال Relayqo؟']);
+    expect(replies[0]).toContain('الفريق كيقترح الباقة');
+    expect(replies[0]).toMatch(/سميتك|اسمك/);
+    expect(session.stateId).toBe('name');
+    expect(session.collectedData).not.toHaveProperty('fullName');
+  });
+
+  it('still opens with the welcome when the first message is not a question', async () => {
+    const { replies } = await autoChat(['سلام، بغيت نعرف كثر على الخدمة ديالكم.']);
+    expect(replies[0]).not.toContain('الفريق كيقترح الباقة');
+    expect(replies[0]).toMatch(/سميتك|اسمك/);
+  });
+
+  it('keeps fields in place when a question comes at the name step', async () => {
+    const { session } = await autoChat(['سلام، بغيت نعرف كثر على الخدمة ديالكم.', 'شنو هو هاد البرنامج بالضبط؟ واش روبو؟', 'فاطمة', 'صالون ديال التجميل']);
+    expect(session.collectedData.fullName).toBe('فاطمة');
+    expect(session.collectedData.businessType).toBe('صالون ديال التجميل');
+  });
+
+  it('never splits two questions into an answer and a question', async () => {
+    const pending = { name: 'fullName', type: 'string' as const, semanticType: 'person_name' as const };
+    const result = await WorkflowTurnInterpreter.interpret({ message: 'شنو هو هاد البرنامج بالضبط؟ واش روبو؟', pendingField: pending, pendingPrompt: 'شنو سميتك؟', fields: [pending] });
+    expect(result.kind).toBe('SIDE_QUESTION');
+    expect(result.fieldSourceSpan).toBeNull();
+  });
+
+  it('rejects a question the model returns as the name', async () => {
+    const pending = { name: 'fullName', type: 'string' as const, semanticType: 'person_name' as const };
+    const llm = new LLMMockProvider();
+    llm.responseResolver = () => JSON.stringify({ kind: 'ANSWER_AND_QUESTION', fieldSourceSpan: 'شنو هاد الخدمة', questionSourceSpan: 'واش روبو', targetField: null, newValueSourceSpan: null, intent: null });
+    const result = await WorkflowTurnInterpreter.interpret({ message: 'شنو هاد الخدمة واش روبو', pendingField: pending, pendingPrompt: 'شنو سميتك؟', fields: [pending], llm });
+    expect(result.kind).toBe('SIDE_QUESTION');
+    expect(result.fieldSourceSpan).toBeNull();
+  });
+});

@@ -141,10 +141,16 @@ export class ConversationReplyGuard {
       return ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);
     }
     if (workflow?.sideAnswer) {
-      // Remove acquisition CTAs; the controller appends the one pending prompt.
-      out = out.split(/(?<=[.!?؟])\s+|\n+/u)
-        .filter(piece => !/(?:book|réserver|reserve|buy now|order now|contact us|bghit.*demo|kteb.*demo|احجز|اطلب الآن|تواصل معنا)/iu.test(piece))
-        .join(' ').trim() || ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);
+      // Remove acquisition CTAs (and a bare "---" divider); the controller appends the one pending prompt.
+      // The answer and the step question keep their own line breaks instead of running into one paragraph.
+      const pieces = out.split(/((?<=[.!?؟])\s+|\n+)/u);
+      const kept: string[] = [];
+      for (let i = 0; i < pieces.length; i += 2) {
+        const piece = pieces[i];
+        if (/^-{3,}$/u.test(piece.trim()) || /(?:book|réserver|reserve|buy now|order now|contact us|bghit.*demo|kteb.*demo|احجز|اطلب الآن|تواصل معنا)/iu.test(piece)) continue;
+        kept.push(piece, pieces[i + 1] || '');
+      }
+      out = kept.join('').replace(/\n{3,}/g, '\n\n').trim() || ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);
     }
     if (EXEMPT_SOURCES.has(ctx.source)) return out;
     if (ctx.completedWorkflow) out = withoutFlowInvitations(out, ctx.completedWorkflow) || ConversationReplyGuard.clarifyingQuestion(ctx.language, ctx.script);

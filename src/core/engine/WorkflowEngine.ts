@@ -8,7 +8,7 @@ import { PolicyAnswerSafety } from '../../domain/rag/PolicyAnswerSafety';
 import { PolicyEvidenceReuse } from '../../domain/rag/PolicyEvidenceReuse';
 import { FieldValidator } from './FieldValidator';
 import { WorkflowTurnGate } from './WorkflowTurnGate';
-import { WorkflowTurnInterpreter } from './WorkflowTurnInterpreter';
+import { WorkflowTurnInterpreter, looksLikeQuestion } from './WorkflowTurnInterpreter';
 import { WorkflowFieldValueParser } from './WorkflowFieldValueParser';
 import { portalBusinessEvidence } from '../../portal/BusinessFacts';
 import { CatalogMatcher } from '../../domain/ecommerce/CatalogMatcher';
@@ -507,6 +507,29 @@ export class WorkflowEngine {
       }
 
       if (isInitialEntry) {
+        // A first message that asks something ("شحال الثمن؟" from an ad) gets its FAQ answer before
+        // the first step's question, instead of being ignored.
+        const openingFaq = (stateConfig.type === 'choice' || stateConfig.type === 'collect') && looksLikeQuestion(message)
+          && workflowConfig.allowInterruption !== false && businessConfig.capabilities?.faq?.length
+          ? FaqAnswerPolicy.match(message.trim(), businessConfig, lang as any, { responseLanguage: lang as any, responseScript: script as any })
+          : null;
+        const openingAnswer = openingFaq?.answer && (!openingFaq.confidence || openingFaq.confidence >= 0.75)
+          && this.answerUsesRequestedScript(openingFaq.answer, lang, script) ? openingFaq.answer : null;
+        if (openingAnswer) {
+          const firstPrompt = stateConfig.type === 'choice'
+            ? this.responseBuilder.buildChoiceResponse(stateConfig, lang, script)
+            : this.responseBuilder.buildMissingFieldResponse(stateConfig, businessConfig, lang, script);
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: `${openingAnswer}\n\n${questionPart(firstPrompt)}`,
+            isComplete: false,
+            updatedStateHistory: history,
+            updatedCollectedData: collectedData,
+            sideAnswer: true,
+            pendingPrompt: questionPart(firstPrompt)
+          });
+        }
         if (stateConfig.type === 'choice') {
           response = this.responseBuilder.buildChoiceResponse(stateConfig, lang, script);
           return finishAndReturn({

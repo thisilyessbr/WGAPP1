@@ -83,12 +83,20 @@ function exactSpan(message: string, candidate: unknown): SourceSpan | null {
   return null;
 }
 
+/** "شنو هو Relayqo؟", "wach kayn trial?": the text asks something rather than answering. */
+export function looksLikeQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  return Boolean(trimmed) && (QUESTION_START.test(GreetingRouter.normalize(trimmed)) || /[?؟]/u.test(trimmed));
+}
+
 function deterministicSplit(message: string): { answer: SourceSpan; question: SourceSpan } | null {
   for (const match of [...message.matchAll(/[,،;؛.!؟?\n]+\s*/gu)]) {
     const left = message.slice(0, match.index).trim();
     const rightStart = (match.index || 0) + match[0].length;
     const right = message.slice(rightStart).trim();
-    if (!left || !right || !QUESTION_START.test(GreetingRouter.normalize(right))) continue;
+    // "شنو هو هاد البرنامج؟ واش روبو؟" is two questions, not an answer followed by a question.
+    const leftAsks = QUESTION_START.test(GreetingRouter.normalize(left)) || /[?؟]/u.test(match[0]);
+    if (!left || !right || leftAsks || !QUESTION_START.test(GreetingRouter.normalize(right))) continue;
     const answer = exactSpan(message, left);
     const question = exactSpan(message, right);
     if (answer && question) return { answer, question };
@@ -232,6 +240,11 @@ export class WorkflowTurnInterpreter {
             return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
           }
           return empty('UNCLEAR');
+        }
+        // A question is never a name: "شنو هو هاد البرنامج" must not become fullName.
+        if ((kind === 'FIELD_ANSWER' || kind === 'ANSWER_AND_QUESTION') && fieldSourceSpan
+            && params.pendingField.semanticType === 'person_name' && looksLikeQuestion(fieldSourceSpan.text)) {
+          return { ...empty('SIDE_QUESTION'), questionSourceSpan: exactSpan(message, message) };
         }
         if (kind === 'SIDE_QUESTION' && !questionSourceSpan) return empty('UNCLEAR');
         if (kind === 'ANSWER_AND_QUESTION' && (!fieldSourceSpan || !questionSourceSpan)) return empty('UNCLEAR');
