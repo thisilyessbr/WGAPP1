@@ -15,6 +15,8 @@ import { DEFAULT_BUSINESS_CONFIG } from '../../src/domain/tenant/BusinessConfig'
 import { isDeclineReply } from '../../src/core/engine/OptionalFieldSkip';
 import { WorkflowTurnInterpreter, isBareLatinName } from '../../src/core/engine/WorkflowTurnInterpreter';
 import { WorkflowFieldValueParser } from '../../src/core/engine/WorkflowFieldValueParser';
+import { buildConversationContext } from '../../src/domain/conversation/ConversationContext';
+import { LanguageDetector } from '../../src/domain/faq/FaqMatcher';
 
 // Relayqo's own WhatsApp-ad demo request: seven questions, no email, the WhatsApp number is the contact.
 const workflow = JSON.parse(readFileSync('tests/fixtures/relayqo-sales-demo.workflow.json', 'utf8'));
@@ -160,5 +162,41 @@ describe('questions from an ad: answered, never stored as the name', () => {
     const result = await WorkflowTurnInterpreter.interpret({ message: 'شنو هاد الخدمة واش روبو', pendingField: pending, pendingPrompt: 'شنو سميتك؟', fields: [pending], llm });
     expect(result.kind).toBe('SIDE_QUESTION');
     expect(result.fieldSourceSpan).toBeNull();
+  });
+});
+
+describe('Darija customers from the ad stay in Darija, and their answers stay in place', () => {
+  const ctx = (text: string, accountLanguage: string, previous?: string) => buildConversationContext({
+    tenantId: 'relayqo', language: LanguageDetector.detect(text), accountLanguage, currentMessageText: text,
+    contextData: previous ? { _lang: previous } : null } as any).effectiveLanguage;
+
+  it.each(['سلام خويا', 'السلام عليكم', 'فاطمة الزهراء', 'غير الواتساب'])('starts "%s" in Darija on a Darija business', text => {
+    expect(ctx(text, 'darija')).toBe('darija');
+  });
+  it('keeps "أنا اسمي نادية" in a Darija conversation', () => expect(ctx('أنا اسمي نادية', 'darija', 'darija')).toBe('darija'));
+  it('still answers a formal Arabic speaker in MSA', () => expect(ctx('السلام عليكم، أود حجز عرض توضيحي', 'darija')).toBe('ar'));
+  it('leaves non-Darija businesses unchanged', () => expect(ctx('سلام خويا', 'en')).toBe('ar'));
+
+  const failingLlm = () => { const llm = new LLMMockProvider(); llm.responseResolver = () => JSON.stringify({ kind: 'UNCLEAR', fieldSourceSpan: null, questionSourceSpan: null, targetField: null, newValueSourceSpan: null, intent: null }); return llm; };
+  const name = { name: 'fullName', type: 'string' as const, semanticType: 'person_name' as const };
+  const open = { name: 'channels', type: 'string' as const, semanticType: 'free_text' as const, acceptAnyReply: true };
+
+  it.each(['فاطمة الزهراء', 'خديجة', 'Yassine'])('takes the bare name "%s" even when the model is unsure', async message => {
+    const result = await WorkflowTurnInterpreter.interpret({ message, pendingField: name, pendingPrompt: 'شنو سميتك؟', fields: [name], llm: failingLlm() });
+    expect(result.kind).toBe('FIELD_ANSWER');
+    expect(result.fieldSourceSpan?.text).toBe(message);
+  });
+  it.each(['الواتساب كتر', 'بجوج', 'غير الواتساب'])('never takes the channel answer "%s" as a name', async message => {
+    const result = await WorkflowTurnInterpreter.interpret({ message, pendingField: name, pendingPrompt: 'شنو سميتك؟', fields: [name] });
+    expect(result.kind).not.toBe('FIELD_ANSWER');
+  });
+  it('saves any non-question reply on an "accept any answer" step', async () => {
+    const result = await WorkflowTurnInterpreter.interpret({ message: 'غير الواتساب', pendingField: open, pendingPrompt: 'فين كيوصلوك الميساجات؟', fields: [open], llm: failingLlm() });
+    expect(result.kind).toBe('FIELD_ANSWER');
+    expect(result.fieldSourceSpan?.text).toBe('غير الواتساب');
+  });
+  it('still treats a question on an "accept any answer" step as a question', async () => {
+    const result = await WorkflowTurnInterpreter.interpret({ message: 'شحال الثمن؟', pendingField: open, pendingPrompt: 'فين كيوصلوك الميساجات؟', fields: [open] });
+    expect(result.kind).toBe('SIDE_QUESTION');
   });
 });

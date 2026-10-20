@@ -32,6 +32,7 @@ export interface WorkflowFieldDescriptor {
   type: WorkflowFieldConfig['type'];
   collected?: boolean;
   semanticType?: WorkflowFieldConfig['semanticType'];
+  acceptAnyReply?: boolean;
 }
 
 const EMPTY: WorkflowTurnInterpretation = {
@@ -109,7 +110,8 @@ const ARABIC_SENTENCE_WORDS = new Set([
   'بغيت', 'بغينا', 'عندي', 'عندك', 'عندكم', 'كاين', 'كاينة', 'ماكاين', 'ماشي', 'مازال', 'دابا', 'غدا', 'اليوم',
   'لا', 'اه', 'آه', 'ايه', 'إيه', 'نعم', 'واخا', 'صافي', 'مزيان', 'شكرا', 'سلام', 'السلام', 'عليكم', 'مرحبا', 'اهلا', 'أهلا',
   'انا', 'أنا', 'نتا', 'نتي', 'هو', 'هي', 'حنا', 'في', 'من', 'على', 'مع', 'ديال', 'هاد', 'هادي', 'هذا', 'هذه',
-  'الثمن', 'التمن', 'الطلب', 'التوصيل', 'المنتج', 'موعد', 'نلغي', 'لغيت', 'وقف', 'حبس', 'عافاك', 'فضلك', 'الاسم', 'اسم', 'اسمي', 'سميتي', 'السمية', 'سمية'
+  'الثمن', 'التمن', 'الطلب', 'التوصيل', 'المنتج', 'موعد', 'نلغي', 'لغيت', 'وقف', 'حبس', 'عافاك', 'فضلك', 'الاسم', 'اسم', 'اسمي', 'سميتي', 'السمية', 'سمية',
+  'واتساب', 'الواتساب', 'واتس', 'انستغرام', 'الانستغرام', 'إنستغرام', 'الإنستغرام', 'انستا', 'الانستا', 'فيسبوك', 'الفيسبوك', 'تيكتوك', 'بجوج', 'كتر', 'غير', 'بزاف'
 ]);
 
 export function isBareArabicName(message: string): boolean {
@@ -176,6 +178,11 @@ export class WorkflowTurnInterpreter {
       return { ...empty('SIDE_QUESTION'), questionSourceSpan: exactSpan(message, message) };
     }
 
+    // Open discovery steps ("what is your main problem?"): any reply that does not ask something is the answer.
+    if (params.pendingField.acceptAnyReply && params.pendingField.type === 'string' && !looksLikeQuestion(message)) {
+      return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
+    }
+
     if (params.pendingField.type === 'string') {
       // "اسمي يوسف", "أنا اسمي يوسف بنعلي", "سميتي ياسين، عندي حانوت": the name is the words after the
       // introduction, up to the first comma.
@@ -184,6 +191,8 @@ export class WorkflowTurnInterpreter {
       const introducedSpan = introducedText ? exactSpan(message, introducedText) : null;
       if (introducedSpan) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: introducedSpan };
       if (params.pendingField.semanticType === 'person_name') {
+        // "فاطمة الزهراء", "youssef": 1-3 bare name words answer "what's your name?" without asking the model.
+        if (isBareArabicName(message) || isBareLatinName(message)) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
         // "انا كريم" / "ana karim": "I am" followed by a bare name; "يوسف، عندي محل…": a name, then more.
         const iAm = /^(?:أنا|انا|ana|moi c['’]est|c['’]est|i['’]?m|i am)\s+(.{2,60})$/iu.exec(message)?.[1].trim();
         const firstPart = message.split(/[،,؛;\n]/u)[0].trim();
@@ -283,7 +292,8 @@ export class WorkflowTurnInterpreter {
       return [{ name: config.name, label: state.label || state.name, type: config.type,
         semanticType: ('semanticType' in config && config.semanticType) ||
           (/^(?:fullname|username|name|customername|contactname)$/i.test(config.name) ? 'person_name' : 'free_text'),
-        collected: collected[config.name] !== undefined }];
+        collected: collected[config.name] !== undefined,
+        ...('acceptAnyReply' in config && config.acceptAnyReply ? { acceptAnyReply: true } : {}) }];
     });
   }
 }

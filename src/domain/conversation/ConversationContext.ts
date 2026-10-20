@@ -24,7 +24,8 @@ import { SupportedLanguage, LanguageDetector } from '../faq/FaqMatcher';
 import { GreetingRouter } from './GreetingRouter';
 
 /** Words that mark Modern Standard Arabic rather than Darija. */
-const MSA_MARKERS = /(?<![\p{L}])(?:هل|أريد|اريد|نريد|لماذا|ماذا|كيف|أين|متى|اسمي|عنواني|هاتفي|رقمي|الذي|التي|سوف|ليس|لست|نعم|لكم|من فضلك|لو سمحت|يمكنني|يمكنك|أستطيع|هذا|هذه|ذلك|تلك|أيضا|أيضاً|جداً|جدا)(?![\p{L}])/u;
+// "اسمي" is as common in Darija ("أنا اسمي نادية") as in MSA, so it is not a marker.
+const MSA_MARKERS = /(?<![\p{L}])(?:هل|أريد|اريد|نريد|أود|أرغب|لدي|لديكم|أعمل|لماذا|ماذا|كيف|أين|متى|عنواني|هاتفي|رقمي|الذي|التي|سوف|ليس|لست|نعم|لكم|من فضلك|لو سمحت|يمكنني|يمكنك|أستطيع|هذا|هذه|ذلك|تلك|أيضا|أيضاً|جداً|جدا)(?![\p{L}])/u;
 
 export interface ProductContext {
   selectedProductId?: string | null;
@@ -175,8 +176,10 @@ export function buildConversationContext(params: BuildConversationContextParams)
     effectiveLanguage = accountLang;
   } else if (detectedLang === 'ar' && (previousLang || accountLang) === 'darija' && /^(?:سلام|السلام عليكم|مرحبا)[.!؟\s]*$/u.test(params.currentMessageText || '')) {
     effectiveLanguage = 'darija';
-  } else if (detectedLang === 'ar' && previousLang === 'darija' && !MSA_MARKERS.test(params.currentMessageText || '')) {
-    // A name, address or number in Arabic script is not a switch to MSA.
+  } else if (detectedLang === 'ar' && (previousLang === 'darija' || (!previousLang && accountLang === 'darija'))
+    && !MSA_MARKERS.test(params.currentMessageText || '')) {
+    // A name, address or number in Arabic script is not a switch to MSA, and a Darija business's first
+    // customer message without MSA wording ("سلام خويا") starts the conversation in Darija.
     effectiveLanguage = 'darija';
   } else if ((detectedLang === 'fr' || detectedLang === 'en') && previousLang === 'darija'
     && (params.contextData as any)?._script === 'arabizi'
