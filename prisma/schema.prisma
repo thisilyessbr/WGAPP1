@@ -516,6 +516,35 @@ model PortalUser {
   actionAlerts PortalActionAlert[]
   reportedFeedback PortalAnswerFeedback[] @relation("ReportedFeedback")
   resolvedFeedback PortalAnswerFeedback[] @relation("ResolvedFeedback")
+  pushSubscriptions PortalPushSubscription[]
+}
+
+model PortalPushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  tenantId  String
+  accountId String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  user      PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries PortalPushDelivery[]
+
+  @@index([tenantId, accountId, enabled])
+  @@index([userId, accountId])
+}
+
+model PortalPushDelivery {
+  subscriptionId String
+  messageId      String
+  sentAt         DateTime @default(now()) @db.Timestamptz(6)
+  subscription  PortalPushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@id([subscriptionId, messageId])
+  @@index([sentAt])
 }
 
 model PortalMembership {

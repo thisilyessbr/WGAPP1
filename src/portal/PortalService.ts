@@ -9,6 +9,7 @@ import { OperatorAlerts } from './OperatorAlerts';
 import { PortalBroadcasts } from './PortalBroadcasts';
 import { WhatsAppOutboundAdapter } from '../domain/channel/whatsapp/WhatsAppOutboundAdapter';
 import { PortalDb } from './types';
+import { InboxPushNotifications } from './InboxPushNotifications';
 
 export class PortalService {
   readonly store: PortalStore;
@@ -16,6 +17,7 @@ export class PortalService {
   readonly budget: PortalBudget;
   readonly staffActions: PortalStaffActions;
   readonly operatorAlerts: OperatorAlerts;
+  readonly inboxPush: InboxPushNotifications;
   broadcasts: PortalBroadcasts;
   connections!: PortalConnections;
   documents!: PortalDocuments;
@@ -28,6 +30,7 @@ export class PortalService {
     this.budget = new PortalBudget(this.store);
     this.staffActions = new PortalStaffActions(this.store);
     this.operatorAlerts = new OperatorAlerts(this.store);
+    this.inboxPush = new InboxPushNotifications(this.store);
     this.broadcasts = new PortalBroadcasts(this.store);
   }
   attach(deps: ChatbotDependencies) {
@@ -38,5 +41,5 @@ export class PortalService {
     this.documents = new PortalDocuments(this.store, this.budget, deps.pdfIngestionService, deps.accountConfigService!);
     if (process.env.PORTAL_DOCUMENT_WORKER === 'true' && process.env.NODE_ENV !== 'test') this.documents.start();
   }
-  stop() { this.documents?.stop(); this.staffActions.stop(); this.operatorAlerts.stop(); this.broadcasts.stop(); this.budget.dispose(); }
+  stop() { this.documents?.stop(); this.staffActions.stop(); this.operatorAlerts.stop(); this.inboxPush.stop(); this.broadcasts.stop(); this.budget.dispose(); }
 }

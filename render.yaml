@@ -70,6 +70,12 @@ services:
         sync: false
       - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
         sync: false
+      - key: WEB_PUSH_SUBJECT
+        value: mailto:support@relayqo.online
+      - key: WEB_PUSH_PUBLIC_KEY
+        sync: false
+      - key: WEB_PUSH_PRIVATE_KEY
+        sync: false
       - key: SIGNUP_STATE_SECRET
         generateValue: true
       - key: META_CONFIG_ID

@@ -30,6 +30,7 @@ import { OutcomeTrackingService } from '../domain/outcome/OutcomeTrackingService
 import { OUTCOME_EVENT_TYPES, OutcomeEventType } from '../domain/outcome/types';
 import { BoundedRateLimiter } from '../utils/rateLimiter';
 import { imageId } from './validation';
+import { InboxPushNotifications } from './InboxPushNotifications';
 
 type PortalRequest = Request & { portal: PortalPrincipal };
 export interface PortalServices { store: PortalStore; auth: PortalAuth; connections: PortalConnections; documents: PortalDocuments; broadcasts?: PortalBroadcasts; }
@@ -100,6 +101,7 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   const learnedWording = () => (learnedWordingInstance ??= new PortalLearnedWording(store.db as any));
   const staffActions = new PortalStaffActions(store);
   const operatorAlerts = new OperatorAlerts(store);
+  const inboxPush = new InboxPushNotifications(store);
   // Without a channel (local previews) templates cannot sync, but everything else works.
   const broadcasts = () => services.broadcasts ?? new PortalBroadcasts(store);
   const photos = new PortalProductImages(store);
@@ -550,6 +552,41 @@ export function createPortalRouter(services: PortalServices, deps: PortalRouterD
   client.post('/whatsapp/:id/reconnect', route(async (req, res) => send(res, await connections.reconnect(req.portal, String(req.params.id)))));
 
   // --- Merchant Inbox Routes ---
+  client.get('/notifications/config', route(async (req, res) => send(res, {
+    supported: InboxPushNotifications.configured(),
+    publicKey: inboxPush.publicKey(),
+    enabled: await inboxPush.enabled(req.portal.user.id, req.portal.accountId!)
+  })));
+  client.get('/notifications/summary', route(async (req, res) => {
+    const rows = await store.db.$queryRaw<any[]>`
+      SELECT COUNT(*)::int AS unread,
+        (SELECT m.id FROM "Message" m JOIN "Conversation" c2 ON c2.id=m."conversationId"
+          JOIN "Customer" cu2 ON cu2.id=c2."customerId" AND cu2."tenantId"=c2."tenantId"
+          WHERE c2."tenantId"=${req.portal.tenantId!} AND c2."accountId"=${req.portal.accountId!} AND m.role='USER'
+            AND (cu2."externalId" IS NULL OR cu2."externalId" NOT LIKE 'portal-preview:%')
+          ORDER BY m."createdAt" DESC LIMIT 1) AS "latestMessageId"
+      FROM "Conversation" c JOIN "Customer" cu ON cu.id=c."customerId" AND cu."tenantId"=c."tenantId"
+      WHERE c."tenantId"=${req.portal.tenantId!} AND c."accountId"=${req.portal.accountId!}
+        AND (cu."externalId" IS NULL OR cu."externalId" NOT LIKE 'portal-preview:%')
+        AND EXISTS (SELECT 1 FROM "Message" m WHERE m."conversationId"=c.id AND m.role='USER'
+          AND (c."lastMerchantViewedAt" IS NULL OR m."createdAt">c."lastMerchantViewedAt"))`;
+    send(res, { unread: Number(rows[0]?.unread || 0), latestMessageId: rows[0]?.latestMessageId || null });
+  }));
+  client.post('/notifications/subscriptions', route(async (req, res) => {
+    if (!InboxPushNotifications.configured()) throw new PortalError(503, 'PUSH_NOT_CONFIGURED');
+    const body = object(req.body); allowed(body, ['endpoint', 'keys']);
+    const keys = object(body.keys); allowed(keys, ['p256dh', 'auth']);
+    const endpoint = text(body.endpoint, 2048), p256dh = text(keys.p256dh, 512), authKey = text(keys.auth, 512);
+    let parsed: URL; try { parsed = new URL(endpoint); } catch { throw new PortalError(400, 'INVALID_PUSH_ENDPOINT'); }
+    if (parsed.protocol !== 'https:') throw new PortalError(400, 'INVALID_PUSH_ENDPOINT');
+    await inboxPush.subscribe(req.portal.user.id, req.portal.tenantId!, req.portal.accountId!, { endpoint, keys: { p256dh, auth: authKey } });
+    send(res, { enabled: true }, 201);
+  }));
+  client.delete('/notifications/subscriptions', route(async (req, res) => {
+    const body = object(req.body); allowed(body, ['endpoint']);
+    await inboxPush.unsubscribe(req.portal.user.id, text(body.endpoint, 2048));
+    send(res, { enabled: false });
+  }));
   client.get('/conversations', route(async (req, res) => {
     const tenantId = req.portal.tenantId!;
     const accountId = req.portal.accountId!;

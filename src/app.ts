@@ -122,6 +122,11 @@ export async function createApp(
     const portalDirectory = existsSync(bundledPortal) ? bundledPortal : path.resolve('src/portal/ui');
     // Managed checkouts live beneath .codex. The static root is restricted to UI assets.
     app.use('/portal-assets', express.static(portalDirectory, { dotfiles: 'allow' }));
+    app.get('/portal-push-sw.js', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Service-Worker-Allowed', '/');
+      res.sendFile(path.join(portalDirectory, 'portal-push-sw.js'));
+    });
     app.get('/', (_req, res) => res.redirect(302, '/login'));
     app.use(['/signup', '/login', '/forgot-password', '/reset-password', '/verify-email', '/admin-confirm', '/app', '/admin'], (req, res) => {
       if (process.env.NODE_ENV === 'production' && req.hostname === 'relayqo-backend.onrender.com') {

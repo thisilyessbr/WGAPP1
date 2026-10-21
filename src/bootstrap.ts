@@ -508,6 +508,10 @@ export function bootstrapWorkerDependencies(prisma: PrismaClient, options: Worke
       portalService.operatorAlerts.start();
       logger.info('Operator health alerts started');
     }
+    if (autoStart && process.env.NODE_ENV !== 'test' && portalService.inboxPush.publicKey()) {
+      portalService.inboxPush.start();
+      logger.info('Inbox browser push notifications started');
+    }
     // STOP replies always withdraw broadcast consent, even when sending is switched off.
     whatsAppWorker.setInboundObserver((tenantId, accountId, waId, text) => portalService.broadcasts.handleInbound(tenantId, accountId, waId, text));
     if (autoStart && process.env.NODE_ENV !== 'test' && process.env.BROADCASTS_ENABLED === 'true') {

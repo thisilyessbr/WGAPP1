@@ -138,6 +138,11 @@
   ]) translations.set(en, { fr, ar });
   for (const [en, fr, ar] of [
     ['Inbox','Boîte de réception','صندوق الوارد'],
+    ['Enable alerts','Activer les alertes','تفعيل الإشعارات'],
+    ['Alerts on','Alertes activées','الإشعارات مفعّلة'],
+    ['Inbox notifications','Notifications de la boîte','إشعارات صندوق الوارد'],
+    ['Browser notifications turned off.','Notifications du navigateur désactivées.','تم إيقاف إشعارات المتصفح.'],
+    ['Inbox notifications are on.','Notifications de la boîte activées.','تم تفعيل إشعارات صندوق الوارد.'],
     ['AI active','IA active','الذكاء الاصطناعي نشط'],
     ['Needs you','Nécessite votre attention','يحتاج ردك'],
     ["You're handling this",'Vous gérez','أنت تتولى المحادثة'],

@@ -702,6 +702,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
   }
   function bind(){
     window.RelayqoDesign?.decorate();
+    if(session?.user?.role==='CLIENT')window.RelayqoNotifications?.decorate();
     const drawer=document.querySelector('#try-bot'),openBot=document.querySelector('#try-bot-open');
     if(drawer&&openBot){
       const show=open=>{drawer.hidden=!open;openBot.setAttribute('aria-expanded',String(open));if(open)drawer.querySelector('#client-test-message')?.focus();};
@@ -714,7 +715,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
       b.disabled=true;
       try {
         try { await api('/auth/logout',{method:'POST'}); } catch(e) { if(e.status!==401)throw e; }
-        session=null;csrf=null;sessionReadAt=0;profileRead=null;reads.clear();await go('/login',{replace:true});
+        window.RelayqoNotifications?.stop();session=null;csrf=null;sessionReadAt=0;profileRead=null;reads.clear();await go('/login',{replace:true});
       } catch(e) { toast(e.message,true); } finally { b.disabled=false; }
     });
   }
@@ -786,6 +787,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
       instagramInPlan=Boolean(profile.plan?.modules?.includes('instagram'));
       requestsInPlan=Boolean(profile.plan?.modules?.some(module=>module==='services'||module==='commerce'));
       commerceInPlan=profile.commerceActive===true;servicesInPlan=Boolean(profile.plan?.modules?.includes('services'));calendarInUse=profile.calendarInUse===true;broadcastsActive=profile.broadcastsActive===true;
+      window.RelayqoNotifications?.start({api,go,toast,accountId:session.selectedAccountId});
       window.relayqoSaveBusiness=null;
       // Today is the inbox opened on the customers waiting for a person.
       if(path==='/app/today')return go('/app/inbox?filter=needs_human',{replace:true});
