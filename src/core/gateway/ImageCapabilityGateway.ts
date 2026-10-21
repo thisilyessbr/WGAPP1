@@ -82,7 +82,8 @@ export class ImageCapabilityGateway {
         provider: 'gateway',
         model: 'validator',
         latencyMs: Date.now() - startTime,
-        error: validation.error || 'Invalid image request parameters.'
+        error: validation.error || 'Invalid image request parameters.',
+        metadata: { providerBilled: false }
       };
       this.logInvocation(tenantId, result, correlationId);
       return result;
@@ -123,7 +124,9 @@ export class ImageCapabilityGateway {
           provider: errorJson.provider || 'gateway',
           model: errorJson.model || 'unknown',
           latencyMs: Date.now() - startTime,
-          error: errorJson.error || `Image service error (HTTP ${res.status})`
+          error: errorJson.error || `Image service error (HTTP ${res.status})`,
+          // Pass through the service's usage receipt; an unexplained HTTP failure stays unknown.
+          metadata: errorJson.metadata
         };
         this.logInvocation(tenantId, result, correlationId);
         return result;
@@ -148,7 +151,9 @@ export class ImageCapabilityGateway {
         latencyMs: Date.now() - startTime,
         error: isTimeout
           ? `Image service request timed out after ${this.overallTimeoutMs}ms`
-          : `Image service unreachable: ${err.message || err}`
+          : `Image service unreachable: ${err.message || err}`,
+        // A refused or unresolvable connection never reached the provider.
+        ...(['ECONNREFUSED', 'ENOTFOUND'].includes(err.cause?.code) ? { metadata: { providerBilled: false } } : {})
       };
       this.logInvocation(tenantId, result, correlationId);
       return result;

@@ -4,11 +4,15 @@ import { LLMProvider, LLMProviderError, LLMRequestOptions, LLMUsage } from '../c
 import { resolveDeepSeekModel } from '../core/llm/DeepSeekProvider';
 import { EmbeddingProvider } from '../core/rag/EmbeddingProvider';
 import { ImageCapabilityGateway } from '../core/gateway/ImageCapabilityGateway';
+import { GEMINI_IMAGE_PRICE_BASIS, ImageUnderstandingResult, imageUsageMicros } from '../../packages/shared/contracts/image.contract';
 import { telemetry } from '../core/telemetry/TelemetryClient';
 import { PortalStore } from './PortalStore';
 import { PortalError, PortalProfile } from './types';
 import { VoiceProvider, VoiceTranscript, VoiceNoteTranscriber, effectiveVoiceProvider } from '../domain/channel/whatsapp/VoiceNoteTranscriber';
 import { voiceNoteChargeMicros } from './VoiceNoteUsage';
+
+/** Per-photo ceiling (USD 0.05) held while the analysis runs and kept in full when usage is unknown. */
+export const IMAGE_RESERVATION_MICROS = 50000;
 
 interface UsageContext { profile: PortalProfile; key: string; sequence: number; llm: number; embedding: number; image: number; events: Record<string, unknown>; allowInactive: boolean; preview?: boolean; llmTimedOut?: boolean; }
 export class PortalBudget {
@@ -214,16 +218,27 @@ export class PortalBudget {
   }
   wrapImages(inner: ImageCapabilityGateway): ImageCapabilityGateway {
     const budget = this;
+    // A declined photo becomes a failed analysis, so the conversation answers with its localized image fallback.
+    const declined = (code: string): ImageUnderstandingResult => ({ success: false, description: null, objects: [], visibleText: null,
+      category: null, confidence: 0, provider: 'portal-budget', model: 'allowance', latencyMs: 0, error: code, metadata: { providerBilled: false } });
     return new class extends ImageCapabilityGateway {
       checkHealth() { return inner.checkHealth(); }
       async analyzeImage(...args: Parameters<ImageCapabilityGateway['analyzeImage']>) {
         const ctx = budget.context.getStore();
         if (!ctx) return inner.analyzeImage(...args);
-        if (!ctx.profile.planSnapshot?.modules.includes('images') || ++ctx.image > 1) throw new PortalError(402, 'IMAGE_ALLOWANCE_EXHAUSTED');
-        // No image token receipt is currently returned by the image service.
-        const id = await budget.reserve('image', 1000000);
-        try { return await inner.analyzeImage(...args); }
-        finally { await budget.finish(id, null, { tokenSource: 'unknown', priceBasis: '$1 conservative per-image reservation; reconcile against provider usage' }); }
+        if (!ctx.profile.planSnapshot?.modules.includes('images') || ++ctx.image > 1) return declined('IMAGE_ALLOWANCE_EXHAUSTED');
+        let id: string;
+        try { id = await budget.reserve('image', IMAGE_RESERVATION_MICROS); }
+        catch (error) { if (error instanceof PortalError && error.status === 402) return declined(error.code); throw error; }
+        let result: ImageUnderstandingResult | undefined;
+        try { return result = await inner.analyzeImage(...args); }
+        finally {
+          // Settled from the provider's usage receipt; a crash or missing receipt keeps the whole reservation.
+          const actual = imageUsageMicros(result?.metadata);
+          await budget.finish(id, actual, { ...result?.metadata, provider: result?.provider, model: result?.metadata?.billedModel || result?.model,
+            success: result?.success ?? false, tokenSource: result?.metadata?.tokenSource || 'unknown', priceBasis: GEMINI_IMAGE_PRICE_BASIS,
+            reservationMicros: IMAGE_RESERVATION_MICROS, knownEstimateMicros: actual });
+        }
       }
     }();
   }
