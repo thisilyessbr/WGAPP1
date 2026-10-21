@@ -77,7 +77,11 @@
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') throw new Error('Notification permission was not allowed.');
         const subscription = await current.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToUint8Array(config.publicKey) });
-        await ctx.api('/client/notifications/subscriptions', { method: 'POST', body: JSON.stringify(subscription.toJSON()) });
+        const serialized = subscription.toJSON();
+        await ctx.api('/client/notifications/subscriptions', {
+          method: 'POST',
+          body: JSON.stringify({ endpoint: serialized.endpoint, keys: serialized.keys })
+        });
         ctx.toast('Inbox notifications are on.');
       }
       await decorate();
