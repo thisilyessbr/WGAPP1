@@ -703,6 +703,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
   function bind(){
     window.RelayqoDesign?.decorate();
     if(session?.user?.role==='CLIENT')window.RelayqoNotifications?.decorate();
+    window.RelayqoInstall?.decorate();
     const drawer=document.querySelector('#try-bot'),openBot=document.querySelector('#try-bot-open');
     if(drawer&&openBot){
       const show=open=>{drawer.hidden=!open;openBot.setAttribute('aria-expanded',String(open));if(open)drawer.querySelector('#client-test-message')?.focus();};

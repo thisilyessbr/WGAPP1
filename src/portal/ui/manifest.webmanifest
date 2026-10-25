@@ -1,0 +1,18 @@
+{
+  "id": "/app",
+  "name": "Relayqo",
+  "short_name": "Relayqo",
+  "description": "Your Relayqo inbox: answer the customers your assistant hands over to you.",
+  "start_url": "/app/inbox",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#071513",
+  "theme_color": "#0c1210",
+  "icons": [
+    { "src": "/portal-assets/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/portal-assets/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/portal-assets/app-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/portal-assets/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
