@@ -1,5 +1,5 @@
 import { ImageProviderAdapter } from './ProviderAdapter';
-import { ImageUnderstandingRequest, ImageUnderstandingResult } from '../../../../packages/shared/contracts/image.contract';
+import { ImageUnderstandingMetadata, ImageUnderstandingRequest, ImageUnderstandingResult, imageUsageMicros } from '../../../../packages/shared/contracts/image.contract';
 
 export class GeminiAdapter implements ImageProviderAdapter {
   public name = 'gemini';
@@ -166,11 +166,24 @@ Note:
         provider: this.name,
         model: this.modelName,
         latencyMs,
-        error: `Gemini API error (HTTP ${response.status}): ${errText.substring(0, 200)}`
+        error: `Gemini API error (HTTP ${response.status}): ${errText.substring(0, 200)}`,
+        // Google does not bill requests it rejects with an HTTP error.
+        metadata: { providerBilled: false }
       };
     }
 
     const jsonResponse: any = await response.json();
+    // A 200 response is billed even when its content is unusable, so every result below carries the receipt.
+    const usage = jsonResponse.usageMetadata;
+    const metadata: ImageUnderstandingMetadata = usage ? {
+      inputTokens: usage.promptTokenCount || 0,
+      outputTokens: usage.candidatesTokenCount || 0,
+      thoughtsTokens: usage.thoughtsTokenCount || 0,
+      billedModel: modelToCall,
+      tokenSource: 'provider'
+    } : { billedModel: modelToCall };
+    const charge = imageUsageMicros(metadata);
+    if (charge !== null) metadata.estimatedCostUsd = charge / 1000000;
     const candidate = jsonResponse.candidates?.[0];
     const rawText = candidate?.content?.parts?.[0]?.text || '';
 
@@ -188,16 +201,10 @@ Note:
         provider: this.name,
         model: this.modelName,
         latencyMs,
-        error: 'Empty response candidate received from Gemini.'
+        error: 'Empty response candidate received from Gemini.',
+        metadata
       };
     }
-
-    // Token usage metadata & Cost estimation
-    const usage = jsonResponse.usageMetadata;
-    const inputTokens = usage?.promptTokenCount || 0;
-    const outputTokens = usage?.candidatesTokenCount || 0;
-    // Gemini 2.5/2.0 Flash pricing: $0.075 / 1M input tokens, $0.30 / 1M output tokens
-    const estimatedCostUsd = (inputTokens * 0.000000075) + (outputTokens * 0.0000003);
 
     try {
       const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -214,11 +221,7 @@ Note:
         model: this.modelName,
         latencyMs,
         error: null,
-        metadata: {
-          inputTokens,
-          outputTokens,
-          estimatedCostUsd: Number(estimatedCostUsd.toFixed(8))
-        }
+        metadata
       };
     } catch (parseErr: any) {
       return {
@@ -231,7 +234,8 @@ Note:
         provider: this.name,
         model: this.modelName,
         latencyMs,
-        error: `Failed to parse structured JSON from model: ${parseErr.message}`
+        error: `Failed to parse structured JSON from model: ${parseErr.message}`,
+        metadata
       };
     }
   }

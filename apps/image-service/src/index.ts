@@ -64,7 +64,8 @@ app.post('/analyze-image', requireServiceAuth, async (req: Request, res: Respons
       provider: adapter.name,
       model: adapter.modelName,
       latencyMs: 0,
-      error: `Rate limit exceeded for tenant [${tenantId}] (max ${RATE_LIMIT_MAX_PER_MINUTE} req/min).`
+      error: `Rate limit exceeded for tenant [${tenantId}] (max ${RATE_LIMIT_MAX_PER_MINUTE} req/min).`,
+      metadata: { providerBilled: false }
     });
   }
 

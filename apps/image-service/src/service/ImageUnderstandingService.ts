@@ -173,11 +173,13 @@ export class ImageUnderstandingService {
         provider: this.adapter.name,
         model: this.adapter.modelName,
         latencyMs: Date.now() - startTime,
-        error: validation.error || 'Invalid image request parameters.'
+        error: validation.error || 'Invalid image request parameters.',
+        metadata: { providerBilled: false }
       };
     }
 
     let tempFilePath: string | null = null;
+    let providerCalled = false;
 
     try {
       let imageBuffer: Buffer;
@@ -212,7 +214,8 @@ export class ImageUnderstandingService {
           provider: this.adapter.name,
           model: this.adapter.modelName,
           latencyMs: Date.now() - startTime,
-          error: `Image exceeds maximum allowed size of 5MB (${(imageBuffer.length / (1024 * 1024)).toFixed(2)}MB).`
+          error: `Image exceeds maximum allowed size of 5MB (${(imageBuffer.length / (1024 * 1024)).toFixed(2)}MB).`,
+          metadata: { providerBilled: false }
         };
       }
 
@@ -222,6 +225,7 @@ export class ImageUnderstandingService {
       fs.writeFileSync(tempFilePath, imageBuffer);
 
       // Invoke provider adapter
+      providerCalled = true;
       const result = await this.adapter.analyze(req, imageBuffer, detectedMime);
       return result;
 
@@ -239,7 +243,9 @@ export class ImageUnderstandingService {
         latencyMs: Date.now() - startTime,
         error: isTimeout
           ? 'Image request timed out after 5000ms'
-          : `Image processing failure: ${err.message || err}`
+          : `Image processing failure: ${err.message || err}`,
+        // Failures before the provider call (download, decoding) are never billed; later ones are unknown.
+        ...(providerCalled ? {} : { metadata: { providerBilled: false } })
       };
     } finally {
       // 0 permanent image storage — delete temp media immediately on both success and failure
