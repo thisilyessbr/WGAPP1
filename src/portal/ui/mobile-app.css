@@ -21,6 +21,26 @@
   :root[data-theme=light] .client-shell .top-actions .install-app{color:#fff}
   .client-shell .top-actions .notification-toggle:hover{transform:none;box-shadow:none}
 
+  /* --- Back arrow on pages opened from Settings or a list. --- */
+  .client-shell .topbar:has(.topbar-back){justify-content:flex-start;gap:4px}
+  .client-shell .topbar:has(.topbar-back) .top-actions{margin-inline-start:auto}
+  .topbar-back{display:grid;place-items:center;flex:none;width:36px;height:36px;margin-inline-start:-8px;border-radius:50%;color:var(--text)}
+  .topbar-back::before{content:"";width:11px;height:11px;border:solid currentColor;border-width:0 0 2.5px 2.5px;transform:translateX(2px) rotate(45deg)}
+  :root[dir=rtl] .topbar-back::before{transform:translateX(-2px) rotate(-135deg)}
+  .topbar-back:active{background:var(--raised)}
+
+  /* --- Forms: 16px text so phones never zoom into a field; full-width buttons. --- */
+  .client-shell input:not([type=checkbox]):not([type=radio]),.client-shell select,.client-shell textarea,.auth-pane input,.auth-pane select{font-size:16px}
+  .client-shell .field input,.client-shell .field select,.auth-pane input{min-height:46px;border-radius:12px}
+
+  /* --- Desk-only actions stay on the computer. --- */
+  .client-shell .page-heading .actions a[download],.client-shell .page-heading .actions #export-leads{display:none}
+
+  /* --- Order actions: one swipeable row of small pills instead of a wall of buttons. --- */
+  .order-row-actions{flex-wrap:nowrap;overflow-x:auto;gap:6px;margin:0 -4px;padding:2px 4px;scrollbar-width:none}
+  .order-row-actions::-webkit-scrollbar{display:none}
+  .order-row-actions .btn{flex:none;min-height:36px;padding:6px 14px;border-radius:999px;font-size:13px}
+
   /* --- Content: tighter, one title. --- */
   .client-shell .main{margin:0}
   .client-shell .content{padding:6px max(16px,env(safe-area-inset-right,0px)) calc(96px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
@@ -47,8 +67,9 @@
 
   /* --- "Try your bot": only on Home, as a compact pill above the tab bar; full-height sheet when open. --- */
   .client-shell:not(.dashboard-shell) .try-bot-fab{display:none}
-  .client-shell .try-bot-fab{bottom:calc(74px + env(safe-area-inset-bottom,0px));min-height:40px;padding:8px 14px;font-size:13px;box-shadow:0 8px 22px rgba(0,0,0,.28)}
-  .client-shell .try-bot-drawer{inset:auto 0 0 0;width:auto;height:calc(100dvh - 40px);border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom,0px);z-index:45}
+  .client-shell .try-bot-fab{bottom:calc(76px + env(safe-area-inset-bottom,0px));inset-inline-end:16px;width:48px;height:48px;min-height:48px;padding:0;justify-content:center;border-radius:50%;font-size:18px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+  .client-shell .try-bot-fab>span:last-child{display:none}
+  .client-shell .try-bot-drawer{inset:auto 0 0 0;width:auto;height:min(80dvh,640px);border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom,0px);z-index:45}
   body:has(.client-shell) #toast{left:16px;right:16px;bottom:calc(78px + env(safe-area-inset-bottom,0px));border-radius:14px}
 
   /* --- Inbox list: edge to edge, one-line filters, compact rows. --- */
@@ -137,8 +158,75 @@
   .settings-link-state::after{content:"";display:block;width:8px;height:8px;border:solid var(--muted);border-width:2px 2px 0 0;transform:rotate(45deg)}
   .needs-action .settings-link-state::before{content:"";position:absolute;right:16px;top:50%;width:8px;height:8px;border-radius:50%;background:#e7a33b;transform:translateY(-50%)}
   .mobile-prefs{display:block}
+
+  /* --- Requests: one list like the inbox, with a segmented control instead of counters + tabs. --- */
+  .service-request-overview,.service-request-list>.card-title{display:none}
+  .client-shell .service-request-list{margin:0 calc(-1 * max(16px,env(safe-area-inset-right,0px)));padding:0;overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
+  .service-request-tabs{position:sticky;top:calc(52px + env(safe-area-inset-top,0px));z-index:5;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:0 16px 6px;padding:4px;border:0;border-radius:12px;background:var(--raised)}
+  .service-request-tab{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:6px 4px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:13px;white-space:nowrap}
+  .service-request-tab.is-active{border:0;background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .service-request-tab .tab-badge{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--line);color:var(--text);font-size:11px;line-height:18px}
+  .service-request-tab.is-active .tab-badge{background:var(--green);color:var(--accent-ink,#15220a)}
+  :root[data-theme=light] .service-request-tab.is-active .tab-badge{color:#fff}
+  .service-request-row{position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:12px;min-height:68px;padding:8px 16px;border:0}
+  .service-request-row:active{background:var(--raised)}
+  .request-avatar{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:linear-gradient(140deg,color-mix(in srgb,var(--green) 26%,var(--raised)),var(--raised));color:var(--text);font-size:15px;font-weight:700}
+  .service-request-row-main>.badge,.service-request-row-main>small{display:none}
+  .service-request-row-main h3{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0;font-size:15px;font-weight:650}
+  .request-row-link{overflow:hidden;min-width:0;color:inherit;text-overflow:ellipsis;white-space:nowrap}
+  .request-row-link::after{content:"";position:absolute;inset:0}
+  .request-when{display:inline;flex:none;color:var(--muted);font-size:12px;font-weight:500}
+  .service-request-row-main p{margin:2px 0 0;overflow:hidden;color:var(--muted);font-size:14px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+  .service-request-row-actions{position:relative;z-index:1;flex-wrap:nowrap;gap:6px}
+  .service-request-row-actions .request-more{display:none}
+  .service-request-row-actions .request-reply{display:grid;place-items:center;width:42px;height:42px;min-height:42px;padding:0;border-radius:50%;font-size:0}
+  .request-reply>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .request-reply::before{content:"";width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 11.5a8.4 8.4 0 0 1-12.6 7.3L3 20.5l1.7-5.2A8.4 8.4 0 1 1 21 11.5z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 11.5a8.4 8.4 0 0 1-12.6 7.3L3 20.5l1.7-5.2A8.4 8.4 0 1 1 21 11.5z'/%3E%3C/svg%3E") center/contain no-repeat}
+  .service-request-list .empty{margin:24px 16px;text-align:center}
+  .lead-pagination{display:flex;justify-content:center;gap:8px;padding:12px 16px}
+
+  /* --- Calendar: status in one line, a swipeable strip of days, then that day's bookings as cards. --- */
+  .cal-overview{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-bottom:12px;padding:12px 14px;border-radius:16px}
+  .cal-overview>div{padding:0!important;border:0!important}
+  .cal-overview>div:nth-child(2),.cal-overview>div:nth-child(3),.cal-overview-status small{display:none}
+  .cal-overview .cal-next-booking{display:flex;align-items:baseline;gap:6px}
+  .cal-overview .cal-next-booking small{margin:0;text-transform:none;letter-spacing:0;font-size:13px}
+  .cal-overview strong{font-size:14px}
+  .client-shell .cal-card{margin-bottom:12px;padding:0;border:0;background:transparent;box-shadow:none}
+  .cal-toolbar{flex-wrap:wrap;gap:10px;margin-bottom:10px}
+  .cal-nav{flex-wrap:wrap;gap:6px;align-items:center}
+  .cal-nav h2{flex-basis:100%;order:-1;margin:0 0 2px;font-size:20px}
+  .cal-nav .btn{min-height:36px;padding:6px 14px;border-radius:999px;font-size:13px}
+  .cal-nav .cal-arrow{width:36px;padding:0}
+  .cal-views{margin:0}
+  .cal-strip{display:flex;gap:8px;overflow-x:auto;margin:0 -16px;padding:2px 16px 8px;scroll-snap-type:x proximity;scrollbar-width:none}
+  .cal-strip::-webkit-scrollbar{display:none}
+  .cal-strip-day{display:flex;flex:0 0 54px;flex-direction:column;align-items:center;gap:2px;min-height:76px;padding:9px 0 7px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--text);scroll-snap-align:center;cursor:pointer}
+  .cal-strip-day small{color:var(--muted);font-size:11px;font-weight:650;text-transform:uppercase}
+  .cal-strip-day strong{font-size:19px;line-height:1.2}
+  .cal-strip-day.today strong{color:var(--green)}
+  .cal-strip-day.closed,.cal-strip-day.past{opacity:.55}
+  .cal-strip-day.selected{border-color:var(--green);background:var(--green);color:var(--accent-ink,#15220a);opacity:1}
+  :root[data-theme=light] .cal-strip-day.selected{color:#fff}
+  .cal-strip-day.selected small,.cal-strip-day.selected strong{color:inherit}
+  .cal-strip-dots{display:flex;gap:3px;height:6px}
+  .cal-strip-dots i{width:5px;height:5px;border-radius:50%;background:var(--green)}
+  .cal-strip-dots i.blocked{background:var(--muted)}
+  .cal-strip-day.selected .cal-strip-dots i{background:currentColor}
+  #cal-day{padding:16px}
+  .cal-day-title .eyebrow,.cal-day-count{display:none}
+  .cal-day-title h2{font-size:17px}
+  .cal-day-title p{font-size:13px}
+  #cal-day .booking-row{display:block;margin-top:10px;padding:14px;border-radius:16px;background:var(--raised)}
+  #cal-day .booking-row>div>strong{display:block;color:var(--green);font-size:17px}
+  #cal-day .booking-row p{margin-top:2px}
+  #cal-day .booking-row.is-blocked>div>strong{color:var(--muted)}
+  #cal-day .booking-row>[data-cancel]{min-height:0;margin-top:10px;padding:0;border:0;background:none;color:var(--muted);font-size:13px;text-decoration:underline}
+  .booking-contact .btn{min-height:38px;padding:6px 16px;border-radius:999px;font-size:13px}
 }
-@media (min-width:761px){.mobile-prefs,.inbox-detail-avatar{display:none}.inbox-detail-phone::before{content:" · "}}
+.booking-contact{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.cal-overview-status>div{display:flex;flex-direction:column;min-width:0}
+@media (min-width:761px){.mobile-prefs,.inbox-detail-avatar,.topbar-back,.request-avatar,.request-when{display:none}.inbox-detail-phone::before{content:" · "}}
 
 /* App preferences that live in the title bar on desktop: language, theme, log out. */
 .mobile-prefs{overflow:hidden;margin-bottom:16px;padding:0!important}

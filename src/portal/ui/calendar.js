@@ -10,6 +10,8 @@
     CALENDAR_SESSION_MISMATCH: 'Sign in to Relayqo with the same account, then try again.'
   };
   const HOUR_PX = 64;
+  // Readable names for the answers a booking flow collects.
+  const DETAIL_LABELS = { businessType: 'Business', channels: 'Channels', mainProblem: 'Main problem', dailyMessages: 'Messages per day', businessNeed: 'Need', service: 'Service', preferredTime: 'Preferred time' };
   // Day keys are "YYYY-MM-DD" handled as UTC dates, so the grid never shifts with the viewer's time zone.
   const ms = key => Date.parse(key + 'T12:00:00Z');
   const add = (key, n) => new Date(ms(key) + n * 86400000).toISOString().slice(0, 10);
@@ -25,7 +27,9 @@
     const data = await api('/client/calendar');
     const s = data.settings || {}, g = data.google || {}, today = data.today;
     const slotTimes = s.slotTimes || ['10:00', '12:00', '14:00', '16:00', '18:00'], working = s.workingDays || [1, 2, 3, 4, 5, 6], duration = s.durationMinutes || 30;
-    let view = remember('relayqo.calendar.view') === 'week' ? 'week' : 'month', cursor = today, selected = today, bookings = [], drawVersion = 0;
+    // Phones get a swipeable strip of days with the chosen day's bookings under it; the week timeline is for wide screens.
+    const phone = matchMedia('(max-width:760px)').matches, stored = remember('relayqo.calendar.view');
+    let view = phone ? (stored === 'month' ? 'month' : 'days') : (stored === 'week' ? 'week' : 'month'), cursor = today, selected = today, bookings = [], drawVersion = 0;
     const notice = new URLSearchParams(location.search);
 
     const num = (id, label, value, hint) => `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="number" value="${escape(value)}"><span class="hint">${hint}</span></div>`;
@@ -55,7 +59,7 @@
         <div><small>Blocked times</small><strong id="cal-block-count">—</strong></div>
         <div class="cal-next-booking"><small>Next booking</small><strong id="cal-next-booking">—</strong></div>
       </section><article class="card cal-card"><div class="cal-toolbar"><div class="cal-nav"><button type="button" class="btn secondary" id="cal-today">Today</button><button type="button" class="btn secondary cal-arrow" id="cal-prev" aria-label="Previous period">‹</button><button type="button" class="btn secondary cal-arrow" id="cal-next" aria-label="Next period">›</button><h2 id="cal-title-label"></h2></div>
-        <div class="section-tabs cal-views" role="tablist"><button type="button" role="tab" data-view="month">Month</button><button type="button" role="tab" data-view="week">Week</button></div></div>
+        <div class="section-tabs cal-views" role="tablist">${phone ? '<button type="button" role="tab" data-view="days">Days</button>' : ''}<button type="button" role="tab" data-view="month">Month</button>${phone ? '' : '<button type="button" role="tab" data-view="week">Week</button>'}</div></div>
         <div id="cal-view" class="cal-view" aria-live="polite"></div></article><article class="card" id="cal-day"></article>` + availability + googleCard, false, 'Calendar');
     bind();
     if (notice.has('connected')) { toast('Google Calendar connected. Choose the calendar to sync with.'); history.replaceState({}, '', '/app/calendar'); }
@@ -67,6 +71,7 @@
     const dayItems = key => bookings.filter(b => b.day === key);
     const range = () => {
       if (view === 'week') { const from = weekStart(cursor); return [from, add(from, 6)]; }
+      if (view === 'days') { const from = weekStart(cursor); return [from, add(from, 13)]; }
       const from = weekStart(cursor.slice(0, 8) + '01'); return [from, add(from, 41)];
     };
 
@@ -80,6 +85,17 @@
         return `<button type="button" class="${classes}" data-day="${key}" aria-label="${escape(fmt(key, { weekday: 'long', day: 'numeric', month: 'long' }))}${items.length ? ', ' + items.length : ''}"><span class="cal-num">${Number(key.slice(8))}</span><span class="cal-chips">${chips}${items.length > 3 ? `<span class="cal-more">+${items.length - 3}</span>` : ''}</span>${items.length ? `<span class="cal-dots">${items.slice(0, 4).map(b => `<i class="${b.kind === 'BLOCKED' ? 'blocked' : ''}"></i>`).join('')}</span>` : ''}</button>`;
       }).join('');
       return `<div class="cal-month">${heads}${cells}</div>`;
+    }
+
+    // Two weeks of day chips; a dot under a day means it has bookings (grey: blocked time).
+    function days() {
+      const [from] = range();
+      const chips = Array.from({ length: 14 }, (_, i) => {
+        const key = add(from, i), items = dayItems(key);
+        const classes = ['cal-strip-day', key === today ? 'today' : '', key === selected ? 'selected' : '', isClosed(key) ? 'closed' : '', key < today ? 'past' : ''].filter(Boolean).join(' ');
+        return `<button type="button" class="${classes}" data-day="${key}" aria-pressed="${key === selected}" aria-label="${escape(fmt(key, { weekday: 'long', day: 'numeric', month: 'long' }))}${items.length ? ', ' + items.length : ''}"><small>${escape(fmt(key, { weekday: 'short' }))}</small><strong>${Number(key.slice(8))}</strong><span class="cal-strip-dots">${items.slice(0, 3).map(b => `<i class="${b.kind === 'BLOCKED' ? 'blocked' : ''}"></i>`).join('')}</span></button>`;
+      }).join('');
+      return `<div class="cal-strip" role="group" aria-label="Days">${chips}</div>`;
     }
 
     function week() {
@@ -103,12 +119,20 @@
       return `<div class="cal-week"><div class="cal-week-grid"><div></div>${heads}<div class="cal-hours">${hours}</div>${days.map(col).join('')}</div></div><p class="small muted cal-legend"><span class="cal-slot-key"></span> Times customers can book · <span class="cal-blocked-key"></span> Blocked</p>`;
     }
 
+    // A phone number on a booking gets Call and WhatsApp buttons; an email gets a mail link.
+    const contactLinks = contact => {
+      const value = String(contact || '').trim(), digits = value.replace(/[^\d+]/g, '');
+      if (/@/.test(value)) return `<div class="booking-contact"><a class="btn secondary" href="mailto:${escape(value)}">Email</a></div>`;
+      if (digits.replace(/\D/g, '').length >= 8) return `<div class="booking-contact"><a class="btn secondary" href="tel:${escape(digits)}">Call</a><a class="btn secondary" href="https://wa.me/${escape(digits.replace(/\D/g, ''))}" target="_blank" rel="noopener">WhatsApp</a></div>`;
+      return '';
+    };
+
     function dayPanel() {
       const items = dayItems(selected), closed = isClosed(selected);
-      const row = b => `<div class="connection-card booking-row"><div><strong dir="ltr">${b.startTime === '00:00' && b.endTime === '24:00' ? 'All day' : `${escape(b.startTime)}–${escape(b.endTime)}`}</strong>
+      const row = b => `<div class="connection-card booking-row ${b.kind === 'BLOCKED' ? 'is-blocked' : ''}"><div><strong dir="ltr">${b.startTime === '00:00' && b.endTime === '24:00' ? 'All day' : `${escape(b.startTime)}–${escape(b.endTime)}`}</strong>
         ${b.kind === 'BLOCKED' ? `<p class="small muted">${escape(b.title)} · <span>Blocked</span></p>`
           : `<p><bdi>${escape(b.customerName || b.title)}</bdi>${b.contact ? ` · <span class="small muted" dir="ltr">${escape(b.contact)}</span>` : ''}</p><p class="small muted">${escape(b.title)}</p>
-            ${Object.entries(b.details || {}).filter(([k]) => !['fullName', 'name', 'email', 'phone', 'demoDay', 'demoSlot'].includes(k)).slice(0, 6).map(([k, v]) => `<p class="small muted cal-detail"><span>${escape(k)}:</span> <bdi>${escape(v)}</bdi></p>`).join('')}`}</div>
+            ${Object.entries(b.details || {}).filter(([k]) => !['fullName', 'name', 'email', 'phone', 'demoDay', 'demoSlot'].includes(k)).slice(0, 6).map(([k, v]) => `<p class="small muted cal-detail"><span>${escape(DETAIL_LABELS[k] || k)}:</span> <bdi>${escape(v)}</bdi></p>`).join('')}${contactLinks(b.contact)}`}</div>
         <button type="button" class="btn secondary" data-cancel="${escape(b.id)}" data-kind="${escape(b.kind)}">${b.kind === 'BLOCKED' ? 'Remove' : 'Cancel booking'}</button></div>`;
       $('cal-day').innerHTML = `<div class="card-title cal-day-title"><div><p class="eyebrow">Selected day</p><h2>${escape(fmt(selected, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</h2><p>${closed ? 'Not a working day: the chatbot does not offer times.' : selected < today ? 'Past day.' : `Times customers can book: ${escape(slotTimes.join(', '))}`}</p></div><span class="cal-day-count"><strong>${items.length}</strong><small>Calendar items</small></span></div>
         ${items.map(row).join('') || `<div class="cal-empty"><span aria-hidden="true">✓</span><div><strong>No bookings on this day</strong><p>${closed ? 'This is outside your working days.' : selected < today ? 'There were no calendar items.' : 'This day is clear and ready for bookings.'}</p></div></div>`}
@@ -129,7 +153,7 @@
     async function draw() {
       const version = ++drawVersion;
       const [from, to] = range();
-      $('cal-title-label').textContent = view === 'week'
+      $('cal-title-label').textContent = view === 'days' ? fmt(selected, { month: 'long', year: 'numeric' }) : view === 'week'
         ? `${fmt(from, { day: 'numeric', month: 'short' })} – ${fmt(to, { day: 'numeric', month: 'short', year: 'numeric' })}`
         : fmt(cursor, { month: 'long', year: 'numeric' });
       root.querySelectorAll('.cal-views [data-view]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === view)));
@@ -148,7 +172,8 @@
       $('cal-booking-count').textContent = String(booked.length);
       $('cal-block-count').textContent = String(blocked.length);
       $('cal-next-booking').textContent = next ? `${fmt(next.day, { month: 'short', day: 'numeric' })} · ${next.startTime}` : 'None in view';
-      $('cal-view').innerHTML = view === 'week' ? week() : month();
+      $('cal-view').innerHTML = view === 'week' ? week() : view === 'days' ? days() : month();
+      $('cal-view').querySelector('.cal-strip-day.selected')?.scrollIntoView({ block: 'nearest', inline: 'center' });
       $('cal-view').querySelectorAll('[data-day]').forEach(el => el.onclick = event => {
         if (el.classList.contains('cal-col') && event.target !== el) return;
         selected = el.dataset.day; if (view === 'month' && selected.slice(0, 7) !== cursor.slice(0, 7)) cursor = selected;
@@ -157,7 +182,7 @@
       dayPanel();
     }
     const act = async (fn, done) => { try { await fn(); if (done) toast(done); await draw(); } catch (error) { toast(error.message || 'Something went wrong.', true); } };
-    const move = n => { cursor = view === 'week' ? add(cursor, 7 * n) : (() => { const [y, m] = cursor.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 10); })(); selected = view === 'week' ? add(selected, 7 * n) : cursor; draw(); };
+    const move = n => { cursor = view === 'week' || view === 'days' ? add(cursor, 7 * n) : (() => { const [y, m] = cursor.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 10); })(); selected = view === 'week' || view === 'days' ? add(selected, 7 * n) : cursor; draw(); };
     $('cal-prev').onclick = () => move(-1); $('cal-next').onclick = () => move(1);
     $('cal-today').onclick = () => { cursor = selected = today; draw(); };
     root.querySelectorAll('.cal-views [data-view]').forEach(b => b.onclick = () => { view = b.dataset.view; remember('relayqo.calendar.view', view); cursor = selected; draw(); });
