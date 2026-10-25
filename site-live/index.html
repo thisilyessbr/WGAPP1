@@ -116,11 +116,32 @@
           <figure class="app-shot"><div class="app-phone"><img src="assets/app/calendar.jpg" alt="Calendar with a swipeable day strip and the day's bookings" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="calendarTitle">Bookings, day by day</strong><span data-sc="calendarText">The assistant books only free times. Call or WhatsApp the customer from the booking.</span></figcaption></figure>
           <figure class="app-shot"><div class="app-phone"><img src="assets/app/orders.jpg" alt="Orders to confirm with confirm and call buttons" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="ordersTitle">Orders ready to confirm</strong><span data-sc="ordersText">Orders taken in WhatsApp, with the total. Confirm, call, then follow the delivery.</span></figcaption></figure>
         </div>
-        <div class="app-cta reveal">
-          <a class="button button-primary" href="https://wa.me/212649402305?text=DEMO" target="_blank" rel="noopener" data-sc="ctaTry">Try it on WhatsApp</a>
-          <a class="button" href="https://app.relayqo.online/login" data-app-link data-sc="ctaOpen">Open the app</a>
-          <p class="app-cta-note" data-sc="ctaNote">Screens from the Relayqo app with sample data.</p>
+        <!-- Get the app: installs from the phone's browser (no store); the app shows its own install banner on arrival. -->
+        <div class="app-get reveal" id="get-app">
+          <div class="app-get-copy">
+            <div class="app-get-title"><img src="relayqo-icon.svg" alt="" width="64" height="64"><div><h3 data-sc="getTitle">Get the Relayqo app</h3><p data-sc="getRating">Free with your Relayqo account</p></div></div>
+            <p class="app-get-text" data-sc="getText">No app store needed: Relayqo installs from your phone’s browser in a few seconds, then opens from your home screen with alerts.</p>
+            <div class="app-badges">
+              <a class="app-badge" href="https://app.relayqo.online/login?install=1" data-app-link>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.5 9.2 19 6.6a.5.5 0 0 0-.9-.5l-1.5 2.7A9 9 0 0 0 12 8a9 9 0 0 0-4.6.8L5.9 6.1a.5.5 0 0 0-.9.5l1.5 2.6A8 8 0 0 0 3 15.5h18a8 8 0 0 0-3.5-6.3ZM8 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>
+                <span><small data-sc="badgeInstall">Install on</small><strong>Android</strong></span>
+              </a>
+              <a class="app-badge" href="https://app.relayqo.online/login?install=1" data-app-link>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.5 18.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                <span><small data-sc="badgeAdd">Add to</small><strong>iPhone</strong></span>
+              </a>
+            </div>
+            <div class="app-get-actions">
+              <a class="button button-primary" href="https://wa.me/212649402305?text=DEMO" target="_blank" rel="noopener" data-sc="ctaTry">Try it on WhatsApp</a>
+              <a class="app-get-login" href="https://app.relayqo.online/login" data-app-link data-sc="ctaOpen">Already a client? Open the app</a>
+            </div>
+          </div>
+          <figure class="app-qr">
+            <img src="assets/app/install-qr.svg" alt="QR code to install the Relayqo app on your phone" width="176" height="176">
+            <figcaption data-sc="qrText">Scan with your phone’s camera to install</figcaption>
+          </figure>
         </div>
+        <p class="app-cta-note" data-sc="ctaNote">Screens from the Relayqo app with sample data.</p>
       </section>
 
       <section class="problem-section section" id="problems">

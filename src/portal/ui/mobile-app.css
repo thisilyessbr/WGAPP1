@@ -17,8 +17,7 @@
   .client-shell .top-actions .notification-toggle.is-on>span:first-child{background:var(--green)}
   .client-shell .top-actions .notification-toggle:not(.install-app):not(.is-on)::after{content:"";position:absolute;width:8px;height:8px;margin:-14px -16px 0 0;border-radius:50%;background:#ef5b5b}
   .client-shell .top-actions .notification-toggle{position:relative}
-  .client-shell .top-actions .install-app{min-height:34px;padding:6px 12px;border-radius:999px;background:var(--green);border-color:var(--green);color:var(--accent-ink,#15220a);font-size:13px}
-  :root[data-theme=light] .client-shell .top-actions .install-app{color:#fff}
+  .client-shell .top-actions .install-app{display:none}
   .client-shell .top-actions .notification-toggle:hover{transform:none;box-shadow:none}
 
   /* --- Back arrow on pages opened from Settings or a list. --- */
@@ -227,6 +226,34 @@
 .booking-contact{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .cal-overview-status>div{display:flex;flex-direction:column;min-width:0}
 @media (min-width:761px){.mobile-prefs,.inbox-detail-avatar,.topbar-back,.request-avatar,.request-when{display:none}.inbox-detail-phone::before{content:" · "}}
+
+/* Install banner (phones): icon, name, one line, Install and ×, like a native "get the app" banner. */
+.install-banner{position:relative;z-index:35;display:flex;align-items:center;gap:12px;padding:calc(8px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) 8px max(8px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line);background:var(--surface);color:var(--text)}
+.install-banner-close{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:22px;line-height:1;cursor:pointer}
+.install-banner-icon{flex:none;width:44px;height:44px;border-radius:11px;box-shadow:0 0 0 1px var(--line)}
+.install-banner-text{display:flex;flex:1;flex-direction:column;min-width:0;line-height:1.25}
+.install-banner-text strong{font-size:15px;font-weight:700}
+.install-banner-text small{overflow:hidden;color:var(--muted);font-size:12.5px;text-overflow:ellipsis;white-space:nowrap}
+.install-banner-cta{flex:none;min-height:34px;padding:7px 18px;border:0;border-radius:999px;background:#0095f6;color:#fff;font-size:14px;font-weight:700;cursor:pointer}
+.install-banner-cta:active{transform:scale(.96)}
+.client-shell:has(.inbox-layout.has-active) ~ .install-banner,body:has(.inbox-layout.has-active) .install-banner{display:none}
+
+/* iPhone install sheet: three illustrated steps, slides up from the bottom. */
+.install-sheet{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-end;justify-content:center}
+.install-sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5)}
+.install-sheet-panel{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;width:min(480px,100%);padding:10px 22px calc(22px + env(safe-area-inset-bottom,0px));border-radius:24px 24px 0 0;background:var(--surface);color:var(--text);text-align:center;animation:install-sheet-in .28s cubic-bezier(.2,.8,.2,1)}
+.install-sheet-grip{width:40px;height:5px;margin-bottom:8px;border-radius:999px;background:var(--line)}
+.install-sheet-icon{width:64px;height:64px;border-radius:15px;box-shadow:0 0 0 1px var(--line)}
+.install-sheet-panel h2{font-size:20px}
+.install-sheet-panel>p{max-width:34ch;color:var(--muted);font-size:14px;line-height:1.5}
+.install-steps{display:grid;gap:10px;width:100%;margin:8px 0 6px;padding:0;list-style:none;text-align:start}
+.install-steps li{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:14px;background:var(--raised);font-size:15px;line-height:1.35}
+.install-step-icon{display:grid;flex:none;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--surface);color:#0a84ff}
+.install-step-icon svg{width:22px;height:22px}
+.install-sheet-done{width:100%;min-height:48px;border-radius:14px}
+@keyframes install-sheet-in{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.install-sheet-panel{animation:none}}
+.install-pref-button{min-height:36px!important;padding:6px 16px;border-radius:999px;font-size:14px}
 
 /* App preferences that live in the title bar on desktop: language, theme, log out. */
 .mobile-prefs{overflow:hidden;margin-bottom:16px;padding:0!important}

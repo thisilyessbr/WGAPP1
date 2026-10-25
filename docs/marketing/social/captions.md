@@ -60,3 +60,5 @@ Nouveau : l’app Relayqo. Vos clients reçoivent une réponse sur WhatsApp en d
 - **Instagram story:** share the post to your story the same evening, with a link sticker to the WhatsApp link.
 - **Replies:** answer every comment or DM within the hour. That's the product you're selling.
 - **Don't boost yet:** keep ads off until you have 3 real testimonials, as in the plan.
+
+

@@ -23,10 +23,28 @@
 .app-shot figcaption span { color: rgba(238,245,234,.7); font-size: .9rem; line-height: 1.5; }
 @media (hover: hover) { .app-phone { transition: transform .35s cubic-bezier(.2,.8,.2,1); } .app-shot:hover .app-phone { transform: translateY(-6px) rotate(-.6deg); } }
 
-.app-cta { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; margin-top: 2rem; }
-.app-cta .button { border-color: rgba(238,245,234,.35); color: #fff; }
-.app-cta .button-primary { border-color: var(--lime); background: var(--lime); color: var(--ink); }
-.app-cta-note { flex-basis: 100%; margin: .4rem 0 0; color: rgba(238,245,234,.5); font-size: .8rem; }
+/* Get the app: a light card with store-style badges and, on computers, a QR code. */
+.app-get { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2.5rem; align-items: center; margin-top: 2.6rem; padding: clamp(1.4rem, 3vw, 2.4rem); border-radius: 28px; background: var(--paper-strong); color: var(--ink); box-shadow: 0 30px 70px rgba(0,0,0,.35); }
+.app-get-title { display: flex; align-items: center; gap: 1rem; }
+.app-get-title img { flex: none; width: 64px; height: 64px; border-radius: 16px; box-shadow: 0 6px 18px rgba(7,21,19,.18); }
+.app-get-title h3 { margin: 0; font-family: var(--display); font-size: clamp(1.3rem, 2.4vw, 1.7rem); letter-spacing: -.02em; }
+.app-get-title p { margin: .15rem 0 0; color: var(--muted); font-size: .9rem; }
+.app-get-text { max-width: 56ch; margin: 1rem 0 1.3rem; color: var(--ink-soft); line-height: 1.6; }
+.app-badges { display: flex; flex-wrap: wrap; gap: .7rem; }
+.app-badge { display: inline-flex; align-items: center; gap: .65rem; min-width: 170px; min-height: 54px; padding: .45rem 1.1rem .45rem .85rem; border-radius: 13px; background: #000; color: #fff; text-decoration: none; transition: transform .15s; }
+.app-badge:hover { transform: translateY(-2px); }
+.app-badge:active { transform: scale(.97); }
+.app-badge svg { flex: none; width: 28px; height: 28px; }
+.app-badge span { display: flex; flex-direction: column; line-height: 1.1; }
+.app-badge small { font-size: .7rem; opacity: .8; }
+.app-badge strong { font-family: var(--display); font-size: 1.15rem; letter-spacing: -.01em; }
+.app-get-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.2rem; margin-top: 1.3rem; }
+.app-get-actions .button-primary { border-color: var(--ink); }
+.app-get-login { color: var(--ink); font-weight: 700; font-size: .92rem; text-decoration: underline; text-underline-offset: 3px; }
+.app-qr { display: grid; justify-items: center; gap: .6rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 20px; text-align: center; }
+.app-qr img { display: block; width: 176px; height: 176px; }
+.app-qr figcaption { max-width: 18ch; color: var(--muted); font-size: .82rem; line-height: 1.35; }
+.app-cta-note { margin: 1rem 0 0; color: rgba(238,245,234,.5); font-size: .8rem; }
 
 [dir="rtl"] .app-shot:hover .app-phone { transform: translateY(-6px) rotate(.6deg); }
 
@@ -37,6 +55,10 @@
   .app-reel { margin-inline: -20px; padding-inline: 20px; scroll-padding-inline: 20px; scrollbar-width: none; }
   .app-reel::-webkit-scrollbar { display: none; }
   .app-shot { flex-basis: 68%; }
-  .app-cta .button { flex: 1 1 auto; }
+  .app-get { grid-template-columns: 1fr; gap: 1rem; border-radius: 24px; }
+  .app-qr { display: none; }
+  .app-badges { display: grid; grid-template-columns: 1fr 1fr; }
+  .app-badge { min-width: 0; }
+  .app-get-actions .button { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .app-phone { transition: none; } .app-shot:hover .app-phone { transform: none; } }
