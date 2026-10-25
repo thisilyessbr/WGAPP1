@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Relayqo">
+  <rect width="1024" height="1024" rx="220" fill="#071513"/>
+  <path d="M307 279h224c119 0 216 97 216 216s-97 216-216 216H403" fill="none" stroke="#c8ff58" stroke-width="96" stroke-linecap="round"/>
+  <path d="M307 279v466M531 495l210 250" fill="none" stroke="#63e6c6" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

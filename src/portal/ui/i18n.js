@@ -140,6 +140,8 @@
     ['Inbox','Boîte de réception','صندوق الوارد'],
     ['Enable alerts','Activer les alertes','تفعيل الإشعارات'],
     ['Alerts on','Alertes activées','الإشعارات مفعّلة'],
+    ['Install app','Installer l’app','تثبيت التطبيق'],
+    ['In Safari, tap Share, then Add to Home Screen.','Dans Safari, touchez Partager, puis Sur l’écran d’accueil.','في Safari، اضغط على مشاركة ثم «إضافة إلى الشاشة الرئيسية».'],
     ['Inbox notifications','Notifications de la boîte','إشعارات صندوق الوارد'],
     ['Browser notifications turned off.','Notifications du navigateur désactivées.','تم إيقاف إشعارات المتصفح.'],
     ['Inbox notifications are on.','Notifications de la boîte activées.','تم تفعيل إشعارات صندوق الوارد.'],

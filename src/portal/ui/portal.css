@@ -267,3 +267,7 @@
 .notification-toggle:hover{transform:translateY(-1px);border-color:#65a889;box-shadow:0 6px 16px rgba(25,70,50,.1)}
 .notification-toggle:disabled{opacity:.55;cursor:wait;transform:none}
 @media(max-width:720px){.notification-toggle span:last-child{display:none}.notification-toggle{padding:8px}}
+@media(max-width:720px){.install-app.notification-toggle span:last-child{display:inline}.install-app.notification-toggle{padding:8px 11px}}
+.install-hint{position:fixed;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:60;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:var(--surface,#fff);color:inherit;border:1px solid var(--border,#dfe5df);box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:14px}
+.install-hint span{flex:1}
+.install-hint button{border:0;background:transparent;color:inherit;font-size:20px;line-height:1;cursor:pointer;padding:2px 6px}
