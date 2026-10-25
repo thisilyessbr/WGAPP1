@@ -708,7 +708,7 @@ root.innerHTML=shell(header('Connect WhatsApp','Link your business number. The a
     window.RelayqoInstall?.decorate();
     // Phone title bar: pages that are not a bottom tab get a back arrow to where they are opened from (shown by mobile-app.css only).
     const topbar=document.querySelector('.client-shell .topbar');
-    if(topbar&&!topbar.querySelector('.topbar-back')){
+    if(typeof topbar?.querySelector==='function'&&typeof topbar.insertAdjacentHTML==='function'&&!topbar.querySelector('.topbar-back')){
       const p=location.pathname,tabs=[...document.querySelectorAll('.client-shell .nav>a[data-primary]')].map(a=>a.getAttribute('href'));
       const parent=/^\/app\/orders\/./.test(p)?'/app/orders':/^\/app\/products\/./.test(p)?'/app/products':(tabs.includes(p)||/^\/app\/inbox/.test(p)||!/^\/app\//.test(p))?null:'/app/settings';
       if(parent)topbar.insertAdjacentHTML('afterbegin',`<a class="topbar-back" href="${parent}" data-route aria-label="Back"></a>`);

@@ -9,6 +9,18 @@
     return new Date(dateValue.getTime() - dateValue.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   };
   const nameOf = lead => lead.customerMetadata?.name || lead.customerMetadata?.pushName || lead.customerPhone || 'Customer';
+  const initialsOf = lead => { const name = nameOf(lead); return (/\d{6,}/.test(name) ? name.slice(-2) : name.split(/\s+/).map(part => part[0]).join('').slice(0, 2)).toUpperCase(); };
+  // "5 min", "2 h", "yesterday": the short time the phone list shows next to each request.
+  const ago = value => {
+    const time = new Date(value).getTime(); if (!Number.isFinite(time)) return '';
+    const rtf = new Intl.RelativeTimeFormat(document.documentElement.lang || 'en', { numeric: 'auto', style: 'short' });
+    const minutes = Math.round((time - Date.now()) / 60000), abs = Math.abs(minutes);
+    if (abs < 1) return rtf.format(0, 'minute');
+    if (abs < 60) return rtf.format(minutes, 'minute');
+    if (abs < 1440) return rtf.format(Math.round(minutes / 60), 'hour');
+    if (abs < 10080) return rtf.format(Math.round(minutes / 1440), 'day');
+    return new Intl.DateTimeFormat(document.documentElement.lang || 'en', { day: 'numeric', month: 'short' }).format(new Date(time));
+  };
 
   async function renderServiceRequests(ctx, id, commerce = false) {
     const { root, shell, header, escape: esc, toast, api, bind, go } = ctx;
@@ -53,7 +65,8 @@
       api('/client/leads?view=' + view + '&limit=20&offset=' + offset), api('/client/leads/summary')
     ]);
     const filters = [['ACTION', 'Needs reply', summary.needsAction], ['LATER', 'Later', summary.scheduled], ['DONE', 'Done', summary.done]];
-    const rows = leads.map(lead => `<article class="service-request-row"><div class="service-request-row-main"><span class="badge ${isHandled(lead) ? 'green' : isPlanned(lead) ? 'blue' : 'orange'}">${labelOf(lead)}</span><h3>${esc(nameOf(lead))}</h3><p>${esc(requestOf(lead))}</p>${isPlanned(lead) ? `<small>Follow up ${esc(date(lead.followUpAt))}</small>` : `<small>Received ${esc(date(lead.createdAt))}</small>`}</div><div class="service-request-row-actions">${lead.conversationId && !isHandled(lead) ? `<a class="btn" href="/app/inbox/${encodeURIComponent(lead.conversationId)}" data-route>Reply</a>` : ''}<a class="btn secondary" href="/app/leads/${encodeURIComponent(lead.id)}" data-route>${isHandled(lead) ? 'View details' : 'Reminder & details'}</a></div></article>`).join('');
+    // The avatar, short time and row link are for the phone list (mobile-app.css); desktop keeps its layout.
+    const rows = leads.map(lead => `<article class="service-request-row"><span class="request-avatar" aria-hidden="true">${esc(initialsOf(lead))}</span><div class="service-request-row-main"><span class="badge ${isHandled(lead) ? 'green' : isPlanned(lead) ? 'blue' : 'orange'}">${labelOf(lead)}</span><h3><a class="request-row-link" href="/app/leads/${encodeURIComponent(lead.id)}" data-route>${esc(nameOf(lead))}</a><small class="request-when">${esc(ago(isPlanned(lead) ? lead.followUpAt : lead.createdAt))}</small></h3><p>${esc(requestOf(lead))}</p>${isPlanned(lead) ? `<small>Follow up ${esc(date(lead.followUpAt))}</small>` : `<small>Received ${esc(date(lead.createdAt))}</small>`}</div><div class="service-request-row-actions">${lead.conversationId && !isHandled(lead) ? `<a class="btn request-reply" href="/app/inbox/${encodeURIComponent(lead.conversationId)}" data-route><span>Reply</span></a>` : ''}<a class="btn secondary request-more" href="/app/leads/${encodeURIComponent(lead.id)}" data-route><span>${isHandled(lead) ? 'View details' : 'Reminder & details'}</span></a></div></article>`).join('');
     root.innerHTML = shell(header('Requests', commerce ? 'Customers asking about products. Reply, set a reminder, or mark done.' : 'Customers asking about your services. Reply, set a reminder, or mark done.', '<button class="btn secondary" id="export-leads" type="button">Export CSV</button>') +
       `<div class="service-request-overview"><div><span>Needs reply</span><strong>${Number(summary.needsAction || 0)}</strong></div><div><span>Later</span><strong>${Number(summary.scheduled || 0)}</strong></div><div><span>Done</span><strong>${Number(summary.done || 0)}</strong></div></div><article class="card service-request-list"><div class="card-title"><div><span class="plan-section-label">Customer follow-ups</span><h2>${filters.find(item => item[0] === view)[1]}</h2><p>${view === 'ACTION' ? 'Open the chat to answer, or choose a reminder.' : view === 'LATER' ? 'Requests return to Needs reply when their reminder is due.' : 'Customers you have finished helping.'}</p></div></div><div class="section-tabs service-request-tabs" role="tablist">${filters.map(([key, label, count]) => `<button class="service-request-tab ${view === key ? 'is-active' : ''}" type="button" role="tab" aria-selected="${view === key}" data-view="${key}"><span>${label}</span><small class="tab-badge" aria-hidden="true">${Number(count || 0)}</small></button>`).join('')}</div><div class="service-request-rows">${rows || `<p class="empty compact">${view === 'ACTION' ? 'No customers need a reply right now.' : view === 'LATER' ? 'No reminders planned.' : 'No completed follow-ups yet.'}</p>`}</div><div class="lead-pagination">${offset > 0 ? '<button class="btn secondary" data-page="previous">Previous</button>' : ''}${pagination.hasMore ? '<button class="btn secondary" data-page="next">Next</button>' : ''}</div></article>`, false, 'Requests');
     document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => go('/app/leads?view=' + button.dataset.view));
