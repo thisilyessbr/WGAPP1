@@ -23,7 +23,7 @@ const translations = {
     stepOneTitle: "Add your information", stepOneText: "Enter services or products, FAQs and policies. Add PDFs if they help answer customer questions.",
     stepTwoTitle: "Review and connect", stepTwoText: "An administrator reviews and publishes your data. Connect an eligible number with the official WhatsApp API.",
     stepThreeTitle: "Run and follow up", stepThreeText: "Read conversations, take over when needed, and follow up on customer requests in your workspace.",
-    contactKicker: "Pilot onboarding", contactTitle: "See how Relayqo fits your business.", contactText: "Tell us whether you handle services or products and how customers contact you. We’ll help you choose a suitable setup and test it before activation.", contactCta: "Start a conversation",
+    contactKicker: "Pilot onboarding", contactTitle: "Try Relayqo on your own products.", contactText: "Tell us whether you handle services or products and how customers contact you. We’ll help you choose a suitable setup and test it before activation.", contactCta: "Start a conversation",
     footerLine: "Intelligent conversations for ambitious businesses."
   },
   fr: {
@@ -50,7 +50,7 @@ const translations = {
     stepOneTitle: "Ajoutez vos informations", stepOneText: "Renseignez vos services ou produits, FAQ et politiques. Ajoutez des PDF utiles aux réponses.",
     stepTwoTitle: "Faites valider et connectez", stepTwoText: "Un administrateur vérifie et publie vos données. Connectez un numéro éligible avec l’API WhatsApp officielle.",
     stepThreeTitle: "Répondez et suivez", stepThreeText: "Lisez les conversations, reprenez-les si nécessaire et suivez les demandes dans votre espace.",
-    contactKicker: "Accompagnement pilote", contactTitle: "Voyons comment Relayqo s’adapte à votre activité.", contactText: "Dites-nous si vous proposez des services ou des produits et comment vos clients vous contactent. Nous vous aiderons à choisir et tester la configuration avant activation.", contactCta: "Démarrer la conversation",
+    contactKicker: "Accompagnement pilote", contactTitle: "Essayez Relayqo sur vos propres produits.", contactText: "Dites-nous si vous proposez des services ou des produits et comment vos clients vous contactent. Nous vous aiderons à choisir et tester la configuration avant activation.", contactCta: "Démarrer la conversation",
     footerLine: "Des conversations intelligentes pour les entreprises ambitieuses."
   },
   ar: {
@@ -77,7 +77,7 @@ const translations = {
     stepOneTitle: "أضف معلوماتك", stepOneText: "أدخل الخدمات أو المنتجات والأسئلة الشائعة والسياسات. أضف ملفات PDF التي تساعد في الإجابة.",
     stepTwoTitle: "راجع واربط", stepTwoText: "يراجع المسؤول معلوماتك وينشرها. اربط رقماً مؤهلاً عبر واجهة واتساب الرسمية.",
     stepThreeTitle: "شغّل وتابع", stepThreeText: "اقرأ المحادثات، وتولَّ الرد عند الحاجة، وتابع طلبات العملاء من مساحة عملك.",
-    contactKicker: "إعداد تجريبي بمساعدة الفريق", contactTitle: "لنرَ كيف يناسب Relayqo نشاطك.", contactText: "أخبرنا هل تقدم خدمات أم تبيع منتجات، وكيف يتواصل معك العملاء. سنساعدك على اختيار الإعداد المناسب واختباره قبل التفعيل.", contactCta: "ابدأ المحادثة",
+    contactKicker: "إعداد تجريبي بمساعدة الفريق", contactTitle: "جرّب Relayqo على المنتوجات ديالك.", contactText: "أخبرنا هل تقدم خدمات أم تبيع منتجات، وكيف يتواصل معك العملاء. سنساعدك على اختيار الإعداد المناسب واختباره قبل التفعيل.", contactCta: "ابدأ المحادثة",
     footerLine: "محادثات ذكية للشركات الطموحة."
   }
 };
@@ -104,7 +104,7 @@ Object.assign(translations.en, {
   problemThreeTitle: "A request needs follow-up",
   problemThreeText: "An answer alone is not enough; the relevant details need to reach your team clearly.",
   liveKicker: "See the experience",
-  liveTitle: "Not just a reply. A conversation with a next step.",
+  liveTitle: "See it answer, live.",
   liveLead: "Two illustrative flows: one for services and one for products. Your real setup uses your own approved business information.",
   demoServices: "Services & appointments",
   demoCommerce: "Products & orders",
@@ -140,7 +140,7 @@ Object.assign(translations.fr, {
   problemOneTitle: "Les mêmes questions chaque jour", problemOneText: "Prix, disponibilité, rendez-vous et politiques reviennent sans cesse.",
   problemTwoTitle: "Chaque client parle à sa façon", problemTwoText: "Darija, arabizi, français, anglais et messages vocaux demandent une réponse contextualisée.",
   problemThreeTitle: "Une demande exige un suivi", problemThreeText: "Une réponse ne suffit pas : les bonnes informations doivent parvenir clairement à votre équipe.",
-  liveKicker: "Découvrez l'expérience", liveTitle: "Pas seulement une réponse. Une prochaine étape.",
+  liveKicker: "Découvrez l'expérience", liveTitle: "Regardez-le répondre, en direct.",
   liveLead: "Deux parcours illustratifs : services et produits. Votre configuration réelle utilise vos informations métier validées.",
   demoServices: "Services et rendez-vous", demoCommerce: "Produits et commandes", demoIllustrative: "exemple illustratif", demoBehind: "Côté entreprise",
   serviceMsgOne: "Bonjour, avez-vous un créneau cette semaine ?",
@@ -172,7 +172,7 @@ Object.assign(translations.ar, {
   problemOneTitle: "نفس الأسئلة كل نهار", problemOneText: "الثمن، التوفر، المواعيد والسياسات كيرجعو فكل محادثة.",
   problemTwoTitle: "الزبون كيهضر بلغتو", problemTwoText: "دارجة، عربيزي، فرنسية، إنجليزية وحتى أوديو؛ خاص الرد يفهم السياق.",
   problemThreeTitle: "الطلب خاصو متابعة", problemThreeText: "الجواب بوحدو ما كافيش؛ خاص المعلومات توصل للفريق واضحة.",
-  liveKicker: "شوف التجربة", liveTitle: "ماشي غير ردّ. محادثة كتوصّل لخطوة.",
+  liveKicker: "شوف التجربة", liveTitle: "شوفو كيجاوب، مباشرة.",
   liveLead: "جوج أمثلة توضيحية: واحد للخدمات وواحد للمنتجات. الإعداد الحقيقي كيبقى مبني على معلومات شركتك.",
   demoServices: "خدمات ومواعيد", demoCommerce: "منتجات وطلبات", demoIllustrative: "مثال توضيحي", demoBehind: "من جهة النشاط",
   serviceMsgOne: "سلام، بغيت نعرف واش كاين موعد هاد السيمانة؟",
@@ -199,7 +199,7 @@ Object.assign(translations.en, {
   deepServiceTitle: "Service and demo requests without false promises", deepServiceText: "For service businesses, it gathers the customer's need and preferred time. Your team reviews availability and confirms the appointment; the bot does not claim the booking is final.",
   deepTeamTitle: "One place for the team to follow through", deepTeamText: "Customer details and requests appear in the integrated CRM and team inbox. Staff can take over a conversation and track what still needs a human response.",
   deepBoundaryTitle: "Your team stays in control.", deepBoundaryText: "Relayqo does not take bank details or payments. Availability, pricing and booking claims must come from your published business information or be confirmed by your team.",
-  faqKicker: "Common questions", faqTitle: "The details before you connect.",
+  faqKicker: "Common questions", faqTitle: "What shop owners ask us.",
   faqOneQ: "Is Relayqo only for online stores?", faqOneA: "No. Service teams can collect enquiries and appointment requests; stores can answer catalogue questions and gather order requests. The setup follows your business.",
   faqTwoQ: "Can it understand a voice note?", faqTwoA: "It can understand incoming audio messages and use the relevant business information to reply in text. This is not a promise of generated voice replies.",
   faqThreeQ: "Does Instagram work too?", faqThreeA: "Instagram DM support depends on the selected plan and successful account connection. The official WhatsApp channel is the main starting point.",
@@ -216,7 +216,7 @@ Object.assign(translations.fr, {
   deepServiceTitle: "Des demandes de rendez-vous sans fausse confirmation", deepServiceText: "Pour les services, il recueille le besoin et le créneau souhaité. Votre équipe vérifie la disponibilité et confirme le rendez-vous ; l'assistant ne le présente pas comme définitif.",
   deepTeamTitle: "Un espace pour assurer la suite", deepTeamText: "Les coordonnées et demandes arrivent dans le CRM intégré et la boîte de réception de l'équipe. Un collaborateur peut reprendre la conversation et suivre ce qui nécessite une réponse humaine.",
   deepBoundaryTitle: "Votre équipe garde le contrôle.", deepBoundaryText: "Relayqo ne collecte pas de données bancaires et n'encaisse pas de paiements. Disponibilité, prix et rendez-vous proviennent de vos informations publiées ou sont confirmés par votre équipe.",
-  faqKicker: "Questions fréquentes", faqTitle: "L'essentiel avant de vous connecter.",
+  faqKicker: "Questions fréquentes", faqTitle: "Ce que les commerçants nous demandent.",
   faqOneQ: "Relayqo est-il réservé aux boutiques en ligne ?", faqOneA: "Non. Les entreprises de services recueillent des demandes et souhaits de rendez-vous ; les boutiques répondent aux questions de catalogue et recueillent les demandes de commande.",
   faqTwoQ: "Comprend-il les messages vocaux ?", faqTwoA: "Il peut comprendre les vocaux reçus et répondre par écrit à partir des informations de l'entreprise. Cela ne signifie pas qu'il génère une réponse vocale.",
   faqThreeQ: "Instagram fonctionne-t-il aussi ?", faqThreeA: "Instagram DM dépend de la formule et de la connexion réussie du compte. WhatsApp officiel reste le point de départ principal.",
@@ -233,7 +233,7 @@ Object.assign(translations.ar, {
   deepServiceTitle: "طلبات خدمة وديمو بلا وعود زائفة", deepServiceText: "للخدمات، كيجمع احتياج الزبون والوقت اللي يناسبو. الفريق كيراجع التوفر ويأكد الموعد؛ المساعد ما كيقولش أن الحجز تأكد قبل هاد الخطوة.",
   deepTeamTitle: "كلشي واضح للفريق باش يكمل المتابعة", deepTeamText: "معلومات الزبون والطلبات كيبانو فالـCRM المدمج وصندوق المحادثات. الفريق يقدر يتولّى المحادثة ويشوف شنو باقي محتاج رد بشري.",
   deepBoundaryTitle: "القرار كيبقى عند فريقك.", deepBoundaryText: "Relayqo ما كيطلبش معلومات البنك وما كيستقبلش الدفع. الثمن والتوفر والحجز خاصهم يجو من معلوماتك المنشورة أو يتأكدوا من الفريق.",
-  faqKicker: "أسئلة متكررة", faqTitle: "شنو خاصك تعرف قبل الربط؟",
+  faqKicker: "أسئلة متكررة", faqTitle: "شنو كيسولونا مولين المحلات.",
   faqOneQ: "واش Relayqo غير للمتاجر الإلكترونية؟", faqOneA: "لا. شركات الخدمات كتجمع الاستفسارات وطلبات المواعيد؛ والمتاجر كتجاوب على أسئلة الكتالوج وكتجمع طلبات الشراء. الإعداد كيتناسب مع نشاطك.",
   faqTwoQ: "واش كيفهم الأوديو؟", faqTwoA: "يقدر يفهم الرسائل الصوتية اللي كتوصل ويجاوب بالكتابة من معلومات النشاط. هادشي ماشي وعد برد صوتي مولّد.",
   faqThreeQ: "واش خدام حتى فـInstagram؟", faqThreeA: "Instagram DM كيتحدد حسب الباقة ونجاح ربط الحساب. واتساب الرسمي هو نقطة الانطلاق الأساسية.",
@@ -242,7 +242,7 @@ Object.assign(translations.ar, {
 });
 
 Object.assign(translations.en, {
-  navOffers: "Pricing", offersKicker: "Simple monthly plans", offersTitle: "Choose the assistant your business needs.",
+  navOffers: "Pricing", offersKicker: "Simple monthly plans", offersTitle: "Simple prices. Try it first.",
   offersLead: "Two clear starting points for Moroccan businesses. Both begin with your approved information and an eligible official WhatsApp connection.",
   pricePeriod: "/ month", priceCta: "Ask about this plan", serviceFour: "Darija, Arabic, French and English; incoming voice notes",
   commerceBase: "Everything in the Services plan",
@@ -250,7 +250,7 @@ Object.assign(translations.en, {
   faqPriceQ: "What do the monthly prices include?", faqPriceA: "The Services plan is 249 MAD/month and the Commerce plan is 449 MAD/month. We confirm usage allowances, setup needs and any Meta/WhatsApp charges with you before activation; there is no automatic checkout on this site."
 });
 Object.assign(translations.fr, {
-  navOffers: "Tarifs", offersKicker: "Deux formules mensuelles", offersTitle: "Choisissez l'assistant adapté à votre activité.",
+  navOffers: "Tarifs", offersKicker: "Deux formules mensuelles", offersTitle: "Des prix simples. Essayez d’abord.",
   offersLead: "Deux points de départ clairs pour les entreprises marocaines. Les deux utilisent vos informations validées et un numéro éligible connecté à WhatsApp officiel.",
   pricePeriod: "/ mois", priceCta: "Demander cette formule", serviceFour: "Darija, arabe, français et anglais ; vocaux reçus",
   commerceBase: "Tout ce que comprend la formule Services",
@@ -258,7 +258,7 @@ Object.assign(translations.fr, {
   faqPriceQ: "Que comprennent les prix mensuels ?", faqPriceA: "La formule Services coûte 249 MAD/mois et la formule Commerce 449 MAD/mois. Nous confirmons les volumes, la mise en place et les éventuels frais Meta/WhatsApp avant activation ; ce site ne propose pas de paiement automatique."
 });
 Object.assign(translations.ar, {
-  navOffers: "الأسعار", offersKicker: "جوج باقات شهرية", offersTitle: "اختار المساعد اللي مناسب لنشاطك.",
+  navOffers: "الأسعار", offersKicker: "جوج باقات شهرية", offersTitle: "أثمنة واضحة. وجرّب قبل ما تخلص.",
   offersLead: "جوج اختيارات واضحة للشركات المغربية. بجوج كيعتمدو على معلومات نشاطك المعتمدة ورقم مؤهل للربط بواتساب الرسمي.",
   pricePeriod: "/ الشهر", priceCta: "سول على هاد الباقة", serviceFour: "الدارجة والعربية والفرنسية والإنجليزية؛ وفهم الأوديو الوارد",
   commerceBase: "كلشي اللي فباقة الخدمات",
@@ -359,7 +359,7 @@ Object.assign(translations.ar, {
 // One concrete customer journey replaces the generic feature cards in every language.
 Object.assign(translations.en, {
   platformKicker: "One conversation, three clear steps",
-  platformTitle: "From a customer question to a clear next step.",
+  platformTitle: "From question to order, in three steps.",
   platformLead: "See how an enquiry moves through Relayqo, while your team keeps control of the follow-up.",
   journeyCustomer: "Customer", journeyQuestion: "Do you have these jeans in size 34?", journeySourceOne: "Your catalog", journeySourceTwo: "Your policies", journeyTeam: "Your team", journeyRequest: "Product enquiry ready for follow-up",
   featureKnowledgeTitle: "The customer asks naturally", featureKnowledgeText: "A message or WhatsApp voice note, in the language they normally use.",
@@ -369,7 +369,7 @@ Object.assign(translations.en, {
 });
 Object.assign(translations.fr, {
   platformKicker: "Un échange, trois étapes claires",
-  platformTitle: "D'une question client à une suite claire.",
+  platformTitle: "De la question à la commande, en trois étapes.",
   platformLead: "Voyez comment une demande avance dans Relayqo, tout en laissant le suivi à votre équipe.",
   journeyCustomer: "Client", journeyQuestion: "Ce jean existe en taille 34 ?", journeySourceOne: "Votre catalogue", journeySourceTwo: "Vos règles", journeyTeam: "Votre équipe", journeyRequest: "Demande produit à suivre",
   featureKnowledgeTitle: "Le client pose sa question", featureKnowledgeText: "Un message ou un vocal WhatsApp, dans la langue qu'il utilise d'habitude.",
@@ -379,7 +379,7 @@ Object.assign(translations.fr, {
 });
 Object.assign(translations.ar, {
   platformKicker: "محادثة وحدة، ثلاث خطوات واضحة",
-  platformTitle: "من سؤال الزبون حتى المتابعة.",
+  platformTitle: "من السؤال للطلبية، فثلاث خطوات.",
   platformLead: "شوف كيفاش كتمشي المحادثة داخل Relayqo، وفريقك كيبقى مسؤول على الخطوة الجاية.",
   journeyCustomer: "الزبون", journeyQuestion: "واش كاين هاد الجين فـ34؟", journeySourceOne: "الكتالوج ديالك", journeySourceTwo: "سياساتك", journeyTeam: "فريقك", journeyRequest: "طلب منتوج خاصو متابعة",
   featureKnowledgeTitle: "الزبون كيسول بطريقتو", featureKnowledgeText: "رسالة مكتوبة أو أوديو واتساب، باللغة اللي كيهضر بها.",
@@ -390,27 +390,27 @@ Object.assign(translations.ar, {
 
 // Keep the opening focused on the buyer's daily pain; the examples below supply the proof.
 Object.assign(translations.en, {
-  heroTitle: "Still answering the same questions <em>every day?</em>",
+  heroTitle: "Your customers get an answer in seconds. <em>Even at 1 a.m.</em>",
   heroLead: "Relayqo handles customer questions from your approved business information, understands WhatsApp voice notes, and puts service or product requests where your team can follow up. In Darija, Arabic, French and English.",
-  problemKicker: "Why this matters", problemTitle: "When replies take time, customers keep moving.",
+  problemKicker: "Why this matters", problemTitle: "Every slow reply is a lost sale.",
   problemLead: "Three familiar moments for Moroccan businesses selling or serving customers by message.",
-  deepTitle: "What Relayqo adds beyond a quick reply.",
+  deepTitle: "Built for the way Morocco messages.",
   deepLead: "The practical capabilities behind the conversation you just saw."
 });
 Object.assign(translations.fr, {
-  heroTitle: "Vous répondez encore aux mêmes questions <em>chaque jour ?</em>",
+  heroTitle: "Vos clients ont une réponse en quelques secondes. <em>Même à 1 h du matin.</em>",
   heroLead: "Relayqo répond à partir de vos informations validées, comprend les vocaux WhatsApp et organise les demandes de service ou de produit pour votre équipe. En darija, arabe, français et anglais.",
-  problemKicker: "Pourquoi c'est important", problemTitle: "Quand la réponse tarde, le client avance ailleurs.",
+  problemKicker: "Pourquoi c'est important", problemTitle: "Chaque réponse lente est une vente perdue.",
   problemLead: "Trois situations que connaissent les entreprises marocaines qui échangent avec leurs clients par message.",
-  deepTitle: "Plus qu'une réponse rapide.",
+  deepTitle: "Pensé pour la façon dont le Maroc écrit.",
   deepLead: "Les fonctions concrètes derrière la conversation que vous venez de voir."
 });
 Object.assign(translations.ar, {
-  heroTitle: "باقي كتجاوب نفس الأسئلة <em>كل نهار؟</em>",
+  heroTitle: "الكليان ديالك كيتجاوبو فثواني. <em>حتى فالوحدة ديال الليل.</em>",
   heroLead: "Relayqo كيجاوب من معلومات نشاطك المعتمدة، كيفهم أوديو واتساب، وكيجمع طلبات الخدمات والمنتجات فبلاصة يتابعها فريقك. بالدارجة والعربية والفرنسية والإنجليزية.",
-  problemKicker: "علاش هادشي مهم", problemTitle: "إلا تأخر الجواب، الزبون يقدر يمشي.",
+  problemKicker: "علاش هادشي مهم", problemTitle: "كل جواب معطّل، بيعة ضايعة.",
   problemLead: "ثلاث مواقف كتعيشها بزاف ديال الشركات المغربية فالرسائل.",
-  deepTitle: "أكثر من غير جواب سريع.",
+  deepTitle: "مصاوب على قد الطريقة اللي كيكتبو بها المغاربة.",
   deepLead: "ها شنو كاين وراء المحادثة اللي شفتي."
 });
 

@@ -15,7 +15,10 @@
     <title>Relayqo — Business conversations that move</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&family=Noto+Sans+Arabic:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- Fonts load without blocking the first paint; the system font shows until they arrive. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@700;800&family=Noto+Sans+Arabic:wght@400;600;800&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@700;800&family=Noto+Sans+Arabic:wght@400;600;800&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@700;800&family=Noto+Sans+Arabic:wght@400;600;800&display=swap" /></noscript>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="app-showcase.css" />
     <link rel="stylesheet" href="mobile.css" />
@@ -56,7 +59,7 @@
       <section class="hero" id="top">
         <div class="hero-copy reveal">
           <p class="eyebrow"><span></span><span data-i18n="eyebrow">WhatsApp-first, built for Morocco</span></p>
-          <h1 data-i18n="heroTitle">كل سؤال من زبون <em>يستاهل جواب واضح.</em></h1>
+          <h1 data-i18n="heroTitle">Your customers get an answer in seconds. <em>Even at 1 a.m.</em></h1>
           <p class="hero-lead" data-i18n="heroLead">Relayqo كيجاوب من معلومات النشاط ديالك، بالدارجة والعربية والفرنسية والإنجليزية. كينظم الطلبات والاستفسارات باش فريقك يتابعها من بلاصة وحدة.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#contact"><span data-i18n="ctaPrimary">شوف ديمو لنشاطك</span><span aria-hidden="true">↗</span></a>
@@ -110,11 +113,11 @@
           </ul>
         </div>
         <div class="app-reel" tabindex="0" aria-label="App screens">
-          <figure class="app-shot"><div class="app-phone"><img src="assets/app/inbox.jpg" alt="Relayqo inbox on a phone: customer conversations with avatars" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="inboxTitle">Every chat, one inbox</strong><span data-sc="inboxText">WhatsApp conversations in one list. The ones that need you are marked.</span></figcaption></figure>
-          <figure class="app-shot"><div class="app-phone"><img src="assets/app/chat.jpg" alt="A conversation with the customer, answered by the assistant and the merchant" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="chatTitle">Take over in one tap</strong><span data-sc="chatText">See what the assistant answered, then reply yourself when a customer needs a person.</span></figcaption></figure>
-          <figure class="app-shot"><div class="app-phone"><img src="assets/app/requests.jpg" alt="Customer requests list with reply buttons" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="requestsTitle">No request gets lost</strong><span data-sc="requestsText">Who asked what, and when. Reply now or set a reminder for later.</span></figcaption></figure>
-          <figure class="app-shot"><div class="app-phone"><img src="assets/app/calendar.jpg" alt="Calendar with a swipeable day strip and the day's bookings" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="calendarTitle">Bookings, day by day</strong><span data-sc="calendarText">The assistant books only free times. Call or WhatsApp the customer from the booking.</span></figcaption></figure>
-          <figure class="app-shot"><div class="app-phone"><img src="assets/app/orders.jpg" alt="Orders to confirm with confirm and call buttons" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="ordersTitle">Orders ready to confirm</strong><span data-sc="ordersText">Orders taken in WhatsApp, with the total. Confirm, call, then follow the delivery.</span></figcaption></figure>
+          <figure class="app-shot"><div class="app-phone"><img src="assets/app/inbox.webp" alt="Relayqo inbox on a phone: customer conversations with avatars" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="inboxTitle">Every chat, one inbox</strong><span data-sc="inboxText">WhatsApp conversations in one list. The ones that need you are marked.</span></figcaption></figure>
+          <figure class="app-shot"><div class="app-phone"><img src="assets/app/chat.webp" alt="A conversation with the customer, answered by the assistant and the merchant" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="chatTitle">Take over in one tap</strong><span data-sc="chatText">See what the assistant answered, then reply yourself when a customer needs a person.</span></figcaption></figure>
+          <figure class="app-shot"><div class="app-phone"><img src="assets/app/requests.webp" alt="Customer requests list with reply buttons" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="requestsTitle">No request gets lost</strong><span data-sc="requestsText">Who asked what, and when. Reply now or set a reminder for later.</span></figcaption></figure>
+          <figure class="app-shot"><div class="app-phone"><img src="assets/app/calendar.webp" alt="Calendar with a swipeable day strip and the day's bookings" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="calendarTitle">Bookings, day by day</strong><span data-sc="calendarText">The assistant books only free times. Call or WhatsApp the customer from the booking.</span></figcaption></figure>
+          <figure class="app-shot"><div class="app-phone"><img src="assets/app/orders.webp" alt="Orders to confirm with confirm and call buttons" loading="lazy" width="390" height="844"></div><figcaption><strong data-sc="ordersTitle">Orders ready to confirm</strong><span data-sc="ordersText">Orders taken in WhatsApp, with the total. Confirm, call, then follow the delivery.</span></figcaption></figure>
         </div>
         <!-- Get the app: installs from the phone's browser (no store); the app shows its own install banner on arrival. -->
         <div class="app-get reveal" id="get-app">
@@ -147,7 +150,7 @@
       <section class="problem-section section" id="problems">
         <div class="section-heading reveal">
           <p class="section-kicker" data-i18n="problemKicker">من واقع البيع بالرسائل</p>
-          <h2 data-i18n="problemTitle">البيع فالواتساب كياخذ وقت أكثر مما كيبان.</h2>
+          <h2 data-i18n="problemTitle">Every slow reply is a lost sale.</h2>
           <p data-i18n="problemLead">إلا كانت الطلبات كتوصلك فالرسائل، هاد المواقف غالباً كتعرفها. شوف واحد بواحد.</p>
         </div>
         <div class="problem-carousel reveal" aria-roledescription="carousel" data-i18n-aria="problemCarouselLabel">
@@ -182,7 +185,7 @@
 
       <section class="live-demo section" id="live-demo">
         <div class="demo-intro reveal">
-          <div><p class="section-kicker" data-i18n="liveKicker">شوف التجربة</p><h2 data-i18n="liveTitle">ماشي غير ردّ. محادثة كتوصّل لخطوة.</h2><p data-i18n="liveLead">ثلاثة أمثلة توضيحية: خدمات، منتجات وأوديو واتساب. الإعداد الحقيقي كيبقى مبني على معلومات شركتك.</p></div>
+          <div><p class="section-kicker" data-i18n="liveKicker">شوف التجربة</p><h2 data-i18n="liveTitle">See it answer, live.</h2><p data-i18n="liveLead">ثلاثة أمثلة توضيحية: خدمات، منتجات وأوديو واتساب. الإعداد الحقيقي كيبقى مبني على معلومات شركتك.</p></div>
           <div class="demo-switch" role="tablist" aria-label="Demo scenarios">
             <button class="scenario-tab active" type="button" role="tab" aria-selected="true" aria-controls="scenario-services" id="tab-services" data-i18n="demoServices">خدمات ومواعيد</button>
             <button class="scenario-tab" type="button" role="tab" aria-selected="false" aria-controls="scenario-commerce" id="tab-commerce" data-i18n="demoCommerce">منتجات وطلبات</button>
@@ -208,7 +211,7 @@
       <section class="platform section" id="platform">
         <div class="section-heading reveal">
           <p class="section-kicker" data-i18n="platformKicker">The Relayqo platform</p>
-          <h2 data-i18n="platformTitle">Answers with context. Actions with purpose.</h2>
+          <h2 data-i18n="platformTitle">From question to order, in three steps.</h2>
           <p data-i18n="platformLead">Give your team one system that understands your business and keeps customer conversations moving.</p>
         </div>
 
@@ -237,7 +240,7 @@
       <section class="feature-deep-dive section" id="features-explained">
         <div class="section-heading reveal">
           <p class="section-kicker" data-i18n="deepKicker">Inside Relayqo</p>
-          <h2 data-i18n="deepTitle">What the assistant actually does.</h2>
+          <h2 data-i18n="deepTitle">Built for the way Morocco messages.</h2>
           <p data-i18n="deepLead">Not a list of buzzwords: here is what happens when a customer writes, sends a voice note, or asks about a product.</p>
         </div>
         <div class="deep-grid">
@@ -251,7 +254,7 @@
       <section class="offers section" id="offers">
         <div class="section-heading reveal">
           <p class="section-kicker" data-i18n="offersKicker">Simple monthly plans</p>
-          <h2 data-i18n="offersTitle">Choose the assistant your business needs.</h2>
+          <h2 data-i18n="offersTitle">Simple prices. Try it first.</h2>
           <p data-i18n="offersLead">Two clear starting points for Moroccan businesses. Both begin with your approved information and an eligible official WhatsApp connection.</p>
         </div>
         <div class="offer-grid">
@@ -286,7 +289,7 @@
       </section>
 
       <section class="faq-section section" id="faq">
-        <div class="faq-heading reveal"><p class="section-kicker" data-i18n="faqKicker">Common questions</p><h2 data-i18n="faqTitle">The details before you connect.</h2></div>
+        <div class="faq-heading reveal"><p class="section-kicker" data-i18n="faqKicker">Common questions</p><h2 data-i18n="faqTitle">What shop owners ask us.</h2></div>
         <div class="faq-list">
           <details class="faq-item"><summary data-i18n="faqOneQ">Is Relayqo only for online stores?</summary><p data-i18n="faqOneA">No. Service teams can collect enquiries and appointment requests; stores can answer catalogue questions and gather order requests. The setup follows your business.</p></details>
           <details class="faq-item"><summary data-i18n="faqTwoQ">Can it understand a voice note?</summary><p data-i18n="faqTwoA">It can understand incoming audio messages and use the relevant business information to reply in text. This is not a promise of generated voice replies.</p></details>
@@ -299,7 +302,7 @@
       <section class="contact section" id="contact">
         <div class="contact-card reveal">
           <p class="section-kicker" data-i18n="contactKicker">Pilot onboarding</p>
-          <h2 data-i18n="contactTitle">See how Relayqo fits your business.</h2>
+          <h2 data-i18n="contactTitle">Try Relayqo on your own products.</h2>
           <p data-i18n="contactText">Tell us whether you handle services or products and how customers contact you. We’ll help you choose a suitable setup and test it before activation.</p>
           <div class="contact-actions">
             <a class="button button-light" href="https://wa.me/212649402305?text=DEMO" target="_blank" rel="noopener noreferrer"><span data-i18n="contactCta">Message us on WhatsApp</span><span aria-hidden="true">↗</span></a>

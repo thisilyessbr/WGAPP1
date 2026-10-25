@@ -61,7 +61,7 @@
           <button class="btn" type="submit" id="bc-send">${data.requiresApproval ? 'Send for approval' : 'Send broadcast'}</button>
         </form>`;
 
-    root.innerHTML = shell(header('Broadcasts', 'Turn customer consent into timely WhatsApp campaigns—and know the audience and Meta cost before anything is sent.',
+    root.innerHTML = shell(header('Broadcasts', 'Send WhatsApp offers to customers who agreed to hear from you.',
       `<button class="btn secondary" type="button" id="bc-sync" ${hasNumber ? '' : 'disabled'}>Sync templates</button>`) +
       launchBar +
       `<section class="broadcast-hero"><div><span class="plan-section-label">Customer re-engagement</span><h2>Bring the right customers back at the right moment.</h2><p>Use Meta-approved templates, target only opted-in contacts and keep every send inside your monthly plan allowance.</p></div><ol class="broadcast-steps"><li><span>1</span><b>Choose a message</b><small>Sync an approved Meta template.</small></li><li><span>2</span><b>Refine the audience</b><small>Filter opted-in customers by activity and status.</small></li><li><span>3</span><b>Review and send</b><small>Confirm reach and estimated Meta fees.</small></li></ol></section>`+

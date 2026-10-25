@@ -32,7 +32,7 @@
       <div class="order-row-actions">${(NEXT[o.status] || []).map(([next, label], i) => `<button type="button" class="btn ${i === 0 ? '' : 'secondary'}" data-set="${next}" data-id="${esc(o.id)}">${esc(label)}</button>`).join('')}
         ${contactActions(o, esc)}<a class="btn secondary" href="/app/orders/${encodeURIComponent(o.id)}" data-route>Details</a></div></article>`;
     const empty = status === 'NEW' ? 'No orders to confirm. New orders taken by your chatbot appear here.' : status === 'ALL' ? 'No orders yet. When a customer orders in WhatsApp, the order appears here.' : `No ${LABELS[status].toLowerCase()} orders.`;
-    root.innerHTML = shell(header('Orders', 'Orders your chatbot took in WhatsApp. Call or message the customer to confirm, then follow the delivery.', '<a class="btn secondary" href="/api/client/leads/export.csv" download>Export CSV</a>') +
+    root.innerHTML = shell(header('Orders', 'Confirm new orders, then follow the delivery.', '<a class="btn secondary" href="/api/client/leads/export.csv" download>Export CSV</a>') +
       `<div class="order-summary"><div><span>This week</span><strong>${Number(summary.weekOrders || 0)}</strong><small>orders</small></div>
         <div><span>Revenue this week</span><strong>${esc(money(summary.weekRevenue || 0, summary.currency))}</strong><small>${summary.weekWithoutPrice ? `${Number(summary.weekWithoutPrice)} without a catalog price` : 'cancelled and returned not counted'}</small></div>
         <div class="${summary.toConfirm ? 'is-urgent' : ''}"><span>To confirm</span><strong>${Number(summary.toConfirm || 0)}</strong><small>call before shipping</small></div></div>
