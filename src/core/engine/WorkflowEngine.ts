@@ -1016,6 +1016,12 @@ export class WorkflowEngine {
             if (nextStateConfig.type === 'end') {
               isComplete = true;
               response = ResponseBuilder.buildEndResponse(nextStateConfig, lang, script, currentContext);
+            } else if (nextStateConfig.type === 'handoff') {
+              // "Thanks, the team will contact you": hand over now, not on the customer's next message.
+              isComplete = true;
+              requestHumanHandoff = true;
+              handoffPauseHours = nextStateConfig.pauseBotHours ?? 24;
+              response = resolveLocalizedPrompt(nextStateConfig.prompt, lang, getWorkflowMessage('completion', lang, script), script);
             } else if (nextStateConfig.type === 'choice') {
               response = this.responseBuilder.buildChoiceResponse(nextStateConfig, lang, script);
             } else if (nextStateConfig.type === 'collect') {

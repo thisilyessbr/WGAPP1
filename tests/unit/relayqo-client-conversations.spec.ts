@@ -157,3 +157,32 @@ describe('after the flow ends', () => {
     expect(replies[9]).not.toMatch(/ديمو|Demo/);
   });
 });
+
+describe('a question step followed by a hand-over step', () => {
+  const handoffFlow = {
+    id: 'welcome', name: 'Welcome', description: '', initialState: 'business', allowInterruption: true, outcome: { createLead: true },
+    states: {
+      business: { type: 'collect', field: { name: 'businessType', type: 'string', required: true, acceptAnyReply: true }, next: 'channels',
+        prompt: { darija_arabic: 'سلام! 👋\nشنو كتبيع؟' } },
+      channels: { type: 'collect', field: { name: 'channels', type: 'string', required: true, acceptAnyReply: true }, next: 'handoff',
+        prompt: { darija_arabic: 'زوين! 👌\nالكليان ديالك كيسولوك فالإنستغرام، فالواتساب، ولا بجوج؟' } },
+      handoff: { type: 'handoff', pauseBotHours: 72, prompt: { darija_arabic: 'شكراً! 🙏 واحد من الفريق ديالنا غادي يتواصل معاك قريب.' } }
+    }
+  } as any;
+
+  it('hands over on the last answer, once, with the lead', async () => {
+    const engine = new WorkflowEngine({ evaluateNextState: async () => null } as any);
+    let s: any = { id: 's', tenantId: 't', conversationId: 'c', workflowId: 'welcome', stateId: 'business', status: 'ACTIVE',
+      contextData: {}, collectedData: {}, stateHistory: [], createdAt: new Date(), updatedAt: new Date() };
+    const results = [];
+    for (const turn of ['سلام', 'كنبيع العطور', 'بجوج']) {
+      const r = await engine.process(s, turn, handoffFlow, DEFAULT_BUSINESS_CONFIG as any, undefined, undefined, undefined, undefined, 'darija', 'arabic');
+      results.push(r);
+      s = { ...s, stateId: r.nextStateId || s.stateId, contextData: r.updatedContext, collectedData: r.updatedCollectedData || {}, stateHistory: r.updatedStateHistory || [] };
+    }
+    const last = results.at(-1)!;
+    expect(last.response).toBe('شكراً! 🙏 واحد من الفريق ديالنا غادي يتواصل معاك قريب.');
+    expect(last).toMatchObject({ isComplete: true, requestHumanHandoff: true, handoffPauseHours: 72, createLead: true });
+    expect(last.updatedCollectedData).toMatchObject({ businessType: 'كنبيع العطور', channels: 'بجوج' });
+  });
+});
