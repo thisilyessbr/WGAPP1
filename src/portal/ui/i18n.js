@@ -1568,7 +1568,7 @@
   }
 
   function decorate() {
-    for (const [host, suffix] of [[document.querySelector('.top-actions'), 'workspace'], [document.querySelector('.auth-pane'), 'auth']]) {
+    for (const [host, suffix] of [[document.querySelector('.top-actions'), 'workspace'], [document.querySelector('.auth-pane'), 'auth'], [document.querySelector('.mobile-prefs-language'), 'prefs']]) {
       if (!host || host.querySelector('.language-select')) continue;
       const label = document.createElement('label');
       label.className = `language-control language-control-${suffix}`;
