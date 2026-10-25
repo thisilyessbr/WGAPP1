@@ -19,7 +19,7 @@ import { GreetingRouter } from '../../domain/conversation/GreetingRouter';
 import { RAGService } from '../../domain/rag/RAGService';
 import { logger } from '../../utils/logger';
 import { telemetry } from '../telemetry/TelemetryClient';
-import { WorkflowCalendar } from './WorkflowCalendar';
+import { WorkflowCalendar, isSchedulingStep, undecidedSchedulingReply } from './WorkflowCalendar';
 import { isDeclineReply } from './OptionalFieldSkip';
 import { CalendarScheduler } from '../../domain/calendar/CalendarScheduler';
 
@@ -61,9 +61,7 @@ export class WorkflowCancellationDetector {
     'انهي',
     'توقف',
     'بطل',
-    // Moroccan Darija (Arabic script normalized)
-    'سافي',
-    'صافي',
+    // Moroccan Darija (Arabic script normalized). A bare "صافي"/"safi" means "OK / alright", never a cancel.
     'لغيه',
     'نلغي',
     'بغيت نحبس',
@@ -73,7 +71,6 @@ export class WorkflowCancellationDetector {
     'صافي حبسي',
     'باراكا',
     // Darija / Arabizi (Latin normalized)
-    'safi',
     'nlghi',
     'bghit nlghi',
     'bghit n7bes',
@@ -209,12 +206,13 @@ export const DEFAULT_WORKFLOW_STEP_LIMIT_MESSAGES = {
 
 /**
  * The question of a step message: from the last line that asks something to the end. "Welcome! We help shops…
- * What is your name?" is asked again as "What is your name?". Short messages and messages without a question stay whole.
+ * What is your name?" is asked again as "What is your name?", and "How about a demo?\nWhich day suits you?" as
+ * "Which day suits you?". One-line messages and messages without a question stay whole.
  */
 export function questionPart(prompt: string): string {
   const lines = prompt.split('\n');
-  if (lines.filter(line => line.trim()).length <= 2) return prompt;
-  for (let i = lines.length - 1; i >= 0; i--) if (/[?؟]/u.test(lines[i])) return lines.slice(i).join('\n').trim();
+  const first = lines.findIndex(line => line.trim());
+  for (let i = lines.length - 1; i > first; i--) if (/[?؟]/u.test(lines[i])) return lines.slice(i).join('\n').trim();
   return prompt;
 }
 
@@ -796,6 +794,23 @@ export class WorkflowEngine {
           });
         }
 
+        // A day/time step answered "I don't know", "my week is full" or "none of them": nothing is stored or
+        // booked as the time. The request goes to the team, who agree a time with the customer.
+        const schedulingStep = isSchedulingStep(stateConfig, fieldName);
+        const finishUndecided = (): WorkflowResult => {
+          collectedData['_scheduling'] = 'undecided';
+          currentContext['_consecutiveUnmatched'] = 0;
+          return finishAndReturn({
+            updatedContext: currentContext,
+            nextStateId: currentStateId,
+            response: clientWorkflowMessage(businessConfig, 'schedulingUndecided', lang, getWorkflowMessage('schedulingUndecided', lang, script), script),
+            isComplete: true,
+            updatedStateHistory: [...history, currentStateId],
+            updatedCollectedData: collectedData
+          });
+        };
+        if (schedulingStep && undecidedSchedulingReply(trimmedMsg)) return finishUndecided();
+
         // 3. Configured workflow / intent interruption check
         // Check if user input matches a configured workflow intent/keyword (do NOT swallow intent phrases into slot values)
         const declaredIntents = businessConfig.capabilities?.intents || [];
@@ -816,11 +831,12 @@ export class WorkflowEngine {
         }
 
         if (isIntentInterruption) {
-          // Do not store intent as field value. Reprompt current step preserving collectedData and state
+          // Do not store intent as field value. Reprompt current step preserving collectedData and state.
+          // The step's message was already sent: only its question is asked again, never the welcome or pitch.
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: currentCollectPrompt,
+            response: repeatPrompt,
             isComplete: false,
             updatedStateHistory: history,
             updatedCollectedData: collectedData
@@ -833,7 +849,7 @@ export class WorkflowEngine {
           return finishAndReturn({
             updatedContext: currentContext,
             nextStateId: currentStateId,
-            response: currentCollectPrompt,
+            response: repeatPrompt,
             isComplete: false,
             updatedStateHistory: history,
             updatedCollectedData: collectedData
@@ -875,6 +891,14 @@ export class WorkflowEngine {
         const turnKind = interpretation.kind;
         const isQuestion = turnKind === 'SIDE_QUESTION' || turnKind === 'ANSWER_AND_QUESTION';
 
+        // "bghit nchri chatbot" during the demo flow names the flow the customer is already in: continue it,
+        // never pause it and re-send its welcome. Only an intent another workflow starts pauses this one.
+        const startsOtherWorkflow = turnKind === 'NEW_INTENT' && Object.values(businessConfig.workflows || {}).some(wf =>
+          wf !== workflowConfig && !(wf.id && wf.id === workflowConfig.id) && (wf.activation?.intents || []).includes(interpretation.intent || ''));
+        if (turnKind === 'NEW_INTENT' && !startsOtherWorkflow) {
+          return finishAndReturn({ updatedContext: currentContext, nextStateId: currentStateId,
+            response: repeatPrompt, isComplete: false, updatedStateHistory: history, updatedCollectedData: collectedData });
+        }
         if (turnKind === 'NEW_INTENT') {
           const pauseHours = Math.max(1, Math.min(168, workflowConfig.pausePolicy?.ttlHours || 24));
           currentContext['_pausedWorkflow'] = {
@@ -940,6 +964,8 @@ export class WorkflowEngine {
               updatedCollectedData: collectedData
             });
           }
+          // A day or time is never invented from an unclear reply: the team agrees it instead.
+          if (schedulingStep) return finishUndecided();
           logger.info(`WorkflowEngine: ${unclearCount} consecutive unclear replies in [${currentStateId}] -> validating reply as field answer`);
         }
 

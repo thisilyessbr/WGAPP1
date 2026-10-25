@@ -189,6 +189,14 @@ export class ConversationService {
     return session;
   }
 
+  /** The customer cancelled a workflow in this conversation (an auto-start flow then never restarts on its own). */
+  async hasCancelledSession(tenantId: string, conversationId: string): Promise<boolean> {
+    return Boolean(await this.prisma.workflowSession.findFirst({
+      where: { tenantId, conversationId, status: 'CANCELLED' },
+      orderBy: { createdAt: 'desc' }
+    }));
+  }
+
   async getLatestCompletedSession(tenantId: string, conversationId: string): Promise<WorkflowSession | null> {
     return this.prisma.workflowSession.findFirst({
       where: { tenantId, conversationId, status: 'COMPLETED' },

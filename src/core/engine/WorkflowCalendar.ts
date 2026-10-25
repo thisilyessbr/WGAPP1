@@ -21,6 +21,22 @@ export function explicitTime(text: string): boolean {
   return /(?<![\p{L}\d])\d{1,2}\s*[:h]\s*\d{0,2}(?![\d\p{L}])|(?:^|[^\p{L}])(?:m3a|ma3a|mea|vers|at|around|f)\s+(?:l\s*)?\d{1,2}(?![\d/.-])|(?:^|[^\p{L}])à\s+\d{1,2}\s*h|\b(?:sba7|sbah|l3chiya|3chiya|matin|soir|apr[eè]s-midi|morning|afternoon|evening)\b|الصباح|العشية|المساء|بعد الزوال|مع\s*\d{1,2}|على\s*(?:الساعة\s*)?\d{1,2}/iu.test(text);
 }
 
+/** A day or time step: a calendar step, a date/time field, or a field named like one (demoDay, demoSlot, preferredDemoTime). */
+export function isSchedulingStep(state: WorkflowStateConfig & { calendar?: string }, fieldName: string): boolean {
+  const field = typeof state.field === 'object' ? state.field : undefined;
+  if (state.calendar || field?.semanticType === 'schedule' || ['date', 'time', 'datetime'].includes(field?.type || '')) return true;
+  return !field?.semanticType && /(?:day|date|time|slot|appointment|rdv)s?$/i.test(fieldName);
+}
+
+const UNDECIDED = /معارف|ما\s*عارف|ما\s*عرفت|معرفت|ما\s*نعرف|منعرف|لا\s*[اأ]عرف|لا\s*[اأ]دري|مش\s*عارف|حتى\s*واحد|حتى\s*نهار|حتى\s*وقت|ولا\s*واحد|ما\s*عندي\s*ش?\s*(?:ال)?وقت|ماعنديش\s*(?:ال)?وقت|مشغول|عامر|ما\s*فاضي|مافاضي|ما\s*نقدر|مانقدر|ما\s*كنقدر|ليس\s*لدي\s*وقت|لست\s*متأكد|ماشي\s*متأكد|\bma\s*3a?rf|\bma\s*3reft|\bman3rf|\bma\s*n3rf|\b(?:7|h)ta\s*wa(?:7|h)e?d|\bma\s*3ndi(?:ch)?\s*l?w[ae]?9t|\bm(?:a|e)?(?:ch|sh)ghoul|\bm?3amra\b|\bm3emra\b|je\s*(?:ne\s*)?sais\s*pas|\baucun|pas\s*le\s*temps|pas\s*disponible|\boccup[ée]|\bdon'?t\s*know|\bnot\s*sure|\bno\s*idea|\bnone\b|\bno\s*time\b|\bbusy\b|\bnot\s*available|\bidk\b/iu;
+
+/** "والله معارف", "انا عندي سمانة كامل عامر", "حتى واحد منهم", "ma3rftch": a day/time question answered without a day or time. */
+export function undecidedSchedulingReply(text: string, now = new Date()): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || trimmed.split(/\s+/u).length > 12 || /[?؟]/u.test(trimmed)) return false;
+  return UNDECIDED.test(trimmed.replace(/[ً-ٰٟ]/gu, '')) && !explicitTime(trimmed) && !parseDay(trimmed, now);
+}
+
 /** "When is my appointment?" in the languages customers write in. */
 export function asksAppointment(text: string): boolean {
   return /\b(?:imta|fo9ach|foqach|wa9tach|w9tach|when|quand|quel(?:le)? (?:jour|heure))\b.*\b(?:l-?)?(?:maw3id|mow3id|rdv|rendez|appointment|demo|d[ée]mo|booking)\b|\b(?:l-?)?(?:maw3id|rdv|rendez-vous|appointment)\b.*\b(?:imta|when|quand|fo9ach)\b|(?:وقتاش|إمتى|امتى|فوقاش|متى)[^.?؟]*(?:الموعد|موعد|الديمو)|(?:الموعد|موعدي)[^.?؟]*(?:وقتاش|امتى|متى|فوقاش)/iu.test(text);
@@ -179,7 +195,8 @@ export class WorkflowCalendar {
 
     if (state.calendar === 'day') {
       const day = parseDay(message, now, tz);
-      if (!day) return asksQuestion ? null : stay(calendarMessage('askDay', lang, script, {}));
+      // A question, or "I don't know / my week is full", goes to the engine instead of asking for the day forever.
+      if (!day) return asksQuestion || undecidedSchedulingReply(message, now) ? null : stay(calendarMessage('askDay', lang, script, {}));
       const result = await offer(day);
       if (result === 'unavailable') return null; // calendar unreadable: take the reply as a plain answer
       // "lyoma m3a 6 dl3chiya": the day and the time in one message.
@@ -216,7 +233,7 @@ export class WorkflowCalendar {
         if (picked) { Object.assign(collected, result.updatedCollectedData); return choose(picked, session.stateId, otherDay, history); }
         return result;
       }
-      if (!slot) return asksQuestion ? null : stay(calendarMessage('pickSlot', lang, script, { slots: slotList(offered, lang, script) }));
+      if (!slot) return asksQuestion || undecidedSchedulingReply(message, now) ? null : stay(calendarMessage('pickSlot', lang, script, { slots: slotList(offered, lang, script) }));
       return choose(slot, session.stateId, collected._calendarDay as string, history);
     }
     return null;
