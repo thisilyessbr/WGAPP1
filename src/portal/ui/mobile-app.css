@@ -21,6 +21,26 @@
   :root[data-theme=light] .client-shell .top-actions .install-app{color:#fff}
   .client-shell .top-actions .notification-toggle:hover{transform:none;box-shadow:none}
 
+  /* --- Back arrow on pages opened from Settings or a list. --- */
+  .client-shell .topbar:has(.topbar-back){justify-content:flex-start;gap:4px}
+  .client-shell .topbar:has(.topbar-back) .top-actions{margin-inline-start:auto}
+  .topbar-back{display:grid;place-items:center;flex:none;width:36px;height:36px;margin-inline-start:-8px;border-radius:50%;color:var(--text)}
+  .topbar-back::before{content:"";width:11px;height:11px;border:solid currentColor;border-width:0 0 2.5px 2.5px;transform:translateX(2px) rotate(45deg)}
+  :root[dir=rtl] .topbar-back::before{transform:translateX(-2px) rotate(-135deg)}
+  .topbar-back:active{background:var(--raised)}
+
+  /* --- Forms: 16px text so phones never zoom into a field; full-width buttons. --- */
+  .client-shell input:not([type=checkbox]):not([type=radio]),.client-shell select,.client-shell textarea,.auth-pane input,.auth-pane select{font-size:16px}
+  .client-shell .field input,.client-shell .field select,.auth-pane input{min-height:46px;border-radius:12px}
+
+  /* --- Desk-only actions stay on the computer. --- */
+  .client-shell .page-heading .actions a[download],.client-shell .page-heading .actions #export-leads{display:none}
+
+  /* --- Order actions: one swipeable row of small pills instead of a wall of buttons. --- */
+  .order-row-actions{flex-wrap:nowrap;overflow-x:auto;gap:6px;margin:0 -4px;padding:2px 4px;scrollbar-width:none}
+  .order-row-actions::-webkit-scrollbar{display:none}
+  .order-row-actions .btn{flex:none;min-height:36px;padding:6px 14px;border-radius:999px;font-size:13px}
+
   /* --- Content: tighter, one title. --- */
   .client-shell .main{margin:0}
   .client-shell .content{padding:6px max(16px,env(safe-area-inset-right,0px)) calc(96px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
@@ -47,8 +67,9 @@
 
   /* --- "Try your bot": only on Home, as a compact pill above the tab bar; full-height sheet when open. --- */
   .client-shell:not(.dashboard-shell) .try-bot-fab{display:none}
-  .client-shell .try-bot-fab{bottom:calc(74px + env(safe-area-inset-bottom,0px));min-height:40px;padding:8px 14px;font-size:13px;box-shadow:0 8px 22px rgba(0,0,0,.28)}
-  .client-shell .try-bot-drawer{inset:auto 0 0 0;width:auto;height:calc(100dvh - 40px);border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom,0px);z-index:45}
+  .client-shell .try-bot-fab{bottom:calc(76px + env(safe-area-inset-bottom,0px));inset-inline-end:16px;width:48px;height:48px;min-height:48px;padding:0;justify-content:center;border-radius:50%;font-size:18px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+  .client-shell .try-bot-fab>span:last-child{display:none}
+  .client-shell .try-bot-drawer{inset:auto 0 0 0;width:auto;height:min(80dvh,640px);border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom,0px);z-index:45}
   body:has(.client-shell) #toast{left:16px;right:16px;bottom:calc(78px + env(safe-area-inset-bottom,0px));border-radius:14px}
 
   /* --- Inbox list: edge to edge, one-line filters, compact rows. --- */
@@ -138,7 +159,7 @@
   .needs-action .settings-link-state::before{content:"";position:absolute;right:16px;top:50%;width:8px;height:8px;border-radius:50%;background:#e7a33b;transform:translateY(-50%)}
   .mobile-prefs{display:block}
 }
-@media (min-width:761px){.mobile-prefs,.inbox-detail-avatar{display:none}.inbox-detail-phone::before{content:" · "}}
+@media (min-width:761px){.mobile-prefs,.inbox-detail-avatar,.topbar-back{display:none}.inbox-detail-phone::before{content:" · "}}
 
 /* App preferences that live in the title bar on desktop: language, theme, log out. */
 .mobile-prefs{overflow:hidden;margin-bottom:16px;padding:0!important}
