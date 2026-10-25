@@ -33,6 +33,7 @@ export interface OutboundMessageQueue {
 export interface PostgresOutboundQueueOptions {
   workerId?: string;
   pollIntervalMs?: number;
+  maxIdlePollMs?: number;
   leaseSeconds?: number;
   autoStartWorker?: boolean;
   disableWorker?: boolean;
@@ -47,6 +48,10 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
   readonly durable = true;
   private readonly workerId: string;
   private readonly pollIntervalMs: number;
+  // Idle polls back off up to maxIdlePollMs; enqueue wakes the worker at once.
+  private readonly maxIdlePollMs: number;
+  private idleDelayMs = 0;
+  private idleUntil = 0;
   private readonly leaseSeconds: number;
   private readonly disableWorker: boolean;
   private readonly deliveryReceiptProcessor?: WhatsAppDeliveryReceiptProcessor;
@@ -64,6 +69,7 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
   ) {
     this.workerId = options.workerId ?? `outbound-worker-${Math.random().toString(36).substring(2, 9)}`;
     this.pollIntervalMs = options.pollIntervalMs ?? 500;
+    this.maxIdlePollMs = Math.max(this.pollIntervalMs, options.maxIdlePollMs ?? Number(process.env.QUEUE_MAX_IDLE_POLL_MS || 10_000));
     this.leaseSeconds = options.leaseSeconds ?? 60;
     this.disableWorker = Boolean(options.disableWorker);
     this.deliveryReceiptProcessor = options.deliveryReceiptProcessor ?? new WhatsAppDeliveryReceiptProcessor(this.prisma);
@@ -322,9 +328,16 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
     if (this.disableWorker) return;
     if (!this.pollTimer) {
       this.pollTimer = setInterval(async () => {
-        if (this.isShuttingDown || !this.handler) return;
+        if (this.isShuttingDown || !this.handler || Date.now() < this.idleUntil) return;
         try {
           const job = await this.claimNextJob();
+          if (!job) {
+            this.idleDelayMs = Math.min(this.maxIdlePollMs, Math.max(this.pollIntervalMs, this.idleDelayMs * 2));
+            this.idleUntil = Date.now() + this.idleDelayMs;
+          } else {
+            this.idleDelayMs = 0;
+            this.idleUntil = 0;
+          }
           if (job) {
             this.activeJobs++;
             try {
@@ -358,6 +371,8 @@ export class PostgresOutboundQueue implements OutboundMessageQueue {
 
   private pulseWorker(): void {
     if (this.disableWorker || !this.handler || this.isShuttingDown) return;
+    this.idleDelayMs = 0;
+    this.idleUntil = 0;
     const handler = this.handler;
     setImmediate(async () => {
       try {
