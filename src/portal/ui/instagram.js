@@ -4,7 +4,7 @@
     const connection = data.connection;
     const notice = new URLSearchParams(location.search);
     const igBar = `<div class="admin-launch-bar"><span class="launch-step ${data.planIncluded ? 'is-done' : ''}"><i>${data.planIncluded ? '✓' : '1'}</i><strong>Plan:</strong> ${data.planIncluded ? 'Instagram included' : 'Upgrade required'}</span><span class="launch-step ${connection ? 'is-done' : ''}"><i>${connection ? '✓' : '2'}</i><strong>Account:</strong> ${connection ? '@' + escape(connection.username || connection.instagramUserId) : 'Not linked'}</span><span class="launch-step ${connection && data.allowed && connection.enabled ? 'is-done' : ''}"><i>${connection && data.allowed && connection.enabled ? '✓' : '3'}</i><strong>Replies:</strong> ${connection && data.allowed && connection.enabled ? 'Active 24/7' : 'Paused'}</span></div>`;
-    root.innerHTML = shell(header('Instagram DMs', 'Let your chatbot answer private messages sent to your Instagram professional account.') + igBar +
+    root.innerHTML = shell(header('Instagram DMs', 'Your assistant answers your Instagram DMs too.') + igBar +
       `<div class="grid-2"><article class="card"><span class="plan-section-label">Social DM channel</span><h2>Your Instagram account</h2>` +
       (connection ? `<p class="small muted">Connected as <strong>@${escape(connection.username || connection.instagramUserId)}</strong></p>
         <p class="small muted">${data.allowed && connection.enabled ? 'AI replies are enabled.' : 'Instagram replies are currently paused by your administrator or plan.'}</p>

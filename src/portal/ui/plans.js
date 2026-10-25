@@ -52,7 +52,7 @@ window.RelayqoPlans = (() => {
   async function renderClient({root,shell,header,escape,toast,api,bind}) {
     const [catalog, account] = await Promise.all([api('/portal/plans'),api('/client/profile')]);
     const plans = catalog.plans || [], profile = account.profile;
-    root.innerHTML = shell(header('Choose a plan','Pick the features that fit your business. Your administrator confirms the final offer.') +
+    root.innerHTML = shell(header('Choose a plan','Pick what fits your business. We confirm it with you.') +
       requestedNotice(plans, profile, escape) +
       `<div class="plan-value-strip"><div><strong>One assistant, ready when customers are.</strong><span>Choose the workflow that matches how your business converts conversations into revenue.</span></div><div><strong>Controlled by your plan.</strong><span>Every optional feature is activated by Relayqo after your request is approved.</span></div><div><strong>Clear monthly capacity.</strong><span>Know what is included before you commit.</span></div></div>`+
       `<div class="plan-grid plan-grid-market">${plans.map((plan, index) => {

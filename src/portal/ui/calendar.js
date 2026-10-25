@@ -52,7 +52,7 @@
         ${!reconnect ? `<div class="field"><label for="g-cal">Calendar to sync with</label><select id="g-cal"><option value="">Choose a calendar</option>${(g.calendars || []).map(x => `<option value="${escape(x.id)}" ${x.id === c.calendarId ? 'selected' : ''}>${escape(x.name)}${x.primary ? ' (main)' : ''}</option>`).join('')}</select></div>` : ''}
         <div class="actions"><button type="button" class="btn secondary" id="g-connect">${reconnect ? 'Connect again' : 'Use another Google account'}</button><button type="button" class="btn secondary" id="g-disconnect">Disconnect</button></div>`
         : '<button type="button" class="btn secondary" id="g-connect">Connect Google Calendar</button>'}</article>`;
-    root.innerHTML = shell(header('Calendar', 'Your chatbot books demos and appointments here, only at times you are free.') +
+    root.innerHTML = shell(header('Calendar', 'Bookings made by your assistant, only when you’re free.') +
       `<section class="cal-overview" aria-label="Calendar overview">
         <div class="cal-overview-status ${s.enabled === false ? 'paused' : ''}"><span class="cal-status-dot" aria-hidden="true"></span><div><small>Booking status</small><strong>${s.enabled === false ? 'Bookings paused' : 'Open for bookings'}</strong></div></div>
         <div><small>Bookings in view</small><strong id="cal-booking-count">—</strong></div>

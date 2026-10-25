@@ -121,7 +121,12 @@ export async function createApp(
     const bundledPortal = path.join(__dirname, 'portal/ui');
     const portalDirectory = existsSync(bundledPortal) ? bundledPortal : path.resolve('src/portal/ui');
     // Managed checkouts live beneath .codex. The static root is restricted to UI assets.
-    app.use('/portal-assets', express.static(portalDirectory, { dotfiles: 'allow' }));
+    // index.html loads every asset with a ?v= version, so a versioned URL never changes: phones keep it for a year
+    // instead of re-checking ~28 files on every visit. Unversioned files (icons, manifest) are kept for an hour.
+    app.use('/portal-assets', (req, res, next) => {
+      res.setHeader('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+      next();
+    }, express.static(portalDirectory, { dotfiles: 'allow', cacheControl: false }));
     app.get('/portal-push-sw.js', (_req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Service-Worker-Allowed', '/');
