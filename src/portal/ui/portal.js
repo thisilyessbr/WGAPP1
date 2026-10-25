@@ -71,7 +71,7 @@
           ?kpi('/app/calendar','Bookings',Number(outcomes?.confirmedBookings||0),'Last 30 days',false,'▦')
           :kpi('/app/leads','Total requests',Number(leadCounts.total||outcomes?.newLeads||0),'All requests',false,'★'));
     const questions=missedData?.questions||[];
-    const teachCard=questions.length?`<article class="card teach-chatbot-card"><div class="card-title"><div><span class="plan-section-label">Continuous improvement</span><h2>Questions to teach your bot</h2><p>Customers asked these and your bot had no answer. Add the answer in “What your bot knows”, then mark it done.</p></div><span class="badge orange">${Number(questions.length)}</span></div><div class="teach-questions-list">${questions.map(q=>`<div class="teach-question-row" id="teach-q-${escape(q.id)}"><div class="teach-question-content"><p class="teach-question-text" dir="auto">"${escape(q.question)}"</p><div class="teach-question-meta"><small>${new Date(q.occurredAt).toLocaleDateString()}</small></div></div><button class="btn secondary small resolve-question-btn" data-question-id="${escape(q.id)}">Done</button></div>`).join('')}</div><a class="row-link" href="/app/business" data-route>Open what your bot knows ›</a></article>`:'';
+    const teachCard=questions.length?`<article class="card teach-card"><div class="teach-head"><span class="teach-head-icon" aria-hidden="true">💬</span><div><h2>Questions your bot couldn’t answer</h2><p>Write the reply once. Your bot uses it from now on.</p></div><span class="teach-count">${Number(questions.length)}</span></div><div class="teach-list">${questions.map(q=>`<div class="teach-item" id="teach-q-${escape(q.id)}" data-question-id="${escape(q.id)}"><p class="teach-who"><span class="teach-avatar" aria-hidden="true">👤</span><span>A customer asked</span><small>${escape(new Date(q.occurredAt).toLocaleDateString(document.documentElement.lang||undefined,{day:'numeric',month:'short'}))}</small></p><div class="teach-bubble" dir="auto">${escape(q.question)}</div><div class="teach-actions"><button class="btn small teach-answer-btn" type="button">Answer</button><button class="teach-ghost teach-ignore-btn" type="button">Ignore</button></div><form class="teach-form" hidden><textarea dir="auto" rows="3" maxlength="2000" required placeholder="What should your bot reply?"></textarea><div class="teach-actions"><button class="btn small" type="submit">Save answer</button><button class="teach-ghost teach-cancel-btn" type="button">Cancel</button></div></form></div>`).join('')}</div></article>`:'';
     const steps=[['Business profile',!!d.name&&!!d.description,'Tell your bot what you sell, your delivery and return rules','/app/business'],['Choose a plan',!!p.plan,'Pick the plan that fits your business','/app/plans'],['Connect WhatsApp',connected,'Link the number your customers write to','/app/whatsapp'],['Send for review',!['DRAFT','NEEDS_CHANGES'].includes(p.status),'The Relayqo team checks everything and switches your bot on','/app/business']];
     const done=steps.filter(s=>s[1]).length,next=steps.find(s=>!s[1]);
     const setupPills=`<div class="admin-launch-bar"><span class="launch-step is-done"><i>✓</i><strong>24/7 Replies</strong> Darija, Arabic, French & English</span><span class="launch-step ${p.plan?'is-done':''}"><i>${p.plan?'✓':'◇'}</i><strong>Plan:</strong> ${escape(p.plan?p.plan.name:'Choose your offer')}</span><span class="launch-step ${connected?'is-done':''}"><i>${connected?'✓':'◉'}</i><strong>WhatsApp:</strong> ${connected?'Connected':'Ready to link'}</span></div>`;
@@ -79,22 +79,33 @@
     const activity=(dashboard.recentConversations||[]).map(c=>`<a class="conversation-row" href="/app/inbox/${encodeURIComponent(c.id||'')}" data-route><span class="customer-avatar">${escape(String(c.customerLabel||'').slice(-2))}</span><div><strong>${escape(c.customerLabel)}</strong><p>${new Date(c.updatedAt).toLocaleString()}</p></div>${c.humanRequested?'<span class="badge orange">Waiting for you</span>':''}</a>`).join('')||'<div class="empty compact">Customer conversations will appear here.</div>';
     const statusLine=p.status==='SUSPENDED'?'<div class="live-banner warn"><strong>Paused</strong><span>Your bot is paused by your administrator. Customers get no automatic replies.</span></div>'
       :live?`<div class="live-banner ok"><strong>Live on WhatsApp</strong><span>Your bot is answering customers${connections.find(c=>c.numberStatus==='CONNECTED')?.displayPhoneNumber?' on '+escape(connections.find(c=>c.numberStatus==='CONNECTED').displayPhoneNumber):''}.</span></div>`:'';
-    const liveView=`<div class="dashboard-metrics home-kpis admin-metrics-compact">${kpis}${kpi('/app/inbox','Conversations',Number(totals.conversations||0).toLocaleString(),'Last 30 days',false,'✉')}${kpi('/app/inbox?filter=needs_human','Customers waiting for you',waiting===null?'—':Number(waiting),waiting?'Reply yourself in the inbox':'Nobody waiting',Boolean(waiting),'◉')}</div>
-      <div class="dashboard-grid lower"><article class="card"><div class="card-title"><div><span class="plan-section-label">Customer inbox</span><h2>Latest conversations</h2></div><a class="row-link" href="/app/inbox" data-route>Open inbox ›</a></div><div class="conversation-list">${activity}</div></article>${teachCard||`<article class="card home-tip"><span class="plan-section-label">Assistant quality</span><h2>Your bot is answering well</h2><p>No unanswered questions in the last 30 days. Try it yourself any time with “Try your bot”.</p></article>`}</div>`;
+    const liveView=`<div class="dashboard-metrics home-kpis admin-metrics-compact">${kpis}${kpi('/app/inbox','Conversations',Number(totals.conversations||0).toLocaleString(),'Last 30 days',false,'✉')}${kpi('/app/inbox?filter=needs_human','Customers waiting for you',waiting===null?'—':Number(waiting),waiting?'Reply yourself in the inbox':'Nobody waiting',Boolean(waiting),'◉')}</div>${teachCard}
+      <div class="dashboard-grid lower"><article class="card"><div class="card-title"><div><span class="plan-section-label">Customer inbox</span><h2>Latest conversations</h2></div><a class="row-link" href="/app/inbox" data-route>Open inbox ›</a></div><div class="conversation-list">${activity}</div></article>${`<article class="card home-tip"><span class="plan-section-label">Assistant quality</span><h2>Your bot is answering well</h2><p>No unanswered questions in the last 30 days. Try it yourself any time with “Try your bot”.</p></article>`}</div>`;
     root.innerHTML=shell(header(`${live?'Welcome back':next?'Let’s get you live':'Almost there'}, ${escape(session.user.name.split(' ')[0])}`,live?'Here’s your week.':next?'Four steps, and your bot answers your customers on WhatsApp.':'Everything is ready. Your bot goes live as soon as the review is done.',live?'<a class="btn secondary" href="/app/inbox" data-route>Open inbox</a>':next?`<a class="btn" href="${next[3]}" data-route>${next[0]}</a>`:'')+statusLine+(live?liveView:checklist),false,'Home');
-    document.querySelectorAll('.resolve-question-btn').forEach(btn=>{
-      btn.onclick=async()=>{
-        const qid=btn.dataset.questionId;
-        btn.disabled=true;btn.textContent='…';
+    // Answering a question adds it to the bot's FAQs and marks it resolved; Ignore only marks it resolved.
+    const teachDone=(item,label)=>{item.classList.add('is-done');item.innerHTML=`<p class="teach-done">✓ ${label}</p>`;setTimeout(()=>{item.remove();const left=document.querySelectorAll('.teach-item').length,count=document.querySelector('.teach-count');if(count)count.textContent=left;if(!left)document.querySelector('.teach-card')?.remove();},1400);};
+    const resolveQuestion=id=>api('/client/outcomes/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
+    document.querySelectorAll('.teach-item').forEach(item=>{
+      const id=item.dataset.questionId,form=item.querySelector('.teach-form'),actions=item.querySelector(':scope > .teach-actions'),field=form.querySelector('textarea');
+      item.querySelector('.teach-answer-btn').onclick=()=>{actions.hidden=true;form.hidden=false;field.focus();};
+      item.querySelector('.teach-cancel-btn').onclick=()=>{form.hidden=true;actions.hidden=false;};
+      item.querySelector('.teach-ignore-btn').onclick=async e=>{
+        e.currentTarget.disabled=true;
+        try{await resolveQuestion(id);teachDone(item,'Ignored');}catch(err){toast(err.message,true);e.currentTarget.disabled=false;}
+      };
+      form.onsubmit=async e=>{
+        e.preventDefault();const answer=field.value.trim(),button=form.querySelector('[type=submit]');if(!answer)return field.focus();
+        button.disabled=true;button.textContent='Saving…';
         try{
-          await api('/client/outcomes/'+encodeURIComponent(qid)+'/resolve',{method:'POST'});
-          toast('Question marked as resolved.');
-          const row=document.getElementById('teach-q-'+qid);
-          if(row){
-            row.innerHTML='<span class="badge green">✓ Marked resolved</span>';
-            setTimeout(()=>row.remove(),1500);
-          }
-        }catch(e){toast(e.message,true);btn.disabled=false;btn.textContent='Mark resolved';}
+          profileRead=null;const p=await clientProfile(),question=item.querySelector('.teach-bubble').textContent.trim();
+          const language=/[؀-ۿ]/.test(question+answer)?'darija':'fr';
+          const draft={...p.draft,faqs:[...(p.draft.faqs||[]),{question,answer,language,category:''}]};
+          const saved=(await api('/client/business',{method:'PUT',body:JSON.stringify({data:draft,revision:p.revision})})).profile;
+          profileRead=Promise.resolve(saved);
+          await resolveQuestion(id);
+          toast(saved.publishState==='LIVE'?'Saved. Your bot answers this from now on.':'Saved. Send your changes for review to make it live.');
+          teachDone(item,'Your bot knows this now');
+        }catch(err){toast(err.message,true);button.disabled=false;button.textContent='Save answer';}
       };
     });
     bind();
