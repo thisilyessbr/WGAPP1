@@ -140,6 +140,7 @@ export class PartitionedFifoQueue<T = InboundQueueJob> implements MessageQueue<T
 export interface PostgresMessageQueueOptions {
   workerConcurrency?: number;
   pollIntervalMs?: number;
+  maxIdlePollMs?: number;
   leaseSeconds?: number;
   workerId?: string;
   autoStartWorker?: boolean;
@@ -171,6 +172,11 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
   private lastPersistenceFailureLogAt = 0;
   private lastLinkReconcileAt = 0;
   private linkReconcileRunning = false;
+  // When polls find nothing, wait longer before the next one (up to maxIdlePollMs).
+  // New jobs enqueued in this process wake the workers at once, so replies are not delayed.
+  private readonly maxIdlePollMs: number;
+  private idleDelayMs = 0;
+  private idleUntil = 0;
 
   constructor(
     private prisma: PrismaClient,
@@ -181,6 +187,7 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
     const configuredConcurrency = Number(process.env.WHATSAPP_QUEUE_WORKER_CONCURRENCY || 2);
     this.concurrency = options.workerConcurrency ?? (Number.isFinite(configuredConcurrency) && configuredConcurrency > 0 ? Math.floor(configuredConcurrency) : 2);
     this.pollIntervalMs = options.pollIntervalMs ?? 500;
+    this.maxIdlePollMs = Math.max(this.pollIntervalMs, options.maxIdlePollMs ?? Number(process.env.QUEUE_MAX_IDLE_POLL_MS || 10_000));
     this.leaseSeconds = options.leaseSeconds ?? 60;
 
     if (options.autoStartWorker && !this.disableWorker) {
@@ -227,7 +234,7 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
       });
 
       // Trigger immediate worker pulse
-      this.pulseWorkers();
+      this.wake();
       return true;
     } catch (err: any) {
       if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
@@ -437,6 +444,12 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
     this.pulseWorkers();
   }
 
+  private wake(): void {
+    this.idleDelayMs = 0;
+    this.idleUntil = 0;
+    this.pulseWorkers();
+  }
+
   private pulseWorkers(): void {
     if (this.disableWorker || this.isShuttingDown || !this.handler) return;
     if (Date.now() < this.persistenceFailureBackoffUntil) return;
@@ -448,6 +461,8 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
         logger.error(`PostgresMessageQueue: Pending provider-link sweep failed: ${err.message || err}`);
       }).finally(() => { this.linkReconcileRunning = false; });
     }
+
+    if (Date.now() < this.idleUntil) return;
 
     while (this.activeWorkers < this.concurrency && !this.isShuttingDown) {
       this.activeWorkers++;
@@ -481,8 +496,12 @@ export class PostgresMessageQueue implements MessageQueue<InboundQueueJob> {
 
       if (!job) {
         // No pending work eligible to claim
+        this.idleDelayMs = Math.min(this.maxIdlePollMs, Math.max(this.pollIntervalMs, this.idleDelayMs * 2));
+        this.idleUntil = Date.now() + this.idleDelayMs;
         break;
       }
+      this.idleDelayMs = 0;
+      this.idleUntil = 0;
 
       let leaseLost = false;
       let renewal: Promise<void> | undefined;
