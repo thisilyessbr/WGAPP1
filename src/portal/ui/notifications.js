@@ -100,6 +100,7 @@
     let active = false;
     try { active = Boolean((await currentSubscription())?.subscription); } catch {}
     button.innerHTML = `<span aria-hidden="true">${active ? '🔔' : '♢'}</span><span>${active ? 'Alerts on' : 'Enable alerts'}</span>`;
+    button.classList.toggle('is-on', active);
     button.onclick = () => toggle(button);
     actions.prepend(button);
   }

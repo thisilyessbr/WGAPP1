@@ -258,7 +258,9 @@
     const wa=await api('/client/whatsapp').catch(()=>({connections:[]}));
     const numbers=(wa.connections||[]).filter(c=>c.numberStatus==='CONNECTED'&&c.enabled);
     const tile=(href,kicker,title,text,state,cls='')=>`<a class="card settings-link-card ${cls}" href="${href}" data-route><div><span class="plan-section-label">${kicker}</span><h2>${title}</h2><p>${text}</p></div><span class="settings-link-state">${state} ›</span></a>`;
-    root.innerHTML=shell(header('Settings','Your WhatsApp number, plan and optional chatbot features.')+
+    // On phones the title bar keeps only alerts, so language, theme and log out live here (hidden on desktop).
+    const appPrefs=`<section class="card mobile-prefs" aria-label="App"><h2>App</h2><div class="mobile-pref-row"><span>Language</span><div class="mobile-prefs-language"></div></div><div class="mobile-pref-row"><span>Theme</span><button type="button" class="theme-toggle"></button></div><div class="mobile-pref-row"><span class="mobile-pref-logout-label">Log out</span><button type="button" class="logout" aria-label="Log out"></button></div></section>`;
+    root.innerHTML=shell(header('Settings','Your WhatsApp number, plan and optional chatbot features.')+appPrefs+
       `<div class="settings-links">${tile('/app/whatsapp','Messaging channel','WhatsApp',numbers.length?`Connected: ${numbers.map(c=>escape(c.displayPhoneNumber||c.label||'WhatsApp')).join(', ')}`:'Link the number your customers write to.',numbers.length?'Manage':'Connect',numbers.length?'':'needs-action')}
         ${tile('/app/plans','Subscription','Plan',p.plan?`Current plan: ${escape(p.plan.name)}`:'Choose the plan for your business.',p.plan?'Change':'Choose',p.plan?'':'needs-action')}
         ${tile('/app/business','AI brain','What your bot knows','Business profile, delivery and returns, FAQs and PDF files.','Open')}

@@ -102,7 +102,10 @@ describe('portal browser flow',()=>{
       await page.locator('.language-select').selectOption('fr');await page.screenshot({path:resolve('output/portal-verification/client-french-desktop.png'),fullPage:true});
       await page.locator('.language-select').selectOption('en');
       await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve('output/portal-verification/client-mobile.png'),fullPage:true});
-      await page.locator('.language-select').selectOption('ar');await page.getByRole('heading',{name:/مرحبًا بعودتك/}).waitFor();
+      // On a phone the title bar keeps only alerts; language, theme and log out are under Settings › App.
+      expect(await page.locator('.top-actions .language-select').isVisible()).toBe(false);expect(await page.locator('.sidebar .nav>a:visible').count()).toBeLessThanOrEqual(5);
+      await page.goto(origin+'/app/settings');await page.locator('.mobile-prefs .language-select').selectOption('ar');
+      await page.goto(origin+'/app');await page.getByRole('heading',{name:/مرحبًا بعودتك/}).waitFor();
       expect(await page.locator('html').getAttribute('dir')).toBe('rtl');
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
       await page.screenshot({path:resolve('output/portal-verification/client-arabic-mobile.png'),fullPage:true});

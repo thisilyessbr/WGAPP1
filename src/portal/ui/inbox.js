@@ -477,9 +477,10 @@
           <button class="inbox-back-btn" id="inbox-back-btn" aria-label="Back to conversations">
             ‹ Back
           </button>
+          <span class="inbox-detail-avatar" aria-hidden="true">${esc((conv.customer?.name ? conv.customer.name.slice(0, 2) : (phone || 'WA').slice(-2)).toUpperCase())}</span>
           <div>
             <strong>${esc(displayName)}</strong>
-            ${phone && phone !== displayName ? `<small> · ${esc(phone)}</small>` : ''}
+            ${phone && phone !== displayName ? `<small class="inbox-detail-phone">${esc(/^\d{8,15}$/.test(phone) ? '+' + phone : phone)}</small>` : ''}
             ${(() => { const number = conversations.find(c => c.id === conv.id)?.businessNumber; return multipleNumbers() && number ? `<small class="inbox-received-on"> · Received on ${esc(number.display)}</small>` : ''; })()}
           </div>
           ${getStatusBadge(state)}
