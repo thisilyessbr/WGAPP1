@@ -40,9 +40,17 @@ const EMPTY: WorkflowTurnInterpretation = {
   targetField: null, newValueSourceSpan: null, intent: null
 };
 
-const QUESTION_START = /^(?:what|where|when|which|who|why|how|can|could|do|does|is|are|tell|explain|comment|combien|quel(?:le|s|les)?|wach|wash|wesh|wqch|ch7al|chhal|sh7al|kifach|kifash|chno|chnu|chnou|ashno|fin|t9der|t9dr|tqder|tqdr|momkin|mumkin|tchr7|chrah|chr7|3lach|imta|شنو|واش|كيفاش|شحال|هل|كيف|كم|متى|أين|اين|تقدر|ممكن|علاش|فوقاش|امتى|إمتى|اشرح|شرح)(?=\s|$)/iu;
+const QUESTION_START = /^(?:what|where|when|which|who|why|how|can|could|do|does|is|are|tell|explain|comment|combien|quel(?:le|s|les)?|wach|wash|wesh|wqch|ch7al|chhal|sh7al|kifach|kifash|chno|chnu|chnou|ashno|fin|t9der|t9dr|tqder|tqdr|momkin|mumkin|tchr7|chrah|chr7|3lach|imta|شنو|واش|كيفاش|شحال|هل|كيف|كم|متى|أين|اين|تقدر|ممكن|علاش|فوقاش|وقتاش|امتى|إمتى|فين|فاين|وين|اشرح|شرح)(?=\s|$)/iu;
 const CORRECTION = /^(?:la\b|non\b|no\b|actually\b|correction\b|je veux changer\b|bghit nbdl\b|بغيت نبدل\b|لا[،,\s])/iu;
 const CANCEL = /^(?:cancel|stop|annul(?:er|e)?|nlghi|bghit nlghi|بغيت نلغي|لا بغيت نلغي|حبس)/iu;
+
+// "خصني نتعرف على هاد الخدمة", "bghit n3rf ktar", "tell me more": a request for information without a question mark.
+const INFO_REQUEST = /(?:^|\s)(?:بغيت|باغي|باغية|خصني|خسني|خاصني|بغينا)\s+(?:نعرف|نفهم|نتعرف|نتفهم|نشوف\s+كيفاش)|(?:^|\s)(?:قولي|گولي|كولي|شرح\s*ليا|شرحي?\s*ليا|عطيني\s+(?:معلومات|فكرة|شي\s+معلومات|التفاصيل))(?=\s|$)|(?:^|\s)(?:أريد|اريد)\s+(?:أن\s+)?(?:أعرف|اعرف|أفهم|افهم)|\b(?:bghit|baghi|baghya|khasni|khassni)\s+(?:n3rf|n3ref|nfhem|nfham|nt3rf|nt3ref|nchouf\s+kifach)|\b(?:goul(?:i|\s*lia)|gouli|9oli|tchr7\s*lia|chr7\s*lia|chre7\s*lia|3tini\s+(?:des\s+)?infos?)\b|\b(?:tell\s+me|explain|i\s+want\s+to\s+(?:know|understand)|je\s+veux\s+(?:savoir|comprendre)|expliquez|dites[\s-]moi)\b/iu;
+
+/** A request for information about the business, phrased as a statement rather than a question. */
+export function asksForInformation(text: string): boolean {
+  return INFO_REQUEST.test(text.trim());
+}
 
 function empty(kind: WorkflowTurnKind): WorkflowTurnInterpretation {
   return { ...EMPTY, kind };
@@ -111,7 +119,9 @@ const ARABIC_SENTENCE_WORDS = new Set([
   'لا', 'اه', 'آه', 'ايه', 'إيه', 'نعم', 'واخا', 'صافي', 'مزيان', 'شكرا', 'سلام', 'السلام', 'عليكم', 'مرحبا', 'اهلا', 'أهلا',
   'انا', 'أنا', 'نتا', 'نتي', 'هو', 'هي', 'حنا', 'في', 'من', 'على', 'مع', 'ديال', 'هاد', 'هادي', 'هذا', 'هذه',
   'الثمن', 'التمن', 'الطلب', 'التوصيل', 'المنتج', 'موعد', 'نلغي', 'لغيت', 'وقف', 'حبس', 'عافاك', 'فضلك', 'الاسم', 'اسم', 'اسمي', 'سميتي', 'السمية', 'سمية',
-  'واتساب', 'الواتساب', 'واتس', 'انستغرام', 'الانستغرام', 'إنستغرام', 'الإنستغرام', 'انستا', 'الانستا', 'فيسبوك', 'الفيسبوك', 'تيكتوك', 'بجوج', 'كتر', 'غير', 'بزاف'
+  'واتساب', 'الواتساب', 'واتس', 'انستغرام', 'الانستغرام', 'إنستغرام', 'الإنستغرام', 'انستا', 'الانستا', 'فيسبوك', 'الفيسبوك', 'تيكتوك', 'بجوج', 'كتر', 'غير', 'بزاف',
+  // "nothing", "ok", "thanks" in their Darija spellings are replies, not names.
+  'والو', 'ولو', 'حتى', 'ولا', 'صفي', 'سافي', 'مرسي', 'ميرسي', 'معارف', 'باراكا'
 ]);
 
 export function isBareArabicName(message: string): boolean {
@@ -129,8 +139,15 @@ const LATIN_NOT_NAMES = new Set([
   'salam', 'slm', 'salut', 'bonjour', 'bonsoir', 'hello', 'hi', 'hey', 'ok', 'okay', 'oui', 'non', 'no', 'yes', 'la', 'lla', 'iyeh', 'ah', 'wakha', 'safi',
   'merci', 'chokran', 'choukran', 'shukran', 'whatsapp', 'instagram', 'insta', 'facebook', 'tiktok', 'bjouj', 'bjoj', 'demo', 'test', 'info', 'prix', 'price',
   'taman', 'stop', 'cancel', 'bghit', 'baghi', 'baghya', 'wach', 'wash', 'chno', 'chnou', 'achno', 'ana', 'nta', 'nti', 'daba', 'ghda', 'lyoum', 'bzaf',
-  'mzyan', 'zwin', 'kifach', 'fin', 'imta', 'chhal', 'ch7al', 'magasin', 'boutique', 'salon', 'shop', 'store', 'help', 'aide', 'hola', 'mrhba', 'mar7ba'
+  'mzyan', 'zwin', 'kifach', 'fin', 'imta', 'chhal', 'ch7al', 'magasin', 'boutique', 'salon', 'shop', 'store', 'help', 'aide', 'hola', 'mrhba', 'mar7ba',
+  // "nothing" / "thanks" / product words: a reply, not a first name.
+  'walo', 'wlo', 'walou', 'nothing', 'rien', 'personne', 'nobody', 'merce', 'mersi', 'mrc', 'mrci', 'baraka', 'chatbot', 'bot', 'notification', 'relayqo'
 ]);
+
+/** "Walo", "Safi", "Merci": a capitalised reply word is still not a name. */
+function hasNonNameWord(text: string): boolean {
+  return text.trim().toLocaleLowerCase().split(/\s+/u).some(word => LATIN_NOT_NAMES.has(word.replace(/[.!]+$/u, '')));
+}
 
 /** Degraded mode only: "youssef" or "karim alami" typed in lower case, as many Darija speakers do. */
 export function isBareLatinName(message: string): boolean {
@@ -174,7 +191,7 @@ export class WorkflowTurnInterpreter {
       ...empty('ANSWER_AND_QUESTION'), fieldSourceSpan: split.answer, questionSourceSpan: split.question
     };
 
-    if (QUESTION_START.test(GreetingRouter.normalize(message)) || /[?؟]\s*$/u.test(message)) {
+    if (QUESTION_START.test(GreetingRouter.normalize(message)) || /[?؟]\s*$/u.test(message) || asksForInformation(message)) {
       return { ...empty('SIDE_QUESTION'), questionSourceSpan: exactSpan(message, message) };
     }
 
@@ -197,7 +214,7 @@ export class WorkflowTurnInterpreter {
         const iAm = /^(?:أنا|انا|ana|moi c['’]est|c['’]est|i['’]?m|i am)\s+(.{2,60})$/iu.exec(message)?.[1].trim();
         const firstPart = message.split(/[،,؛;\n]/u)[0].trim();
         for (const candidate of [iAm, firstPart !== message.trim() ? firstPart : undefined]) {
-          if (candidate && (isBareArabicName(candidate) || isBareLatinName(candidate) || /^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]+)?$/u.test(candidate))) {
+          if (candidate && (isBareArabicName(candidate) || isBareLatinName(candidate) || (/^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]+)?$/u.test(candidate) && !hasNonNameWord(candidate)))) {
             const span = exactSpan(message, candidate);
             if (span) return { ...empty('FIELD_ANSWER'), fieldSourceSpan: span };
           }
@@ -206,7 +223,7 @@ export class WorkflowTurnInterpreter {
       // A bare, title-cased Latin name (a trailing initial such as "Karim B."
       // included) is deterministic enough for degraded mode. Sentence-like
       // lower-case text is never treated as a name.
-      if (/^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]*\.?){0,2}$/u.test(message)) {
+      if (/^[\p{Lu}][\p{L}\p{M}'-]+(?:\s+[\p{Lu}][\p{L}\p{M}'-]*\.?){0,2}$/u.test(message) && !hasNonNameWord(message)) {
         return { ...empty('FIELD_ANSWER'), fieldSourceSpan: exactSpan(message, message) };
       }
     }

@@ -79,6 +79,13 @@ export const DEFAULT_WORKFLOW_MESSAGES = {
     fr: "Non, ce n'est pas obligatoire 😊 L'e-mail sert seulement à vous envoyer aussi la confirmation. Sinon, écrivez « non » et on continue.",
     ar: 'لا، ليس ضرورياً 😊 البريد الإلكتروني فقط لنرسل لك التأكيد هناك أيضاً. إذا لم ترغب في ذلك، اكتب «لا» ونكمل.',
     darija: 'La, machi daroori 😊 L-email ghir bach nsifto lik ta2kid 7ta tma. Ila mabghitich, kteb «la» w nkmlo.'
+  },
+  // A day/time step answered with "I don't know" / "my week is full": nothing is booked, the team agrees a time.
+  schedulingUndecided: {
+    en: "No problem 🙏 I've passed your request to the team; they'll contact you here on WhatsApp to find a time that suits you.",
+    fr: "Pas de souci 🙏 J'ai transmis votre demande à l'équipe ; elle vous contactera ici sur WhatsApp pour trouver un moment qui vous convient.",
+    ar: 'لا مشكلة 🙏 أرسلت طلبك إلى الفريق، وسيتواصل معك هنا على واتساب لاختيار وقت يناسبك.',
+    darija: 'Machi mochkil 🙏 Wsselt talab dyalek l lfari9, w ghadi ytwaslo m3ak hna f WhatsApp bach tt7eddo wa9t li ynasbek.'
   }
 };
 
@@ -95,7 +102,8 @@ const DARIJA_ARABIC_WORKFLOW_MESSAGES: Record<keyof typeof DEFAULT_WORKFLOW_MESS
   confirmHint: 'جاوبني غير بـ«واخا» ولا «لا» 🙂',
   workflowCancelled: 'واخا، تلغى الطلب ديالك. إلا بغيتي شي حاجة أخرى، أنا هنا.',
   workflowUnavailable: 'هاد الطلب ما بقاش متوفر. كيفاش نقدر نعاونك؟',
-  optionalEmailExplainer: 'لا، ماشي ضروري 😊 الإيميل غير باش نصيفطو ليك التأكيد حتى تما. إلا ما بغيتيش، كتب «لا» ونكملو.'
+  optionalEmailExplainer: 'لا، ماشي ضروري 😊 الإيميل غير باش نصيفطو ليك التأكيد حتى تما. إلا ما بغيتيش، كتب «لا» ونكملو.',
+  schedulingUndecided: 'ماشي مشكل 🙏 وصلت الطلب ديالك للفريق، وغادي يتواصلو معاك هنا فالواتساب باش تتافقو على وقت اللي يناسبك.'
 };
 
 /**

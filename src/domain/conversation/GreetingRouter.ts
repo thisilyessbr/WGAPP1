@@ -14,7 +14,10 @@ export class GreetingRouter {
     // Darija / Arabizi. Keep common phonetic spellings deterministic: short
     // acknowledgements must never be sent to RAG/LLM or treated as a new CTA.
     'chokran', 'chokrane', 'choukran', 'choukrane', 'shokran', 'shokrane',
-    'shukran', 'chokran bzaf', 'chokrane bzaf', 'choukran bzaf', 'wakha', 'mzyan'
+    'shukran', 'chokran bzaf', 'chokrane bzaf', 'choukran bzaf', 'wakha', 'mzyan',
+    // "صافي" / "safi" alone is "OK, alright", and "merce" / "mrc" are how "merci" is often typed.
+    'safi', 'safi merci', 'safi chokran', 'ok safi', 'ok merci', 'merce', 'mersi', 'mrc', 'mrci',
+    'صافي', 'صفي', 'سافي', 'واخا', 'مزيان', 'مرسي', 'ميرسي', 'الله يخليك', 'تبارك الله'
   ]);
 
   // 1. Known Greetings & Polite Acknowledgments (Normalized)
@@ -30,12 +33,14 @@ export class GreetingRouter {
 
     // Standard Arabic (MSA)
     'مرحبا', 'اهلا', 'اهلا وسهلا', 'صباح الخير', 'مساء الخير', 'السلام عليكم', 'تحياتي', 'سلام', 'اهلين', 'مرحبتين',
+    'سلام عليكم', 'السلام عليكم ورحمه الله', 'السلام عليكم ورحمه الله وبركاته', 'سلام عليكم ورحمه الله', 'سلام خويا', 'سلام اخويا',
     'شكرا', 'شكرا جزيلا', 'حسنا', 'ممتاز',
 
     // Darija / Arabizi
     'salam', 'ssalam', 'ahlan', 'sbah lkhir', 'sbah nour', 'sbah ennour', 'sbah el khir', 'sbah lkheir',
     'msa lkhir', 'msa nour', 'labas', 'la bas', 'cv', 'salam labas', 'salam cv',
     'kidayr', 'kidayra', 'kif dayr', 'kif dayra', 'salamo 3alaykom', 'salamo3alaykom',
+    'slm', 'salam alaykom', 'salam alikom', 'salam 3alaykom', 'salam 3likom', 'assalamu alaykum', 'salamu alaikum',
     'wesh', 'wach rak', 'ach khbark', 'ca va', 'chokran', 'shukran', 'chokran bzaf', 'wakha', 'mzyan'
   ]);
 

@@ -52,6 +52,12 @@ import { GroundedAnswerGuard } from './GroundedAnswerGuard';
 import { BusinessHoursClause } from './BusinessHoursClause';
 import { CatalogMatcher } from '../ecommerce/CatalogMatcher';
 
+/** The same config with auto-start flows reachable only by their keywords and intents. */
+function withoutAutoStart(config: BusinessConfig): BusinessConfig {
+  return { ...config, workflows: Object.fromEntries(Object.entries(config.workflows || {}).map(([id, wf]) =>
+    [id, wf.activation?.mode === 'auto_start' ? { ...wf, activation: { ...wf.activation, mode: 'explicit_intent' as const } } : wf])) };
+}
+
 export class ConversationEngine {
   private llmFactory?: LLMFactory;
   private defaultLlm?: LLMProvider;
@@ -1449,8 +1455,9 @@ Store menu match (verified by this business's own menu and wording list, not a s
       let postCompletionWorkflowTrigger: WorkflowRouteDecision = { kind: 'NONE' };
       if (previousCompletedSession && hasWorkflowsConfigured && !bookingHandled) {
         const normalizedPostCompletionInput = GreetingRouter.normalize(content);
+        // Known greetings include the acknowledgements: "سلام عليكم" days later is not a request to start again.
         const postCompletionAcknowledgement = !GreetingRouter.hasQuestionIndicator(content, normalizedPostCompletionInput)
-          && GreetingRouter.isAcknowledgement(normalizedPostCompletionInput);
+          && GreetingRouter.isKnownGreeting(normalizedPostCompletionInput);
         turnDecision = TurnDecisionResolver.resolve({
           text: routingText,
           language: effectiveLang,
@@ -1466,8 +1473,7 @@ Store menu match (verified by this business's own menu and wording list, not a s
         const isDeterministicEcommercePurchase = turnDecision?.domain === 'ECOMMERCE' && turnDecision?.intent === 'BUY_INTENT';
 
         // An auto-start flow runs once per conversation: after it completes, "merci" must not restart it; its keywords still do.
-        const explicitOnly = { ...config, workflows: Object.fromEntries(Object.entries(config.workflows || {}).map(([id, wf]) =>
-          [id, wf.activation?.mode === 'auto_start' ? { ...wf, activation: { ...wf.activation, mode: 'explicit_intent' as const } } : wf])) };
+        const explicitOnly = withoutAutoStart(config);
         // An acknowledgement can close the exchange but cannot authorize a
         // second workflow run, even if an intent model overgeneralizes it.
         postCompletionWorkflowTrigger = postCompletionAcknowledgement
@@ -1555,6 +1561,14 @@ Store menu match (verified by this business's own menu and wording list, not a s
             responseScript: effectiveScript,
             config
           });
+          responseSource = 'GREETING';
+        }
+
+        // "سلام عليكم" after the request: greet back (the client's greeting), without re-pitching the finished flow.
+        if (!answered && !GreetingRouter.hasQuestionIndicator(content, normalizedPostCompletionContent)
+            && GreetingRouter.isKnownGreeting(normalizedPostCompletionContent)) {
+          answered = true;
+          answerText = AnswerComposer.composeGreeting({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
           responseSource = 'GREETING';
         }
 
@@ -1851,6 +1865,11 @@ Check again: the business-owner evidence above lists the business's policies, se
 
         const normalizedContent = GreetingRouter.normalize(content);
         const hasQuestion = GreetingRouter.hasQuestionIndicator(content, normalizedContent);
+        // An auto-start flow the customer cancelled ("safi baraka") does not restart on their next message;
+        // its keywords ("bghit demo") still start it.
+        const autoStartFlows = Object.values(config.workflows || {}).some(wf => wf.activation?.mode === 'auto_start');
+        const routingConfig = autoStartFlows && await this.conversationService.hasCancelledSession(tenantId, conversation.id).catch(() => false)
+          ? withoutAutoStart(config) : config;
 
         // Step 1: Deterministic Known Greeting & Polite Acknowledgment Check (0 LLM calls)
         if (!hasQuestion && GreetingRouter.isAcknowledgement(normalizedContent)) {
@@ -1860,7 +1879,7 @@ Check again: the business-owner evidence above lists the business's policies, se
           responseSource = 'GREETING';
         } else if (!hasQuestion && GreetingRouter.isKnownGreeting(normalizedContent)
           // A business with an auto-start flow greets with that flow's first message: one welcome, not two.
-          && !Object.values(config.workflows || {}).some(wf => wf.activation?.mode === 'auto_start')) {
+          && !Object.values(routingConfig.workflows || {}).some(wf => wf.activation?.mode === 'auto_start')) {
           logger.info(`ConversationEngine: Deterministic greeting match for "${content}" (lang: ${effectiveLang}, 0 LLM calls)`);
           answered = true;
           answerText = AnswerComposer.composeGreeting({ turnDecision, responseLanguage: effectiveLang, responseScript: effectiveScript, config });
@@ -1910,7 +1929,7 @@ Check again: the business-owner evidence above lists the business's policies, se
         // Resolve conversion intent before FAQ matching. A message such as
         // "bghit nchri wa7d chatbot" is an action request, not a generic FAQ.
         let triggeredWorkflow: WorkflowRouteDecision = !answered
-          ? this.resolveWorkflowTrigger(content, config, turnDecision, recognizedUseCases)
+          ? this.resolveWorkflowTrigger(content, routingConfig, turnDecision, recognizedUseCases)
           : { kind: 'NONE' };
 
         // Step 1.5: Deterministic FAQ match for messages that are not actions.

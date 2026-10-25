@@ -47,7 +47,7 @@ export type LocalizedPrompt = string | {
 };
 
 /** Small workflow messages each client can reword in the admin; empty means the built-in text. */
-export const CLIENT_WORKFLOW_MESSAGE_KEYS = ['collectFallback', 'unclearReprompt', 'confirmHint', 'invalidEmail', 'invalidPhone', 'optionalEmailExplainer'] as const;
+export const CLIENT_WORKFLOW_MESSAGE_KEYS = ['collectFallback', 'unclearReprompt', 'confirmHint', 'invalidEmail', 'invalidPhone', 'optionalEmailExplainer', 'schedulingUndecided'] as const;
 export type ClientWorkflowMessageKey = typeof CLIENT_WORKFLOW_MESSAGE_KEYS[number];
 
 /**
@@ -185,8 +185,8 @@ export interface PromptsConfig {
 export interface WorkflowFieldConfig {
   name: string;
   type: 'string' | 'email' | 'phone' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum';
-  /** Legacy name fields infer person_name when this is absent. */
-  semanticType?: 'person_name' | 'free_text';
+  /** Legacy name fields infer person_name when this is absent; day/time fields (demoDay, preferredTime...) infer schedule. */
+  semanticType?: 'person_name' | 'free_text' | 'schedule';
   /** Open discovery question: any reply without a question mark is taken as the answer. */
   acceptAnyReply?: boolean;
   required: boolean;
